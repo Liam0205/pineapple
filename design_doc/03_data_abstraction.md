@@ -130,7 +130,10 @@ flow.some_op(
 
 ## 逻辑表
 
-> **待讨论**: DragonFly 支持基于物理表创建可读写的逻辑表（类似数据库视图），用于在团队间划分数据操作空间。是否需要？MVP 阶段是否必要？
+MVP 跳过。后续讨论另一种形式的逻辑表（非 DragonFly 的行子集视图方式，具体待定义）。
+
+参考: [demo_logical_table.md](demo_logical_table.md) 中记录了 DragonFly 风格的逻辑表示例，已决定不采用。
+实际场景中，召回在排序之前完成，通过 truncate 算子直接截断 topN 个 item，无需视图。
 
 ## 数据传递与生命周期
 
