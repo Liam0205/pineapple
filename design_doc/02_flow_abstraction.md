@@ -114,7 +114,16 @@ flow.lua_op(
     common_input=["user_age", "user_gender"],
     item_input=["item_category", "item_price"],
     item_output=["item_adjusted_score"],
-    script="adjust_score.lua",
-    other_params="some_value"
+    script="""
+        local age = common["user_age"]
+        local price = item["item_price"]
+        if age < 18 then
+            item["item_adjusted_score"] = price * 0.8
+        else
+            item["item_adjusted_score"] = price
+        end
+    """,
 )
 ```
+
+Lua 代码以字符串形式直接写在 Python DSL 中，作为 `script` 参数传入。最终序列化到 JSON 配置中，由 Go 引擎在运行时加载执行。无需管理外部 Lua 脚本文件。
