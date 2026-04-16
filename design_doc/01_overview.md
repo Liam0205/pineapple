@@ -58,5 +58,6 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 
 ## 设计文档索引
 
-- [02 流程抽象](02_flow_abstraction.md) — 算子、DAG 构建与调度
-- [03 数据抽象](03_data_abstraction.md) — DataFrame、数据访问接口
+- [02 流程抽象](02_flow_abstraction.md) — Flow 契约、算子、DAG 构建与调度
+- [03 数据抽象](03_data_abstraction.md) — DataFrame、特征类型、数据访问接口
+- [04 算子注册](04_operator_registration.md) — 注册机制、Schema、Pine↔Apple 代码生成
