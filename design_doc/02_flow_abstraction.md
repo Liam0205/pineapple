@@ -1,5 +1,40 @@
 # 流程抽象
 
+## Flow
+
+Flow 是一个完整的计算流程，由一组算子编排而成。Flow 定义了与服务层之间的输入输出契约。
+
+### DSL 声明
+
+```python
+flow = Flow(
+    name="recall_and_rank",
+    # 输入: 必须显式声明，Pine 启动时校验服务层是否能提供
+    common_input=["user_age", "user_id", "user_tags"],
+    item_input=["item_id", "item_category", "item_price"],
+    # 输出: 可选声明，用于检测无效算子
+    common_output=["final_strategy"],
+    item_output=["item_score", "item_rank"],
+)
+```
+
+### 输入契约（必选）
+
+`common_input` 和 `item_input` 必须显式声明，用于双向校验：
+
+- **Pine 侧**: 引擎启动时校验服务层能否提供 flow 声明的所有 input。
+- **Apple 侧**: DSL 解析时校验每个算子的输入字段，要么来自 flow 的 input，要么来自前序算子的 output。未被覆盖的字段 → 报错。
+
+### 输出契约（可选）
+
+`common_output` 和 `item_output` 为可选声明。如果声明了，Apple 据此检测无效算子：
+
+- 从 flow 声明的 output 字段出发，反向追踪所有被依赖的算子。
+- 叶子节点算子的输出如果未被 flow output 覆盖，且不被其他算子依赖 → 该算子无效。
+- **检测到无效算子时，报错退出，拒绝生成 JSON 配置文件。**
+
+此机制从源头防止无用算子膨胀，类似编译器的"死代码消除"。
+
 ## 算子 (Operator)
 
 算子是 Pineapple 的基本计算单元。
