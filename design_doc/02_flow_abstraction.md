@@ -115,6 +115,7 @@ DataFrame ──(Go 按算子配置取列)──▶ Go ──▶ Lua 脚本 ─�
 flow.lua_op(
     common_input=["user_age", "user_gender"],
     item_input=["item_category", "item_price"],
+    item_defaults={"item_price": 0.0},
     item_output=["item_adjusted_score"],
     script="""
         function handler(common, items)
