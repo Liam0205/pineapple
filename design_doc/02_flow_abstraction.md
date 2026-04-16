@@ -10,7 +10,7 @@
 |------|--------|------|
 | 通用算子 | 工程架构团队 | 过滤、召回、模型预估等，各业务直接复用 |
 | 自定义算子 | 业务/算法团队 | 满足通用算子无法覆盖的定制化逻辑 |
-| Lua 增强算子 | 业务/算法团队 | 通用算子内嵌 Lua 脚本，无需编写新 Go 算子即可实现特定逻辑 |
+| Lua 算子 | 业务/算法团队 | 专门的算子类型，接受 Lua 脚本作为配置，无需编写新 Go 算子即可实现特定逻辑 |
 
 ### 算子接口
 
@@ -88,3 +88,33 @@ op_a ──▶ op_b
 ```
 
 算法团队与架构团队通过 JSON 配置解耦，互不干扰。
+
+## Lua 算子
+
+Lua 算子是一种专门的算子类型，允许业务/算法同学通过编写 Lua 脚本实现轻量逻辑，无需开发新的 Go 算子。
+
+### 数据流
+
+```
+DataFrame ──(Go 按算子配置取列)──▶ Go ──▶ Lua 脚本 ──▶ Go ──(更新 DataFrame)──▶ DataFrame
+```
+
+### 设计要点
+
+- Lua 运行在沙箱中，**不直接访问 DataFrame**。
+- Go 层根据算子的 input 配置，从 DataFrame 中提取相应列数据传入 Lua。
+- Lua 完成计算后，将结果返回给 Go。
+- Go 层负责将结果写回 DataFrame（按 output 配置）。
+- 数据进出全程由 Go 管控，确保 DataFrame 的并发安全和数据一致性。
+
+### DSL 示例
+
+```python
+flow.lua_op(
+    common_input=["user_age", "user_gender"],
+    item_input=["item_category", "item_price"],
+    item_output=["item_adjusted_score"],
+    script="adjust_score.lua",
+    other_params="some_value"
+)
+```
