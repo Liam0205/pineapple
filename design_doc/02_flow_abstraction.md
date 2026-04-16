@@ -115,15 +115,38 @@ flow.lua_op(
     item_input=["item_category", "item_price"],
     item_output=["item_adjusted_score"],
     script="""
-        local age = common["user_age"]
-        local price = item["item_price"]
-        if age < 18 then
-            item["item_adjusted_score"] = price * 0.8
-        else
-            item["item_adjusted_score"] = price
+        function handler(common, items)
+            local age = common["user_age"]
+            for i, item in ipairs(items) do
+                if age < 18 then
+                    item["item_adjusted_score"] = item["item_price"] * 0.8
+                else
+                    item["item_adjusted_score"] = item["item_price"]
+                end
+            end
+            return nil, items
         end
     """,
 )
+```
+
+### handler 函数签名
+
+Lua 脚本必须定义一个名为 `handler` 的函数：
+
+```
+function handler(common, items)
+    -- common: table (对应 Go map[string]any)
+    --         通过 common_input 中声明的字段名访问 common 特征
+    --
+    -- items:  table 的数组 (对应 Go []map[string]any)
+    --         每个元素对应一个 item，通过 item_input 中声明的字段名访问特征
+    --
+    -- 返回值:
+    --   1. common_out: table 或 nil (对应 common_output 声明的字段)
+    --   2. items_out:  table 数组或 nil (对应 item_output 声明的字段)
+    return common_out, items_out
+end
 ```
 
 Lua 代码以字符串形式直接写在 Python DSL 中，作为 `script` 参数传入。最终序列化到 JSON 配置中，由 Go 引擎在运行时加载执行。无需管理外部 Lua 脚本文件。
