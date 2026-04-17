@@ -59,7 +59,7 @@ go mod download
 
 ### 2. 编写 Python Pipeline
 
-创建 `demo.py`：
+创建 `demo.py`（所有算子方法返回 Flow 自身，支持链式调用 `flow.recall_static(...).lua(...).reorder_sort(...)`）：
 
 ```python
 from apple.flow import Flow
