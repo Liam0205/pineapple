@@ -393,6 +393,188 @@ func BenchmarkLargePipeline_1000_Allocs(b *testing.B) {
 	}
 }
 
+// --- Lua benchmarks ---
+
+func luaItemConfig(numItems int) map[string]any {
+	items := make([]any, numItems)
+	for i := 0; i < numItems; i++ {
+		items[i] = map[string]any{
+			"item_id":    fmt.Sprintf("item_%d", i),
+			"item_price": float64(100 + i),
+		}
+	}
+	return makeConfig(
+		map[string]any{
+			"recall": map[string]any{
+				"type_name": "recall_static",
+				"items":     items,
+				"$metadata": map[string]any{
+					"item_output": []string{"item_id", "item_price"},
+				},
+			},
+			"lua_discount": map[string]any{
+				"type_name":          "lua",
+				"lua_script":         "function f()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend",
+				"function_for_item":  "f",
+				"function_for_common": "",
+				"$metadata": map[string]any{
+					"common_input": []string{"user_age"},
+					"item_input":   []string{"item_price"},
+					"item_output":  []string{"item_final"},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"recall", "lua_discount"}}},
+		map[string]any{"common_input": []string{"user_age"}},
+	)
+}
+
+func luaCommonConfig(numItems int) map[string]any {
+	items := make([]any, numItems)
+	for i := 0; i < numItems; i++ {
+		items[i] = map[string]any{
+			"item_id":    fmt.Sprintf("item_%d", i),
+			"item_price": float64(100 + i),
+		}
+	}
+	return makeConfig(
+		map[string]any{
+			"recall": map[string]any{
+				"type_name": "recall_static",
+				"items":     items,
+				"$metadata": map[string]any{
+					"item_output": []string{"item_id", "item_price"},
+				},
+			},
+			"lua_stats": map[string]any{
+				"type_name":          "lua",
+				"lua_script":         "function f()\n  local sum = 0\n  for i = 1, #item_price do sum = sum + item_price[i] end\n  return sum / #item_price\nend",
+				"function_for_item":  "",
+				"function_for_common": "f",
+				"$metadata": map[string]any{
+					"common_output": []string{"avg_price"},
+					"item_input":    []string{"item_price"},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"recall", "lua_stats"}}},
+		map[string]any{},
+	)
+}
+
+func luaControlFlowConfig(numItems int) map[string]any {
+	items := make([]any, numItems)
+	for i := 0; i < numItems; i++ {
+		items[i] = map[string]any{
+			"item_id":    fmt.Sprintf("item_%d", i),
+			"item_score": float64(numItems - i),
+		}
+	}
+	return makeConfig(
+		map[string]any{
+			"recall": map[string]any{
+				"type_name": "recall_static",
+				"items":     items,
+				"$metadata": map[string]any{
+					"item_output": []string{"item_id", "item_score"},
+				},
+			},
+			"lua_check": map[string]any{
+				"type_name":          "lua",
+				"lua_script":         "function f()\n  if item_count > 100 then return true else return false end\nend",
+				"function_for_item":  "",
+				"function_for_common": "f",
+				"$metadata": map[string]any{
+					"common_input":  []string{"item_count"},
+					"common_output": []string{"_skip_sort"},
+				},
+			},
+			"sort": map[string]any{
+				"type_name": "reorder_sort",
+				"field":     "item_score",
+				"order":     "desc",
+				"skip":      "_skip_sort",
+				"$metadata": map[string]any{
+					"common_input": []string{"_skip_sort"},
+					"item_input":   []string{"item_score"},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"recall", "lua_check", "sort"}}},
+		map[string]any{"common_input": []string{"item_count"}},
+	)
+}
+
+func BenchmarkLuaItemOp_100(b *testing.B) {
+	engine := mustBuildEngine(b, luaItemConfig(100))
+	req := &pine.Request{Common: map[string]any{"user_age": 15.0}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := engine.Execute(context.Background(), req)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLuaItemOp_1000(b *testing.B) {
+	engine := mustBuildEngine(b, luaItemConfig(1000))
+	req := &pine.Request{Common: map[string]any{"user_age": 15.0}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := engine.Execute(context.Background(), req)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLuaCommonOp_100(b *testing.B) {
+	engine := mustBuildEngine(b, luaCommonConfig(100))
+	req := &pine.Request{Common: map[string]any{}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := engine.Execute(context.Background(), req)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLuaCommonOp_1000(b *testing.B) {
+	engine := mustBuildEngine(b, luaCommonConfig(1000))
+	req := &pine.Request{Common: map[string]any{}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := engine.Execute(context.Background(), req)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLuaControlFlow_100(b *testing.B) {
+	engine := mustBuildEngine(b, luaControlFlowConfig(100))
+	req := &pine.Request{Common: map[string]any{"item_count": 50.0}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := engine.Execute(context.Background(), req)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLuaItemOp_100_Allocs(b *testing.B) {
+	engine := mustBuildEngine(b, luaItemConfig(100))
+	req := &pine.Request{Common: map[string]any{"user_age": 15.0}}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		engine.Execute(context.Background(), req)
+	}
+}
+
 // --- throughput benchmark (measures parallelism) ---
 
 func BenchmarkThroughput(b *testing.B) {

@@ -1,0 +1,90 @@
+{
+  "_PINEAPPLE_VERSION": "0.1.0",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-17T00:00:00Z",
+  "pipeline_config": {
+    "operators": {
+      "recall_items": {
+        "type_name": "recall_static",
+        "items": [
+          {"item_id": "a", "item_price": 100.0, "item_category": "electronics"},
+          {"item_id": "b", "item_price": 200.0, "item_category": "clothing"},
+          {"item_id": "c", "item_price": 50.0, "item_category": "electronics"},
+          {"item_id": "d", "item_price": 300.0, "item_category": "clothing"}
+        ],
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "item_price", "item_category"]
+        }
+      },
+      "lua_discount": {
+        "type_name": "lua",
+        "lua_script": "function apply_discount()\n  if user_age < 18 then\n    return item_price * 0.8\n  elseif user_age > 60 then\n    return item_price * 0.9\n  else\n    return item_price\n  end\nend",
+        "function_for_item": "apply_discount",
+        "function_for_common": "",
+        "$metadata": {
+          "common_input": ["user_age"],
+          "common_output": [],
+          "item_input": ["item_price"],
+          "item_output": ["item_final_price"]
+        }
+      },
+      "lua_stats": {
+        "type_name": "lua",
+        "lua_script": "function compute_stats()\n  local sum = 0\n  local count = #item_final_price\n  for i = 1, count do\n    sum = sum + (item_final_price[i] or 0)\n  end\n  return sum / count, count\nend",
+        "function_for_item": "",
+        "function_for_common": "compute_stats",
+        "$metadata": {
+          "common_input": [],
+          "common_output": ["avg_price", "item_count"],
+          "item_input": ["item_final_price"],
+          "item_output": []
+        }
+      },
+      "lua_skip_cheap": {
+        "type_name": "lua",
+        "lua_script": "function should_skip()\n  if avg_price > 200 then\n    return true\n  else\n    return false\n  end\nend",
+        "function_for_item": "",
+        "function_for_common": "should_skip",
+        "$metadata": {
+          "common_input": ["avg_price"],
+          "common_output": ["_skip_sort"],
+          "item_input": [],
+          "item_output": []
+        }
+      },
+      "sort_by_price": {
+        "type_name": "reorder_sort",
+        "field": "item_final_price",
+        "order": "desc",
+        "skip": "_skip_sort",
+        "$metadata": {
+          "common_input": ["_skip_sort"],
+          "common_output": [],
+          "item_input": ["item_final_price"],
+          "item_output": []
+        }
+      }
+    },
+    "pipeline_map": {
+      "recall_stage": {
+        "pipeline": ["recall_items"]
+      },
+      "feature_stage": {
+        "pipeline": ["lua_discount", "lua_stats", "lua_skip_cheap", "sort_by_price"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["recall_stage", "feature_stage"]
+    }
+  },
+  "flow_contract": {
+    "common_input": ["user_age"],
+    "item_input": [],
+    "common_output": ["avg_price", "item_count"],
+    "item_output": ["item_id", "item_final_price"]
+  }
+}

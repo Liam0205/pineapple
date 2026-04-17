@@ -16,3 +16,7 @@ type ParamSpec = types.ParamSpec
 
 // OperatorSchema describes an operator type for registration and validation.
 type OperatorSchema = types.OperatorSchema
+
+// MetadataAware is an optional interface for operators that need access to
+// their declared input/output field names from $metadata.
+type MetadataAware = types.MetadataAware

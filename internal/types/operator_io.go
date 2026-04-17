@@ -32,6 +32,27 @@ func (in *OperatorInput) Item(index int, field string) any {
 	return in.items[index][field]
 }
 
+// CommonKeys returns the list of common field names available in this input.
+func (in *OperatorInput) CommonKeys() []string {
+	keys := make([]string, 0, len(in.common))
+	for k := range in.common {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// ItemKeys returns the list of item field names available for the given item index.
+func (in *OperatorInput) ItemKeys(index int) []string {
+	if index < 0 || index >= len(in.items) {
+		return nil
+	}
+	keys := make([]string, 0, len(in.items[index]))
+	for k := range in.items[index] {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // OperatorOutput collects writes from an operator, applied to the DataFrame by the engine.
 type OperatorOutput struct {
 	commonWrites map[string]any

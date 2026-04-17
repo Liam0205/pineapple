@@ -45,6 +45,15 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 		if err != nil {
 			return nil, err
 		}
+		// If the operator needs metadata, provide it
+		if ma, ok := op.(types.MetadataAware); ok {
+			ma.SetMetadata(
+				opCfg.Meta.CommonInput,
+				opCfg.Meta.CommonOutput,
+				opCfg.Meta.ItemInput,
+				opCfg.Meta.ItemOutput,
+			)
+		}
 		compiledOps[i] = &runtime.CompiledOperator{
 			Name:     name,
 			Instance: op,
