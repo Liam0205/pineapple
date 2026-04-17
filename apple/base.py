@@ -6,6 +6,7 @@ operator invocations for later compilation to JSON.
 from __future__ import annotations
 
 import hashlib
+import inspect
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,6 +62,14 @@ class BaseOp:
         sources: list[str] | None = None,
         debug: bool = False,
     ) -> Any:
+        # Capture caller location for $code_info
+        code_info = ""
+        try:
+            frame = inspect.stack()[1]
+            code_info = f"{frame.filename}:{frame.lineno} in {frame.function}(): .{self._name}(...)"
+        except (IndexError, AttributeError):
+            pass
+
         call = OpCall(
             type_name=self._name,
             params=params,
@@ -73,6 +82,7 @@ class BaseOp:
             recall=recall,
             sources=sources,
             debug=debug,
+            code_info=code_info,
         )
         self._flow._ops.append(call)
         return self._flow

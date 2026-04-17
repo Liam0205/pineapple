@@ -19,6 +19,7 @@ Usage:
 """
 from __future__ import annotations
 
+import inspect
 import sys
 from typing import Any
 
@@ -30,6 +31,22 @@ from apple.control import (
     extract_fields,
     make_control_op,
 )
+
+
+def _capture_code_info(type_name: str, stack_depth: int = 2) -> str:
+    """Capture the caller's source location for $code_info.
+
+    Walks up the call stack to find the first frame outside apple/ package,
+    which is the user's DSL code.
+    """
+    try:
+        frame = inspect.stack()[stack_depth]
+        filename = frame.filename
+        lineno = frame.lineno
+        func_name = frame.function
+        return f"{filename}:{lineno} in {func_name}(): .{type_name}(...)"
+    except (IndexError, AttributeError):
+        return ""
 
 
 class _FlowBase:
@@ -54,6 +71,9 @@ class _FlowBase:
 
     def _add_op(self, type_name: str, **kwargs: Any) -> _FlowBase:
         """Record an operator call."""
+        # Capture caller location for $code_info
+        code_info = _capture_code_info(type_name)
+
         # Separate metadata kwargs from business params
         meta_keys = {
             "common_input", "common_output", "item_input", "item_output",
@@ -79,6 +99,7 @@ class _FlowBase:
             recall=meta.get("recall", False),
             sources=meta.get("sources"),
             debug=meta.get("debug", False),
+            code_info=code_info,
         )
 
         # Apply skip field if inside a control block

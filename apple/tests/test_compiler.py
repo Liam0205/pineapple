@@ -223,3 +223,31 @@ class TestDefaultsAndDebug:
         assert "common_defaults" not in op
         assert "item_defaults" not in op
         assert "debug" not in op
+
+
+class TestCodeInfo:
+    def test_code_info_present(self):
+        flow = Flow(name="codeinfo", common_input=["x"], common_output=["y"])
+        flow._add_op("lua",
+                      common_input=["x"],
+                      common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert "$code_info" in op
+        code_info = op["$code_info"]
+        assert "test_compiler.py" in code_info
+        assert ".lua(...)" in code_info
+
+    def test_code_info_via_getattr(self):
+        flow = Flow(name="ci2", common_input=["x"], common_output=["y"])
+        flow.lua(
+            common_input=["x"],
+            common_output=["y"],
+            lua_script="function f() return x end",
+            function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert "$code_info" in op
+        assert ".lua(...)" in op["$code_info"]

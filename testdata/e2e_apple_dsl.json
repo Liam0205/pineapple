@@ -1,9 +1,9 @@
 {
   "_PINEAPPLE_VERSION": "0.1.0",
-  "_PINEAPPLE_CREATE_TIME": "2026-04-17T08:10:13Z",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-17T08:16:44Z",
   "pipeline_config": {
     "operators": {
-      "recall_static_79538E": {
+      "recall_static_ABA9A7": {
         "type_name": "recall_static",
         "$metadata": {
           "common_input": [],
@@ -14,6 +14,7 @@
             "item_price"
           ]
         },
+        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/tests/test_e2e.py:182 in test_go_engine_executes_dsl_json(): .recall_static(...)",
         "items": [
           {
             "item_id": "a",
@@ -29,7 +30,7 @@
           }
         ]
       },
-      "lua_2DEA56": {
+      "lua_F01F6D": {
         "type_name": "lua",
         "$metadata": {
           "common_input": [
@@ -43,11 +44,12 @@
             "item_final_price"
           ]
         },
+        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/tests/test_e2e.py:191 in test_go_engine_executes_dsl_json(): .lua(...)",
         "lua_script": "function f()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend",
         "function_for_item": "f",
         "function_for_common": ""
       },
-      "reorder_sort_DB74D3": {
+      "reorder_sort_90FCEC": {
         "type_name": "reorder_sort",
         "$metadata": {
           "common_input": [],
@@ -57,6 +59,7 @@
           ],
           "item_output": []
         },
+        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/flow.py:68 in op_caller(): .reorder_sort(...)",
         "field": "item_final_price",
         "order": "desc"
       }
@@ -64,9 +67,9 @@
     "pipeline_map": {
       "_main_apple_e2e": {
         "pipeline": [
-          "recall_static_79538E",
-          "lua_2DEA56",
-          "reorder_sort_DB74D3"
+          "recall_static_ABA9A7",
+          "lua_F01F6D",
+          "reorder_sort_90FCEC"
         ]
       }
     }
