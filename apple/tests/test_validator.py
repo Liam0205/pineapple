@@ -95,6 +95,44 @@ class TestDeadCode:
         flow.compile()  # should not raise
 
 
+class TestObserveExemption:
+    def test_observe_op_not_dead_code(self):
+        """Observe operators (no output fields) should be exempt from dead-code detection."""
+        flow = Flow(
+            name="observe_ok",
+            common_input=["x"],
+            common_output=["y"],
+            item_output=[],
+        )
+        flow._add_op("lua", common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        # Observe-style op: reads x but produces no output
+        flow._add_op("lua", common_input=["x"],
+                      common_output=[], item_output=[],
+                      lua_script="function obs() end",
+                      function_for_common="obs", function_for_item="")
+        # Should NOT raise — observe ops are exempt from dead-code detection
+        flow.compile()
+
+    def test_op_with_output_still_detected_as_dead(self):
+        """Ops that DO produce output but nobody consumes it should still be flagged."""
+        flow = Flow(
+            name="dead_with_output",
+            common_input=["x"],
+            common_output=["y"],
+            item_output=[],
+        )
+        flow._add_op("lua", common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        flow._add_op("lua", common_input=["x"], common_output=["z"],
+                      lua_script="function g() return x end",
+                      function_for_common="g", function_for_item="")
+        with pytest.raises(ValidationError, match="dead operators"):
+            flow.compile()
+
+
 class TestControlFlowValidation:
     def test_elseif_without_if(self):
         flow = Flow(name="bad")

@@ -109,6 +109,8 @@ def detect_dead_code(
             continue  # control ops are never dead
         if op.recall:
             continue  # recall ops are always needed
+        if not op.common_output and not op.item_output:
+            continue  # observe ops (no output at all) are exempt
 
         produces_needed = False
         for field in op.common_output:
