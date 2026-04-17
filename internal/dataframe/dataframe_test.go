@@ -283,7 +283,7 @@ func TestToResultIsolation(t *testing.T) {
 		map[string]any{"k": "v"},
 		[]map[string]any{{"a": int64(1)}},
 	)
-	result := ToResult(f)
+	result := ToResult(f, nil, nil)
 
 	// Mutate result — frame should be unaffected
 	result.Common["k"] = "mutated"
@@ -294,6 +294,43 @@ func TestToResultIsolation(t *testing.T) {
 	}
 	if f.Item(0, "a") != int64(1) {
 		t.Error("frame item was mutated via result")
+	}
+}
+
+func TestToResultProjection(t *testing.T) {
+	f := New(
+		map[string]any{"a": 1, "b": 2, "c": 3},
+		[]map[string]any{
+			{"x": 10, "y": 20, "z": 30},
+			{"x": 40, "y": 50, "z": 60},
+		},
+	)
+
+	// Project to subset
+	result := ToResult(f, []string{"a", "c"}, []string{"x", "z"})
+
+	if len(result.Common) != 2 {
+		t.Errorf("common len = %d, want 2", len(result.Common))
+	}
+	if _, ok := result.Common["b"]; ok {
+		t.Error("common should not contain 'b'")
+	}
+	for _, item := range result.Items {
+		if len(item) != 2 {
+			t.Errorf("item len = %d, want 2", len(item))
+		}
+		if _, ok := item["y"]; ok {
+			t.Error("item should not contain 'y'")
+		}
+	}
+
+	// Empty slices → return all fields
+	full := ToResult(f, nil, nil)
+	if len(full.Common) != 3 {
+		t.Errorf("full common len = %d, want 3", len(full.Common))
+	}
+	if len(full.Items[0]) != 3 {
+		t.Errorf("full item len = %d, want 3", len(full.Items[0]))
 	}
 }
 

@@ -114,8 +114,8 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 	// Execute DAG
 	warnings, traces, err := runtime.Run(ctx, e.plan, frame, e.stats)
 
-	// Build result
-	result := dataframe.ToResult(frame)
+	// Build result — project to declared output fields
+	result := dataframe.ToResult(frame, e.plan.Contract.CommonOutput, e.plan.Contract.ItemOutput)
 	result.Trace = traces
 	for _, w := range warnings {
 		result.Warnings = append(result.Warnings, fmt.Errorf("operator %q: %w", w.Operator, w.Err))

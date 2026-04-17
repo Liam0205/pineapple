@@ -165,21 +165,35 @@ func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool
 	return nil
 }
 
-// ToResult extracts the final state into a Result.
-func ToResult(f *Frame) *types.Result {
-	common := make(map[string]any, len(f.common))
-	for k, v := range f.common {
-		common[k] = v
-	}
+// ToResult extracts the final state into a Result, projecting only the
+// fields declared in commonOut/itemOut. If both slices are empty, all fields
+// are returned (backward-compatible with contracts that omit output lists).
+func ToResult(f *Frame, commonOut, itemOut []string) *types.Result {
+	common := projectMap(f.common, commonOut)
 	items := make([]map[string]any, len(f.items))
 	for i, item := range f.items {
-		row := make(map[string]any, len(item))
-		for k, v := range item {
-			row[k] = v
-		}
-		items[i] = row
+		items[i] = projectMap(item, itemOut)
 	}
 	return &types.Result{Common: common, Items: items}
+}
+
+// projectMap returns a shallow copy of src. If fields is non-empty, only
+// those keys are included; otherwise all keys are copied.
+func projectMap(src map[string]any, fields []string) map[string]any {
+	if len(fields) == 0 {
+		out := make(map[string]any, len(src))
+		for k, v := range src {
+			out[k] = v
+		}
+		return out
+	}
+	out := make(map[string]any, len(fields))
+	for _, k := range fields {
+		if v, ok := src[k]; ok {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // validateValue checks that a value is a Pine-supported type.

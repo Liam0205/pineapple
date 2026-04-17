@@ -135,15 +135,15 @@ curl -s -X POST http://localhost:8080/execute \
   }' | python3 -m json.tool
 ```
 
-预期返回（16 岁用户享受 8 折）：
+预期返回（16 岁用户享受 8 折，结果仅含 `item_output` 声明的字段）：
 
 ```json
 {
   "common": {"user_age": 16},
   "items": [
-    {"item_id": "b", "item_price": 200.0, "item_final_price": 160.0},
-    {"item_id": "a", "item_price": 100.0, "item_final_price": 80.0},
-    {"item_id": "c", "item_price": 50.0,  "item_final_price": 40.0}
+    {"item_id": "b", "item_final_price": 160.0},
+    {"item_id": "a", "item_final_price": 80.0},
+    {"item_id": "c", "item_final_price": 40.0}
   ],
   "trace": [...]
 }
