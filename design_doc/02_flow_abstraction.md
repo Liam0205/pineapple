@@ -158,6 +158,19 @@ flow.op_a(common_input=["foo"], common_output=["foo"]) \
 
 依赖推导基于 **DSL 编排顺序**：对同一字段，引擎追踪该字段最近的写者和所有未被后续写覆盖的读者，自动添加依赖边。
 
+#### Recall 算子的写入语义
+
+上述三种冒险处理针对的是普通算子的 **SetItem**（修改已有行）语义。Recall 算子使用 **AddItem**（追加新行），写入语义不同：
+
+| 场景 | AddItem (recall) | SetItem (regular) |
+|------|-----------------|-------------------|
+| 与另一个 AddItem | 不冲突，并行 | — |
+| 与 SetItem | AddItem 先完成（WAW） | SetItem 先完成（WAW） |
+| 与下游 reader | RAW，必须先完成 | RAW，必须先完成 |
+| 与上游 reader | 不影响已有行，无 WAR | WAR，串行 |
+
+因此引擎在字段追踪时区分两类 writer：**additive writer**（recall 的 item fields）和 **mutating writer**（普通算子的 item fields）。Additive writers 之间不建边（保持并行），但下游 reader 同时依赖所有 additive writers。
+
 ### DSL 编排顺序的语义
 
 由于同名字段的读写依赖于 DSL 顺序，**编排顺序不只是语法糖，它参与了依赖关系的推导**。当同一字段被多次输出时，顺序决定了"读的是哪个版本"。

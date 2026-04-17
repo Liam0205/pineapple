@@ -71,22 +71,28 @@ func Build(sequence []string, operators map[string]config.OperatorConfig) (*Grap
 	return g, nil
 }
 
-// fieldTracker tracks the last writer and active readers for a single field.
+// fieldTracker tracks the writers and active readers for a single field.
+// It distinguishes additive writes (recall AddItem) from mutating writes
+// (regular SetItem) — additive writes don't conflict with each other but
+// still create RAW dependencies for downstream readers.
 type fieldTracker struct {
-	lastWriter    int   // -1 if no writer yet
-	activeReaders []int // readers since last write
+	lastMutWriter   int   // last mutating (SetItem) writer; -1 if none
+	additiveWriters []int // AddItem writers (recall) since last mutating write
+	activeReaders   []int // readers since last mutating write
 }
 
 // addEdges scans the operator sequence and adds data-hazard edges.
 // If isCommon=true, processes common_input/common_output; otherwise item_input/item_output.
-// For recall operators (recall=true), item_output is excluded from field tracking.
+// For item fields, recall operators use additive write semantics (AddItem):
+// they don't conflict with each other (no WAW/WAR), but downstream readers
+// still depend on them (RAW).
 func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorConfig, isCommon bool) {
 	fields := make(map[string]*fieldTracker)
 
 	getOrCreate := func(field string) *fieldTracker {
 		ft, ok := fields[field]
 		if !ok {
-			ft = &fieldTracker{lastWriter: -1}
+			ft = &fieldTracker{lastMutWriter: -1}
 			fields[field] = ft
 		}
 		return ft
@@ -102,20 +108,21 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 			writeFields = meta.CommonOutput
 		} else {
 			readFields = meta.ItemInput
-			// Recall operators: item_output excluded from field-level DAG
-			if opCfg.Recall {
-				writeFields = nil
-			} else {
-				writeFields = meta.ItemOutput
-			}
+			writeFields = meta.ItemOutput
 		}
 
-		// Process reads
+		isAdditiveWrite := !isCommon && opCfg.Recall
+
+		// Process reads — RAW dependencies
 		for _, field := range readFields {
 			ft := getOrCreate(field)
-			// RAW: if there's a writer, reader depends on it
-			if ft.lastWriter >= 0 {
-				addEdge(g, ft.lastWriter, i)
+			// RAW from last mutating writer
+			if ft.lastMutWriter >= 0 {
+				addEdge(g, ft.lastMutWriter, i)
+			}
+			// RAW from all additive writers
+			for _, aw := range ft.additiveWriters {
+				addEdge(g, aw, i)
 			}
 			ft.activeReaders = append(ft.activeReaders, i)
 		}
@@ -123,19 +130,32 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 		// Process writes
 		for _, field := range writeFields {
 			ft := getOrCreate(field)
-			// WAW: if there's a previous writer, new writer depends on it
-			if ft.lastWriter >= 0 {
-				addEdge(g, ft.lastWriter, i)
-			}
-			// WAR: new writer must wait for all active readers
-			for _, reader := range ft.activeReaders {
-				if reader != i { // don't self-depend
-					addEdge(g, reader, i)
+
+			if isAdditiveWrite {
+				// Additive write (recall AddItem): no incoming WAW/WAR edges.
+				// Just record as an additive writer for future RAW edges.
+				ft.additiveWriters = append(ft.additiveWriters, i)
+			} else {
+				// Mutating write (regular SetItem): full WAW + WAR handling.
+				// WAW from last mutating writer
+				if ft.lastMutWriter >= 0 {
+					addEdge(g, ft.lastMutWriter, i)
 				}
+				// WAW from all additive writers
+				for _, aw := range ft.additiveWriters {
+					addEdge(g, aw, i)
+				}
+				// WAR from all active readers
+				for _, reader := range ft.activeReaders {
+					if reader != i {
+						addEdge(g, reader, i)
+					}
+				}
+				// Reset: new mutating writer takes over
+				ft.lastMutWriter = i
+				ft.additiveWriters = nil
+				ft.activeReaders = nil
 			}
-			// Reset: new writer replaces old
-			ft.lastWriter = i
-			ft.activeReaders = nil
 		}
 	}
 }

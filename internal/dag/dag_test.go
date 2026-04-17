@@ -144,6 +144,7 @@ func TestParallelIndependentOps(t *testing.T) {
 
 func TestRecallOpsParallel(t *testing.T) {
 	// Two recall ops output same item fields -> should NOT depend on each other
+	// (AddItem semantics: no WAW between recalls)
 	seq := []string{"recall_a", "recall_b"}
 	ops := map[string]config.OperatorConfig{
 		"recall_a": recallOp([]string{"user_id"}, []string{"item_id", "item_score"}),
@@ -154,12 +155,71 @@ func TestRecallOpsParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// They should be independent (no WAW from item_output since recall is excluded)
 	if !hasNoPreds(g, "recall_a") {
 		t.Error("recall_a should have no preds")
 	}
 	if !hasNoPreds(g, "recall_b") {
 		t.Error("recall_b should have no preds")
+	}
+}
+
+func TestRecallToDownstreamRAW(t *testing.T) {
+	// recall writes item_price, downstream reads item_price -> RAW edge
+	seq := []string{"recall_a", "op_b"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a": recallOp(nil, []string{"item_id", "item_price"}),
+		"op_b":     op(nil, nil, []string{"item_price"}, []string{"item_score"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPred(g, "op_b", "recall_a") {
+		t.Error("expected RAW edge recall_a -> op_b via item_price")
+	}
+}
+
+func TestMultiRecallToDownstreamRAW(t *testing.T) {
+	// Two recalls both write item_id, downstream reads item_id -> depends on BOTH
+	seq := []string{"recall_a", "recall_b", "op_c"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a": recallOp(nil, []string{"item_id", "item_score"}),
+		"recall_b": recallOp(nil, []string{"item_id", "item_score"}),
+		"op_c":     op(nil, nil, []string{"item_id"}, nil),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// op_c depends on both recalls
+	if !hasPred(g, "op_c", "recall_a") {
+		t.Error("expected RAW edge recall_a -> op_c")
+	}
+	if !hasPred(g, "op_c", "recall_b") {
+		t.Error("expected RAW edge recall_b -> op_c")
+	}
+	// recalls remain independent of each other
+	if hasPred(g, "recall_b", "recall_a") || hasPred(g, "recall_a", "recall_b") {
+		t.Error("recalls should be independent of each other")
+	}
+}
+
+func TestRecallThenMutatingWriter(t *testing.T) {
+	// recall writes item_id, regular op also writes item_id -> WAW edge
+	seq := []string{"recall_a", "op_b"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a": recallOp(nil, []string{"item_id"}),
+		"op_b":     op(nil, nil, nil, []string{"item_id"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPred(g, "op_b", "recall_a") {
+		t.Error("expected WAW edge recall_a -> op_b")
 	}
 }
 
