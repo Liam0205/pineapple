@@ -167,100 +167,110 @@ op_a ──▶ op_b
 
 Lua 算子是一种专门的算子类型，允许业务/算法同学通过编写 Lua 脚本实现轻量逻辑，无需开发新的 Go 算子。
 
+### 核心规则
+
+**一个 Lua 算子只做一件事：要么处理 common，要么处理 item。不允许同一个算子中混合两种类型。**
+
+如果业务需要先算 common 再算 item，拆成两个算子，DAG 自动处理依赖关系。
+
 ### 数据流
 
 ```
-DataFrame ──(Go 按算子配置取列)──▶ Go ──▶ Lua 脚本 ──▶ Go ──(更新 DataFrame)──▶ DataFrame
+DataFrame ──(Go 设置 Lua 全局变量)──▶ Lua 函数执行 ──(按位置返回)──▶ Go 写回 DataFrame
 ```
 
-### 设计要点
+- Go 将输入字段设为 Lua 全局变量（非 table，直接用变量名访问）。
+- Lua 函数的返回值按位置与 `export_*_attr` 一一对应。
+- 数据进出全程由 Go 管控。
 
-- Lua 运行在沙箱中，**不直接访问 DataFrame**。
-- Go 层根据算子的 input 配置，从 DataFrame 中提取相应列数据传入 Lua。
-- Lua 完成计算后，将结果返回给 Go。
-- Go 层负责将结果写回 DataFrame（按 output 配置）。
-- 数据进出全程由 Go 管控，确保 DataFrame 的并发安全和数据一致性。
+### 类型一：处理 item 特征 (`function_for_item`)
 
-### DSL 示例
-
-**行模式（默认）** — 直觉友好，逐 item 处理：
+Go 对每个 item 调用一次 Lua 函数。Common 字段作为标量全局变量始终可用（只读），item 字段为当前 item 的标量值。
 
 ```python
-flow.lua_op(
-    common_input=["user_age", "user_gender"],
-    item_input=["item_category", "item_price"],
-    item_defaults={"item_price": 0.0},
-    item_output=["item_adjusted_score"],
-    script="""
-        function handler(common, items)
-            local age = common["user_age"]
-            for i, item in ipairs(items) do
-                if age < 18 then
-                    item["item_adjusted_score"] = item["item_price"] * 0.8
-                else
-                    item["item_adjusted_score"] = item["item_price"]
-                end
+flow.enrich_by_lua(
+    import_common_attr=["user_age"],
+    import_item_attr=["item_price"],
+    function_for_item="adjust_price",
+    export_item_attr=["item_adjusted_score"],
+    lua_script="""
+        function adjust_price()
+            -- user_age: 标量, 来自 common (只读)
+            -- item_price: 标量, 当前 item 的值
+            if user_age < 18 then
+                return item_price * 0.8
+            else
+                return item_price
             end
-            return nil, items
         end
     """,
 )
 ```
 
-**列模式** — 性能优化，按列处理：
+**执行模型：**
+1. Go 将 common 字段设为 Lua 全局变量（设置一次）。
+2. 对每个 item：Go 将该 item 的字段设为 Lua 全局变量，调用 `function_for_item`。
+3. 返回值按位置对应 `export_item_attr`。
+
+### 类型二：处理 common 特征 (`function_for_common`)
+
+Go 调用一次 Lua 函数。Common 字段作为标量全局变量，item 字段作为 **list** 全局变量（每个字段是所有 item 的值组成的数组），支持跨 item 计算。
 
 ```python
-flow.lua_op(
-    common_input=["user_age"],
-    item_input=["item_price"],
-    item_output=["item_adjusted_score"],
-    columnar=True,
-    script="""
-        function handler(common, item_columns)
-            local prices = item_columns["item_price"]
-            local scores = {}
-            for i = 1, #prices do
-                scores[i] = prices[i] * (common["user_age"] < 18 and 0.8 or 1.0)
+flow.enrich_by_lua(
+    import_common_attr=["user_age"],
+    import_item_attr=["item_price"],
+    function_for_common="compute_stats",
+    export_common_attr=["avg_price", "max_price"],
+    lua_script="""
+        function compute_stats()
+            -- user_age: 标量, 来自 common
+            -- item_price: list {99, 50, 75, ...}, 所有 item 的值
+            local sum = 0
+            local max_val = -math.huge
+            for i = 1, #item_price do
+                local p = item_price[i] or 0
+                sum = sum + p
+                if p > max_val then max_val = p end
             end
-            return nil, {item_adjusted_score = scores}
+            return sum / #item_price, max_val
         end
     """,
 )
 ```
 
-### 行模式 vs 列模式
+**执行模型：**
+1. Go 将 common 字段设为标量 Lua 全局变量。
+2. Go 将 item 字段设为 list Lua 全局变量（每个字段对应一个 array）。
+3. 调用 `function_for_common` 一次。
+4. 返回值按位置对应 `export_common_attr`。
 
-| | 行模式 (默认) | 列模式 (`columnar=True`) |
-|---|---|---|
-| items 参数 | `[]map[string]any` — 每个元素是一个 item 的特征 map | `map[string][]any` — 每个 key 对应一列值的数组 |
-| items 返回值 | `[]map[string]any` 或 nil | `map[string][]any` 或 nil |
-| 优点 | 直觉友好，逐 item 处理 | 减少 Lua table 分配，与 DataFrame 列存对齐 |
-| 适用场景 | 默认选择 | item 数量大、字段多时的性能优化 |
+### 全局变量语义总结
 
-common 参数和返回值在两种模式下相同，都是 `map[string]any` 或 nil。
+| 上下文 | common 字段 | item 字段 |
+|--------|-------------|-----------|
+| `function_for_item` (逐 item 调用) | 标量 (只读) | 标量 (当前 item) |
+| `function_for_common` (调用一次) | 标量 | list (所有 item) |
 
-### handler 函数签名
+### 缺失值处理
 
-Lua 脚本必须定义一个名为 `handler` 的函数：
+- 默认传 nil，可选配默认值。
+- DSL 中可用 `import_item_defaults` / `import_common_defaults` 声明默认值。
 
-**行模式：**
-```lua
-function handler(common, items)
-    -- common: table {field_name -> value}，或 nil（无 common_input 时）
-    -- items:  table 的数组 [{field_name -> value}, ...]，或 nil（无 item_input 时）
-    -- 返回: common_out (table 或 nil), items_out (table 数组或 nil)
-    return common_out, items_out
-end
+```python
+flow.enrich_by_lua(
+    import_item_attr=["item_price"],
+    import_item_defaults={"item_price": 0.0},
+    function_for_item="process",
+    export_item_attr=["result"],
+    lua_script="""
+        function process()
+            return item_price * 1.1
+        end
+    """,
+)
 ```
 
-**列模式：**
-```lua
-function handler(common, item_columns)
-    -- common:       table {field_name -> value}，或 nil
-    -- item_columns: table {field_name -> [values...]}，或 nil
-    -- 返回: common_out (table 或 nil), item_columns_out (table {field_name -> [values...]} 或 nil)
-    return common_out, item_columns_out
-end
-```
+### Lua 代码内联
 
-Lua 代码以字符串形式直接写在 Python DSL 中，作为 `script` 参数传入。最终序列化到 JSON 配置中，由 Go 引擎在运行时加载执行。无需管理外部 Lua 脚本文件。
+Lua 代码以字符串形式直接写在 Python DSL 中，作为 `lua_script` 参数传入。最终序列化到 JSON 配置中，由 Go 引擎在运行时加载执行。无需管理外部 Lua 脚本文件。
