@@ -307,3 +307,35 @@ flow.enrich_by_lua(
 ### Lua 代码内联
 
 Lua 代码以字符串形式直接写在 Python DSL 中，作为 `lua_script` 参数传入。最终序列化到 JSON 配置中，由 Go 引擎在运行时加载执行。无需管理外部 Lua 脚本文件。
+
+### Lua State 管理
+
+Lua state 不是线程安全的，不能被多个 goroutine 同时使用。Pine 通过**每个 Lua 算子实例维护独立的 state 池**来解决并发问题。
+
+#### 生命周期
+
+| 阶段 | 行为 |
+|------|------|
+| Init | 记录 `lua_script` 和 `function_name`；创建首个 Lua state 并加载脚本；快照 `_G` 作为全局变量基准 |
+| Execute | 从 `sync.Pool` 借出 state（池空则新建并加载脚本）→ 设置输入全局变量 → 调用函数 → 收集返回值 → 清除非基准全局变量 → 归还 pool |
+| 配置重载 | 旧算子实例不再被引用，pool 中的 state 随 GC 回收 |
+
+#### 并发模型
+
+同一个 Lua 算子被多个请求并发执行时，各请求从池中借出**不同的** Lua state，完全隔离，无竞争：
+
+```
+请求 A ──借出──▶ LuaState₁ ──执行──▶ 归还
+请求 B ──借出──▶ LuaState₂ ──执行──▶ 归还
+```
+
+`sync.Pool` 的特性使 state 数量自动适应并发度：高峰期 pool 扩张，空闲时 GC 回收多余的 state。
+
+#### 全局变量清除
+
+每次 Execute 完成后，引擎进行严格清除：
+
+1. 引擎知道自己设了哪些输入全局变量（来自 `$metadata` 的 `common_input` + `item_input`），逐个置 nil。
+2. 对比 Init 时的 `_G` 快照，清除所有脚本运行中新增的全局变量（防止算法同学意外引入全局状态导致跨请求泄漏）。
+
+此操作代价极低（`_G` 通常只有 30-50 个条目，遍历一次即可）。
