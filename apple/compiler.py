@@ -99,6 +99,10 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             entry["for_branch_control"] = True
         if op.item_defaults:
             entry["item_defaults"] = op.item_defaults
+        if op.common_defaults:
+            entry["common_defaults"] = op.common_defaults
+        if op.debug:
+            entry["debug"] = True
         # Business params
         for k, v in op.params.items():
             entry[k] = v

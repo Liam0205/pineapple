@@ -20,11 +20,13 @@ class OpCall:
     item_input: list[str] = field(default_factory=list)
     item_output: list[str] = field(default_factory=list)
     item_defaults: dict[str, Any] | None = None
+    common_defaults: dict[str, Any] | None = None
     # Engine-level flags
     recall: bool = False
     sources: list[str] | None = None
     skip: str | None = None
     for_branch_control: bool = False
+    debug: bool = False
     # Debug info
     code_info: str = ""
 
@@ -54,8 +56,10 @@ class BaseOp:
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict[str, Any] | None = None,
+        common_defaults: dict[str, Any] | None = None,
         recall: bool = False,
         sources: list[str] | None = None,
+        debug: bool = False,
     ) -> Any:
         call = OpCall(
             type_name=self._name,
@@ -65,8 +69,10 @@ class BaseOp:
             item_input=item_input or [],
             item_output=item_output or [],
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
             recall=recall,
             sources=sources,
+            debug=debug,
         )
         self._flow._ops.append(call)
         return self._flow

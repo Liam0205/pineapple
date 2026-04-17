@@ -171,3 +171,55 @@ class TestPipelineMap:
         group_pipelines = cfg["pipeline_group"]["main"]["pipeline"]
         pmap_keys = list(cfg["pipeline_config"]["pipeline_map"].keys())
         assert group_pipelines == pmap_keys
+
+
+class TestDefaultsAndDebug:
+    def test_common_defaults_in_json(self):
+        flow = Flow(name="defaults_test", common_input=["age"], common_output=["result"])
+        flow._add_op("lua",
+                      common_input=["age"],
+                      common_output=["result"],
+                      common_defaults={"age": 25},
+                      lua_script="function f() return age end",
+                      function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert op["common_defaults"] == {"age": 25}
+
+    def test_item_defaults_in_json(self):
+        flow = Flow(name="item_def", common_input=["age"], item_input=["price"], item_output=["result"])
+        flow._add_op("lua",
+                      common_input=["age"],
+                      item_input=["price"],
+                      item_output=["result"],
+                      item_defaults={"price": 0.0},
+                      lua_script="function f() return price end",
+                      function_for_item="f", function_for_common="")
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert op["item_defaults"] == {"price": 0.0}
+
+    def test_debug_flag_in_json(self):
+        flow = Flow(name="debug_test", common_input=["x"], common_output=["y"])
+        flow._add_op("lua",
+                      common_input=["x"],
+                      common_output=["y"],
+                      debug=True,
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert op["debug"] is True
+
+    def test_no_defaults_no_debug_omitted(self):
+        flow = Flow(name="clean", common_input=["x"], common_output=["y"])
+        flow._add_op("lua",
+                      common_input=["x"],
+                      common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert "common_defaults" not in op
+        assert "item_defaults" not in op
+        assert "debug" not in op
