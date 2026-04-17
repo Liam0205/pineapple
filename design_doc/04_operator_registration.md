@@ -21,6 +21,25 @@ func init() {
         return &FilterOperator{}
     })
 }
+
+// FilterOperator 实现 pine.Operator 接口
+type FilterOperator struct {
+    condition string   // Init 后只读
+    threshold float64  // Init 后只读
+}
+
+func (f *FilterOperator) Init(params map[string]any) error {
+    f.condition = params["condition"].(string)
+    if v, ok := params["threshold"]; ok {
+        f.threshold = v.(float64)
+    }
+    return nil
+}
+
+func (f *FilterOperator) Execute(ctx context.Context, input *pine.OperatorInput, output *pine.OperatorOutput) error {
+    // 业务逻辑...
+    return nil
+}
 ```
 
 ### 设计原则
@@ -49,11 +68,25 @@ func init() {
 
 > 后续可按需扩展：参数描述、枚举约束、嵌套结构等。
 
-## 算子工厂
+## 算子工厂与生命周期
 
-注册时提供的是**工厂函数** `func() Operator`，而非算子单例。
+注册时提供的是**工厂函数** `func() Operator`，用于创建算子实例。
 
-引擎每次需要时通过工厂创建算子实例，避免并发状态问题。算子实例可以持有请求级别的临时状态，生命周期与单次 DAG 执行绑定。
+### 生命周期
+
+1. **配置加载时**：引擎通过工厂函数为 JSON 中的每个算子定义创建一个实例，调用 `Init(params)` 注入业务参数。
+2. **运行时**：同一个实例被所有并发请求共享，`Execute` 可被多个 goroutine 并发调用。
+3. **配置重新加载时**：引擎创建新实例并切换，旧实例在无引用后由 GC 回收。
+
+### 无状态可重入约定
+
+算子在 `Init` 后必须是无状态可重入的：
+
+- `Init` 后只持有只读配置和线程安全资源（如连接池）。
+- `Execute` 不可持有或修改请求级状态。
+- 确定了参数后，算子的行为完全由输入数据决定。
+
+此约定使得同一个算子实例可安全地被并发复用，无需每次 DAG 执行都创建新实例。
 
 ## Pine ↔ Apple 联动：构建时代码生成
 

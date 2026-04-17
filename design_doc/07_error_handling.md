@@ -52,22 +52,22 @@ Lua 脚本中发生除零、类型错误、函数未定义等：
 ## Go 算子接口
 
 ```go
-type OperatorOutput struct {
-    // 算子正常输出的数据
-    CommonOutput map[string]any
-    ItemOutput   []map[string]any  // 行存模式
-
-    // 可恢复错误：算子自行降级后，附带的错误信息
-    // 非 nil 时引擎记录日志但 DAG 继续
-    Warning error
-}
-
 type Operator interface {
-    Execute(ctx context.Context, input *OperatorInput) (*OperatorOutput, error)
-    // 返回 error (非 Warning) 时，引擎终止当前 DAG
+    Init(params map[string]any) error
+    Execute(ctx context.Context, input *OperatorInput, output *OperatorOutput) error
 }
 ```
 
-- `return output, nil`：正常执行
-- `return output, nil` + `output.Warning != nil`：可恢复，返回了降级结果 + 警告
-- `return nil, err`：不可恢复，DAG 终止
+OperatorOutput 提供 accessor 方法（详见 [03 数据抽象](03_data_abstraction.md#go-算子接口)）：
+
+```go
+output.SetCommon(field, value)     // 写入 common 字段
+output.SetItem(index, field, value) // 写入 item 字段
+output.SetWarning(err)             // 设置可恢复错误
+```
+
+错误约定：
+
+- `return nil`：正常执行
+- `return nil` + `output.SetWarning(err)`：可恢复，返回了降级结果 + 警告，引擎记录日志但 DAG 继续
+- `return err`：不可恢复，DAG 终止
