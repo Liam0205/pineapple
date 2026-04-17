@@ -1,0 +1,45 @@
+{
+  "_PINEAPPLE_VERSION": "0.1.0",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-17 10:00:00",
+  "pipeline_config": {
+    "operators": {
+      "op_a_A1B2C3": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": ["user_age"],
+          "common_output": ["computed"],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "pipeline.py:10",
+        "custom_param": "hello"
+      },
+      "op_b_D4E5F6": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": ["computed"],
+          "common_output": [],
+          "item_input": ["item_score"],
+          "item_output": ["item_rank"]
+        },
+        "threshold": 0.5
+      }
+    },
+    "pipeline_map": {
+      "stage1": {
+        "pipeline": ["op_a_A1B2C3", "op_b_D4E5F6"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["stage1"]
+    }
+  },
+  "flow_contract": {
+    "common_input": ["user_age"],
+    "item_input": ["item_score"],
+    "common_output": ["computed"],
+    "item_output": ["item_rank"]
+  }
+}

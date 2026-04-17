@@ -1,0 +1,196 @@
+package registry
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/Liam0205/pineapple/internal/types"
+)
+
+// --- test helpers ---
+
+type noopOp struct{}
+
+func (n *noopOp) Init(params map[string]any) error { return nil }
+func (n *noopOp) Execute(ctx context.Context, in *types.OperatorInput, out *types.OperatorOutput) error {
+	return nil
+}
+
+type captureOp struct {
+	params map[string]any
+}
+
+func (c *captureOp) Init(params map[string]any) error {
+	c.params = params
+	return nil
+}
+func (c *captureOp) Execute(ctx context.Context, in *types.OperatorInput, out *types.OperatorOutput) error {
+	return nil
+}
+
+type failInitOp struct{}
+
+func (f *failInitOp) Init(params map[string]any) error { return fmt.Errorf("init failed") }
+func (f *failInitOp) Execute(ctx context.Context, in *types.OperatorInput, out *types.OperatorOutput) error {
+	return nil
+}
+
+// --- tests ---
+
+func TestRegisterAndLookup(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{Name: "noop"}
+	Register(schema, func() types.Operator { return &noopOp{} })
+
+	s, factory, ok := Lookup("noop")
+	if !ok {
+		t.Fatal("Lookup failed")
+	}
+	if s.Name != "noop" {
+		t.Errorf("schema.Name = %q", s.Name)
+	}
+	op := factory()
+	if op == nil {
+		t.Fatal("factory returned nil")
+	}
+}
+
+func TestLookupNotFound(t *testing.T) {
+	Reset()
+	_, _, ok := Lookup("nonexistent")
+	if ok {
+		t.Error("Lookup should fail for unregistered operator")
+	}
+}
+
+func TestDuplicateRegistrationPanics(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{Name: "dup"}
+	Register(schema, func() types.Operator { return &noopOp{} })
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic on duplicate registration")
+		}
+	}()
+	Register(schema, func() types.Operator { return &noopOp{} })
+}
+
+func TestValidateAndExtractParamsRequired(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{
+		Name: "test",
+		Params: map[string]types.ParamSpec{
+			"required_param": {Type: "string", Required: true},
+		},
+	}
+
+	_, err := ValidateAndExtractParams(schema, map[string]any{})
+	if err == nil {
+		t.Error("expected error for missing required param")
+	}
+}
+
+func TestValidateAndExtractParamsDefault(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{
+		Name: "test",
+		Params: map[string]types.ParamSpec{
+			"optional": {Type: "float64", Required: false, Default: 0.5},
+		},
+	}
+
+	params, err := ValidateAndExtractParams(schema, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if params["optional"] != 0.5 {
+		t.Errorf("optional = %v, want 0.5", params["optional"])
+	}
+}
+
+func TestValidateAndExtractParamsFiltersReserved(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{Name: "test"}
+
+	raw := map[string]any{
+		"type_name":    "test",
+		"$metadata":    map[string]any{},
+		"$code_info":   "file:1",
+		"skip":         "_if_1",
+		"recall":       true,
+		"sources":      []string{"a"},
+		"debug":        true,
+		"business_key": "value",
+	}
+
+	params, err := ValidateAndExtractParams(schema, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := params["type_name"]; ok {
+		t.Error("reserved key type_name should be filtered")
+	}
+	if _, ok := params["$metadata"]; ok {
+		t.Error("reserved key $metadata should be filtered")
+	}
+	if params["business_key"] != "value" {
+		t.Errorf("business_key = %v", params["business_key"])
+	}
+}
+
+func TestBuildOperatorSuccess(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{
+		Name: "capture",
+		Params: map[string]types.ParamSpec{
+			"threshold": {Type: "float64", Required: false, Default: 1.0},
+		},
+	}
+	Register(schema, func() types.Operator { return &captureOp{} })
+
+	op, s, err := BuildOperator("capture", map[string]any{"type_name": "capture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Name != "capture" {
+		t.Errorf("schema name = %q", s.Name)
+	}
+	c := op.(*captureOp)
+	if c.params["threshold"] != 1.0 {
+		t.Errorf("threshold = %v, want 1.0", c.params["threshold"])
+	}
+}
+
+func TestBuildOperatorUnknownType(t *testing.T) {
+	Reset()
+	_, _, err := BuildOperator("unknown", nil)
+	if err == nil {
+		t.Error("expected error for unknown operator type")
+	}
+}
+
+func TestBuildOperatorInitFails(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{Name: "fail_init"}
+	Register(schema, func() types.Operator { return &failInitOp{} })
+
+	_, _, err := BuildOperator("fail_init", map[string]any{})
+	if err == nil {
+		t.Error("expected error for failed Init")
+	}
+}
+
+func TestIsReservedKey(t *testing.T) {
+	reserved := []string{"type_name", "$metadata", "$code_info", "skip", "recall",
+		"sources", "debug", "common_defaults", "item_defaults", "for_branch_control"}
+	for _, k := range reserved {
+		if !IsReservedKey(k) {
+			t.Errorf("%q should be reserved", k)
+		}
+	}
+	if IsReservedKey("business_param") {
+		t.Error("business_param should not be reserved")
+	}
+}

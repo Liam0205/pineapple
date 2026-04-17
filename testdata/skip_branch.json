@@ -1,0 +1,45 @@
+{
+  "_PINEAPPLE_VERSION": "0.1.0",
+  "pipeline_config": {
+    "operators": {
+      "_ctrl_1_A1": {
+        "type_name": "lua",
+        "$metadata": {
+          "common_input": ["item_count"],
+          "common_output": ["_if_1"],
+          "item_input": [],
+          "item_output": []
+        },
+        "for_branch_control": true,
+        "function_for_common": "evaluate",
+        "lua_script": "function evaluate() if (item_count > 0) then return false else return true end end"
+      },
+      "op_branch_B2": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": ["_if_1"],
+          "common_output": [],
+          "item_input": ["item_score"],
+          "item_output": ["item_rank"]
+        },
+        "skip": "_if_1"
+      }
+    },
+    "pipeline_map": {
+      "main_flow": {
+        "pipeline": ["_ctrl_1_A1", "op_branch_B2"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["main_flow"]
+    }
+  },
+  "flow_contract": {
+    "common_input": ["item_count"],
+    "item_input": ["item_score"],
+    "common_output": [],
+    "item_output": ["item_rank"]
+  }
+}

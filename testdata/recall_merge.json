@@ -1,0 +1,59 @@
+{
+  "_PINEAPPLE_VERSION": "0.1.0",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-17 10:00:00",
+  "pipeline_config": {
+    "operators": {
+      "recall_idx_A1": {
+        "type_name": "recall_from_index",
+        "recall": true,
+        "$metadata": {
+          "common_input": ["user_id"],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "item_score"]
+        },
+        "index_name": "main_index",
+        "top_k": 100
+      },
+      "recall_rt_B2": {
+        "type_name": "recall_from_realtime",
+        "recall": true,
+        "$metadata": {
+          "common_input": ["user_id"],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "item_score"]
+        },
+        "top_k": 50
+      },
+      "merge_C3": {
+        "type_name": "merge",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "item_score"]
+        },
+        "sources": ["recall_idx_A1", "recall_rt_B2"],
+        "dedup_by": "item_id",
+        "strategy": "union"
+      }
+    },
+    "pipeline_map": {
+      "recall_stage": {
+        "pipeline": ["recall_idx_A1", "recall_rt_B2", "merge_C3"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["recall_stage"]
+    }
+  },
+  "flow_contract": {
+    "common_input": ["user_id"],
+    "item_input": [],
+    "common_output": [],
+    "item_output": ["item_id", "item_score"]
+  }
+}
