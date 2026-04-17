@@ -19,4 +19,7 @@ type Result struct {
 
 	// Warnings collects recoverable errors from operators.
 	Warnings []error
+
+	// Trace records per-operator execution details for observability.
+	Trace []OpTrace
 }

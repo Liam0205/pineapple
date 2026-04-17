@@ -111,10 +111,11 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 	frame := dataframe.New(req.Common, req.Items)
 
 	// Execute DAG
-	warnings, err := runtime.Run(ctx, e.plan, frame)
+	warnings, traces, err := runtime.Run(ctx, e.plan, frame)
 
 	// Build result
 	result := dataframe.ToResult(frame)
+	result.Trace = traces
 	for _, w := range warnings {
 		result.Warnings = append(result.Warnings, fmt.Errorf("operator %q: %w", w.Operator, w.Err))
 	}

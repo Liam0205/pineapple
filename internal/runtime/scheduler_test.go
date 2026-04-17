@@ -190,7 +190,7 @@ func TestRunSimpleChain(t *testing.T) {
 		"op_a": opA, "op_b": opB,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	warnings, err := Run(context.Background(), plan, frame)
+	warnings, traces, err := Run(context.Background(), plan, frame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +202,18 @@ func TestRunSimpleChain(t *testing.T) {
 	}
 	if frame.Common("y") != 20.0 {
 		t.Errorf("y = %v, want 20", frame.Common("y"))
+	}
+	// Verify trace
+	if len(traces) != 2 {
+		t.Fatalf("trace count = %d, want 2", len(traces))
+	}
+	for _, tr := range traces {
+		if tr.Duration <= 0 {
+			t.Errorf("trace %q duration = %v, want > 0", tr.Name, tr.Duration)
+		}
+		if tr.Skipped {
+			t.Errorf("trace %q should not be skipped", tr.Name)
+		}
 	}
 }
 
@@ -231,7 +243,7 @@ func TestRunParallelOps(t *testing.T) {
 	frame := dataframe.New(map[string]any{}, nil)
 
 	start := time.Now()
-	_, err := Run(context.Background(), plan, frame)
+	_, _, err := Run(context.Background(), plan, frame)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -265,12 +277,26 @@ func TestRunSkipTrue(t *testing.T) {
 		"ctrl": ctrl, "branch": branch,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, err := Run(context.Background(), plan, frame)
+	_, traces, err := Run(context.Background(), plan, frame)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if frame.Common("executed") != nil {
 		t.Error("branch should have been skipped")
+	}
+	// Verify trace records skip
+	var branchTrace *types.OpTrace
+	for i := range traces {
+		if traces[i].Name == "branch" {
+			branchTrace = &traces[i]
+			break
+		}
+	}
+	if branchTrace == nil {
+		t.Fatal("no trace for branch operator")
+	}
+	if !branchTrace.Skipped {
+		t.Error("branch trace should be marked skipped")
 	}
 }
 
@@ -296,7 +322,7 @@ func TestRunSkipFalse(t *testing.T) {
 		"ctrl": ctrl, "branch": branch,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, err := Run(context.Background(), plan, frame)
+	_, _, err := Run(context.Background(), plan, frame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +351,7 @@ func TestRunFatalError(t *testing.T) {
 		"op_a": opA, "op_b": opB,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, err := Run(context.Background(), plan, frame)
+	_, _, err := Run(context.Background(), plan, frame)
 	if err == nil {
 		t.Fatal("expected fatal error")
 	}
@@ -352,7 +378,7 @@ func TestRunPanicRecovery(t *testing.T) {
 		"op_a": opA,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, err := Run(context.Background(), plan, frame)
+	_, _, err := Run(context.Background(), plan, frame)
 	if err == nil {
 		t.Fatal("expected panic error")
 	}
@@ -382,7 +408,7 @@ func TestRunWarningContinues(t *testing.T) {
 		"op_a": opA, "op_b": opB,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	warnings, err := Run(context.Background(), plan, frame)
+	warnings, _, err := Run(context.Background(), plan, frame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +440,7 @@ func TestRunRecallInjectsSource(t *testing.T) {
 		"recall_a": opA,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, err := Run(context.Background(), plan, frame)
+	_, _, err := Run(context.Background(), plan, frame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +473,7 @@ func TestRunFilterRemovesItems(t *testing.T) {
 		"filter": opA,
 	})
 	frame := dataframe.New(map[string]any{}, items)
-	_, err := Run(context.Background(), plan, frame)
+	_, _, err := Run(context.Background(), plan, frame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +502,7 @@ func TestRunReorderReverses(t *testing.T) {
 		"reorder": opA,
 	})
 	frame := dataframe.New(map[string]any{}, items)
-	_, err := Run(context.Background(), plan, frame)
+	_, _, err := Run(context.Background(), plan, frame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,7 +535,7 @@ func TestRunConcurrentExecutions(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			frame := dataframe.New(map[string]any{}, nil)
-			_, err := Run(context.Background(), plan, frame)
+			_, _, err := Run(context.Background(), plan, frame)
 			if err != nil {
 				errs <- err
 				return
@@ -542,7 +568,7 @@ func TestRunContextCancellation(t *testing.T) {
 		"op_a": opA,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, err := Run(ctx, plan, frame)
+	_, _, err := Run(ctx, plan, frame)
 	// With immediate cancellation, op may or may not execute.
 	// The key is: no panic, no hang.
 	_ = err

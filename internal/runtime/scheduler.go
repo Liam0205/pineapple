@@ -3,8 +3,10 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"log"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/Liam0205/pineapple/internal/config"
 	"github.com/Liam0205/pineapple/internal/dag"
@@ -33,8 +35,8 @@ type Warning struct {
 }
 
 // Run executes the DAG plan against a request-local frame.
-// Returns collected warnings and the first fatal error (if any).
-func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, error) {
+// Returns collected warnings, per-operator trace, and the first fatal error (if any).
+func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, []types.OpTrace, error) {
 	n := len(plan.Graph.Nodes)
 	done := make([]chan struct{}, n)
 	for i := 0; i < n; i++ {
@@ -45,11 +47,12 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, er
 	defer cancel()
 
 	var (
-		mu       sync.Mutex // protects frame access
-		warnings []Warning
-		fatalErr error
+		mu        sync.Mutex // protects frame access and shared slices
+		warnings  []Warning
+		traces    = make([]types.OpTrace, n) // pre-allocated, indexed by node
+		fatalErr  error
 		fatalOnce sync.Once
-		wg       sync.WaitGroup
+		wg        sync.WaitGroup
 	)
 
 	for i := 0; i < n; i++ {
@@ -75,12 +78,20 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, er
 				return
 			}
 
+			startTime := time.Now()
+
 			// Evaluate skip
 			if cop.Config.Skip != "" {
 				mu.Lock()
 				skipVal := frame.Common(cop.Config.Skip)
 				mu.Unlock()
 				if skipVal == true {
+					traces[idx] = types.OpTrace{
+						Name:      cop.Name,
+						StartTime: startTime,
+						Duration:  time.Since(startTime),
+						Skipped:   true,
+					}
 					return
 				}
 			}
@@ -95,6 +106,12 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, er
 				cop.Config.ItemDefaults,
 			)
 			mu.Unlock()
+
+			// Capture input snapshot for debug operators
+			var inputSnapshot map[string]any
+			if cop.Config.Debug {
+				inputSnapshot = snapshotInput(input)
+			}
 
 			// Execute operator with panic recovery
 			output := types.NewOperatorOutput()
@@ -112,8 +129,15 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, er
 				execErr = cop.Instance.Execute(ctx, input, output)
 			}()
 
+			duration := time.Since(startTime)
+
 			// Handle fatal error
 			if execErr != nil {
+				traces[idx] = types.OpTrace{
+					Name:      cop.Name,
+					StartTime: startTime,
+					Duration:  duration,
+				}
 				fatalOnce.Do(func() {
 					if _, ok := execErr.(*types.PanicError); ok {
 						fatalErr = execErr
@@ -135,6 +159,14 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, er
 				mu.Unlock()
 			}
 
+			// Capture output snapshot for debug operators
+			var outputSnapshot map[string]any
+			if cop.Config.Debug {
+				outputSnapshot = snapshotOutput(output)
+				log.Printf("[pine:debug] operator=%q duration=%v input=%v output=%v",
+					cop.Name, duration, inputSnapshot, outputSnapshot)
+			}
+
 			// Apply output under lock
 			mu.Lock()
 			applyErr := dataframe.ApplyOutput(frame, output, cop.Name, cop.Config.Recall)
@@ -149,9 +181,75 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, er
 					cancel()
 				})
 			}
+
+			// Record trace
+			traces[idx] = types.OpTrace{
+				Name:           cop.Name,
+				StartTime:      startTime,
+				Duration:       duration,
+				Skipped:        false,
+				InputSnapshot:  inputSnapshot,
+				OutputSnapshot: outputSnapshot,
+			}
 		}(i)
 	}
 
 	wg.Wait()
-	return warnings, fatalErr
+	return warnings, traces, fatalErr
+}
+
+// snapshotInput creates a serializable snapshot of an operator's input.
+func snapshotInput(in *types.OperatorInput) map[string]any {
+	snap := make(map[string]any)
+
+	// Common fields
+	common := make(map[string]any)
+	for _, k := range in.CommonKeys() {
+		common[k] = in.Common(k)
+	}
+	if len(common) > 0 {
+		snap["common"] = common
+	}
+
+	// Item fields
+	if in.ItemCount() > 0 {
+		items := make([]map[string]any, in.ItemCount())
+		for i := 0; i < in.ItemCount(); i++ {
+			row := make(map[string]any)
+			for _, k := range in.ItemKeys(i) {
+				row[k] = in.Item(i, k)
+			}
+			items[i] = row
+		}
+		snap["items"] = items
+	}
+
+	return snap
+}
+
+// snapshotOutput creates a serializable snapshot of an operator's output.
+func snapshotOutput(out *types.OperatorOutput) map[string]any {
+	snap := make(map[string]any)
+
+	if cw := out.GetCommonWrites(); len(cw) > 0 {
+		snap["common_writes"] = cw
+	}
+	if iw := out.GetItemWrites(); len(iw) > 0 {
+		snap["item_writes"] = iw
+	}
+	if ai := out.GetAddedItems(); len(ai) > 0 {
+		snap["added_items"] = ai
+	}
+	if ri := out.GetRemovedItems(); len(ri) > 0 {
+		removed := make([]int, 0, len(ri))
+		for idx := range ri {
+			removed = append(removed, idx)
+		}
+		snap["removed_items"] = removed
+	}
+	if io := out.GetItemOrder(); io != nil {
+		snap["item_order"] = io
+	}
+
+	return snap
 }

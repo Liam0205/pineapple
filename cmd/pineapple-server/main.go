@@ -106,7 +106,16 @@ type executeResponse struct {
 	Common   map[string]any   `json:"common"`
 	Items    []map[string]any `json:"items"`
 	Warnings []string         `json:"warnings,omitempty"`
+	Trace    []traceEntry     `json:"trace,omitempty"`
 	Error    string           `json:"error,omitempty"`
+}
+
+type traceEntry struct {
+	Name           string         `json:"name"`
+	DurationMs     float64        `json:"duration_ms"`
+	Skipped        bool           `json:"skipped,omitempty"`
+	InputSnapshot  map[string]any `json:"input_snapshot,omitempty"`
+	OutputSnapshot map[string]any `json:"output_snapshot,omitempty"`
 }
 
 func handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +149,15 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 		resp.Items = result.Items
 		for _, warn := range result.Warnings {
 			resp.Warnings = append(resp.Warnings, warn.Error())
+		}
+		for _, t := range result.Trace {
+			resp.Trace = append(resp.Trace, traceEntry{
+				Name:           t.Name,
+				DurationMs:     float64(t.Duration.Microseconds()) / 1000.0,
+				Skipped:        t.Skipped,
+				InputSnapshot:  t.InputSnapshot,
+				OutputSnapshot: t.OutputSnapshot,
+			})
 		}
 	}
 	if err != nil {
