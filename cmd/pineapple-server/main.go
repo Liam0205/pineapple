@@ -40,6 +40,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/execute", handleExecute)
+	mux.HandleFunc("/stats", handleStats)
 
 	srv := &http.Server{Addr: *addr, Handler: mux}
 
@@ -173,4 +174,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func handleStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	engine := enginePtr.Load()
+	if engine == nil {
+		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, engine.Stats())
 }

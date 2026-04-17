@@ -36,7 +36,8 @@ type Warning struct {
 
 // Run executes the DAG plan against a request-local frame.
 // Returns collected warnings, per-operator trace, and the first fatal error (if any).
-func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, []types.OpTrace, error) {
+// If stats is non-nil, per-operator execution statistics are accumulated.
+func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) ([]Warning, []types.OpTrace, error) {
 	n := len(plan.Graph.Nodes)
 	done := make([]chan struct{}, n)
 	for i := 0; i < n; i++ {
@@ -92,6 +93,9 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, []
 						Duration:  time.Since(startTime),
 						Skipped:   true,
 					}
+					if stats != nil {
+						stats.RecordSkip(cop.Name)
+					}
 					return
 				}
 			}
@@ -137,6 +141,9 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, []
 					Name:      cop.Name,
 					StartTime: startTime,
 					Duration:  duration,
+				}
+				if stats != nil {
+					stats.RecordError(cop.Name, duration)
 				}
 				fatalOnce.Do(func() {
 					if _, ok := execErr.(*types.PanicError); ok {
@@ -190,6 +197,9 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame) ([]Warning, []
 				Skipped:        false,
 				InputSnapshot:  inputSnapshot,
 				OutputSnapshot: outputSnapshot,
+			}
+			if stats != nil {
+				stats.RecordExec(cop.Name, duration)
 			}
 		}(i)
 	}

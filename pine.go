@@ -19,7 +19,8 @@ type Result = types.Result
 // Engine is an immutable, concurrency-safe execution engine.
 // Create with NewEngine; call Execute for each request.
 type Engine struct {
-	plan *runtime.Plan
+	plan  *runtime.Plan
+	stats *runtime.Stats
 }
 
 // NewEngine parses a JSON config, validates it, builds the DAG, and returns
@@ -73,7 +74,7 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 		Contract:  cfg.FlowContract,
 	}
 
-	return &Engine{plan: plan}, nil
+	return &Engine{plan: plan, stats: runtime.NewStats()}, nil
 }
 
 // Execute runs the pipeline for a single request.
@@ -111,7 +112,7 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 	frame := dataframe.New(req.Common, req.Items)
 
 	// Execute DAG
-	warnings, traces, err := runtime.Run(ctx, e.plan, frame)
+	warnings, traces, err := runtime.Run(ctx, e.plan, frame, e.stats)
 
 	// Build result
 	result := dataframe.ToResult(frame)
@@ -124,4 +125,10 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+// Stats returns a point-in-time snapshot of per-operator execution statistics
+// accumulated since this Engine was created.
+func (e *Engine) Stats() map[string]runtime.OpStatsSnapshot {
+	return e.stats.Snapshot()
 }
