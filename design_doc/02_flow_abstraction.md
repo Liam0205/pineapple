@@ -178,9 +178,45 @@ op_a ──▶ op_b
 
 ## DAG 调度
 
-- 基于拓扑排序执行。
-- 无依赖的算子并行调度。
-- 目标：无锁设计，支持高并发场景。
+### 并发模型：每个算子一个 goroutine + channel 广播
+
+DAG 执行时，为每个算子创建一个 goroutine。每个算子持有一个 "完成" channel，完成后 close 该 channel 实现广播。后继算子通过 `select` 等待所有前驱的 channel。
+
+```go
+func (s *Scheduler) Run(ctx context.Context, dag *DAG) error {
+    done := make(map[string]chan struct{})
+    for _, op := range dag.Operators {
+        done[op.Name] = make(chan struct{})
+    }
+
+    var wg sync.WaitGroup
+    for _, op := range dag.Operators {
+        wg.Add(1)
+        go func(op *OpNode) {
+            defer wg.Done()
+            defer close(done[op.Name])
+            // 等待所有前驱完成
+            for _, pred := range op.predecessors {
+                select {
+                case <-done[pred.Name]:
+                case <-ctx.Done():
+                    return
+                }
+            }
+            s.executeOp(ctx, op)
+        }(op)
+    }
+    wg.Wait()
+    return ctx.Err()
+}
+```
+
+### 设计要点
+
+- **并行执行**：无数据依赖的算子自动并行——它们的前驱 channel 互不相关，同时就绪。
+- **错误取消**：算子执行失败时 cancel context，所有等待中的 goroutine 通过 `select` 的 `ctx.Done()` 分支立即退出，避免无意义的后续执行。
+- **close 广播**：`close(done[op.Name])` 可唤醒所有等待该 channel 的后继，天然支持一对多依赖。
+- **可观测性**：每个算子有持久 goroutine，stack trace 中可直接定位到"算子 X 在等算子 Y"，便于调试。
 
 ## 分层解耦
 
