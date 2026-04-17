@@ -4,8 +4,8 @@
 *.dll
 *.so
 *.dylib
-pineapple-codegen
-pineapple-server
+/pineapple-codegen
+/pineapple-server
 
 # Go test/coverage
 *.test

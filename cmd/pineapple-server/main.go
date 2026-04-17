@@ -14,9 +14,13 @@ import (
 
 	pine "github.com/Liam0205/pineapple"
 	_ "github.com/Liam0205/pineapple/operators"
+	"github.com/Liam0205/pineapple/pkg/resource"
 )
 
-var enginePtr atomic.Pointer[pine.Engine]
+var (
+	enginePtr atomic.Pointer[pine.Engine]
+	resources *resource.Manager
+)
 
 func main() {
 	configPath := flag.String("config", "", "Path to pipeline JSON config file")
@@ -32,6 +36,15 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 	log.Printf("engine loaded from %s", *configPath)
+
+	// Initialize ResourceManager.
+	// Register resources here. Example:
+	//   resources.Register("feature_index", fetchFeatureIndex, 5*time.Minute)
+	resources = resource.NewManager()
+	if err := resources.Start(context.Background()); err != nil {
+		log.Fatalf("failed to start resource manager: %v", err)
+	}
+	defer resources.Stop()
 
 	// Start config reload watcher
 	go watchConfig(*configPath)
@@ -142,7 +155,9 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 		Items:  req.Items,
 	}
 
-	result, err := engine.Execute(r.Context(), pineReq)
+	// Inject resources into context so operators can access them.
+	ctx := resource.WithResources(r.Context(), resources)
+	result, err := engine.Execute(ctx, pineReq)
 
 	resp := executeResponse{}
 	if result != nil {
