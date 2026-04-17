@@ -65,3 +65,4 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 - [06 JSON 配置格式](06_json_config.md) — Apple 产出的 JSON 结构、控制流编译、DAG 推导
 - [07 错误处理](07_error_handling.md) — 可恢复/不可恢复错误、进程保护
 - [08 可观测性](08_observability.md) — 白盒回查、代码治理、debug 参数
+- [09 Pine 集成模型](09_pine_integration.md) — 纯计算库定位、核心 API、配置重载
