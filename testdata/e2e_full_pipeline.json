@@ -1,0 +1,111 @@
+{
+  "_PINEAPPLE_VERSION": "0.1.0",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-17T00:00:00Z",
+  "pipeline_config": {
+    "operators": {
+      "recall_hot": {
+        "type_name": "recall_static",
+        "recall": true,
+        "items": [
+          {"item_id": "item_1", "item_score": 80.0, "item_status": "online", "item_category": "A"},
+          {"item_id": "item_2", "item_score": 60.0, "item_status": "offline", "item_category": "B"},
+          {"item_id": "item_3", "item_score": 90.0, "item_status": "online", "item_category": "A"}
+        ],
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "item_score", "item_status", "item_category"]
+        }
+      },
+      "recall_new": {
+        "type_name": "recall_static",
+        "recall": true,
+        "items": [
+          {"item_id": "item_3", "item_score": 95.0, "item_status": "online", "item_category": "A"},
+          {"item_id": "item_4", "item_score": 70.0, "item_status": "online", "item_category": "C"},
+          {"item_id": "item_5", "item_score": 50.0, "item_status": "online", "item_category": "B"}
+        ],
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "item_score", "item_status", "item_category"]
+        }
+      },
+      "merge_step": {
+        "type_name": "merge_dedup",
+        "sources": ["recall_hot", "recall_new"],
+        "dedup_by": "item_id",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["item_id", "_source"],
+          "item_output": ["item_id", "item_score", "item_status", "item_category"]
+        }
+      },
+      "dispatch_scene": {
+        "type_name": "feature_dispatch",
+        "common_field": "scene",
+        "item_field": "item_scene",
+        "$metadata": {
+          "common_input": ["scene"],
+          "common_output": [],
+          "item_input": ["item_status"],
+          "item_output": ["item_scene"]
+        }
+      },
+      "normalize_score": {
+        "type_name": "feature_normalize",
+        "field": "item_score",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["item_score"],
+          "item_output": ["item_score_norm"]
+        }
+      },
+      "filter_offline": {
+        "type_name": "filter_condition",
+        "field": "item_status",
+        "value": "offline",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["item_status"],
+          "item_output": ["item_status", "item_score"]
+        }
+      },
+      "sort_by_score": {
+        "type_name": "reorder_sort",
+        "field": "item_score",
+        "order": "desc",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["item_score"],
+          "item_output": []
+        }
+      }
+    },
+    "pipeline_map": {
+      "recall_stage": {
+        "pipeline": ["recall_hot", "recall_new"]
+      },
+      "process_stage": {
+        "pipeline": ["merge_step", "filter_offline", "dispatch_scene", "normalize_score", "sort_by_score"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["recall_stage", "process_stage"]
+    }
+  },
+  "flow_contract": {
+    "common_input": ["scene"],
+    "item_input": [],
+    "common_output": [],
+    "item_output": ["item_id", "item_score", "item_score_norm", "item_scene"]
+  }
+}
