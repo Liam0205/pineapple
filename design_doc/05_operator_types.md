@@ -19,8 +19,18 @@
 从外部索引或服务中获取候选 item，产出新的 item 集合。
 
 - 输入：common 特征（如 user_id、query 等检索条件）
-- 输出：一批新的 item（含 item_id 及其附属特征）
+- 输出：一批新的 item（含 item_id 及其附属特征），存入**独立的临时 DataFrame**
 - 特点：这是唯一"凭空产生 item"的算子类型
+
+**召回结果不直接进入主 DataFrame**，而是产出到独立的临时 DataFrame。多个召回算子各自产出独立的临时 DataFrame，互不干扰。最终通过合并算子显式合并进主 DataFrame。
+
+```
+recall_A ──▶ temp_df_A ──┐
+                          ├──▶ merge ──▶ 主 DataFrame
+recall_B ──▶ temp_df_B ──┘
+```
+
+这样设计的原因：多个召回源可能返回同一个 item，直接写入主 DataFrame 会导致重复。合并策略（去重、择优等）是业务决策，应显式处理。
 
 ```python
 flow.recall_from_index(
@@ -31,15 +41,14 @@ flow.recall_from_index(
 )
 ```
 
-> **待讨论**: 召回算子产出的 item 集是独立的，不直接进入主 DataFrame。需要通过合并算子显式合并。这个模型是否合理？还是召回算子直接写入主 DataFrame？
-
 ## 合并 (Merge)
 
-将一个或多个召回算子的结果合并进主 DataFrame。
+将一个或多个召回算子产出的临时 DataFrame 合并进主 DataFrame。
 
 - 配合召回算子使用
 - 处理 item 去重（多路召回可能产生重复 item）
 - 可选的合并策略（取并集、按 score 择优等）
+- 合并完成后，临时 DataFrame 由引擎回收
 
 ```python
 flow.merge(
