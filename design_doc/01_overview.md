@@ -62,3 +62,4 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 - [03 数据抽象](03_data_abstraction.md) — DataFrame、特征类型、数据访问接口
 - [04 算子注册](04_operator_registration.md) — 注册机制、Schema、Pine↔Apple 代码生成
 - [05 算子分类](05_operator_types.md) — 召回、合并、特征处理、排序、过滤、控制、观察
+- [06 JSON 配置格式](06_json_config.md) — Apple 产出的 JSON 结构、控制流编译、DAG 推导
