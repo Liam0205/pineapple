@@ -19,23 +19,24 @@
 从外部索引或服务中获取候选 item，产出新的 item 集合。
 
 - 输入：common 特征（如 user_id、query 等检索条件）
-- 输出：一批新的 item（含 item_id 及其附属特征），存入**引擎内部暂存区**（不写入主 DataFrame）
+- 输出：一批新的 item（含 item_id 及其附属特征），通过 `AddItem` 直接写入主 DataFrame
 - 特点：这是唯一"凭空产生 item"的算子类型
 - JSON 中标记 `"recall": true`，Pine 据此识别
 
-**召回结果不直接进入主 DataFrame**，而是暂存在引擎内部。多个召回算子各自暂存独立的结果，互不干扰。最终通过合并算子显式合并进主 DataFrame。
+多个召回算子各自独立产出 item，直接写入主 DataFrame。不同召回源可能产出同一个 item（重复），也可能产出不同的字段集（异构 schema）。这些都由后续的 Merge 算子处理。
 
 ```
-recall_A ──▶ 暂存区 A ──┐
-                          ├──▶ merge ──▶ 主 DataFrame
-recall_B ──▶ 暂存区 B ──┘
+recall_A ──(AddItem)──▶ 主 DataFrame ──▶ merge ──▶ 去重后的主 DataFrame
+recall_B ──(AddItem)──▶ 主 DataFrame ──┘
 ```
 
-这样设计的原因：多个召回源可能返回同一个 item，直接写入主 DataFrame 会导致重复。合并策略（去重、择优等）是业务决策，应显式处理。
+引擎在写回 Recall 产出的 item 时，自动注入 `_source` 字段（值为算子名），供 Merge 算子识别来源。
 
 ### DAG 依赖
 
-召回算子的依赖仍然通过 `$metadata.common_input` 推导（如依赖 `user_id`）。召回 → 合并的依赖通过合并算子的 `sources` 字段显式建立，不走字段名推导。
+- 召回算子的前置依赖通过 `$metadata.common_input` 推导（如依赖 `user_id`）。
+- **召回算子的 `item_output` 不参与字段级 DAG 推导**——多个召回并行执行，不因输出同名字段（如 `item_id`）而被串行化。
+- 召回 → 合并的依赖通过合并算子的 `sources` 字段显式建立。
 
 ```python
 flow.recall_from_index(
@@ -48,15 +49,12 @@ flow.recall_from_index(
 
 ## 合并 (Merge)
 
-将一个或多个召回算子暂存的结果合并进主 DataFrame。
+对主 DataFrame 中的 item 做去重、字段合并等处理。
 
-- 通过 `sources` 参数引用召回算子名称
-- Pine 据此建立召回 → 合并的显式 DAG 边（不走字段名推导）
-- 处理 item 去重（多路召回可能产生重复 item）
-- 可选的合并策略（取并集、按 score 择优等）
-- 合并完成后，暂存区由引擎回收
-
-合并算子是唯一能向主 DataFrame 添加 item 行的算子。
+- 通过 `sources` 参数引用召回算子名称，Pine 据此建立 Recall → Merge 的显式 DAG 边
+- 读取主 DataFrame 中所有 item（含 `_source` 字段），按业务逻辑去重和合并
+- 不同召回源可能产出异构 schema（字段集不同），Merge 负责处理差异
+- Merge 是注册的 Go 算子，不同实现支持不同策略（取并集、按 score 择优、按 quota 分配等）
 
 ```python
 flow.merge(
@@ -69,9 +67,9 @@ flow.merge(
 
 ### `item_output` 的语义
 
-合并算子的 `item_output` 声明合并后主 DataFrame 中的 item 字段。Apple 在编译时校验各 source 召回算子的 `item_output` 是否能覆盖 merge 声明的字段。
+合并算子的 `item_output` 声明合并后主 DataFrame 中的 item 字段，是下游算子的"正式"字段来源。Apple 在编译时校验：Merge 的 `item_output` 中每个字段至少被一个 source 召回算子输出。
 
-> **待细化**: 合并策略的具体语义（union / intersect / 按 score 择优等）和冲突处理规则。
+> **待细化**: 合并策略的具体语义（union / intersect / 按 score 择优 / quota 分配等）和字段冲突处理规则。
 
 ## 特征处理 (Feature)
 

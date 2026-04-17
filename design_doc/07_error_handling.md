@@ -61,9 +61,15 @@ type Operator interface {
 OperatorOutput 提供 accessor 方法（详见 [03 数据抽象](03_data_abstraction.md#go-算子接口)）：
 
 ```go
-output.SetCommon(field, value)     // 写入 common 字段
+// 字段级操作
+output.SetCommon(field, value)      // 写入 common 字段
 output.SetItem(index, field, value) // 写入 item 字段
-output.SetWarning(err)             // 设置可恢复错误
+// 结构性操作
+output.AddItem(fields)              // 新增 item 行（Recall、Merge）
+output.RemoveItem(index)            // 标记删除 item 行（Filter、Merge）
+output.SetItemOrder(newOrder)       // 重排 item（Sort、Reorder）
+// 错误处理
+output.SetWarning(err)              // 设置可恢复错误
 ```
 
 错误约定：

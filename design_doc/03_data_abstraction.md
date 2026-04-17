@@ -193,19 +193,46 @@ func (in *OperatorInput) Item(index int, field string) any
 ```go
 type OperatorOutput struct { /* 内部实现对算子不可见 */ }
 
+// --- 字段级操作（Feature、Lua、Control 等通用算子） ---
+
 // SetCommon 写入 common 侧字段。
 func (out *OperatorOutput) SetCommon(field string, value any)
 
 // SetItem 写入第 index 个 item 的字段。
 func (out *OperatorOutput) SetItem(index int, field string, value any)
 
+// --- 结构性操作（改变 item 列表本身） ---
+
+// AddItem 新增一个 item 行。用于 Recall（产出新 item）和 Merge（合并后写入主 DataFrame）。
+func (out *OperatorOutput) AddItem(fields map[string]any)
+
+// RemoveItem 标记第 index 个 item 待删除。引擎在写回时统一移除。用于 Filter、Merge 去重等。
+func (out *OperatorOutput) RemoveItem(index int)
+
+// SetItemOrder 设置 item 的新顺序。newOrder[i] 表示新位置 i 对应原位置。用于 Sort、Reorder。
+func (out *OperatorOutput) SetItemOrder(newOrder []int)
+
+// --- 错误处理 ---
+
 // SetWarning 设置可恢复错误（降级结果）。引擎记录日志但 DAG 继续。
 func (out *OperatorOutput) SetWarning(err error)
 ```
 
+不同类型的算子使用不同的方法子集：
+
+| 算子类型 | 使用的方法 |
+|---------|-----------|
+| Feature / Lua / Control | SetCommon, SetItem |
+| Recall | AddItem |
+| Merge | AddItem, RemoveItem, SetItem |
+| Filter | RemoveItem |
+| Reorder / Sort | SetItemOrder |
+| Observe | （无输出） |
+
 #### 设计原则
 
 - **抽象 accessor**：算子通过方法访问数据，不感知底层是行存还是列存。MVP 用行存实现，将来切换列存时算子代码不需要修改。
-- **引擎创建 output**：`OperatorOutput` 由引擎创建（已知 ItemCount），作为参数传入算子，而非由算子自行分配。引擎据此控制底层分配策略。
+- **引擎创建 output**：`OperatorOutput` 由引擎创建，作为参数传入算子，而非由算子自行分配。引擎据此控制底层分配策略，并在写回时应用结构性操作（AddItem、RemoveItem、SetItemOrder）。
+- **统一接口，按需使用**：所有算子共享同一个 `Operator` 接口和 `OperatorOutput`。不同类型的算子使用不同的方法子集，不使用的方法不调用即可。引擎通过 JSON 元数据（`recall: true`、`sources` 等）或 Go 接口断言识别算子类别，决定写回策略。
 - **无状态可重入**：算子在 `Init` 后不持有可变状态，`Execute` 可被多个 goroutine 并发调用。算子可持有只读配置和线程安全资源（如连接池），不可持有请求级状态。
 - **错误约定**：`return nil` 表示正常执行；`output.SetWarning(err)` 表示可恢复错误（DAG 继续）；`return err` 表示不可恢复错误（DAG 终止）。
