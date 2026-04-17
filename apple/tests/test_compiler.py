@@ -1,0 +1,173 @@
+"""Tests for the compiler: JSON output format, operator naming, control flow lowering."""
+import json
+import pytest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+from apple.flow import Flow, SubFlow
+from apple.compiler import compile_flow
+
+
+class TestControlFlowLowering:
+    def test_simple_if(self):
+        flow = Flow(
+            name="if_test",
+            common_input=["item_count"],
+            item_input=["item_score"],
+            item_output=["item_rank"],
+        )
+        flow.if_("item_count > 0") \
+            .reorder_sort(
+                item_input=["item_score"],
+                item_output=["item_rank"],
+                field="item_score", order="desc",
+            ) \
+        .end_if_()
+
+        cfg = compile_flow(flow)
+        ops = cfg["pipeline_config"]["operators"]
+
+        # Should have 2 operators: control + sort
+        assert len(ops) == 2
+
+        # Find control operator
+        ctrl_ops = {n: o for n, o in ops.items() if o.get("for_branch_control")}
+        assert len(ctrl_ops) == 1
+        ctrl_name, ctrl_op = list(ctrl_ops.items())[0]
+        assert ctrl_op["type_name"] == "lua"
+        assert "_if_1" in ctrl_op["$metadata"]["common_output"]
+        assert "function evaluate()" in ctrl_op["lua_script"]
+
+        # Find sort operator — should have skip field
+        sort_ops = {n: o for n, o in ops.items() if o["type_name"] == "reorder_sort"}
+        assert len(sort_ops) == 1
+        sort_op = list(sort_ops.values())[0]
+        assert sort_op["skip"] == "_if_1"
+
+    def test_if_elseif_else(self):
+        flow = Flow(
+            name="branches",
+            common_input=["mode"],
+            item_input=["item_score"],
+            item_output=["item_rank", "item_fallback", "item_default"],
+        )
+        flow.if_("mode == 1") \
+            .reorder_sort(
+                item_input=["item_score"],
+                item_output=["item_rank"],
+                field="item_score", order="desc",
+            ) \
+        .elseif_("mode == 2") \
+            ._add_op("lua",
+                item_input=["item_score"],
+                item_output=["item_fallback"],
+                lua_script="function f() return item_score * 0.5 end",
+                function_for_item="f", function_for_common="") \
+        .else_() \
+            ._add_op("lua",
+                item_input=["item_score"],
+                item_output=["item_default"],
+                lua_script="function g() return 0 end",
+                function_for_item="g", function_for_common="") \
+        .end_if_()
+
+        cfg = compile_flow(flow)
+        ops = cfg["pipeline_config"]["operators"]
+
+        # 3 control ops + 3 business ops = 6
+        assert len(ops) == 6
+
+        ctrl_ops = [o for o in ops.values() if o.get("for_branch_control")]
+        assert len(ctrl_ops) == 3
+
+        # Check skip fields on business ops
+        biz_ops = [o for o in ops.values() if not o.get("for_branch_control")]
+        skip_fields = [o.get("skip") for o in biz_ops]
+        assert "_if_1" in skip_fields
+        assert any("_elif_" in (s or "") for s in skip_fields)
+        assert any("_else_" in (s or "") for s in skip_fields)
+
+    def test_nested_if(self):
+        flow = Flow(
+            name="nested",
+            common_input=["a", "b"],
+            item_input=["x"],
+            item_output=["y", "z"],
+        )
+        flow.if_("a > 0") \
+            ._add_op("lua", item_input=["x"], item_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_item="f", function_for_common="") \
+            .if_("b > 0") \
+                ._add_op("lua", item_input=["x"], item_output=["z"],
+                          lua_script="function g() return x * 2 end",
+                          function_for_item="g", function_for_common="") \
+            .end_if_() \
+        .end_if_()
+
+        cfg = compile_flow(flow)
+        ops = cfg["pipeline_config"]["operators"]
+        # 2 control ops + 2 business ops = 4
+        assert len(ops) == 4
+
+
+class TestOperatorNaming:
+    def test_names_are_unique(self):
+        flow = Flow(name="naming", item_input=["x"], item_output=["a", "b"])
+        # Each op reads x and writes a unique output; later ops read previous output
+        flow._add_op("lua", item_input=["x"], item_output=["a"],
+                      lua_script="function f0() return x end",
+                      function_for_item="f0", function_for_common="")
+        flow._add_op("lua", item_input=["a"], item_output=["a"],
+                      lua_script="function f1() return a end",
+                      function_for_item="f1", function_for_common="")
+        flow._add_op("lua", item_input=["a"], item_output=["a"],
+                      lua_script="function f2() return a end",
+                      function_for_item="f2", function_for_common="")
+        flow._add_op("lua", item_input=["a"], item_output=["b"],
+                      lua_script="function f3() return a end",
+                      function_for_item="f3", function_for_common="")
+        flow._add_op("lua", item_input=["b"], item_output=["b"],
+                      lua_script="function f4() return b end",
+                      function_for_item="f4", function_for_common="")
+        cfg = compile_flow(flow)
+        names = list(cfg["pipeline_config"]["operators"].keys())
+        assert len(names) == 5
+        assert len(names) == len(set(names))
+
+    def test_name_format(self):
+        flow = Flow(name="fmt", common_input=["x"], common_output=["y"])
+        flow._add_op("lua", common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        name = list(cfg["pipeline_config"]["operators"].keys())[0]
+        assert name.startswith("lua_")
+        assert len(name.split("_")) >= 2
+
+
+class TestPipelineMap:
+    def test_subflow_pipeline_map(self):
+        sub = SubFlow(name="my_stage")
+        sub._add_op("lua", item_input=["x"], item_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_item="f", function_for_common="")
+
+        flow = Flow(name="test", item_input=["x"], item_output=["y"],
+                    sub_flows=[sub])
+        cfg = compile_flow(flow)
+        pmap = cfg["pipeline_config"]["pipeline_map"]
+        assert "my_stage" in pmap
+        assert len(pmap["my_stage"]["pipeline"]) == 1
+
+    def test_pipeline_group_references_map(self):
+        flow = Flow(name="test", common_input=["x"], common_output=["y"])
+        flow._add_op("lua", common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        group_pipelines = cfg["pipeline_group"]["main"]["pipeline"]
+        pmap_keys = list(cfg["pipeline_config"]["pipeline_map"].keys())
+        assert group_pipelines == pmap_keys

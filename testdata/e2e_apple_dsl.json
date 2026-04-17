@@ -1,0 +1,92 @@
+{
+  "_PINEAPPLE_VERSION": "0.1.0",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-17T07:33:24Z",
+  "pipeline_config": {
+    "operators": {
+      "recall_static_C844DF": {
+        "type_name": "recall_static",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": [
+            "item_id",
+            "item_price"
+          ]
+        },
+        "items": [
+          {
+            "item_id": "a",
+            "item_price": 100.0
+          },
+          {
+            "item_id": "b",
+            "item_price": 200.0
+          },
+          {
+            "item_id": "c",
+            "item_price": 50.0
+          }
+        ]
+      },
+      "lua_4EE634": {
+        "type_name": "lua",
+        "$metadata": {
+          "common_input": [
+            "user_age"
+          ],
+          "common_output": [],
+          "item_input": [
+            "item_price"
+          ],
+          "item_output": [
+            "item_final_price"
+          ]
+        },
+        "lua_script": "function f()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "reorder_sort_4EC4C6": {
+        "type_name": "reorder_sort",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [
+            "item_final_price"
+          ],
+          "item_output": []
+        },
+        "field": "item_final_price",
+        "order": "desc"
+      }
+    },
+    "pipeline_map": {
+      "_main_apple_e2e": {
+        "pipeline": [
+          "recall_static_C844DF",
+          "lua_4EE634",
+          "reorder_sort_4EC4C6"
+        ]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": [
+        "_main_apple_e2e"
+      ]
+    }
+  },
+  "flow_contract": {
+    "common_input": [
+      "user_age"
+    ],
+    "item_input": [],
+    "common_output": [],
+    "item_output": [
+      "item_id",
+      "item_final_price"
+    ]
+  }
+}
