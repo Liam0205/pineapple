@@ -151,21 +151,35 @@ flow.truncate(top_n=200)
 
 控制算子不修改 DataFrame，只决定执行路径。
 
+### 条件表达式
+
+条件为 **Lua 表达式**，复用引擎已有的 Lua 运行时，无额外依赖。表达式中可引用所有 common 特征作为全局变量（与 Lua 算子的 `function_for_common` 一致）。
+
+表达式必须求值为 boolean。
+
 ```python
-flow.if_(condition="item_count > 0") \
+flow.if_(condition="user_age > 18 and item_count > 0") \
     .some_op(...) \
     .some_other_op(...) \
-.elseif_(condition="fallback_enabled == true") \
+.elseif_(condition="fallback_enabled ~= nil") \
     .fallback_op(...) \
 .else_() \
     .default_op(...) \
 .end_if_()
 ```
 
-> **待讨论**: 条件表达式的语法和求值方式。可能的方案：
-> - 简单的字符串表达式，引擎内置解析（如 `"item_count > 0"`）
-> - 引用 common 特征字段作为条件变量
-> - Lua 表达式
+### 语法说明
+
+沿用 Lua 语法风格：
+
+| 操作 | Lua 语法 |
+|------|----------|
+| 不等于 | `~=` |
+| 与 | `and` |
+| 或 | `or` |
+| 非 | `not` |
+| 空值判断 | `x ~= nil` |
+| 长度 | `#(list)` |
 
 ## 观察 (Observe)
 
