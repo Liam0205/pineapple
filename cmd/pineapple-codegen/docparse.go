@@ -1,7 +1,6 @@
 package main
 
 import (
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -9,23 +8,13 @@ import (
 	"strings"
 )
 
-// OpDoc holds documentation extracted from a Go operator source file's
-// package-level doc comment.
+// OpDoc holds the metadata contract extracted from a Go operator source file's
+// package-level doc comment. Category, Description, and param descriptions are
+// now part of OperatorSchema and enforced at registration time; only the
+// metadata contract (best-effort) is still parsed from comments.
 type OpDoc struct {
-	Name        string
-	Category    string
-	Description string
-	ParamDocs   []ParamDoc
-	Metadata    MetadataDoc
-}
-
-// ParamDoc holds the human-readable documentation for a single parameter.
-type ParamDoc struct {
-	Name        string
-	Type        string
-	Required    bool
-	Default     string
-	Description string
+	Name     string
+	Metadata MetadataDoc
 }
 
 // MetadataDoc holds the typical metadata contract extracted from comments.
@@ -103,74 +92,40 @@ func parseFileDoc(path string) (OpDoc, bool, error) {
 }
 
 // parseDocComment parses the text of a doc comment into an OpDoc.
+// Only the Operator name and Metadata contract section are extracted;
+// Category, Description, and Params are now in OperatorSchema.
 func parseDocComment(text string) (OpDoc, bool, error) {
 	lines := strings.Split(text, "\n")
 
 	var doc OpDoc
 	found := false
-
-	// State machine for parsing sections
-	const (
-		sectionNone = iota
-		sectionDescription
-		sectionParams
-		sectionMetadata
-	)
-	section := sectionNone
+	inMetadata := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Check for section headers
 		if strings.HasPrefix(trimmed, "Operator:") {
 			doc.Name = strings.TrimSpace(strings.TrimPrefix(trimmed, "Operator:"))
 			found = true
-			section = sectionNone
-			continue
-		}
-		if strings.HasPrefix(trimmed, "Category:") {
-			doc.Category = strings.TrimSpace(strings.TrimPrefix(trimmed, "Category:"))
-			section = sectionNone
-			continue
-		}
-		if strings.HasPrefix(trimmed, "Description:") {
-			doc.Description = strings.TrimSpace(strings.TrimPrefix(trimmed, "Description:"))
-			section = sectionDescription
-			continue
-		}
-		if strings.HasPrefix(trimmed, "Params:") {
-			section = sectionParams
 			continue
 		}
 		if strings.HasPrefix(trimmed, "Metadata contract") {
-			section = sectionMetadata
+			inMetadata = true
 			continue
 		}
+		// Any other section header ends metadata parsing
+		if inMetadata && trimmed != "" && !strings.HasPrefix(trimmed, "CommonInput:") &&
+			!strings.HasPrefix(trimmed, "CommonOutput:") &&
+			!strings.HasPrefix(trimmed, "ItemInput:") &&
+			!strings.HasPrefix(trimmed, "ItemOutput:") {
+			// Check if this is a known section header that ends metadata
+			if strings.HasPrefix(trimmed, "Category:") || strings.HasPrefix(trimmed, "Description:") ||
+				strings.HasPrefix(trimmed, "Params:") || strings.HasPrefix(trimmed, "Operator:") {
+				inMetadata = false
+			}
+		}
 
-		// Process lines based on current section
-		switch section {
-		case sectionDescription:
-			if trimmed == "" {
-				section = sectionNone
-			} else {
-				doc.Description += " " + trimmed
-			}
-
-		case sectionParams:
-			if trimmed == "" {
-				continue
-			}
-			if strings.HasPrefix(trimmed, "- ") {
-				pd := parseParamLine(trimmed)
-				doc.ParamDocs = append(doc.ParamDocs, pd)
-			} else if !strings.HasPrefix(trimmed, "Exactly") && !strings.HasPrefix(trimmed, "Note") {
-				// Extra line for a note about params, skip section change
-			}
-
-		case sectionMetadata:
-			if trimmed == "" {
-				continue
-			}
+		if inMetadata {
 			if strings.HasPrefix(trimmed, "CommonInput:") {
 				doc.Metadata.CommonInput = strings.TrimSpace(strings.TrimPrefix(trimmed, "CommonInput:"))
 			} else if strings.HasPrefix(trimmed, "CommonOutput:") {
@@ -186,69 +141,6 @@ func parseDocComment(text string) (OpDoc, bool, error) {
 	return doc, found, nil
 }
 
-// parseParamLine parses a line like:
-//
-//	- field (string, required): Item field to check.
-//	- output_field (string, optional, default=<field>+"_norm"): Target field.
-func parseParamLine(line string) ParamDoc {
-	// Remove leading "- "
-	line = strings.TrimPrefix(line, "- ")
-
-	pd := ParamDoc{}
-
-	// Split at first ":"
-	colonIdx := strings.Index(line, "):")
-	if colonIdx == -1 {
-		// No description, try to parse just the header
-		colonIdx = strings.Index(line, ")")
-		if colonIdx == -1 {
-			pd.Name = line
-			return pd
-		}
-	}
-
-	header := line[:colonIdx+1]
-	if colonIdx+1 < len(line) {
-		desc := line[colonIdx+1:]
-		if strings.HasPrefix(desc, ":") {
-			desc = desc[1:]
-		}
-		pd.Description = strings.TrimSpace(desc)
-	}
-
-	// Parse header: "field (string, required)"
-	parenIdx := strings.Index(header, "(")
-	if parenIdx == -1 {
-		pd.Name = strings.TrimSpace(header)
-		return pd
-	}
-
-	pd.Name = strings.TrimSpace(header[:parenIdx])
-	spec := strings.TrimSuffix(strings.TrimSpace(header[parenIdx+1:]), ")")
-
-	parts := strings.Split(spec, ",")
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		if i == 0 {
-			pd.Type = part
-		} else if part == "required" {
-			pd.Required = true
-		} else if part == "optional" {
-			pd.Required = false
-		} else if strings.HasPrefix(part, "default") {
-			// Extract default value: "default=xxx" or "default \"xxx\""
-			eqIdx := strings.Index(part, "=")
-			if eqIdx != -1 {
-				pd.Default = strings.TrimSpace(part[eqIdx+1:])
-			} else if strings.HasPrefix(part, "default ") {
-				pd.Default = strings.TrimSpace(strings.TrimPrefix(part, "default "))
-			}
-		}
-	}
-
-	return pd
-}
-
 // opDocByName builds a name-keyed map from a slice of OpDocs.
 func opDocByName(docs []OpDoc) map[string]OpDoc {
 	m := make(map[string]OpDoc, len(docs))
@@ -256,12 +148,4 @@ func opDocByName(docs []OpDoc) map[string]OpDoc {
 		m[d.Name] = d
 	}
 	return m
-}
-
-// hasOpDocComment checks if an ast.File has a doc comment containing "Operator:".
-func hasOpDocComment(f *ast.File) bool {
-	if f.Doc != nil {
-		return strings.Contains(f.Doc.Text(), "Operator:")
-	}
-	return false
 }

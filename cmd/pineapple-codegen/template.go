@@ -169,7 +169,8 @@ type DocData struct {
 	Metadata    MetadataDoc
 }
 
-// DocParam merges ParamSpec (authoritative type/required/default) with ParamDoc (description).
+// DocParam holds a single parameter's documentation data for template rendering.
+// All fields come from OperatorSchema.ParamSpec.
 type DocParam struct {
 	Name        string
 	Type        string

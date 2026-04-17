@@ -166,36 +166,27 @@ func generateDocs(docDir, opsDir string, schemas []types.OperatorSchema) error {
 
 func buildDocData(schema types.OperatorSchema, doc OpDoc, hasDoc bool) DocData {
 	data := DocData{
-		Name: schema.Name,
+		Name:        schema.Name,
+		Category:    schema.Category,
+		Description: schema.Description,
 	}
 
 	if hasDoc {
-		data.Category = doc.Category
-		data.Description = doc.Description
 		data.Metadata = doc.Metadata
 	}
 
-	// Build params: merge schema (authoritative) with doc comments (descriptive)
-	docParamMap := make(map[string]ParamDoc)
-	if hasDoc {
-		for _, pd := range doc.ParamDocs {
-			docParamMap[pd.Name] = pd
-		}
-	}
-
+	// Build params from schema (authoritative for all fields now)
 	paramNames := sortedParams(schema.Params)
 	for _, name := range paramNames {
 		spec := schema.Params[name]
 		dp := DocParam{
-			Name:     name,
-			Type:     spec.Type,
-			Required: spec.Required,
+			Name:        name,
+			Type:        spec.Type,
+			Required:    spec.Required,
+			Description: spec.Description,
 		}
 		if spec.Default != nil {
 			dp.Default = pythonLiteral(spec.Default)
-		}
-		if pd, ok := docParamMap[name]; ok {
-			dp.Description = pd.Description
 		}
 		data.Params = append(data.Params, dp)
 	}
