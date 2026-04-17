@@ -34,6 +34,8 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **白盒可观测** — 每次请求返回算子级别的执行 trace（耗时、输入/输出快照、跳过状态），配合 debug 参数可逐算子深入排查。
 
+**动态资源管理** — `pkg/resource` 提供后台定时刷新的内存资源管理器，无锁读、刷新失败保留旧值，任何 shell（HTTP / RPC / Runner）均可组合 Pine 使用。
+
 **配置热加载** — 服务运行时监控配置文件变更，自动无停机重载，算法迭代立即生效。
 
 **文档自动生成** — 算子的 Category、Description、参数描述在注册时强制填写，codegen 自动生成 Python 类型绑定和 Markdown 文档，保证代码与文档永远同步。
@@ -270,6 +272,43 @@ go test ./operators/feature/...
 go test ./...
 ```
 
+### 动态资源管理
+
+算子若需读取定时刷新的数据（特征索引、AB 配置等），可通过 `pkg/resource` 获取：
+
+```go
+import "github.com/Liam0205/pineapple/pkg/resource"
+
+func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+    rp := resource.FromContext(ctx)
+    if rp == nil {
+        return nil // 未注入，降级处理
+    }
+    idx, ok := rp.Get("feature_index")
+    if !ok {
+        return nil // 资源未就绪，降级
+    }
+    table := idx.(*FeatureTable)
+    // 使用 table ...
+    return nil
+}
+```
+
+壳子侧注册并启动资源，在请求时注入 context：
+
+```go
+rm := resource.NewManager()
+rm.Register("feature_index", fetchFeatureTable, 5*time.Minute)
+rm.Start(ctx)
+defer rm.Stop()
+
+// 请求处理中
+ctx = resource.WithResources(r.Context(), rm)
+result, err := engine.Execute(ctx, req)
+```
+
+详见 [动态资源管理设计文档](design_doc/11_resource_manager.md)。
+
 ## Pipeline 编写指南（算法视角）
 
 ### 基本用法
@@ -454,7 +493,9 @@ pineapple/
 ├── cmd/
 │   ├── pineapple-server/   # HTTP 服务入口
 │   └── pineapple-codegen/  # 代码 & 文档生成工具
-├── design_doc/             # 设计文档 (01-10)
+├── pkg/
+│   └── resource/           # 动态资源管理 (ResourceManager)
+├── design_doc/             # 设计文档 (01-11)
 ├── doc/
 │   ├── operators/          # 自动生成的算子文档
 │   └── reports/            # 测试 & 性能报告
@@ -491,5 +532,6 @@ pineapple/
   - [可观测性](design_doc/08_observability.md)
   - [Pine 集成模型](design_doc/09_pine_integration.md)
   - [文档自动生成](design_doc/10_docgen.md)
+  - [动态资源管理](design_doc/11_resource_manager.md)
 
 - **[算子参考文档](doc/operators/README.md)** — 所有内置算子的详细说明、参数、用法示例
