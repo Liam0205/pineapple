@@ -64,3 +64,4 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 - [05 算子分类](05_operator_types.md) — 召回、合并、特征处理、排序、过滤、控制、观察
 - [06 JSON 配置格式](06_json_config.md) — Apple 产出的 JSON 结构、控制流编译、DAG 推导
 - [07 错误处理](07_error_handling.md) — 可恢复/不可恢复错误、进程保护
+- [08 可观测性](08_observability.md) — 白盒回查、代码治理、debug 参数
