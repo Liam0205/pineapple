@@ -5,7 +5,8 @@ from apple.generated.operators import FilterConditionOp
 from apple.generated.operators import FilterTruncateOp
 from apple.generated.operators import LuaOp
 from apple.generated.operators import MergeDedupOp
+from apple.generated.operators import ObserveLogOp
 from apple.generated.operators import RecallStaticOp
 from apple.generated.operators import ReorderSortOp
 
-__all__ = ["FeatureDispatchOp", "FeatureNormalizeOp", "FilterConditionOp", "FilterTruncateOp", "LuaOp", "MergeDedupOp", "RecallStaticOp", "ReorderSortOp", ]
+__all__ = ["FeatureDispatchOp", "FeatureNormalizeOp", "FilterConditionOp", "FilterTruncateOp", "LuaOp", "MergeDedupOp", "ObserveLogOp", "RecallStaticOp", "ReorderSortOp", ]

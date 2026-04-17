@@ -22,6 +22,8 @@ class FeatureDispatchOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "FeatureDispatchOp":
         return self._apply(
             params={
@@ -33,6 +35,8 @@ class FeatureDispatchOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
 
 class FeatureNormalizeOp(BaseOp):
@@ -55,6 +59,8 @@ class FeatureNormalizeOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "FeatureNormalizeOp":
         return self._apply(
             params={
@@ -67,6 +73,8 @@ class FeatureNormalizeOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
 
 class FilterConditionOp(BaseOp):
@@ -87,6 +95,8 @@ class FilterConditionOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "FilterConditionOp":
         return self._apply(
             params={
@@ -98,6 +108,8 @@ class FilterConditionOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
 
 class FilterTruncateOp(BaseOp):
@@ -116,6 +128,8 @@ class FilterTruncateOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "FilterTruncateOp":
         return self._apply(
             params={
@@ -126,6 +140,8 @@ class FilterTruncateOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
 
 class LuaOp(BaseOp):
@@ -148,6 +164,8 @@ class LuaOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "LuaOp":
         return self._apply(
             params={
@@ -160,6 +178,8 @@ class LuaOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
 
 class MergeDedupOp(BaseOp):
@@ -180,6 +200,8 @@ class MergeDedupOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "MergeDedupOp":
         return self._apply(
             params={
@@ -191,6 +213,40 @@ class MergeDedupOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
+        )
+
+class ObserveLogOp(BaseOp):
+    """Operator: observe_log"""
+    _name = "observe_log"
+    _params_schema = {
+        "log_prefix": {"type": "string", "required": False},
+    }
+
+    def __call__(
+        self,
+        *,
+        log_prefix: str = "",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
+    ) -> "ObserveLogOp":
+        return self._apply(
+            params={
+                "log_prefix": log_prefix,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
 
 class RecallStaticOp(BaseOp):
@@ -209,6 +265,8 @@ class RecallStaticOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "RecallStaticOp":
         return self._apply(
             params={
@@ -219,6 +277,8 @@ class RecallStaticOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
 
 class ReorderSortOp(BaseOp):
@@ -239,6 +299,8 @@ class ReorderSortOp(BaseOp):
         item_input: list[str] | None = None,
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
     ) -> "ReorderSortOp":
         return self._apply(
             params={
@@ -250,4 +312,6 @@ class ReorderSortOp(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
         )
