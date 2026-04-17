@@ -35,6 +35,39 @@ flow = Flow(
 
 此机制从源头防止无用算子膨胀，类似编译器的"死代码消除"。
 
+### Flow 组合
+
+大型流程可拆分为多个子 Flow 独立编写，最终组合成一个完整的 Pipeline。这是一种语法糖，方便对不同阶段分别编写和复用。
+
+```python
+# 各阶段独立编写
+parse_sample = (
+    SubFlow(name="parse_sample")
+    .op_a(...)
+    .op_b(...)
+)
+
+extract_features = (
+    SubFlow(name="extract_features")
+    .op_c(...)
+    .op_d(...)
+)
+
+# 统合为完整 Pipeline
+pipeline = Flow(
+    name="recommend_pipeline",
+    common_input=["user_id", "query"],
+    item_output=["item_id", "item_score"],
+    sub_flows=[parse_sample, extract_features],
+)
+```
+
+**关键语义：**
+
+- **DAG 跨 flow 推导**: 组合后，所有子 flow 的算子被打平到同一个 DAG 中。子 flow 的边界在 DAG 构建时是透明的。例如 `parse_sample` 输出 `foo`，`extract_features` 输入 `foo`，引擎自动推导出依赖关系。
+- **子 flow 可复用**: 同一个子 flow 片段可被多个 pipeline 引用（如 batch 和 stream pipeline 共享 `parse_sample`）。
+- **输入输出契约在顶层 Flow 上**: 子 flow 不声明输入输出契约，契约只在最终组合的 Flow 上定义。
+
 ## 算子 (Operator)
 
 算子是 Pineapple 的基本计算单元。
