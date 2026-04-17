@@ -158,6 +158,112 @@ const initTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
 __all__ = [{{range .}}"{{camelCase .Name}}Op", {{end}}]
 `
 
+// --- Markdown documentation templates ---
+
+// DocData combines registry schema and parsed doc comments for template rendering.
+type DocData struct {
+	Name        string
+	Category    string
+	Description string
+	Params      []DocParam
+	Metadata    MetadataDoc
+}
+
+// DocParam merges ParamSpec (authoritative type/required/default) with ParamDoc (description).
+type DocParam struct {
+	Name        string
+	Type        string
+	Required    bool
+	Default     string
+	Description string
+}
+
+const operatorDocTemplate = `# {{.Name}}
+
+**Category**: {{.Category}}
+
+{{.Description}}
+
+## Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+{{- range .Params}}
+| {{.Name}} | {{.Type}} | {{if .Required}}Yes{{else}}No{{end}} | {{if .Default}}{{$.BacktickWrap .Default}}{{else}}-{{end}} | {{.Description}} |
+{{- end}}
+
+## Metadata Contract
+
+| Field | Typical Usage |
+|-------|---------------|
+| CommonInput | {{$.BacktickWrap .Metadata.CommonInput}} |
+| CommonOutput | {{$.BacktickWrap .Metadata.CommonOutput}} |
+| ItemInput | {{$.BacktickWrap .Metadata.ItemInput}} |
+| ItemOutput | {{$.BacktickWrap .Metadata.ItemOutput}} |
+
+## DSL Usage
+
+` + "```python" + `
+flow.{{.Name}}(
+{{- range .Params}}
+    {{.Name}}=...,
+{{- end}}
+    common_input=[...],
+    item_input=[...],
+    item_output=[...],
+)
+` + "```" + `
+`
+
+// BacktickWrap wraps a string in backticks for markdown. Called as a method on DocData.
+func (d DocData) BacktickWrap(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return "`" + s + "`"
+}
+
+const operatorIndexTemplate = `# Operator Reference
+
+> Auto-generated from Go operator source code. Do not edit manually.
+
+{{range .Categories}}
+## {{.Name}}
+
+| Operator | Description |
+|----------|-------------|
+{{- range .Ops}}
+| [{{.Name}}]({{.Name}}.md) | {{.Description}} |
+{{- end}}
+{{end}}
+`
+
+type indexCategory struct {
+	Name string
+	Ops  []indexOp
+}
+
+type indexOp struct {
+	Name        string
+	Description string
+}
+
+type indexData struct {
+	Categories []indexCategory
+}
+
+func parseDocTemplates() (*template.Template, *template.Template, error) {
+	docTmpl, err := template.New("doc").Parse(operatorDocTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	idxTmpl, err := template.New("index").Parse(operatorIndexTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	return docTmpl, idxTmpl, nil
+}
+
 func parseTemplates() (*template.Template, *template.Template, error) {
 	opTmpl, err := template.New("operators").Funcs(funcMap).Parse(operatorClassTemplate)
 	if err != nil {

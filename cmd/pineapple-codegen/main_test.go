@@ -168,7 +168,7 @@ func TestRegistryAllIntegration(t *testing.T) {
 
 func TestRunIntegration(t *testing.T) {
 	dir := t.TempDir()
-	if err := run(dir); err != nil {
+	if err := run(dir, "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -191,5 +191,72 @@ func TestRunIntegration(t *testing.T) {
 	}
 	if len(initData) == 0 {
 		t.Error("__init__.py is empty")
+	}
+}
+
+func TestRunWithDocGeneration(t *testing.T) {
+	pyDir := t.TempDir()
+	docDir := t.TempDir()
+
+	if err := run(pyDir, docDir, "../../operators"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check that per-operator docs were generated
+	entries, err := os.ReadDir(docDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mdCount := 0
+	hasReadme := false
+	for _, e := range entries {
+		if e.Name() == "README.md" {
+			hasReadme = true
+		}
+		if filepath.Ext(e.Name()) == ".md" {
+			mdCount++
+		}
+	}
+
+	if !hasReadme {
+		t.Error("missing README.md index")
+	}
+	// At least 9 operators + 1 README = 10
+	if mdCount < 10 {
+		t.Errorf("expected at least 10 .md files, got %d", mdCount)
+	}
+
+	// Spot-check content of one doc
+	data, err := os.ReadFile(filepath.Join(docDir, "filter_condition.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	checks := []string{
+		"# filter_condition",
+		"**Category**: Filter",
+		"## Parameters",
+		"## Metadata Contract",
+		"## DSL Usage",
+		"flow.filter_condition(",
+	}
+	for _, check := range checks {
+		if !bytes.Contains([]byte(content), []byte(check)) {
+			t.Errorf("filter_condition.md missing: %s", check)
+		}
+	}
+
+	// Check README has category grouping
+	readme, err := os.ReadFile(filepath.Join(docDir, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readmeContent := string(readme)
+	if !bytes.Contains([]byte(readmeContent), []byte("## Filter")) {
+		t.Error("README missing Filter category")
+	}
+	if !bytes.Contains([]byte(readmeContent), []byte("[filter_condition]")) {
+		t.Error("README missing link to filter_condition")
 	}
 }
