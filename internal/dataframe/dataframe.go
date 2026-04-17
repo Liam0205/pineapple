@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/Liam0205/pineapple/internal/types"
 )
@@ -100,6 +101,9 @@ func BuildInput(
 func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool) error {
 	// 1. Common writes
 	for field, value := range out.GetCommonWrites() {
+		if err := validateValue(field, value); err != nil {
+			return fmt.Errorf("common write: %w", err)
+		}
 		f.common[field] = value
 	}
 
@@ -109,6 +113,9 @@ func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool
 			return fmt.Errorf("SetItem index %d out of range [0, %d)", idx, len(f.items))
 		}
 		for field, value := range fields {
+			if err := validateValue(field, value); err != nil {
+				return fmt.Errorf("item[%d] write: %w", idx, err)
+			}
 			f.items[idx][field] = value
 		}
 	}
@@ -144,6 +151,9 @@ func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool
 	for _, added := range out.GetAddedItems() {
 		row := make(map[string]any, len(added)+1)
 		for k, v := range added {
+			if err := validateValue(k, v); err != nil {
+				return fmt.Errorf("added item write: %w", err)
+			}
 			row[k] = v
 		}
 		if recall {
@@ -170,4 +180,28 @@ func ToResult(f *Frame) *types.Result {
 		items[i] = row
 	}
 	return &types.Result{Common: common, Items: items}
+}
+
+// validateValue checks that a value is a Pine-supported type.
+// Supported: nil, bool, int64, float64, string, []any, map[string]any.
+// Other integer and float types are also accepted (widened at runtime).
+func validateValue(field string, value any) error {
+	if value == nil {
+		return nil
+	}
+	switch value.(type) {
+	case bool, int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64, string:
+		return nil
+	case []any, map[string]any:
+		return nil
+	}
+	// Check for slices and maps with reflection as a fallback
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Map:
+		return nil
+	}
+	return fmt.Errorf("field %q: unsupported type %T", field, value)
 }

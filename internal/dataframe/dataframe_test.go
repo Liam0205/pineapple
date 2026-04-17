@@ -296,3 +296,60 @@ func TestToResultIsolation(t *testing.T) {
 		t.Error("frame item was mutated via result")
 	}
 }
+
+func TestApplyOutputTypeValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   any
+		wantErr bool
+	}{
+		{"nil", nil, false},
+		{"bool", true, false},
+		{"int", 42, false},
+		{"int64", int64(42), false},
+		{"float64", 3.14, false},
+		{"string", "hello", false},
+		{"slice_any", []any{1, 2}, false},
+		{"map_string_any", map[string]any{"k": "v"}, false},
+		{"channel", make(chan int), true},
+		{"func", func() {}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := New(map[string]any{}, nil)
+			out := types.NewOperatorOutput()
+			out.SetCommon("field", tt.value)
+
+			err := ApplyOutput(f, out, "op", false)
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for type %T", tt.value)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error for type %T: %v", tt.value, err)
+			}
+		})
+	}
+}
+
+func TestApplyOutputItemTypeValidation(t *testing.T) {
+	f := New(nil, []map[string]any{{"x": 1}})
+	out := types.NewOperatorOutput()
+	out.SetItem(0, "bad", make(chan string))
+
+	err := ApplyOutput(f, out, "op", false)
+	if err == nil {
+		t.Error("expected error for channel type in item write")
+	}
+}
+
+func TestApplyOutputAddItemTypeValidation(t *testing.T) {
+	f := New(nil, nil)
+	out := types.NewOperatorOutput()
+	out.AddItem(map[string]any{"bad": func() {}})
+
+	err := ApplyOutput(f, out, "op", false)
+	if err == nil {
+		t.Error("expected error for func type in added item")
+	}
+}
