@@ -194,6 +194,12 @@ flow.if_(condition="user_age > 18 and item_count > 0") \
 | 空值判断 | `x ~= nil` |
 | 长度 | `#(list)` |
 
+### 编译方式
+
+Apple 将 `if_()` / `elseif_()` / `else_()` / `end_if_()` 降级为 Lua 控制算子 + skip 机制。每个条件分支生成一个控制算子，输出隐藏的控制属性；分支内算子通过 `skip` 引用控制属性。`elseif` / `else` 的控制算子依赖前面所有控制属性，形成链式互斥。Pine 无需特殊处理控制流。
+
+详细编译规则和 JSON 示例见 [06 JSON 配置格式 — 控制流的编译](06_json_config.md#控制流的编译)。
+
 ## 观察 (Observe)
 
 只读取 DataFrame 中的信息，不做任何修改。用于将信息写入外部系统。
