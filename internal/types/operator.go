@@ -17,13 +17,16 @@ type MetadataAware interface {
 
 // ParamSpec describes a single operator parameter for schema validation.
 type ParamSpec struct {
-	Type     string // "string", "int64", "float64", "bool", "any"
-	Required bool
-	Default  any
+	Type        string // "string", "int64", "float64", "bool", "any"
+	Required    bool
+	Default     any
+	Description string // Human-readable description (required by Register).
 }
 
 // OperatorSchema describes an operator type for registration and validation.
 type OperatorSchema struct {
-	Name   string
-	Params map[string]ParamSpec
+	Name        string
+	Category    string // e.g. "Feature", "Filter", "Recall" (required by Register).
+	Description string // One-line summary of the operator (required by Register).
+	Params      map[string]ParamSpec
 }

@@ -21,10 +21,12 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "feature_dispatch",
+		Name:        "feature_dispatch",
+		Category:    "Feature",
+		Description: "Copies a common-side field value to every item as an item-side field.",
 		Params: map[string]pine.ParamSpec{
-			"common_field": {Type: "string", Required: true},
-			"item_field":   {Type: "string", Required: true},
+			"common_field": {Type: "string", Required: true, Description: "Source common field to read."},
+			"item_field":   {Type: "string", Required: true, Description: "Target item field to write."},
 		},
 	}, func() pine.Operator {
 		return &DispatchOp{}

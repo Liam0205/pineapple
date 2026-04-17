@@ -26,11 +26,13 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "lua",
+		Name:        "lua",
+		Category:    "Feature / Control",
+		Description: "Executes a Lua script for per-item or per-common computation.",
 		Params: map[string]pine.ParamSpec{
-			"lua_script":          {Type: "string", Required: true},
-			"function_for_item":   {Type: "string", Required: false, Default: ""},
-			"function_for_common": {Type: "string", Required: false, Default: ""},
+			"lua_script":          {Type: "string", Required: true, Description: "Lua source code defining the function to call."},
+			"function_for_item":   {Type: "string", Required: false, Default: "", Description: "Function name to call per item."},
+			"function_for_common": {Type: "string", Required: false, Default: "", Description: "Function name to call once for all items."},
 		},
 	}, func() pine.Operator {
 		return &LuaOp{}

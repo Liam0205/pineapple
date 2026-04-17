@@ -37,8 +37,23 @@ var (
 	registry = make(map[string]entry)
 )
 
-// Register registers an operator type. Panics on duplicate name.
+// Register registers an operator type. Panics on duplicate name or missing doc fields.
 func Register(schema types.OperatorSchema, factory func() types.Operator) {
+	if schema.Name == "" {
+		panic("pine: Register called with empty Name")
+	}
+	if schema.Category == "" {
+		panic(fmt.Sprintf("pine: operator %q: Category is required", schema.Name))
+	}
+	if schema.Description == "" {
+		panic(fmt.Sprintf("pine: operator %q: Description is required", schema.Name))
+	}
+	for pname, pspec := range schema.Params {
+		if pspec.Description == "" {
+			panic(fmt.Sprintf("pine: operator %q param %q: Description is required", schema.Name, pname))
+		}
+	}
+
 	mu.Lock()
 	defer mu.Unlock()
 	if _, exists := registry[schema.Name]; exists {

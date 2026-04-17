@@ -23,11 +23,13 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "feature_normalize",
+		Name:        "feature_normalize",
+		Category:    "Feature",
+		Description: "Normalizes a numeric item field using min-max scaling to [0, 1].",
 		Params: map[string]pine.ParamSpec{
-			"field":        {Type: "string", Required: true},
-			"output_field": {Type: "string", Required: false, Default: ""},
-			"method":       {Type: "string", Required: false, Default: "min_max"},
+			"field":        {Type: "string", Required: true, Description: "Item field to normalize."},
+			"output_field": {Type: "string", Required: false, Default: "", Description: "Target field for normalized values."},
+			"method":       {Type: "string", Required: false, Default: "min_max", Description: "Normalization method."},
 		},
 	}, func() pine.Operator {
 		return &NormalizeOp{}

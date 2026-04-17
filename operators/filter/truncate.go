@@ -21,9 +21,11 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "filter_truncate",
+		Name:        "filter_truncate",
+		Category:    "Filter",
+		Description: "Keeps only the first N items, removing the rest.",
 		Params: map[string]pine.ParamSpec{
-			"top_n": {Type: "int64", Required: true},
+			"top_n": {Type: "int64", Required: true, Description: "Number of items to keep."},
 		},
 	}, func() pine.Operator {
 		return &TruncateOp{}

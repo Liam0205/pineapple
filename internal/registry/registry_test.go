@@ -40,7 +40,7 @@ func (f *failInitOp) Execute(ctx context.Context, in *types.OperatorInput, out *
 
 func TestRegisterAndLookup(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "noop"}
+	schema := types.OperatorSchema{Name: "noop", Category: "Test", Description: "No-op."}
 	Register(schema, func() types.Operator { return &noopOp{} })
 
 	s, factory, ok := Lookup("noop")
@@ -66,7 +66,7 @@ func TestLookupNotFound(t *testing.T) {
 
 func TestDuplicateRegistrationPanics(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "dup"}
+	schema := types.OperatorSchema{Name: "dup", Category: "Test", Description: "Dup test."}
 	Register(schema, func() types.Operator { return &noopOp{} })
 
 	defer func() {
@@ -80,9 +80,11 @@ func TestDuplicateRegistrationPanics(t *testing.T) {
 func TestValidateAndExtractParamsRequired(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
-		Name: "test",
+		Name:     "test",
+		Category: "Test",
+		Description: "Test op.",
 		Params: map[string]types.ParamSpec{
-			"required_param": {Type: "string", Required: true},
+			"required_param": {Type: "string", Required: true, Description: "A required param."},
 		},
 	}
 
@@ -95,9 +97,11 @@ func TestValidateAndExtractParamsRequired(t *testing.T) {
 func TestValidateAndExtractParamsDefault(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
-		Name: "test",
+		Name:     "test",
+		Category: "Test",
+		Description: "Test op.",
 		Params: map[string]types.ParamSpec{
-			"optional": {Type: "float64", Required: false, Default: 0.5},
+			"optional": {Type: "float64", Required: false, Default: 0.5, Description: "Optional param."},
 		},
 	}
 
@@ -112,7 +116,7 @@ func TestValidateAndExtractParamsDefault(t *testing.T) {
 
 func TestValidateAndExtractParamsFiltersReserved(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "test"}
+	schema := types.OperatorSchema{Name: "test", Category: "Test", Description: "Test op."}
 
 	raw := map[string]any{
 		"type_name":    "test",
@@ -143,9 +147,11 @@ func TestValidateAndExtractParamsFiltersReserved(t *testing.T) {
 func TestBuildOperatorSuccess(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
-		Name: "capture",
+		Name:        "capture",
+		Category:    "Test",
+		Description: "Capture op.",
 		Params: map[string]types.ParamSpec{
-			"threshold": {Type: "float64", Required: false, Default: 1.0},
+			"threshold": {Type: "float64", Required: false, Default: 1.0, Description: "Threshold value."},
 		},
 	}
 	Register(schema, func() types.Operator { return &captureOp{} })
@@ -173,7 +179,7 @@ func TestBuildOperatorUnknownType(t *testing.T) {
 
 func TestBuildOperatorInitFails(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "fail_init"}
+	schema := types.OperatorSchema{Name: "fail_init", Category: "Test", Description: "Fails init."}
 	Register(schema, func() types.Operator { return &failInitOp{} })
 
 	_, _, err := BuildOperator("fail_init", map[string]any{})
@@ -193,4 +199,41 @@ func TestIsReservedKey(t *testing.T) {
 	if IsReservedKey("business_param") {
 		t.Error("business_param should not be reserved")
 	}
+}
+
+func TestRegisterPanicsOnMissingCategory(t *testing.T) {
+	Reset()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for missing Category")
+		}
+	}()
+	Register(types.OperatorSchema{Name: "bad", Description: "Has desc."}, func() types.Operator { return &noopOp{} })
+}
+
+func TestRegisterPanicsOnMissingDescription(t *testing.T) {
+	Reset()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for missing Description")
+		}
+	}()
+	Register(types.OperatorSchema{Name: "bad", Category: "Test"}, func() types.Operator { return &noopOp{} })
+}
+
+func TestRegisterPanicsOnMissingParamDescription(t *testing.T) {
+	Reset()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for missing param Description")
+		}
+	}()
+	Register(types.OperatorSchema{
+		Name:        "bad",
+		Category:    "Test",
+		Description: "Has desc.",
+		Params: map[string]types.ParamSpec{
+			"field": {Type: "string", Required: true},
+		},
+	}, func() types.Operator { return &noopOp{} })
 }

@@ -22,10 +22,12 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "filter_condition",
+		Name:        "filter_condition",
+		Category:    "Filter",
+		Description: "Removes items where a specified field equals a given value.",
 		Params: map[string]pine.ParamSpec{
-			"field": {Type: "string", Required: true},
-			"value": {Type: "any", Required: true},
+			"field": {Type: "string", Required: true, Description: "Item field to check."},
+			"value": {Type: "any", Required: true, Description: "Items where field == value are removed."},
 		},
 	}, func() pine.Operator {
 		return &ConditionOp{}

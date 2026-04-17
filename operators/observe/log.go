@@ -25,9 +25,11 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "observe_log",
+		Name:        "observe_log",
+		Category:    "Observe",
+		Description: "Reads declared input fields and writes them to Go standard log. This is a read-only operator: it produces no output fields and does not modify the DataFrame. It is exempt from dead-code detection.",
 		Params: map[string]pine.ParamSpec{
-			"log_prefix": {Type: "string", Required: false, Default: ""},
+			"log_prefix": {Type: "string", Required: false, Default: "", Description: "Prefix prepended to each log line."},
 		},
 	}, func() pine.Operator {
 		return &LogOp{}

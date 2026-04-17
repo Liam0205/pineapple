@@ -107,10 +107,12 @@ func TestSortedParams(t *testing.T) {
 func TestTemplateRendering(t *testing.T) {
 	schemas := []types.OperatorSchema{
 		{
-			Name: "test_op",
+			Name:        "test_op",
+			Category:    "Test",
+			Description: "A test operator.",
 			Params: map[string]types.ParamSpec{
-				"name":  {Type: "string", Required: true},
-				"count": {Type: "int64", Required: false, Default: int64(10)},
+				"name":  {Type: "string", Required: true, Description: "The name."},
+				"count": {Type: "int64", Required: false, Default: int64(10), Description: "Item count."},
 			},
 		},
 	}

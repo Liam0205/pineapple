@@ -23,10 +23,12 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "reorder_sort",
+		Name:        "reorder_sort",
+		Category:    "Reorder",
+		Description: "Sorts items by a numeric field in ascending or descending order.",
 		Params: map[string]pine.ParamSpec{
-			"field": {Type: "string", Required: true},
-			"order": {Type: "string", Required: false, Default: "desc"},
+			"field": {Type: "string", Required: true, Description: "Item field to sort by."},
+			"order": {Type: "string", Required: false, Default: "desc", Description: "Sort direction — \"asc\" or \"desc\"."},
 		},
 	}, func() pine.Operator {
 		return &SortOp{}

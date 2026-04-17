@@ -22,10 +22,12 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name: "merge_dedup",
+		Name:        "merge_dedup",
+		Category:    "Merge",
+		Description: "Deduplicates items by a key field, keeping the first occurrence.",
 		Params: map[string]pine.ParamSpec{
-			"dedup_by": {Type: "string", Required: true},
-			"strategy": {Type: "string", Required: false, Default: "first"},
+			"dedup_by": {Type: "string", Required: true, Description: "Field name to deduplicate on."},
+			"strategy": {Type: "string", Required: false, Default: "first", Description: "Dedup strategy — \"first\" keeps first occurrence."},
 		},
 	}, func() pine.Operator {
 		return &DedupOp{}
