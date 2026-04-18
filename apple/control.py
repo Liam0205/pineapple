@@ -78,7 +78,7 @@ def make_control_op(
     lua_script = f"function evaluate() {lua_body} end"
 
     return OpCall(
-        type_name="lua",
+        type_name="transform_by_lua",
         params={
             "lua_script": lua_script,
             "function_for_item": "",

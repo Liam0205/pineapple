@@ -1,6 +1,6 @@
-# feature_normalize
+# transform_normalize
 
-**Category**: Feature
+**Type**: Transform
 
 Normalizes a numeric item field using min-max scaling to [0, 1].
 
@@ -24,7 +24,7 @@ Normalizes a numeric item field using min-max scaling to [0, 1].
 ## DSL Usage
 
 ```python
-flow.feature_normalize(
+flow.transform_normalize(
     field=...,
     method=...,
     output_field=...,

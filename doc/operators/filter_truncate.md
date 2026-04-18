@@ -1,6 +1,6 @@
 # filter_truncate
 
-**Category**: Filter
+**Type**: Filter
 
 Keeps only the first N items, removing the rest.
 

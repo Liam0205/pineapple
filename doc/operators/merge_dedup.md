@@ -1,6 +1,6 @@
 # merge_dedup
 
-**Category**: Merge
+**Type**: Merge
 
 Deduplicates items by a key field, keeping the first occurrence.
 

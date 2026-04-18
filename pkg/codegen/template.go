@@ -102,12 +102,18 @@ func toCamelCase(s string) string {
 	return string(result)
 }
 
+// isRecall returns true if the operator type is Recall.
+func isRecall(t types.OperatorType) bool {
+	return t == types.OpTypeRecall
+}
+
 var funcMap = template.FuncMap{
 	"pythonType":    pythonType,
 	"pythonDefault": pythonDefault,
 	"pythonLiteral": pythonLiteral,
 	"camelCase":     toCamelCase,
 	"sortedParams":  sortedParams,
+	"isRecall":      isRecall,
 }
 
 const operatorClassTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
@@ -148,7 +154,8 @@ class {{camelCase $schema.Name}}Op(BaseOp):
             item_input=item_input,
             item_output=item_output,
             item_defaults=item_defaults,
-            common_defaults=common_defaults,
+            common_defaults=common_defaults,{{if isRecall $schema.Type}}
+            recall=True,{{end}}
             debug=debug,
             name=name or "",
         )

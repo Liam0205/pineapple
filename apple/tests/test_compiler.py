@@ -36,7 +36,7 @@ class TestControlFlowLowering:
         ctrl_ops = {n: o for n, o in ops.items() if o.get("for_branch_control")}
         assert len(ctrl_ops) == 1
         ctrl_name, ctrl_op = list(ctrl_ops.items())[0]
-        assert ctrl_op["type_name"] == "lua"
+        assert ctrl_op["type_name"] == "transform_by_lua"
         assert "_if_1" in ctrl_op["$metadata"]["common_output"]
         assert "function evaluate()" in ctrl_op["lua_script"]
 
@@ -60,13 +60,13 @@ class TestControlFlowLowering:
                 field="item_score", order="desc",
             ) \
         .elseif_("mode == 2") \
-            ._add_op("lua",
+            ._add_op("transform_by_lua",
                 item_input=["item_score"],
                 item_output=["item_fallback"],
                 lua_script="function f() return item_score * 0.5 end",
                 function_for_item="f", function_for_common="") \
         .else_() \
-            ._add_op("lua",
+            ._add_op("transform_by_lua",
                 item_input=["item_score"],
                 item_output=["item_default"],
                 lua_script="function g() return 0 end",
@@ -97,11 +97,11 @@ class TestControlFlowLowering:
             item_output=["y", "z"],
         )
         flow.if_("a > 0") \
-            ._add_op("lua", item_input=["x"], item_output=["y"],
+            ._add_op("transform_by_lua", item_input=["x"], item_output=["y"],
                       lua_script="function f() return x end",
                       function_for_item="f", function_for_common="") \
             .if_("b > 0") \
-                ._add_op("lua", item_input=["x"], item_output=["z"],
+                ._add_op("transform_by_lua", item_input=["x"], item_output=["z"],
                           lua_script="function g() return x * 2 end",
                           function_for_item="g", function_for_common="") \
             .end_if_() \
@@ -117,19 +117,19 @@ class TestOperatorNaming:
     def test_names_are_unique(self):
         flow = Flow(name="naming", item_input=["x"], item_output=["a", "b"])
         # Each op reads x and writes a unique output; later ops read previous output
-        flow._add_op("lua", item_input=["x"], item_output=["a"],
+        flow._add_op("transform_by_lua", item_input=["x"], item_output=["a"],
                       lua_script="function f0() return x end",
                       function_for_item="f0", function_for_common="")
-        flow._add_op("lua", item_input=["a"], item_output=["a"],
+        flow._add_op("transform_by_lua", item_input=["a"], item_output=["a"],
                       lua_script="function f1() return a end",
                       function_for_item="f1", function_for_common="")
-        flow._add_op("lua", item_input=["a"], item_output=["a"],
+        flow._add_op("transform_by_lua", item_input=["a"], item_output=["a"],
                       lua_script="function f2() return a end",
                       function_for_item="f2", function_for_common="")
-        flow._add_op("lua", item_input=["a"], item_output=["b"],
+        flow._add_op("transform_by_lua", item_input=["a"], item_output=["b"],
                       lua_script="function f3() return a end",
                       function_for_item="f3", function_for_common="")
-        flow._add_op("lua", item_input=["b"], item_output=["b"],
+        flow._add_op("transform_by_lua", item_input=["b"], item_output=["b"],
                       lua_script="function f4() return b end",
                       function_for_item="f4", function_for_common="")
         cfg = compile_flow(flow)
@@ -139,18 +139,18 @@ class TestOperatorNaming:
 
     def test_name_format(self):
         flow = Flow(name="fmt", common_input=["x"], common_output=["y"])
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         cfg = compile_flow(flow)
         name = list(cfg["pipeline_config"]["operators"].keys())[0]
-        assert name.startswith("lua_")
+        assert name.startswith("transform_by_lua_")
         assert len(name.split("_")) >= 2
 
     def test_explicit_name(self):
         """Explicit name= appears as JSON operator key."""
         flow = Flow(name="exp", common_input=["x"], common_output=["y"])
-        flow._add_op("lua", name="my_step",
+        flow._add_op("transform_by_lua", name="my_step",
                       common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
@@ -161,7 +161,7 @@ class TestOperatorNaming:
     def test_explicit_name_via_getattr(self):
         """Explicit name= works through flow.op(...) dynamic dispatch."""
         flow = Flow(name="ga", common_input=["x"], common_output=["y"])
-        flow.lua(name="custom_lua",
+        flow.transform_by_lua(name="custom_lua",
                  common_input=["x"], common_output=["y"],
                  lua_script="function f() return x end",
                  function_for_common="f", function_for_item="")
@@ -173,11 +173,11 @@ class TestOperatorNaming:
         """Two operators with the same explicit name must fail."""
         from apple.validator import ValidationError
         flow = Flow(name="dup", common_input=["x"], common_output=["y"])
-        flow._add_op("lua", name="same_name",
+        flow._add_op("transform_by_lua", name="same_name",
                       common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
-        flow._add_op("lua", name="same_name",
+        flow._add_op("transform_by_lua", name="same_name",
                       common_input=["y"], common_output=["y"],
                       lua_script="function g() return y end",
                       function_for_common="g", function_for_item="")
@@ -187,11 +187,11 @@ class TestOperatorNaming:
     def test_mixed_explicit_and_auto(self):
         """Mix of explicit and auto-generated names in a single flow."""
         flow = Flow(name="mix", item_input=["x"], item_output=["a", "b"])
-        flow._add_op("lua", name="step_one",
+        flow._add_op("transform_by_lua", name="step_one",
                       item_input=["x"], item_output=["a"],
                       lua_script="function f() return x end",
                       function_for_item="f", function_for_common="")
-        flow._add_op("lua", item_input=["a"], item_output=["b"],
+        flow._add_op("transform_by_lua", item_input=["a"], item_output=["b"],
                       lua_script="function g() return a end",
                       function_for_item="g", function_for_common="")
         cfg = compile_flow(flow)
@@ -199,13 +199,13 @@ class TestOperatorNaming:
         assert len(names) == 2
         assert "step_one" in names
         auto_name = [n for n in names if n != "step_one"][0]
-        assert auto_name.startswith("lua_")
+        assert auto_name.startswith("transform_by_lua_")
 
 
 class TestPipelineMap:
     def test_subflow_pipeline_map(self):
         sub = SubFlow(name="my_stage")
-        sub._add_op("lua", item_input=["x"], item_output=["y"],
+        sub._add_op("transform_by_lua", item_input=["x"], item_output=["y"],
                       lua_script="function f() return x end",
                       function_for_item="f", function_for_common="")
 
@@ -218,7 +218,7 @@ class TestPipelineMap:
 
     def test_pipeline_group_references_map(self):
         flow = Flow(name="test", common_input=["x"], common_output=["y"])
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         cfg = compile_flow(flow)
@@ -230,7 +230,7 @@ class TestPipelineMap:
 class TestDefaultsAndDebug:
     def test_common_defaults_in_json(self):
         flow = Flow(name="defaults_test", common_input=["age"], common_output=["result"])
-        flow._add_op("lua",
+        flow._add_op("transform_by_lua",
                       common_input=["age"],
                       common_output=["result"],
                       common_defaults={"age": 25},
@@ -242,7 +242,7 @@ class TestDefaultsAndDebug:
 
     def test_item_defaults_in_json(self):
         flow = Flow(name="item_def", common_input=["age"], item_input=["price"], item_output=["result"])
-        flow._add_op("lua",
+        flow._add_op("transform_by_lua",
                       common_input=["age"],
                       item_input=["price"],
                       item_output=["result"],
@@ -255,7 +255,7 @@ class TestDefaultsAndDebug:
 
     def test_debug_flag_in_json(self):
         flow = Flow(name="debug_test", common_input=["x"], common_output=["y"])
-        flow._add_op("lua",
+        flow._add_op("transform_by_lua",
                       common_input=["x"],
                       common_output=["y"],
                       debug=True,
@@ -267,7 +267,7 @@ class TestDefaultsAndDebug:
 
     def test_no_defaults_no_debug_omitted(self):
         flow = Flow(name="clean", common_input=["x"], common_output=["y"])
-        flow._add_op("lua",
+        flow._add_op("transform_by_lua",
                       common_input=["x"],
                       common_output=["y"],
                       lua_script="function f() return x end",
@@ -282,7 +282,7 @@ class TestDefaultsAndDebug:
 class TestCodeInfo:
     def test_code_info_present(self):
         flow = Flow(name="codeinfo", common_input=["x"], common_output=["y"])
-        flow._add_op("lua",
+        flow._add_op("transform_by_lua",
                       common_input=["x"],
                       common_output=["y"],
                       lua_script="function f() return x end",
@@ -292,11 +292,11 @@ class TestCodeInfo:
         assert "$code_info" in op
         code_info = op["$code_info"]
         assert "test_compiler.py" in code_info
-        assert ".lua(...)" in code_info
+        assert ".transform_by_lua(...)" in code_info
 
     def test_code_info_via_getattr(self):
         flow = Flow(name="ci2", common_input=["x"], common_output=["y"])
-        flow.lua(
+        flow.transform_by_lua(
             common_input=["x"],
             common_output=["y"],
             lua_script="function f() return x end",
@@ -304,4 +304,4 @@ class TestCodeInfo:
         cfg = compile_flow(flow)
         op = list(cfg["pipeline_config"]["operators"].values())[0]
         assert "$code_info" in op
-        assert ".lua(...)" in op["$code_info"]
+        assert ".transform_by_lua(...)" in op["$code_info"]

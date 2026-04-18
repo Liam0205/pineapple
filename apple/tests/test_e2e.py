@@ -51,7 +51,7 @@ class TestE2E:
         )
         # Lua discount
         flow._add_op(
-            "lua",
+            "transform_by_lua",
             common_input=["user_age"],
             item_input=["item_price"],
             item_output=["item_final_price"],
@@ -83,7 +83,7 @@ class TestE2E:
             assert len(recall_ops) == 1
 
             # Verify lua operator
-            lua_ops = [o for o in ops.values() if o["type_name"] == "lua"]
+            lua_ops = [o for o in ops.values() if o["type_name"] == "transform_by_lua"]
             assert len(lua_ops) == 1
             assert "function apply_discount()" in lua_ops[0]["lua_script"]
 
@@ -141,7 +141,6 @@ class TestE2E:
             "recall_static",
             item_output=["item_id", "item_score"],
             items=[{"item_id": "a", "item_score": 1.0}],
-            recall=True,
         )
 
         rank_stage = SubFlow(name="ranking")
@@ -189,7 +188,7 @@ class TestE2E:
             ],
         )
         flow._add_op(
-            "lua",
+            "transform_by_lua",
             common_input=["user_age"],
             item_input=["item_price"],
             item_output=["item_final_price"],

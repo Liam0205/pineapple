@@ -1,6 +1,6 @@
 # recall_static
 
-**Category**: Recall
+**Type**: Recall
 
 Emits a configurable static set of items for testing and validation.
 

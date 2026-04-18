@@ -12,7 +12,7 @@ from apple.validator import ValidationError
 class TestFieldCoverage:
     def test_missing_common_input(self):
         flow = Flow(name="bad", common_input=[])
-        flow._add_op("lua", common_input=["missing_field"],
+        flow._add_op("transform_by_lua", common_input=["missing_field"],
                       common_output=["out"],
                       lua_script="function f() return 1 end",
                       function_for_common="f", function_for_item="")
@@ -21,7 +21,7 @@ class TestFieldCoverage:
 
     def test_missing_item_input(self):
         flow = Flow(name="bad", item_input=[])
-        flow._add_op("lua", item_input=["missing_item"],
+        flow._add_op("transform_by_lua", item_input=["missing_item"],
                       item_output=["out"],
                       lua_script="function f() return 1 end",
                       function_for_item="f", function_for_common="")
@@ -30,10 +30,10 @@ class TestFieldCoverage:
 
     def test_upstream_output_satisfies_input(self):
         flow = Flow(name="chain", common_input=["x"])
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
-        flow._add_op("lua", common_input=["y"], common_output=["z"],
+        flow._add_op("transform_by_lua", common_input=["y"], common_output=["z"],
                       lua_script="function g() return y end",
                       function_for_common="g", function_for_item="")
         # Should not raise — y is produced by first op
@@ -43,11 +43,11 @@ class TestFieldCoverage:
 class TestWriteWithoutRead:
     def test_overwrite_without_read(self):
         flow = Flow(name="bad", common_input=["x"])
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         # Writing y again without reading it — y was written by upstream op
-        flow._add_op("lua", common_output=["y"],
+        flow._add_op("transform_by_lua", common_output=["y"],
                       lua_script="function g() return 42 end",
                       function_for_common="g", function_for_item="")
         with pytest.raises(ValidationError, match="writes common field"):
@@ -55,11 +55,11 @@ class TestWriteWithoutRead:
 
     def test_read_then_write_ok(self):
         flow = Flow(name="ok", common_input=["x"], common_output=["y"])
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         # Reading y and writing y is OK
-        flow._add_op("lua", common_input=["y"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["y"], common_output=["y"],
                       lua_script="function g() return y * 2 end",
                       function_for_common="g", function_for_item="")
         flow.compile()  # should not raise
@@ -73,11 +73,11 @@ class TestDeadCode:
             common_output=["y"],
             item_output=[],
         )
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         # This op produces z, which nobody consumes
-        flow._add_op("lua", common_input=["x"], common_output=["z"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["z"],
                       lua_script="function g() return x * 2 end",
                       function_for_common="g", function_for_item="")
         with pytest.raises(ValidationError, match="dead operators"):
@@ -85,10 +85,10 @@ class TestDeadCode:
 
     def test_no_dead_code_when_output_not_declared(self):
         flow = Flow(name="ok", common_input=["x"])
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
-        flow._add_op("lua", common_input=["x"], common_output=["z"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["z"],
                       lua_script="function g() return x end",
                       function_for_common="g", function_for_item="")
         # No output contract declared — no dead code detection
@@ -104,11 +104,11 @@ class TestObserveExemption:
             common_output=["y"],
             item_output=[],
         )
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         # Observe-style op: reads x but produces no output
-        flow._add_op("lua", common_input=["x"],
+        flow._add_op("transform_by_lua", common_input=["x"],
                       common_output=[], item_output=[],
                       lua_script="function obs() end",
                       function_for_common="obs", function_for_item="")
@@ -123,10 +123,10 @@ class TestObserveExemption:
             common_output=["y"],
             item_output=[],
         )
-        flow._add_op("lua", common_input=["x"], common_output=["y"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
-        flow._add_op("lua", common_input=["x"], common_output=["z"],
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["z"],
                       lua_script="function g() return x end",
                       function_for_common="g", function_for_item="")
         with pytest.raises(ValidationError, match="dead operators"):

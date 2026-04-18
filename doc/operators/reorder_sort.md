@@ -1,6 +1,6 @@
 # reorder_sort
 
-**Category**: Reorder
+**Type**: Reorder
 
 Sorts items by a numeric field in ascending or descending order.
 

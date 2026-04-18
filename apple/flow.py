@@ -9,7 +9,6 @@ Usage:
     flow.recall_static(
         item_output=["item_id", "item_score"],
         items=[{"item_id": "a", "item_score": 1.0}],
-        recall=True,
     )
     flow.filter_condition(
         item_input=["item_status"],
@@ -77,15 +76,21 @@ class _FlowBase:
         # Separate metadata kwargs from business params
         meta_keys = {
             "name", "common_input", "common_output", "item_input", "item_output",
-            "item_defaults", "common_defaults", "recall", "sources", "debug",
+            "item_defaults", "common_defaults", "sources", "debug",
         }
         meta = {}
         params = {}
         for k, v in kwargs.items():
             if k in meta_keys:
                 meta[k] = v
+            elif k == "recall":
+                # Accept but ignore — recall is now type-driven from prefix
+                pass
             else:
                 params[k] = v
+
+        # Recall is inferred from operator name prefix, not user-passed
+        is_recall = type_name.startswith("recall_")
 
         call = OpCall(
             type_name=type_name,
@@ -96,7 +101,7 @@ class _FlowBase:
             item_output=meta.get("item_output", []),
             item_defaults=meta.get("item_defaults"),
             common_defaults=meta.get("common_defaults"),
-            recall=meta.get("recall", False),
+            recall=is_recall,
             sources=meta.get("sources"),
             debug=meta.get("debug", False),
             code_info=code_info,

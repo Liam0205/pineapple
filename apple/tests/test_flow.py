@@ -21,7 +21,6 @@ class TestBasicFlow:
         flow.recall_static(
             item_output=["item_id", "item_score"],
             items=[{"item_id": "a", "item_score": 1.0}],
-            recall=True,
         )
         cfg = flow.compile_dict()
         assert "_PINEAPPLE_VERSION" in cfg
@@ -55,10 +54,10 @@ class TestBasicFlow:
 
     def test_unique_names(self):
         flow = Flow(name="names", item_input=["x"], item_output=["y", "z"])
-        flow._add_op("lua", item_input=["x"], item_output=["y"],
+        flow._add_op("transform_by_lua", item_input=["x"], item_output=["y"],
                       lua_script="function f() return x end",
                       function_for_item="f", function_for_common="")
-        flow._add_op("lua", item_input=["y"], item_output=["z"],
+        flow._add_op("transform_by_lua", item_input=["y"], item_output=["z"],
                       lua_script="function g() return y end",
                       function_for_item="g", function_for_common="")
         cfg = flow.compile_dict()
@@ -73,7 +72,6 @@ class TestSubFlow:
         sub1.recall_static(
             item_output=["item_id", "item_score"],
             items=[{"item_id": "a", "item_score": 1.0}],
-            recall=True,
         )
 
         sub2 = SubFlow(name="rank_stage")
@@ -105,8 +103,8 @@ class TestJsonOutput:
         )
         flow._add_op("recall_static",
                       item_output=["item_id", "item_price"],
-                      items=[], recall=True)
-        flow._add_op("lua",
+                      items=[])
+        flow._add_op("transform_by_lua",
                       common_input=["user_age"],
                       item_input=["item_price"],
                       item_output=["item_adjusted"],
@@ -124,7 +122,7 @@ class TestJsonOutput:
             common_input=["age"],
             item_output=["result"],
         )
-        flow._add_op("lua",
+        flow._add_op("transform_by_lua",
                       common_input=["age"],
                       item_output=["result"],
                       lua_script="function f() return age end",

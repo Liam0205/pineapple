@@ -1,6 +1,6 @@
-# lua
+# transform_by_lua
 
-**Category**: Feature / Control
+**Type**: Transform
 
 Executes a Lua script for per-item or per-common computation.
 
@@ -24,7 +24,7 @@ Executes a Lua script for per-item or per-common computation.
 ## DSL Usage
 
 ```python
-flow.lua(
+flow.transform_by_lua(
     function_for_common=...,
     function_for_item=...,
     lua_script=...,

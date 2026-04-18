@@ -1,6 +1,6 @@
-# feature_dispatch
+# transform_dispatch
 
-**Category**: Feature
+**Type**: Transform
 
 Copies a common-side field value to every item as an item-side field.
 
@@ -23,7 +23,7 @@ Copies a common-side field value to every item as an item-side field.
 ## DSL Usage
 
 ```python
-flow.feature_dispatch(
+flow.transform_dispatch(
     common_field=...,
     item_field=...,
     common_input=[...],

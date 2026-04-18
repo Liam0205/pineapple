@@ -3,19 +3,6 @@
 > Auto-generated from Go operator source code. Do not edit manually.
 
 
-## Feature
-
-| Operator | Description |
-|----------|-------------|
-| [feature_dispatch](feature_dispatch.md) | Copies a common-side field value to every item as an item-side field. |
-| [feature_normalize](feature_normalize.md) | Normalizes a numeric item field using min-max scaling to [0, 1]. |
-
-## Feature / Control
-
-| Operator | Description |
-|----------|-------------|
-| [lua](lua.md) | Executes a Lua script for per-item or per-common computation. |
-
 ## Filter
 
 | Operator | Description |
@@ -46,4 +33,12 @@
 | Operator | Description |
 |----------|-------------|
 | [reorder_sort](reorder_sort.md) | Sorts items by a numeric field in ascending or descending order. |
+
+## Transform
+
+| Operator | Description |
+|----------|-------------|
+| [transform_by_lua](transform_by_lua.md) | Executes a Lua script for per-item or per-common computation. |
+| [transform_dispatch](transform_dispatch.md) | Copies a common-side field value to every item as an item-side field. |
+| [transform_normalize](transform_normalize.md) | Normalizes a numeric item field using min-max scaling to [0, 1]. |
 

@@ -4,83 +4,6 @@ from typing import Any
 from apple.base import BaseOp
 
 
-class FeatureDispatchOp(BaseOp):
-    """Operator: feature_dispatch"""
-    _name = "feature_dispatch"
-    _params_schema = {
-        "common_field": {"type": "string", "required": True},
-        "item_field": {"type": "string", "required": True},
-    }
-
-    def __call__(
-        self,
-        *,
-        common_field: str = ...,
-        item_field: str = ...,
-        common_input: list[str] | None = None,
-        common_output: list[str] | None = None,
-        item_input: list[str] | None = None,
-        item_output: list[str] | None = None,
-        item_defaults: dict | None = None,
-        common_defaults: dict | None = None,
-        debug: bool = False,
-        name: str | None = None,
-    ) -> "FeatureDispatchOp":
-        return self._apply(
-            params={
-                "common_field": common_field,
-                "item_field": item_field,
-            },
-            common_input=common_input,
-            common_output=common_output,
-            item_input=item_input,
-            item_output=item_output,
-            item_defaults=item_defaults,
-            common_defaults=common_defaults,
-            debug=debug,
-            name=name or "",
-        )
-
-class FeatureNormalizeOp(BaseOp):
-    """Operator: feature_normalize"""
-    _name = "feature_normalize"
-    _params_schema = {
-        "field": {"type": "string", "required": True},
-        "method": {"type": "string", "required": False, "default": "min_max"},
-        "output_field": {"type": "string", "required": False},
-    }
-
-    def __call__(
-        self,
-        *,
-        field: str = ...,
-        method: str = "",
-        output_field: str = "",
-        common_input: list[str] | None = None,
-        common_output: list[str] | None = None,
-        item_input: list[str] | None = None,
-        item_output: list[str] | None = None,
-        item_defaults: dict | None = None,
-        common_defaults: dict | None = None,
-        debug: bool = False,
-        name: str | None = None,
-    ) -> "FeatureNormalizeOp":
-        return self._apply(
-            params={
-                "field": field,
-                "method": method,
-                "output_field": output_field,
-            },
-            common_input=common_input,
-            common_output=common_output,
-            item_input=item_input,
-            item_output=item_output,
-            item_defaults=item_defaults,
-            common_defaults=common_defaults,
-            debug=debug,
-            name=name or "",
-        )
-
 class FilterConditionOp(BaseOp):
     """Operator: filter_condition"""
     _name = "filter_condition"
@@ -141,46 +64,6 @@ class FilterTruncateOp(BaseOp):
         return self._apply(
             params={
                 "top_n": top_n,
-            },
-            common_input=common_input,
-            common_output=common_output,
-            item_input=item_input,
-            item_output=item_output,
-            item_defaults=item_defaults,
-            common_defaults=common_defaults,
-            debug=debug,
-            name=name or "",
-        )
-
-class LuaOp(BaseOp):
-    """Operator: lua"""
-    _name = "lua"
-    _params_schema = {
-        "function_for_common": {"type": "string", "required": False},
-        "function_for_item": {"type": "string", "required": False},
-        "lua_script": {"type": "string", "required": True},
-    }
-
-    def __call__(
-        self,
-        *,
-        function_for_common: str = "",
-        function_for_item: str = "",
-        lua_script: str = ...,
-        common_input: list[str] | None = None,
-        common_output: list[str] | None = None,
-        item_input: list[str] | None = None,
-        item_output: list[str] | None = None,
-        item_defaults: dict | None = None,
-        common_defaults: dict | None = None,
-        debug: bool = False,
-        name: str | None = None,
-    ) -> "LuaOp":
-        return self._apply(
-            params={
-                "function_for_common": function_for_common,
-                "function_for_item": function_for_item,
-                "lua_script": lua_script,
             },
             common_input=common_input,
             common_output=common_output,
@@ -293,6 +176,7 @@ class RecallStaticOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            recall=True,
             debug=debug,
             name=name or "",
         )
@@ -323,6 +207,123 @@ class ReorderSortOp(BaseOp):
             params={
                 "field": field,
                 "order": order,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformByLuaOp(BaseOp):
+    """Operator: transform_by_lua"""
+    _name = "transform_by_lua"
+    _params_schema = {
+        "function_for_common": {"type": "string", "required": False},
+        "function_for_item": {"type": "string", "required": False},
+        "lua_script": {"type": "string", "required": True},
+    }
+
+    def __call__(
+        self,
+        *,
+        function_for_common: str = "",
+        function_for_item: str = "",
+        lua_script: str = ...,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformByLuaOp":
+        return self._apply(
+            params={
+                "function_for_common": function_for_common,
+                "function_for_item": function_for_item,
+                "lua_script": lua_script,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformDispatchOp(BaseOp):
+    """Operator: transform_dispatch"""
+    _name = "transform_dispatch"
+    _params_schema = {
+        "common_field": {"type": "string", "required": True},
+        "item_field": {"type": "string", "required": True},
+    }
+
+    def __call__(
+        self,
+        *,
+        common_field: str = ...,
+        item_field: str = ...,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformDispatchOp":
+        return self._apply(
+            params={
+                "common_field": common_field,
+                "item_field": item_field,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformNormalizeOp(BaseOp):
+    """Operator: transform_normalize"""
+    _name = "transform_normalize"
+    _params_schema = {
+        "field": {"type": "string", "required": True},
+        "method": {"type": "string", "required": False, "default": "min_max"},
+        "output_field": {"type": "string", "required": False},
+    }
+
+    def __call__(
+        self,
+        *,
+        field: str = ...,
+        method: str = "",
+        output_field: str = "",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformNormalizeOp":
+        return self._apply(
+            params={
+                "field": field,
+                "method": method,
+                "output_field": output_field,
             },
             common_input=common_input,
             common_output=common_output,

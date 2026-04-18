@@ -1,6 +1,6 @@
 # filter_condition
 
-**Category**: Filter
+**Type**: Filter
 
 Removes items where a specified field equals a given value.
 
