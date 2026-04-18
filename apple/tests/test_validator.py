@@ -29,14 +29,14 @@ class TestFieldCoverage:
             flow.compile()
 
     def test_upstream_output_satisfies_input(self):
-        flow = Flow(name="chain", common_input=["x"])
+        flow = Flow(name="chain", common_input=["x"], common_output=["z"])
         flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         flow._add_op("transform_by_lua", common_input=["y"], common_output=["z"],
                       lua_script="function g() return y end",
                       function_for_common="g", function_for_item="")
-        # Should not raise — y is produced by first op
+        # Should not raise — y is produced by first op, z consumed by flow output
         flow.compile()
 
 
@@ -83,16 +83,19 @@ class TestDeadCode:
         with pytest.raises(ValidationError, match="dead operators"):
             flow.compile()
 
-    def test_no_dead_code_when_output_not_declared(self):
-        flow = Flow(name="ok", common_input=["x"])
+    def test_dead_code_detected_even_without_output_contract(self):
+        """Without declared output contract, ops whose output is not consumed
+        downstream are still flagged as dead."""
+        flow = Flow(name="dead_no_contract", common_input=["x"])
         flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
                       function_for_common="f", function_for_item="")
         flow._add_op("transform_by_lua", common_input=["x"], common_output=["z"],
                       lua_script="function g() return x end",
                       function_for_common="g", function_for_item="")
-        # No output contract declared — no dead code detection
-        flow.compile()  # should not raise
+        # y and z are not consumed by any downstream op — dead
+        with pytest.raises(ValidationError, match="dead operators"):
+            flow.compile()
 
 
 class TestObserveExemption:

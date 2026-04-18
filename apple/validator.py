@@ -88,17 +88,18 @@ def detect_dead_code(
 ) -> list[str]:
     """Detect operators whose output is never consumed.
 
-    Returns list of dead operator names. Only checks if flow output contract
-    is declared (non-None).
+    Returns list of dead operator names.
+    An operator's output is "consumed" if it appears in:
+    - the flow output contract (common_output / item_output), OR
+    - a downstream operator's input.
+    If the flow output contract is not declared (None), only downstream
+    consumption counts — undelivered fields are dead.
     """
-    if flow_common_output is None and flow_item_output is None:
-        return []
-
-    # Build set of "needed" fields
+    # Build set of "needed" fields: flow outputs + all operator inputs
     needed_common: set[str] = set(flow_common_output or [])
     needed_item: set[str] = set(flow_item_output or [])
 
-    # Also, fields consumed by downstream operators are needed
+    # Fields consumed by downstream operators are needed
     for _, op in ops:
         needed_common.update(op.common_input)
         needed_item.update(op.item_input)
