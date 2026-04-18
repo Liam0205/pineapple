@@ -20,6 +20,7 @@ from apple.validator import (
     ValidationError,
     detect_dead_code,
     validate_field_coverage,
+    validate_no_underscore_output,
     validate_write_without_read,
 )
 
@@ -59,6 +60,11 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         named_ops.append((name, op))
 
     # 3. Validate
+    validate_no_underscore_output(
+        named_ops,
+        flow._common_output,
+        flow._item_output,
+    )
     validate_field_coverage(
         named_ops,
         flow._common_input or [],

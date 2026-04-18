@@ -151,3 +151,57 @@ class TestControlFlowValidation:
         flow = Flow(name="bad")
         with pytest.raises(ValueError, match="end_if_ without matching if_"):
             flow.end_if_()
+
+
+class TestUnderscorePrefix:
+    def test_underscore_in_flow_common_output_rejected(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["_x"])
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["_x"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        with pytest.raises(ValidationError, match="flow common_output.*_x.*reserved"):
+            flow.compile()
+
+    def test_underscore_in_flow_item_output_rejected(self):
+        flow = Flow(name="bad", common_input=["x"], item_output=["_y"])
+        flow._add_op("transform_by_lua", common_input=["x"], item_output=["_y"],
+                      lua_script="function f() return x end",
+                      function_for_item="f", function_for_common="")
+        with pytest.raises(ValidationError, match="flow item_output.*_y.*reserved"):
+            flow.compile()
+
+    def test_underscore_in_op_common_output_rejected(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["_bad"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        with pytest.raises(ValidationError, match="common_output.*_bad.*reserved"):
+            flow.compile()
+
+    def test_underscore_in_op_item_output_rejected(self):
+        flow = Flow(name="bad", common_input=["x"], item_output=["y"])
+        flow._add_op("transform_by_lua", common_input=["x"], item_output=["_bad"],
+                      lua_script="function f() return x end",
+                      function_for_item="f", function_for_common="")
+        with pytest.raises(ValidationError, match="item_output.*_bad.*reserved"):
+            flow.compile()
+
+    def test_underscore_in_input_allowed(self):
+        """Users may read engine-internal fields like _source via inputs."""
+        flow = Flow(name="ok", common_input=["_source", "x"], common_output=["y"])
+        flow._add_op("transform_by_lua",
+                      common_input=["_source", "x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        flow.compile()  # should not raise
+
+    def test_control_op_underscore_allowed(self):
+        """if_/else_ control ops produce _if_* fields — these must be allowed."""
+        flow = Flow(name="ok", common_input=["x"], common_output=["y"])
+        flow.if_("x ~= nil") \
+            ._add_op("transform_by_lua",
+                     common_input=["x"], common_output=["y"],
+                     lua_script="function f() return x end",
+                     function_for_common="f", function_for_item="") \
+            .end_if_()
+        flow.compile()  # should not raise

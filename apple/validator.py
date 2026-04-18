@@ -15,6 +15,53 @@ class ValidationError(Exception):
     pass
 
 
+def validate_no_underscore_output(
+    ops: list[tuple[str, OpCall]],
+    flow_common_output: list[str] | None,
+    flow_item_output: list[str] | None,
+) -> None:
+    """Reject underscore-prefixed field names in user-declared outputs.
+
+    The ``_`` prefix is reserved for engine internals (control-flow fields like
+    ``_if_1``, runtime fields like ``_source``).  Users may *read* internal
+    fields via ``common_input`` / ``item_input``, but must not *write* them
+    via ``common_output`` / ``item_output``.
+
+    Control operators (``for_branch_control=True``) are exempt because their
+    ``_if_*`` / ``_elif_*`` / ``_else_*`` outputs are compiler-generated.
+    """
+    # Flow-level output contract
+    for field in (flow_common_output or []):
+        if field.startswith("_"):
+            raise ValidationError(
+                f"flow common_output field {field!r} starts with '_', "
+                f"which is reserved for engine internals"
+            )
+    for field in (flow_item_output or []):
+        if field.startswith("_"):
+            raise ValidationError(
+                f"flow item_output field {field!r} starts with '_', "
+                f"which is reserved for engine internals"
+            )
+
+    # Per-operator output
+    for name, op in ops:
+        if op.for_branch_control:
+            continue  # compiler-generated control ops are exempt
+        for field in op.common_output:
+            if field.startswith("_"):
+                raise ValidationError(
+                    f"operator {name!r}: common_output field {field!r} starts "
+                    f"with '_', which is reserved for engine internals"
+                )
+        for field in op.item_output:
+            if field.startswith("_"):
+                raise ValidationError(
+                    f"operator {name!r}: item_output field {field!r} starts "
+                    f"with '_', which is reserved for engine internals"
+                )
+
+
 def validate_field_coverage(
     ops: list[tuple[str, OpCall]],
     flow_common_input: list[str],

@@ -55,6 +55,17 @@ Common 表:
 - 算子通过字符串 key 访问数据。
 - 字段的类型在写入时确定，同一字段在所有行中类型一致。
 
+### 字段命名约束
+
+`_` 前缀保留给引擎内部字段（如控制流生成的 `_if_1`、`_else_2`，以及运行时字段 `_source` 等）。
+
+- **input 允许引用**：`common_input` / `item_input` 可以引用 `_` 前缀字段（用户可能需要读取引擎内部状态，如 `_source`）。
+- **output 禁止使用**：`common_output` / `item_output` 中，用户声明的字段不得以 `_` 开头，否则编译期报错。这避免用户字段与引擎内部字段冲突。
+- **控制流豁免**：编译器为 `if_/elseif_/else_` 生成的控制算子（`for_branch_control=True`）输出的 `_if_*`、`_elif_*`、`_else_*` 字段不受此限制。
+- **Flow contract 同样受约束**：Flow 的 `common_output` 和 `item_output` 也不得包含 `_` 前缀字段。
+
+此约束由 Apple 编译器在 `compile_flow()` 阶段强制校验。
+
 ### 存储实现：行存与列存可切换
 
 提供统一的 DataFrame 接口，底层支持行存和列存两种实现，业务可通过 benchmark 选择。
