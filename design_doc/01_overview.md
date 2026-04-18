@@ -56,6 +56,32 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 7. **Lua 嵌入**: 通用算子可内嵌 Lua 运行时，在不新增 Go 算子的情况下实现特定逻辑。
 8. **分层解耦**: 算法团队（DSL 之上）与架构团队（算子之下）通过 JSON 配置彻底解耦。
 
+## 版本管理
+
+### `_PINEAPPLE_VERSION` 字段
+
+Apple DSL compiler 在编译时将当前 Python 包版本 (`apple._version.__version__`) 注入到 JSON 配置的 `_PINEAPPLE_VERSION` 字段。该字段为信息性标记，引擎加载时 **不做版本严格校验**（forward-compatible 策略）。
+
+Go 侧版本常量 (`version.go: Version`) 与 Python 侧 (`apple/_version.py: __version__`) 始终保持同步。
+
+### 版本 bump 流程
+
+使用 `scripts/bump-version.sh` 一条命令完成所有版本同步：
+
+```bash
+bash scripts/bump-version.sh 0.3.0
+```
+
+脚本依次执行：
+1. 更新 `version.go` Go 常量
+2. 更新 `apple/_version.py` Python 版本
+3. 替换所有 `testdata/*.json` 和 `pipeline.json` 中的 `_PINEAPPLE_VERSION`
+4. 重跑 codegen（`apple_generated/` + `doc/operators/`）
+5. 运行 Go 测试
+6. 运行 Python 测试
+
+脚本完成后，review diff 并手动 commit + tag + push。
+
 ## 设计文档索引
 
 - [02 流程抽象](02_flow_abstraction.md) — Flow 契约、DAG 构建与调度、Lua 算子
