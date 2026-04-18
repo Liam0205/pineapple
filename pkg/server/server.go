@@ -21,8 +21,9 @@ import (
 
 // Config holds the server startup settings.
 type Config struct {
-	ConfigPath string // Path to pipeline JSON config file
-	Addr       string // Listen address (e.g. ":8080")
+	ConfigPath string            // Path to pipeline JSON config file
+	Addr       string            // Listen address (e.g. ":8080")
+	Resources  *resource.Manager // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
 }
 
 var (
@@ -48,9 +49,13 @@ func Run(cfg Config) error {
 	log.Printf("engine loaded from %s", cfg.ConfigPath)
 
 	// Initialize ResourceManager.
-	// Register resources here. Example:
-	//   resources.Register("feature_index", fetchFeatureIndex, 5*time.Minute)
-	resources = resource.NewManager()
+	// If the caller supplied a pre-registered manager, use it;
+	// otherwise create an empty one.
+	if cfg.Resources != nil {
+		resources = cfg.Resources
+	} else {
+		resources = resource.NewManager()
+	}
 	if err := resources.Start(context.Background()); err != nil {
 		log.Fatalf("failed to start resource manager: %v", err)
 	}

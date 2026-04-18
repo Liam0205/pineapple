@@ -98,6 +98,8 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
 
 ## 壳子集成示例
 
+### 自定义壳子（完全控制）
+
 ```go
 func main() {
     rm := resource.NewManager()
@@ -113,6 +115,26 @@ func main() {
     })
 }
 ```
+
+### 通过 `pkg/server` 注入（推荐）
+
+`server.Config` 支持传入预注册的 `*resource.Manager`。调用方在 `Run()` 之前完成所有 `Register()` 调用，`Run()` 负责 `Start()` 和 `Stop()`：
+
+```go
+func main() {
+    rm := resource.NewManager()
+    rm.Register("feed_data", fetchFeedData, 10*time.Minute)
+    rm.Register("abtest_config", fetchABConfig, 30*time.Second)
+
+    server.Run(server.Config{
+        ConfigPath: *configPath,
+        Addr:       *addr,
+        Resources:  rm,
+    })
+}
+```
+
+若 `Config.Resources` 为 nil，`Run()` 内部创建空 Manager（向后兼容）。
 
 ## 设计要点
 
