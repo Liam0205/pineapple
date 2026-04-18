@@ -35,6 +35,6 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run codegen
-        run: go run ./cmd/pineapple-codegen -output apple/generated -doc-dir doc/operators -operators-dir operators
+        run: go run ./cmd/pineapple-codegen -output apple_generated -doc-dir doc/operators -operators-dir operators
       - name: Check no diff
         run: git diff --exit-code

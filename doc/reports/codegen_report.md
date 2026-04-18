@@ -7,7 +7,7 @@ The `pineapple-codegen` tool bridges the Go operator registry and the Apple Pyth
 ## Architecture
 
 ```
-go run ./cmd/pineapple-codegen -output apple/generated
+go run ./cmd/pineapple-codegen -output apple_generated
          │
          ├── imports _ "github.com/Liam0205/pineapple/operators" (triggers init())
          ├── calls registry.All() to get sorted schemas
@@ -30,8 +30,8 @@ go run ./cmd/pineapple-codegen -output apple/generated
 
 | File | Content |
 |------|---------|
-| `apple/generated/operators.py` | Python classes for all 8 registered operators |
-| `apple/generated/__init__.py` | Re-exports all operator classes |
+| `apple_generated/operators.py` | Python classes for all 8 registered operators |
+| `apple_generated/__init__.py` | Re-exports all operator classes |
 
 ## Type Mapping
 

@@ -3,7 +3,7 @@
 //
 // Usage:
 //
-//	go run ./cmd/pineapple-codegen -output apple/generated
+//	go run ./cmd/pineapple-codegen -output apple_generated
 package main
 
 import (
@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	output := flag.String("output", "apple/generated", "Output directory for generated Python files")
+	output := flag.String("output", "apple_generated", "Output directory for generated Python files")
 	docDir := flag.String("doc-dir", "", "Output directory for generated operator docs (empty to skip)")
 	opsDir := flag.String("operators-dir", "operators", "Directory containing Go operator source files")
 	flag.Parse()

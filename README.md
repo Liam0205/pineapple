@@ -254,14 +254,14 @@ package myop
 ```bash
 # 生成 Python DSL 绑定 + 算子文档
 go run ./cmd/pineapple-codegen \
-  -output apple/generated \
+  -output apple_generated \
   -doc-dir doc/operators \
   -operators-dir operators
 ```
 
 这将自动生成：
-- `apple/generated/operators.py` — 带类型提示的 Python 算子类
-- `apple/generated/__init__.py` — 导出列表
+- `apple_generated/operators.py` — 带类型提示的 Python 算子类
+- `apple_generated/__init__.py` — 导出列表
 - `doc/operators/<name>.md` — 每个算子的文档
 - `doc/operators/README.md` — 按分类索引
 
@@ -603,7 +603,7 @@ import (
 )
 
 func main() {
-    output := flag.String("output", "apple/generated", "Python output dir")
+    output := flag.String("output", "apple_generated", "Python output dir")
     docDir := flag.String("doc-dir", "", "Doc output dir")
     opsDir := flag.String("operators-dir", "operators", "Go operators source")
     flag.Parse()

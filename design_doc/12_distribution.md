@@ -9,7 +9,7 @@
 | Codegen 库 | `pkg/codegen` 包 | 可复用的 Python binding 生成器 |
 | Python DSL | pip package `pineapple-apple`（核心包，不含 `generated/`） | 编译器、Flow 抽象、验证器 |
 
-`apple/generated/` 是按算子集合生成的产物，每个部署不同，不打入 pip 包。第三方通过 `pip install pineapple-apple` 获得核心 DSL 能力，然后运行自己的 codegen wrapper 生成包含自定义算子的 Python 绑定。
+`apple_generated/` 是按算子集合生成的产物，每个部署不同，不打入 pip 包。第三方通过 `pip install pineapple-apple` 获得核心 DSL 能力，然后运行自己的 codegen wrapper 生成包含自定义算子的 Python 绑定。
 
 ## 第三方安装步骤
 
@@ -28,10 +28,10 @@ pip install pineapple-apple
 
 # 构建并运行自定义 codegen（生成含内置 + 自定义算子的 Python 绑定）
 go build -o my-codegen ./cmd/my-codegen
-./my-codegen -output apple/generated -doc-dir doc/operators -operators-dir operators
+./my-codegen -output apple_generated -doc-dir doc/operators -operators-dir operators
 ```
 
-第三方的 `apple/generated/` 包含内置算子和自定义算子的完整 binding，放在项目本地，不依赖 pip 包分发。
+第三方的 `apple_generated/` 包含内置算子和自定义算子的完整 binding，放在项目本地，不依赖 pip 包分发。
 
 ## 第三方扩展模式
 
@@ -132,7 +132,7 @@ import (
 )
 
 func main() {
-    output := flag.String("output", "apple/generated", "Python output dir")
+    output := flag.String("output", "apple_generated", "Python output dir")
     docDir := flag.String("doc-dir", "", "Doc output dir")
     opsDir := flag.String("operators-dir", "operators", "Go operators source")
     flag.Parse()

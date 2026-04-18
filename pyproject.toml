@@ -15,7 +15,7 @@ path = "apple/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["apple"]
-exclude = ["apple/generated/**", "apple/tests/**"]
+exclude = ["apple_generated/**", "apple/tests/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["apple/tests"]

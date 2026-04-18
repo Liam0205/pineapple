@@ -17,7 +17,7 @@ import (
 
 // Config holds the code-generation settings.
 type Config struct {
-	OutputDir string // Python output directory (e.g. "apple/generated")
+	OutputDir string // Python output directory (e.g. "apple_generated")
 	DocDir    string // Markdown doc output directory; empty to skip
 	OpsDir    string // Go operator source directory for doc-comment parsing
 }
