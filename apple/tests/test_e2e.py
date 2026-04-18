@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from apple.flow import Flow, SubFlow
+from apple._version import __version__
 
 
 class TestE2E:
@@ -74,7 +75,7 @@ class TestE2E:
                 cfg = json.load(f)
 
             # Verify structure
-            assert cfg["_PINEAPPLE_VERSION"] == "0.1.0"
+            assert cfg["_PINEAPPLE_VERSION"] == __version__
             ops = cfg["pipeline_config"]["operators"]
             assert len(ops) == 2
 

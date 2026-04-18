@@ -41,7 +41,7 @@ func makeItems(n int) []any {
 
 func makeConfig(operators map[string]any, pipelineMap map[string]any, contract map[string]any) map[string]any {
 	return map[string]any{
-		"_PINEAPPLE_VERSION": "0.1.0",
+		"_PINEAPPLE_VERSION": pine.Version,
 		"pipeline_config": map[string]any{
 			"operators":    operators,
 			"pipeline_map": pipelineMap,

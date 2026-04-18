@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from apple.base import OpCall
+from apple._version import __version__
 from apple.validator import (
     ValidationError,
     detect_dead_code,
@@ -143,7 +144,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         flow_contract["item_output"] = []
 
     return {
-        "_PINEAPPLE_VERSION": "0.1.0",
+        "_PINEAPPLE_VERSION": __version__,
         "_PINEAPPLE_CREATE_TIME": datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         ),

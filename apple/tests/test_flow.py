@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from apple.flow import Flow, SubFlow
 from apple.validator import ValidationError
+from apple._version import __version__
 
 
 class TestBasicFlow:
@@ -113,7 +114,7 @@ class TestJsonOutput:
 
         json_str = flow.compile()
         parsed = json.loads(json_str)
-        assert parsed["_PINEAPPLE_VERSION"] == "0.1.0"
+        assert parsed["_PINEAPPLE_VERSION"] == __version__
         assert "operators" in parsed["pipeline_config"]
 
     def test_metadata_structure(self):

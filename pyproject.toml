@@ -4,10 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pineapple-apple"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Apple DSL — Python pipeline declaration for Pineapple engine"
 requires-python = ">=3.10"
 license = "Apache-2.0"
+
+[tool.hatch.version]
+path = "apple/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["apple"]

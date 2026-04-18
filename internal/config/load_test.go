@@ -26,8 +26,8 @@ func TestLoadMinimalValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.PineappleVersion != "0.1.0" {
-		t.Errorf("version = %q", cfg.PineappleVersion)
+	if cfg.PineappleVersion == "" {
+		t.Error("version should not be empty")
 	}
 	if len(cfg.PipelineConfig.Operators) != 2 {
 		t.Errorf("operators count = %d", len(cfg.PipelineConfig.Operators))
