@@ -165,7 +165,7 @@ __all__ = [{{range .}}"{{camelCase .Name}}Op", {{end}}]
 // DocData combines registry schema and parsed doc comments for template rendering.
 type DocData struct {
 	Name        string
-	Category    string
+	Type        string
 	Description string
 	Params      []DocParam
 	Metadata    MetadataDoc
@@ -183,7 +183,7 @@ type DocParam struct {
 
 const operatorDocTemplate = `# {{.Name}}
 
-**Category**: {{.Category}}
+**Type**: {{.Type}}
 
 {{.Description}}
 

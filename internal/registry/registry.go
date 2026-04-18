@@ -42,8 +42,8 @@ func Register(schema types.OperatorSchema, factory func() types.Operator) {
 	if schema.Name == "" {
 		panic("pine: Register called with empty Name")
 	}
-	if schema.Category == "" {
-		panic(fmt.Sprintf("pine: operator %q: Category is required", schema.Name))
+	if !types.IsValidOperatorType(schema.Type) {
+		panic(fmt.Sprintf("pine: operator %q: Type must be one of Recall/Transform/Filter/Merge/Reorder/Observe, got %q", schema.Name, schema.Type))
 	}
 	if schema.Description == "" {
 		panic(fmt.Sprintf("pine: operator %q: Description is required", schema.Name))

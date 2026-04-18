@@ -1,103 +1,77 @@
-# 算子分类
+# 算子类型体系
 
-算子按用途分为以下类型。每种类型对 DataFrame 的影响模式不同。
+算子按**类型 (Type)** 分类。类型是算子注册时的强制元信息，决定了：
+
+1. **允许的 `OperatorOutput` 方法** — 运行时校验，违规则报错
+2. **DAG 依赖语义** — 不同类型的依赖推导规则不同
+3. **Python DSL 命名约定** — codegen 强制方法名以类型对应的动词前缀开头
+
+每个算子**必须且只能**属于一种类型。
 
 ## 总览
 
-| 类型 | 对 DataFrame 的影响 | 说明 |
-|------|---------------------|------|
-| 召回 (Recall) | 增加 item 行 | 从索引/服务中获取候选 item |
-| 合并 (Merge) | 增加 item 行 | 将召回结果合并进主 DataFrame |
-| 特征处理 (Feature) | 读写字段值 | 对 common/item 特征做计算、转换 |
-| 改变顺序 (Reorder) | 改变 item 行序 | 排序、打散、多样性调整 |
-| 过滤 (Filter) | 删除 item 行 | 按规则移除 item，含 truncate |
-| 控制 (Control) | 不影响数据，影响执行流 | if-elseif-else，决定后续算子是否执行 |
-| 观察 (Observe) | 只读 | 不影响 DataFrame，将信息写入外部系统（如 Kafka） |
+| 类型 | 允许的 Output 方法 | DAG 语义 | DSL 前缀 | 对 DataFrame 的影响 |
+|------|-------------------|----------|----------|---------------------|
+| Recall | `AddItem` | 等待产出其依赖字段的 Transform 完成；Recall 间可并行 | `recall_` | 增加 item 行 |
+| Transform | `SetCommon`, `SetItem` | 字段级 RAW/WAW/WAR 追踪，无依赖可并行 | `transform_` | 读写字段值 |
+| Filter | `RemoveItem` | Barrier | `filter_` | 删除 item 行 |
+| Merge | `RemoveItem`, `SetItem` | Barrier | `merge_` | 合并/去重 item 行 |
+| Reorder | `SetItemOrder` | Barrier | `reorder_` | 改变 item 行序 |
+| Observe | 无 | 只读 RAW 依赖，不阻塞下游 | `observe_` | 只读 |
 
-## 召回 (Recall)
+所有类型均可调用 `SetWarning`。DSL 前缀一律为**动词**。
 
-从外部索引或服务中获取候选 item，产出新的 item 集合。
+## 类型详解
 
-- 输入：common 特征（如 user_id、query 等检索条件）
-- 输出：一批新的 item（含 item_id 及其附属特征），通过 `AddItem` 直接写入主 DataFrame
-- 特点：这是唯一"凭空产生 item"的算子类型
-- JSON 中标记 `"recall": true`，Pine 据此识别
+### Recall
+
+从外部索引或服务中获取候选 item，产出新的 item 集合。这是唯一"凭空产生 item"的算子类型。
+
+- **允许的 Output 方法**: `AddItem`
+- **DAG 语义**: Recall 算子声明了 `common_input` / `item_input`，这些字段要么来自上游请求（已存在，无需等待），要么由某个 Transform 算子产出。Recall 只需等待**实际产出其所依赖字段的那些 Transform 算子**完成。多个 Recall 之间可以并行执行。
+- **DSL 前缀**: `recall_`
+
+引擎在写回 Recall 产出的 item 时，自动注入 `_source` 字段（值为算子名），供 Merge 算子识别来源。`_source` 是可依赖、可输出的普通字段，无特殊限制。
+
+**`recall` 参数由类型驱动，用户不需要手动传。** codegen 生成的 Python 方法自动注入 `recall=True`；编译器根据算子类型自动识别 Recall 语义。DSL 调用时方法名以 `recall_` 开头，一眼可见。
+
+```python
+flow.recall_static(
+    item_output=["item_id", "item_price"],
+    items=[...],
+)
+# 不需要 recall=True，类型即身份
+```
 
 多个召回算子各自独立产出 item，直接写入主 DataFrame。不同召回源可能产出同一个 item（重复），也可能产出不同的字段集（异构 schema）。这些都由后续的 Merge 算子处理。
 
-```
-recall_A ──(AddItem)──▶ 主 DataFrame ──▶ merge ──▶ 去重后的主 DataFrame
-recall_B ──(AddItem)──▶ 主 DataFrame ──┘
-```
+### Transform
 
-引擎在写回 Recall 产出的 item 时，自动注入 `_source` 字段（值为算子名），供 Merge 算子识别来源。
+对 common 和/或 item 的字段做读取、计算、写入等操作。这是最通用的算子类型。
 
-### DAG 依赖
+- **允许的 Output 方法**: `SetCommon`, `SetItem`
+- **DAG 语义**: 标准的字段级 RAW/WAW/WAR 依赖追踪（见 [02 流程抽象 — 数据冒险处理](02_flow_abstraction.md#数据冒险处理)）。无字段依赖的 Transform 可以并行执行。
+- **DSL 前缀**: `transform_`
 
-- 召回算子的前置依赖通过 `$metadata.common_input` 推导（如依赖 `user_id`）。
-- **召回算子的 `item_output` 不参与字段级 DAG 推导**——多个召回并行执行，不因输出同名字段（如 `item_id`）而被串行化。
-- 召回 → 合并的依赖通过合并算子的 `sources` 字段显式建立。
+Go 通用算子和 Lua 算子均属于此类。
 
 ```python
-flow.recall_from_index(
-    common_input=["user_id", "query_embedding"],
-    item_output=["item_id", "item_score", "item_category"],
-    index_name="main_index",
-    top_k=1000,
-)
-```
-
-## 合并 (Merge)
-
-对主 DataFrame 中的 item 做去重、字段合并等处理。
-
-- 通过 `sources` 参数引用召回算子名称，Pine 据此建立 Recall → Merge 的显式 DAG 边
-- 读取主 DataFrame 中所有 item（含 `_source` 字段），按业务逻辑去重和合并
-- 不同召回源可能产出异构 schema（字段集不同），Merge 负责处理差异
-- Merge 是注册的 Go 算子，不同实现支持不同策略（取并集、按 score 择优、按 quota 分配等）
-
-```python
-flow.merge(
-    sources=["recall_from_index", "recall_from_realtime"],
-    item_output=["item_id", "item_score", "item_category"],
-    dedup_by="item_id",
-    strategy="union",
-)
-```
-
-### `item_output` 的语义
-
-合并算子的 `item_output` 声明合并后主 DataFrame 中的 item 字段，是下游算子的"正式"字段来源。Apple 在编译时校验：Merge 的 `item_output` 中每个字段至少被一个 source 召回算子输出。
-
-> **待细化**: 合并策略的具体语义（union / intersect / 按 score 择优 / quota 分配等）和字段冲突处理规则。
-
-## 特征处理 (Feature)
-
-对 common 和/或 item 的特征做读取、修改、计算、写入等操作。这是最通用的算子类型。
-
-大多数 Go 通用算子和 Lua 算子属于此类。
-
-### Go 算子示例
-
-```python
-# 将 common 特征分发到 item 侧
-flow.dispatch_common_to_item(
+# Go 算子示例
+flow.transform_dispatch(
     common_input=["search_scene"],
     item_output=["item_search_scene"],
+    common_field="search_scene",
+    item_field="item_search_scene",
 )
 
-# 特征归一化
-flow.normalize(
+flow.transform_normalize(
     item_input=["raw_score"],
     item_output=["norm_score"],
-    method="min_max",
+    field="raw_score",
 )
-```
 
-### Lua 算子示例
-
-```python
-flow.enrich_by_lua(
+# Lua 算子示例
+flow.transform_by_lua(
     common_input=["user_age"],
     item_input=["item_price"],
     function_for_item="adjust_price",
@@ -116,9 +90,59 @@ flow.enrich_by_lua(
 
 关于 Lua 算子的详细设计（全局变量语义、function_for_common vs function_for_item、缺失值处理等），见 [02 流程抽象 — Lua 算子](02_flow_abstraction.md#lua-算子)。
 
-## 改变顺序 (Reorder)
+### Filter
+
+按照某种规则删除 item。执行后 DataFrame 的 item 行数减少。
+
+- **允许的 Output 方法**: `RemoveItem`
+- **DAG 语义**: **Barrier** — DSL 中声明在 Filter 之前的所有算子执行完毕后，Filter 才执行；Filter 执行完毕后，后续算子才能开始。
+- **DSL 前缀**: `filter_`
+
+Barrier 语义的必要性：Filter 改变 item 集合的组成（哪些 item 可见），而后续算子可能对所有可见 item 做聚合计算。如果 Filter 与这类算子并行执行，聚合结果不可预测。
+
+典型场景：
+- **属性过滤**: 移除不满足条件的 item
+- **曝光过滤**: 移除已曝光的 item
+- **截断 (Truncate)**: 只保留前 N 个 item
+
+```python
+flow.filter_condition(
+    item_input=["item_status"],
+    field="item_status",
+    value="offline",
+)
+
+flow.filter_truncate(top_n=200)
+```
+
+### Merge
+
+对主 DataFrame 中的 item 做去重、字段合并等处理。
+
+- **允许的 Output 方法**: `RemoveItem`, `SetItem`
+- **DAG 语义**: **Barrier** — 同 Filter。
+- **DSL 前缀**: `merge_`
+
+Merge 比 Filter 多了 `SetItem` 权限：当遇到重复的 item 时，可能需要合并某些列的值（如取 score 最大值、合并来源标签等）。
+
+通过 `sources` 参数引用召回算子名称，Pine 据此建立 Recall → Merge 的显式 DAG 边。
+
+```python
+flow.merge_dedup(
+    sources=["recall_from_index", "recall_from_realtime"],
+    item_input=["item_id", "item_score", "_source"],
+    item_output=["item_id", "item_score"],
+    key="item_id",
+)
+```
+
+### Reorder
 
 按照某种规则改变 item 的顺序。不增删 item，只改变排列。
+
+- **允许的 Output 方法**: `SetItemOrder`
+- **DAG 语义**: **Barrier** — 同 Filter。Reorder 改变 item 的顺序，而后续算子可能依赖 item 的位次信息（如处理 top-K 位置的信息）。
+- **DSL 前缀**: `reorder_`
 
 典型场景：
 - **排序**: 按 score 降序
@@ -126,96 +150,112 @@ flow.enrich_by_lua(
 - **多样性**: 按类目/品牌等维度做多样性调整
 
 ```python
-flow.sort_by(
+flow.reorder_sort(
     item_input=["item_score"],
+    field="item_score",
     order="desc",
 )
-
-flow.diversify(
-    item_input=["item_category"],
-    window_size=3,
-)
 ```
 
-## 过滤 (Filter)
-
-按照某种规则删除 item。执行后 DataFrame 的 item 行数减少。
-
-典型场景：
-- **属性过滤**: 移除不满足条件的 item
-- **曝光过滤**: 移除已曝光的 item
-- **去重**: 移除重复 item
-- **截断 (Truncate)**: 只保留前 N 个 item
-
-```python
-flow.filter_by(
-    item_input=["item_status"],
-    remove_if="item_status == 'offline'",
-)
-
-flow.truncate(top_n=200)
-```
-
-## 控制 (Control)
-
-影响 DAG 中后续算子是否执行。只考虑 if-elseif-else 逻辑。
-
-控制算子不修改 DataFrame，只决定执行路径。
-
-### 条件表达式
-
-条件为 **Lua 表达式**，复用引擎已有的 Lua 运行时，无额外依赖。表达式中可引用所有 common 特征作为全局变量（与 Lua 算子的 `function_for_common` 一致）。
-
-表达式必须求值为 boolean。
-
-```python
-flow.if_(condition="user_age > 18 and item_count > 0") \
-    .some_op(...) \
-    .some_other_op(...) \
-.elseif_(condition="fallback_enabled ~= nil") \
-    .fallback_op(...) \
-.else_() \
-    .default_op(...) \
-.end_if_()
-```
-
-### 语法说明
-
-沿用 Lua 语法风格：
-
-| 操作 | Lua 语法 |
-|------|----------|
-| 不等于 | `~=` |
-| 与 | `and` |
-| 或 | `or` |
-| 非 | `not` |
-| 空值判断 | `x ~= nil` |
-| 长度 | `#(list)` |
-
-### 编译方式
-
-Apple 将 `if_()` / `elseif_()` / `else_()` / `end_if_()` 降级为 Lua 控制算子 + skip 机制。每个条件分支生成一个控制算子，输出隐藏的控制属性；分支内算子通过 `skip` 引用控制属性。`elseif` / `else` 的控制算子依赖前面所有控制属性，形成链式互斥。Pine 无需特殊处理控制流。
-
-详细编译规则和 JSON 示例见 [06 JSON 配置格式 — 控制流的编译](06_json_config.md#控制流的编译)。
-
-## 观察 (Observe)
+### Observe
 
 只读取 DataFrame 中的信息，不做任何修改。用于将信息写入外部系统。
 
-典型场景：
-- 将中间结果写入 Kafka / MQ
-- 记录日志、打点
-- 调试用的数据快照
+- **允许的 Output 方法**: 无（仅 `SetWarning`）
+- **DAG 语义**: 对声明的输入字段有 RAW 依赖，不阻塞任何下游算子。
+- **DSL 前缀**: `observe_`
+
+Observe 与后续 Transform 即使读写同一字段也可安全并行——因为 OperatorOutput 的缓冲机制保证了 Observe 读到的是 Transform Apply 之前的值。
+
+特点：
+- 对 DataFrame 无副作用。
+- 可以和其他算子并行执行（因为无数据输出，不会产生依赖）。
+- **豁免于死代码消除**: 观察算子没有 output 字段，但始终保证执行。
 
 ```python
-flow.observe_to_kafka(
+flow.observe_log(
     common_input=["user_id", "request_id"],
     item_input=["item_id", "item_score"],
     topic="recommendation_log",
 )
 ```
 
-特点：
-- 对 DataFrame 无副作用，不影响 DAG 中其他算子的执行。
-- 可以和其他算子并行执行（因为无数据输出，不会产生依赖）。
-- **豁免于死代码消除**：观察算子没有 output 字段，但始终保证执行，不会被判定为无效算子。
+## Barrier 语义
+
+Filter、Merge、Reorder 三种类型共享 **Barrier 语义**：
+
+```
+DSL 顺序中在 Barrier 之前的所有算子
+        │
+        ▼  (全部完成)
+    Barrier 算子执行
+        │
+        ▼  (完成后)
+DSL 顺序中在 Barrier 之后的所有算子才能开始
+```
+
+这是因为这三种类型都会改变 item 集合的"结构"（组成或顺序），而结构变化对后续算子的语义有全局影响。
+
+## 控制 (Control)
+
+控制流（if/else 分支）**不是独立的算子类型**，而是 Python DSL 层面的编译期抽象。
+
+`if_()` / `elseif_()` / `else_()` / `end_if_()` 在编译时被降级为 `transform_by_lua` 算子（带 `for_branch_control: true` 标记）+ `skip` 机制。编译器根据条件生成控制算子，输出隐藏的控制属性；分支内算子通过 `skip` 引用控制属性。Go 引擎无需特殊处理控制流。
+
+> **备注**: 当前 Control 作为编译期语法糖处理。若将来需要在引擎层面感知控制流语义，可将其提升为独立类型。
+
+详细编译规则和 JSON 示例见 [06 JSON 配置格式 — 控制流的编译](06_json_config.md#控制流的编译)。
+
+## 类型约束的执行机制
+
+### 注册时 (Go `Register()`)
+
+`OperatorSchema` 包含必填的 `Type` 字段，值必须为合法枚举（`"Recall"`, `"Transform"`, `"Filter"`, `"Merge"`, `"Reorder"`, `"Observe"`）。缺失或非法值 → 启动时 panic。
+
+### 运行时 (调度器)
+
+算子 `Execute()` 返回后，调度器检查 `OperatorOutput` 中实际使用了哪些方法：
+
+| 类型 | 允许非空的 Output 字段 |
+|------|----------------------|
+| Recall | `addedItems` |
+| Transform | `commonWrites`, `itemWrites` |
+| Filter | `removedItems` |
+| Merge | `removedItems`, `itemWrites` |
+| Reorder | `itemOrder` |
+| Observe | 无 |
+
+`warning` 字段所有类型均允许。不符合约束则返回 error。
+
+### codegen 时
+
+- 生成的 Python 方法名强制以类型对应的前缀开头
+- Recall 类型的方法自动注入 `recall=True`，不暴露给用户
+- 不同类型可生成不同的 metadata 参数签名（如 Observe 不需要 `item_output`）
+
+## DAG 构建规则汇总
+
+| 类型 | 依赖来源 | 对后续算子的影响 |
+|------|---------|----------------|
+| Recall | RAW 依赖于产出其输入字段的 Transform | 下游 reader 依赖 Recall 产出字段（RAW） |
+| Transform | 字段级 RAW/WAW/WAR | 字段级 RAW/WAW/WAR |
+| Filter | Barrier: 等待所有之前的算子 | Barrier: 之后的算子等待它 |
+| Merge | Barrier + `sources` 显式边 | Barrier |
+| Reorder | Barrier | Barrier |
+| Observe | RAW 依赖输入字段 | 不阻塞任何下游 |
+
+## 算子重命名
+
+引入类型体系后，现有算子统一按 DSL 前缀规范重命名：
+
+| 旧名称 | 新名称 | 类型 |
+|--------|--------|------|
+| `feature_dispatch` | `transform_dispatch` | Transform |
+| `feature_normalize` | `transform_normalize` | Transform |
+| `lua` | `transform_by_lua` | Transform |
+| `recall_static` | `recall_static` | Recall (不变) |
+| `filter_condition` | `filter_condition` | Filter (不变) |
+| `filter_truncate` | `filter_truncate` | Filter (不变) |
+| `merge_dedup` | `merge_dedup` | Merge (不变) |
+| `reorder_sort` | `reorder_sort` | Reorder (不变) |
+| `observe_log` | `observe_log` | Observe (不变) |

@@ -102,7 +102,7 @@ func generateDocs(docDir, opsDir string, schemas []types.OperatorSchema) error {
 	}
 
 	// Generate per-operator docs
-	categoryOps := make(map[string][]indexOp)
+	typeOps := make(map[string][]indexOp)
 	for _, schema := range schemas {
 		doc, hasDoc := docMap[schema.Name]
 		data := buildDocData(schema, doc, hasDoc)
@@ -118,26 +118,26 @@ func generateDocs(docDir, opsDir string, schemas []types.OperatorSchema) error {
 		}
 		f.Close()
 
-		cat := data.Category
-		if cat == "" {
-			cat = "Other"
+		opType := data.Type
+		if opType == "" {
+			opType = "Other"
 		}
-		categoryOps[cat] = append(categoryOps[cat], indexOp{
+		typeOps[opType] = append(typeOps[opType], indexOp{
 			Name:        data.Name,
 			Description: data.Description,
 		})
 	}
 
-	// Sort categories
-	catNames := make([]string, 0, len(categoryOps))
-	for c := range categoryOps {
-		catNames = append(catNames, c)
+	// Sort type groups
+	typeNames := make([]string, 0, len(typeOps))
+	for c := range typeOps {
+		typeNames = append(typeNames, c)
 	}
-	sort.Strings(catNames)
+	sort.Strings(typeNames)
 
 	var categories []indexCategory
-	for _, c := range catNames {
-		categories = append(categories, indexCategory{Name: c, Ops: categoryOps[c]})
+	for _, c := range typeNames {
+		categories = append(categories, indexCategory{Name: c, Ops: typeOps[c]})
 	}
 
 	// Generate index
@@ -159,7 +159,7 @@ func generateDocs(docDir, opsDir string, schemas []types.OperatorSchema) error {
 func buildDocData(schema types.OperatorSchema, doc OpDoc, hasDoc bool) DocData {
 	data := DocData{
 		Name:        schema.Name,
-		Category:    schema.Category,
+		Type:        string(schema.Type),
 		Description: schema.Description,
 	}
 

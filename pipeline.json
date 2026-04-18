@@ -1,9 +1,9 @@
 {
   "_PINEAPPLE_VERSION": "0.1.0",
-  "_PINEAPPLE_CREATE_TIME": "2026-04-18T07:53:39Z",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-18T07:15:44Z",
   "pipeline_config": {
     "operators": {
-      "recall_static_B5BA3A": {
+      "candidate_pool": {
         "type_name": "recall_static",
         "$metadata": {
           "common_input": [],
@@ -14,7 +14,8 @@
             "item_price"
           ]
         },
-        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/tests/test_e2e.py:182 in test_go_engine_executes_dsl_json(): .recall_static(...)",
+        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/flow.py:68 in op_caller(): .recall_static(...)",
+        "recall": true,
         "items": [
           {
             "item_id": "a",
@@ -30,7 +31,7 @@
           }
         ]
       },
-      "lua_0087F3": {
+      "lua_338C7F": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
@@ -44,10 +45,9 @@
             "item_final_price"
           ]
         },
-        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/tests/test_e2e.py:191 in test_go_engine_executes_dsl_json(): .lua(...)",
-        "lua_script": "function f()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend",
-        "function_for_item": "f",
-        "function_for_common": ""
+        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/flow.py:68 in op_caller(): .lua(...)",
+        "lua_script": "\nfunction discount()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend\n",
+        "function_for_item": "discount"
       },
       "reorder_sort_B1532A": {
         "type_name": "reorder_sort",
@@ -65,10 +65,10 @@
       }
     },
     "pipeline_map": {
-      "_main_apple_e2e": {
+      "_main_demo": {
         "pipeline": [
-          "recall_static_B5BA3A",
-          "lua_0087F3",
+          "candidate_pool",
+          "lua_338C7F",
           "reorder_sort_B1532A"
         ]
       }
@@ -77,7 +77,7 @@
   "pipeline_group": {
     "main": {
       "pipeline": [
-        "_main_apple_e2e"
+        "_main_demo"
       ]
     }
   },

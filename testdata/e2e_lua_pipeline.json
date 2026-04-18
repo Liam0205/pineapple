@@ -19,7 +19,7 @@
         }
       },
       "lua_discount": {
-        "type_name": "lua",
+        "type_name": "transform_by_lua",
         "lua_script": "function apply_discount()\n  if user_age < 18 then\n    return item_price * 0.8\n  elseif user_age > 60 then\n    return item_price * 0.9\n  else\n    return item_price\n  end\nend",
         "function_for_item": "apply_discount",
         "function_for_common": "",
@@ -31,7 +31,7 @@
         }
       },
       "lua_stats": {
-        "type_name": "lua",
+        "type_name": "transform_by_lua",
         "lua_script": "function compute_stats()\n  local sum = 0\n  local count = #item_final_price\n  for i = 1, count do\n    sum = sum + (item_final_price[i] or 0)\n  end\n  return sum / count, count\nend",
         "function_for_item": "",
         "function_for_common": "compute_stats",
@@ -43,7 +43,7 @@
         }
       },
       "lua_skip_cheap": {
-        "type_name": "lua",
+        "type_name": "transform_by_lua",
         "lua_script": "function should_skip()\n  if avg_price > 200 then\n    return true\n  else\n    return false\n  end\nend",
         "function_for_item": "",
         "function_for_common": "should_skip",

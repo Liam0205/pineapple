@@ -5,20 +5,22 @@
 采用 Go `init()` 自注册。算子包被 import 时自动注册到全局 registry，无需手动修改注册代码。
 
 ```go
-// operators/filter/filter.go
+// operators/filter/condition.go
 package filter
 
-import "pine"
+import pine "github.com/Liam0205/pineapple"
 
 func init() {
     pine.Register(pine.OperatorSchema{
-        Name: "filter",
+        Name:        "filter_condition",
+        Type:        "Filter",
+        Description: "Remove items matching a condition.",
         Params: map[string]pine.ParamSpec{
-            "condition": {Type: "string", Required: true},
-            "threshold": {Type: "float64", Required: false, Default: 0.0},
+            "field": {Type: "string", Required: true, Description: "Field to check."},
+            "value": {Type: "any", Required: true, Description: "Value to match for removal."},
         },
     }, func() pine.Operator {
-        return &FilterOperator{}
+        return &ConditionOp{}
     })
 }
 
@@ -53,20 +55,38 @@ func (f *FilterOperator) Execute(ctx context.Context, input *pine.OperatorInput,
 
 每个算子注册时提供：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Name | string | 算子唯一标识，与 DSL / JSON 中引用的名字一致 |
-| Params | map[string]ParamSpec | 算子接受的配置参数 schema |
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| Name | string | Yes | 算子唯一标识，蛇形命名 |
+| Type | string | Yes | 算子类型，必须为合法枚举值（见下） |
+| Description | string | Yes | 一句话功能描述 |
+| Params | map[string]ParamSpec | - | 算子接受的配置参数 schema |
+
+#### Type 枚举值
+
+| 值 | 含义 | 允许的 Output 方法 | DSL 前缀 |
+|----|------|-------------------|----------|
+| `"Recall"` | 召回 | `AddItem` | `recall_` |
+| `"Transform"` | 特征变换 | `SetCommon`, `SetItem` | `transform_` |
+| `"Filter"` | 过滤 | `RemoveItem` | `filter_` |
+| `"Merge"` | 合并 | `RemoveItem`, `SetItem` | `merge_` |
+| `"Reorder"` | 排序 | `SetItemOrder` | `reorder_` |
+| `"Observe"` | 观察 | 无 | `observe_` |
+
+`Type` 缺失或不在枚举范围内 → 注册时 panic。
+
+算子名称 (Name) **必须**以其类型对应的 DSL 前缀开头。此约束在注册时校验，不符合则 panic。
+
+详见 [05 算子类型体系](05_operator_types.md)。
 
 ### ParamSpec
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Type | string | 参数类型 (string, int64, float64, bool, ...) |
-| Required | bool | 是否必填 |
-| Default | any | 非必填时的默认值 |
-
-> 后续可按需扩展：参数描述、枚举约束、嵌套结构等。
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| Type | string | Yes | 参数类型 (`"string"`, `"int64"`, `"float64"`, `"bool"`, `"any"`) |
+| Required | bool | Yes | 是否必填 |
+| Default | any | No | 非必填时的默认值 |
+| Description | string | Yes | 参数描述 |
 
 ## 算子工厂与生命周期
 
@@ -126,25 +146,26 @@ Go 侧的算子 schema 是**唯一的事实来源**。Apple 侧的 Python 代码
 # auto-generated from pine operator schema — DO NOT EDIT
 from apple.base import BaseOp
 
-class FilterOp(BaseOp):
-    """算子: filter"""
-    _name = "filter"
+class FilterConditionOp(BaseOp):
+    """Operator: filter_condition (Type: Filter)"""
+    _name = "filter_condition"
+    _type = "Filter"
     _params_schema = {
-        "condition": {"type": "string", "required": True},
-        "threshold": {"type": "float64", "required": False, "default": 0.0},
+        "field": {"type": "string", "required": True},
+        "value": {"type": "any", "required": True},
     }
 
     def __call__(
         self,
         *,
-        condition: str,
-        threshold: float = 0.0,
-        common_input: list[str] | None = None,
-        common_output: list[str] | None = None,
+        field: str,
+        value: Any,
         item_input: list[str] | None = None,
-        item_output: list[str] | None = None,
-        item_defaults: dict | None = None,
+        debug: bool = False,
+        name: str | None = None,
     ):
+        # Recall 类型自动注入 recall=True
+        # Filter/Reorder/Merge/Observe 不需要 recall 参数
         ...
 ```
 

@@ -19,8 +19,8 @@ func TestToCamelCase(t *testing.T) {
 	}{
 		{"filter_condition", "FilterCondition"},
 		{"recall_static", "RecallStatic"},
-		{"lua", "Lua"},
-		{"feature_normalize", "FeatureNormalize"},
+		{"transform_by_lua", "TransformByLua"},
+		{"transform_normalize", "TransformNormalize"},
 		{"a_b_c", "ABC"},
 		{"", ""},
 	}
@@ -108,7 +108,7 @@ func TestTemplateRendering(t *testing.T) {
 	schemas := []types.OperatorSchema{
 		{
 			Name:        "test_op",
-			Category:    "Test",
+			Type:        types.OpTypeTransform,
 			Description: "A test operator.",
 			Params: map[string]types.ParamSpec{
 				"name":  {Type: "string", Required: true, Description: "The name."},
@@ -237,7 +237,7 @@ func TestRunWithDocGeneration(t *testing.T) {
 	content := string(data)
 	checks := []string{
 		"# filter_condition",
-		"**Category**: Filter",
+		"**Type**: Filter",
 		"## Parameters",
 		"## Metadata Contract",
 		"## DSL Usage",

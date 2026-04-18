@@ -1,5 +1,5 @@
-// Operator: feature_normalize
-// Category: Feature
+// Operator: transform_normalize
+// Type: Transform
 // Description: Normalizes a numeric item field using min-max scaling to [0, 1].
 //
 // Params:
@@ -23,8 +23,8 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name:        "feature_normalize",
-		Category:    "Feature",
+		Name:        "transform_normalize",
+		Type:        pine.OpTypeTransform,
 		Description: "Normalizes a numeric item field using min-max scaling to [0, 1].",
 		Params: map[string]pine.ParamSpec{
 			"field":        {Type: "string", Required: true, Description: "Item field to normalize."},

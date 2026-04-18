@@ -1,5 +1,5 @@
-// Operator: lua
-// Category: Feature / Control
+// Operator: transform_by_lua
+// Type: Transform
 // Description: Executes a Lua script for per-item or per-common computation.
 //
 // Params:
@@ -26,8 +26,8 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name:        "lua",
-		Category:    "Feature / Control",
+		Name:        "transform_by_lua",
+		Type:        pine.OpTypeTransform,
 		Description: "Executes a Lua script for per-item or per-common computation.",
 		Params: map[string]pine.ParamSpec{
 			"lua_script":          {Type: "string", Required: true, Description: "Lua source code defining the function to call."},

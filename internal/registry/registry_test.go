@@ -40,7 +40,7 @@ func (f *failInitOp) Execute(ctx context.Context, in *types.OperatorInput, out *
 
 func TestRegisterAndLookup(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "noop", Category: "Test", Description: "No-op."}
+	schema := types.OperatorSchema{Name: "noop", Type: types.OpTypeTransform, Description: "No-op."}
 	Register(schema, func() types.Operator { return &noopOp{} })
 
 	s, factory, ok := Lookup("noop")
@@ -66,7 +66,7 @@ func TestLookupNotFound(t *testing.T) {
 
 func TestDuplicateRegistrationPanics(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "dup", Category: "Test", Description: "Dup test."}
+	schema := types.OperatorSchema{Name: "dup", Type: types.OpTypeTransform, Description: "Dup test."}
 	Register(schema, func() types.Operator { return &noopOp{} })
 
 	defer func() {
@@ -81,7 +81,7 @@ func TestValidateAndExtractParamsRequired(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
 		Name:     "test",
-		Category: "Test",
+		Type: types.OpTypeTransform,
 		Description: "Test op.",
 		Params: map[string]types.ParamSpec{
 			"required_param": {Type: "string", Required: true, Description: "A required param."},
@@ -98,7 +98,7 @@ func TestValidateAndExtractParamsDefault(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
 		Name:     "test",
-		Category: "Test",
+		Type: types.OpTypeTransform,
 		Description: "Test op.",
 		Params: map[string]types.ParamSpec{
 			"optional": {Type: "float64", Required: false, Default: 0.5, Description: "Optional param."},
@@ -116,7 +116,7 @@ func TestValidateAndExtractParamsDefault(t *testing.T) {
 
 func TestValidateAndExtractParamsFiltersReserved(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "test", Category: "Test", Description: "Test op."}
+	schema := types.OperatorSchema{Name: "test", Type: types.OpTypeTransform, Description: "Test op."}
 
 	raw := map[string]any{
 		"type_name":    "test",
@@ -148,7 +148,7 @@ func TestBuildOperatorSuccess(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
 		Name:        "capture",
-		Category:    "Test",
+		Type:        types.OpTypeTransform,
 		Description: "Capture op.",
 		Params: map[string]types.ParamSpec{
 			"threshold": {Type: "float64", Required: false, Default: 1.0, Description: "Threshold value."},
@@ -179,7 +179,7 @@ func TestBuildOperatorUnknownType(t *testing.T) {
 
 func TestBuildOperatorInitFails(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "fail_init", Category: "Test", Description: "Fails init."}
+	schema := types.OperatorSchema{Name: "fail_init", Type: types.OpTypeTransform, Description: "Fails init."}
 	Register(schema, func() types.Operator { return &failInitOp{} })
 
 	_, _, err := BuildOperator("fail_init", map[string]any{})
@@ -201,11 +201,11 @@ func TestIsReservedKey(t *testing.T) {
 	}
 }
 
-func TestRegisterPanicsOnMissingCategory(t *testing.T) {
+func TestRegisterPanicsOnMissingType(t *testing.T) {
 	Reset()
 	defer func() {
 		if r := recover(); r == nil {
-			t.Error("expected panic for missing Category")
+			t.Error("expected panic for missing Type")
 		}
 	}()
 	Register(types.OperatorSchema{Name: "bad", Description: "Has desc."}, func() types.Operator { return &noopOp{} })
@@ -218,7 +218,7 @@ func TestRegisterPanicsOnMissingDescription(t *testing.T) {
 			t.Error("expected panic for missing Description")
 		}
 	}()
-	Register(types.OperatorSchema{Name: "bad", Category: "Test"}, func() types.Operator { return &noopOp{} })
+	Register(types.OperatorSchema{Name: "bad", Type: types.OpTypeTransform}, func() types.Operator { return &noopOp{} })
 }
 
 func TestRegisterPanicsOnMissingParamDescription(t *testing.T) {
@@ -230,7 +230,7 @@ func TestRegisterPanicsOnMissingParamDescription(t *testing.T) {
 	}()
 	Register(types.OperatorSchema{
 		Name:        "bad",
-		Category:    "Test",
+		Type:        types.OpTypeTransform,
 		Description: "Has desc.",
 		Params: map[string]types.ParamSpec{
 			"field": {Type: "string", Required: true},

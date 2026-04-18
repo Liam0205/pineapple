@@ -23,8 +23,11 @@ type Graph struct {
 }
 
 // Build constructs a DAG from the flattened operator sequence and their configs.
-// It applies data-hazard rules (RAW, WAW, WAR) and special handling for
-// recall operators and merge sources.
+// It applies type-aware dependency rules:
+//   - Transform: field-level RAW/WAW/WAR hazard tracking
+//   - Recall: additive writes (parallel with other Recalls), RAW from upstream Transforms
+//   - Filter/Merge/Reorder: barrier semantics (all prior ops finish before, all later ops wait)
+//   - Observe: read-only RAW dependencies, does not block downstream
 func Build(sequence []string, operators map[string]config.OperatorConfig) (*Graph, error) {
 	g := &Graph{
 		NameToIndex: make(map[string]int, len(sequence)),
@@ -45,11 +48,15 @@ func Build(sequence []string, operators map[string]config.OperatorConfig) (*Grap
 		g.NameToIndex[name] = i
 	}
 
-	// Apply data hazards for common and item fields separately
+	// Phase 1: Add barrier edges for Filter/Merge/Reorder
+	addBarrierEdges(g, sequence, operators)
+
+	// Phase 2: Apply data hazards for common and item fields separately
+	// (only for non-barrier operators; barrier edges already enforce ordering)
 	addEdges(g, sequence, operators, true)  // common fields
 	addEdges(g, sequence, operators, false) // item fields
 
-	// Add explicit edges for merge sources
+	// Phase 3: Add explicit edges for merge sources
 	for i, name := range sequence {
 		opCfg := operators[name]
 		for _, src := range opCfg.Sources {
@@ -71,6 +78,31 @@ func Build(sequence []string, operators map[string]config.OperatorConfig) (*Grap
 	return g, nil
 }
 
+// addBarrierEdges adds barrier edges for Filter, Merge, and Reorder operators.
+// A barrier operator requires all preceding operators to complete before it starts,
+// and all subsequent operators to wait for it to complete.
+func addBarrierEdges(g *Graph, sequence []string, operators map[string]config.OperatorConfig) {
+	n := len(sequence)
+
+	for i, name := range sequence {
+		opCfg := operators[name]
+		opType := types.OperatorType(opCfg.OperatorType)
+		if !opType.IsBarrier() {
+			continue
+		}
+
+		// All preceding operators (in DSL order) must finish before this barrier
+		for j := 0; j < i; j++ {
+			addEdge(g, j, i)
+		}
+
+		// All subsequent operators (in DSL order) must wait for this barrier
+		for j := i + 1; j < n; j++ {
+			addEdge(g, i, j)
+		}
+	}
+}
+
 // fieldTracker tracks the writers and active readers for a single field.
 // It distinguishes additive writes (recall AddItem) from mutating writes
 // (regular SetItem) — additive writes don't conflict with each other but
@@ -86,6 +118,9 @@ type fieldTracker struct {
 // For item fields, recall operators use additive write semantics (AddItem):
 // they don't conflict with each other (no WAW/WAR), but downstream readers
 // still depend on them (RAW).
+//
+// Barrier operators (Filter/Merge/Reorder) are skipped here since their
+// ordering is fully determined by addBarrierEdges.
 func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorConfig, isCommon bool) {
 	fields := make(map[string]*fieldTracker)
 
@@ -100,7 +135,38 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 
 	for i, name := range sequence {
 		opCfg := operators[name]
+		opType := types.OperatorType(opCfg.OperatorType)
 		meta := opCfg.Meta
+
+		// Barrier operators already have full ordering via addBarrierEdges
+		if opType.IsBarrier() {
+			// Still need to update field tracking state so that post-barrier
+			// operators see the barrier as writer/reader where appropriate.
+			var writeFields []string
+			if isCommon {
+				writeFields = meta.CommonOutput
+			} else {
+				writeFields = meta.ItemOutput
+			}
+			for _, field := range writeFields {
+				ft := getOrCreate(field)
+				ft.lastMutWriter = i
+				ft.additiveWriters = nil
+				ft.activeReaders = nil
+			}
+			var readFields []string
+			if isCommon {
+				readFields = meta.CommonInput
+			} else {
+				readFields = meta.ItemInput
+			}
+			for _, field := range readFields {
+				ft := getOrCreate(field)
+				// Reset readers: barrier consumed everything before it
+				ft.activeReaders = []int{i}
+			}
+			continue
+		}
 
 		var readFields, writeFields []string
 		if isCommon {
@@ -111,7 +177,7 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 			writeFields = meta.ItemOutput
 		}
 
-		isAdditiveWrite := !isCommon && opCfg.Recall
+		isAdditiveWrite := !isCommon && opType == types.OpTypeRecall
 
 		// Process reads — RAW dependencies
 		for _, field := range readFields {
@@ -124,7 +190,12 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 			for _, aw := range ft.additiveWriters {
 				addEdge(g, aw, i)
 			}
-			ft.activeReaders = append(ft.activeReaders, i)
+			// Observe is read-only and non-blocking: it gets RAW deps but does
+			// not register as an active reader, so later writers won't create
+			// WAR edges waiting for the Observe to finish.
+			if opType != types.OpTypeObserve {
+				ft.activeReaders = append(ft.activeReaders, i)
+			}
 		}
 
 		// Process writes

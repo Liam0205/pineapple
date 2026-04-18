@@ -120,7 +120,7 @@ func mediumPipelineConfig(numItems int) map[string]any {
 				},
 			},
 			"dispatch": map[string]any{
-				"type_name":   "feature_dispatch",
+				"type_name":   "transform_dispatch",
 				"common_field": "scene",
 				"item_field":  "item_scene",
 				"$metadata": map[string]any{
@@ -130,7 +130,7 @@ func mediumPipelineConfig(numItems int) map[string]any {
 				},
 			},
 			"normalize": map[string]any{
-				"type_name": "feature_normalize",
+				"type_name": "transform_normalize",
 				"field":     "item_score",
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_score"},
@@ -201,7 +201,7 @@ func largePipelineConfig(numItems int) map[string]any {
 				},
 			},
 			"dispatch": map[string]any{
-				"type_name":   "feature_dispatch",
+				"type_name":   "transform_dispatch",
 				"common_field": "scene",
 				"item_field":  "item_scene",
 				"$metadata": map[string]any{
@@ -211,7 +211,7 @@ func largePipelineConfig(numItems int) map[string]any {
 				},
 			},
 			"normalize": map[string]any{
-				"type_name": "feature_normalize",
+				"type_name": "transform_normalize",
 				"field":     "item_score",
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_score"},
@@ -413,7 +413,7 @@ func luaItemConfig(numItems int) map[string]any {
 				},
 			},
 			"lua_discount": map[string]any{
-				"type_name":          "lua",
+				"type_name":          "transform_by_lua",
 				"lua_script":         "function f()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend",
 				"function_for_item":  "f",
 				"function_for_common": "",
@@ -447,7 +447,7 @@ func luaCommonConfig(numItems int) map[string]any {
 				},
 			},
 			"lua_stats": map[string]any{
-				"type_name":          "lua",
+				"type_name":          "transform_by_lua",
 				"lua_script":         "function f()\n  local sum = 0\n  for i = 1, #item_price do sum = sum + item_price[i] end\n  return sum / #item_price\nend",
 				"function_for_item":  "",
 				"function_for_common": "f",
@@ -480,7 +480,7 @@ func luaControlFlowConfig(numItems int) map[string]any {
 				},
 			},
 			"lua_check": map[string]any{
-				"type_name":          "lua",
+				"type_name":          "transform_by_lua",
 				"lua_script":         "function f()\n  if item_count > 100 then return true else return false end\nend",
 				"function_for_item":  "",
 				"function_for_common": "f",

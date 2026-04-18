@@ -49,6 +49,10 @@ type OperatorConfig struct {
 	ItemDefaults     map[string]any `json:"item_defaults,omitempty"`
 	ForBranchControl bool           `json:"for_branch_control,omitempty"`
 
+	// OperatorType is populated at engine build time from the registry schema.
+	// Not serialized in JSON.
+	OperatorType string `json:"-"`
+
 	// RawParams holds business parameters (everything except reserved keys).
 	// Populated by custom unmarshal.
 	RawParams map[string]any `json:"-"`

@@ -119,7 +119,7 @@ func parseDocComment(text string) (OpDoc, bool, error) {
 			!strings.HasPrefix(trimmed, "ItemInput:") &&
 			!strings.HasPrefix(trimmed, "ItemOutput:") {
 			// Check if this is a known section header that ends metadata
-			if strings.HasPrefix(trimmed, "Category:") || strings.HasPrefix(trimmed, "Description:") ||
+			if strings.HasPrefix(trimmed, "Type:") || strings.HasPrefix(trimmed, "Description:") ||
 				strings.HasPrefix(trimmed, "Params:") || strings.HasPrefix(trimmed, "Operator:") {
 				inMetadata = false
 			}

@@ -8,7 +8,7 @@ import (
 
 func TestParseDocCommentMetadata(t *testing.T) {
 	text := `Operator: filter_condition
-Category: Filter
+Type: Filter
 Description: Removes items where a specified field equals a given value.
 
 Params:
@@ -59,7 +59,7 @@ func TestParseDocCommentNoOperator(t *testing.T) {
 
 func TestParseDocCommentNoMetadata(t *testing.T) {
 	text := `Operator: simple_op
-Category: Test
+Type: Transform
 Description: A simple operator with no metadata section.
 `
 	doc, ok, err := parseDocComment(text)
@@ -87,7 +87,7 @@ func TestParseOperatorDocs(t *testing.T) {
 	}
 
 	content := `// Operator: test_op
-// Category: Test
+// Type: Transform
 // Description: A test operator.
 //
 // Params:
@@ -148,8 +148,8 @@ func TestParseRealOperators(t *testing.T) {
 		t.Error("missing filter_condition")
 	}
 
-	if _, ok := m["lua"]; !ok {
-		t.Error("missing lua")
+	if _, ok := m["transform_by_lua"]; !ok {
+		t.Error("missing transform_by_lua")
 	}
 	if _, ok := m["observe_log"]; !ok {
 		t.Error("missing observe_log")

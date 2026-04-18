@@ -177,25 +177,25 @@ func (o *warningTestOp) Execute(_ context.Context, _ *types.OperatorInput, out *
 
 func init() {
 	registry.Reset()
-	registry.Register(types.OperatorSchema{Name: "noop", Category: "Test", Description: "No-op test operator."}, func() types.Operator { return &noopTestOp{} })
+	registry.Register(types.OperatorSchema{Name: "noop", Type: types.OpTypeTransform, Description: "No-op test operator."}, func() types.Operator { return &noopTestOp{} })
 	registry.Register(types.OperatorSchema{
 		Name:        "set_field",
-		Category:    "Test",
+		Type:        types.OpTypeTransform,
 		Description: "Sets a common field to a fixed value.",
 		Params: map[string]types.ParamSpec{
 			"field": {Type: "string", Required: true, Description: "Field name."},
 			"value": {Type: "any", Required: true, Description: "Field value."},
 		},
 	}, func() types.Operator { return &setFieldOp{} })
-	registry.Register(types.OperatorSchema{Name: "enrich_item", Category: "Test", Description: "Enriches items."}, func() types.Operator { return &enrichItemOp{} })
-	registry.Register(types.OperatorSchema{Name: "recall_fixed", Category: "Test", Description: "Fixed recall."}, func() types.Operator { return &recallFixedOp{} })
-	registry.Register(types.OperatorSchema{Name: "merge_dedup", Category: "Test", Description: "Test dedup."}, func() types.Operator { return &mergeTestOp{} })
-	registry.Register(types.OperatorSchema{Name: "filter_offline", Category: "Test", Description: "Filter offline."}, func() types.Operator { return &filterOfflineOp{} })
-	registry.Register(types.OperatorSchema{Name: "sort_desc", Category: "Test", Description: "Sort descending."}, func() types.Operator { return &sortDescOp{} })
-	registry.Register(types.OperatorSchema{Name: "double_common", Category: "Test", Description: "Doubles common field."}, func() types.Operator { return &doubleCommonOp{} })
-	registry.Register(types.OperatorSchema{Name: "error_op", Category: "Test", Description: "Always errors."}, func() types.Operator { return &errorTestOp{} })
-	registry.Register(types.OperatorSchema{Name: "panic_op", Category: "Test", Description: "Always panics."}, func() types.Operator { return &panicTestOp{} })
-	registry.Register(types.OperatorSchema{Name: "warning_op", Category: "Test", Description: "Emits warning."}, func() types.Operator { return &warningTestOp{} })
+	registry.Register(types.OperatorSchema{Name: "enrich_item", Type: types.OpTypeTransform, Description: "Enriches items."}, func() types.Operator { return &enrichItemOp{} })
+	registry.Register(types.OperatorSchema{Name: "recall_fixed", Type: types.OpTypeRecall, Description: "Fixed recall."}, func() types.Operator { return &recallFixedOp{} })
+	registry.Register(types.OperatorSchema{Name: "merge_dedup", Type: types.OpTypeMerge, Description: "Test dedup."}, func() types.Operator { return &mergeTestOp{} })
+	registry.Register(types.OperatorSchema{Name: "filter_offline", Type: types.OpTypeFilter, Description: "Filter offline."}, func() types.Operator { return &filterOfflineOp{} })
+	registry.Register(types.OperatorSchema{Name: "sort_desc", Type: types.OpTypeReorder, Description: "Sort descending."}, func() types.Operator { return &sortDescOp{} })
+	registry.Register(types.OperatorSchema{Name: "double_common", Type: types.OpTypeTransform, Description: "Doubles common field."}, func() types.Operator { return &doubleCommonOp{} })
+	registry.Register(types.OperatorSchema{Name: "error_op", Type: types.OpTypeTransform, Description: "Always errors."}, func() types.Operator { return &errorTestOp{} })
+	registry.Register(types.OperatorSchema{Name: "panic_op", Type: types.OpTypeTransform, Description: "Always panics."}, func() types.Operator { return &panicTestOp{} })
+	registry.Register(types.OperatorSchema{Name: "warning_op", Type: types.OpTypeTransform, Description: "Emits warning."}, func() types.Operator { return &warningTestOp{} })
 }
 
 // --- helper ---

@@ -45,7 +45,7 @@
         }
       },
       "dispatch_scene": {
-        "type_name": "feature_dispatch",
+        "type_name": "transform_dispatch",
         "common_field": "scene",
         "item_field": "item_scene",
         "$metadata": {
@@ -56,7 +56,7 @@
         }
       },
       "normalize_score": {
-        "type_name": "feature_normalize",
+        "type_name": "transform_normalize",
         "field": "item_score",
         "$metadata": {
           "common_input": [],

@@ -1,5 +1,5 @@
-// Operator: feature_dispatch
-// Category: Feature
+// Operator: transform_dispatch
+// Type: Transform
 // Description: Copies a common-side field value to every item as an item-side field.
 //
 // Params:
@@ -21,8 +21,8 @@ import (
 
 func init() {
 	pine.Register(pine.OperatorSchema{
-		Name:        "feature_dispatch",
-		Category:    "Feature",
+		Name:        "transform_dispatch",
+		Type:        pine.OpTypeTransform,
 		Description: "Copies a common-side field value to every item as an item-side field.",
 		Params: map[string]pine.ParamSpec{
 			"common_field": {Type: "string", Required: true, Description: "Source common field to read."},

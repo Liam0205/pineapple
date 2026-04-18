@@ -1,5 +1,5 @@
 // Operator: filter_condition
-// Category: Filter
+// Type: Filter
 // Description: Removes items where a specified field equals a given value.
 //
 // Params:
@@ -23,7 +23,7 @@ import (
 func init() {
 	pine.Register(pine.OperatorSchema{
 		Name:        "filter_condition",
-		Category:    "Filter",
+		Type:        pine.OpTypeFilter,
 		Description: "Removes items where a specified field equals a given value.",
 		Params: map[string]pine.ParamSpec{
 			"field": {Type: "string", Required: true, Description: "Item field to check."},

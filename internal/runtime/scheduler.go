@@ -133,6 +133,14 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) 
 				execErr = cop.Instance.Execute(ctx, input, output)
 			}()
 
+			// Validate output against operator type constraints
+			if execErr == nil {
+				opType := types.OperatorType(cop.Config.OperatorType)
+				if vErr := opType.ValidateOutput(output); vErr != nil {
+					execErr = fmt.Errorf("type violation: %w", vErr)
+				}
+			}
+
 			duration := time.Since(startTime)
 
 			// Handle fatal error

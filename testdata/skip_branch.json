@@ -3,7 +3,7 @@
   "pipeline_config": {
     "operators": {
       "_ctrl_1_A1": {
-        "type_name": "lua",
+        "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": ["item_count"],
           "common_output": ["_if_1"],

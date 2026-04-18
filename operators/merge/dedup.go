@@ -1,5 +1,5 @@
 // Operator: merge_dedup
-// Category: Merge
+// Type: Merge
 // Description: Deduplicates items by a key field, keeping the first occurrence.
 //
 // Params:
@@ -23,7 +23,7 @@ import (
 func init() {
 	pine.Register(pine.OperatorSchema{
 		Name:        "merge_dedup",
-		Category:    "Merge",
+		Type:        pine.OpTypeMerge,
 		Description: "Deduplicates items by a key field, keeping the first occurrence.",
 		Params: map[string]pine.ParamSpec{
 			"dedup_by": {Type: "string", Required: true, Description: "Field name to deduplicate on."},

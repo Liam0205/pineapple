@@ -1,5 +1,5 @@
 // Operator: recall_static
-// Category: Recall
+// Type: Recall
 // Description: Emits a configurable static set of items for testing and validation.
 //
 // Params:
@@ -22,7 +22,7 @@ import (
 func init() {
 	pine.Register(pine.OperatorSchema{
 		Name:        "recall_static",
-		Category:    "Recall",
+		Type:        pine.OpTypeRecall,
 		Description: "Emits a configurable static set of items for testing and validation.",
 		Params: map[string]pine.ParamSpec{
 			"items": {Type: "any", Required: true, Description: "JSON array of item maps to emit as candidates."},

@@ -38,14 +38,21 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 		return nil, err
 	}
 
-	// 3. Build operator instances
+	// 3. Build operator instances and populate OperatorType
 	compiledOps := make([]*runtime.CompiledOperator, len(sequence))
 	for i, name := range sequence {
 		opCfg := cfg.PipelineConfig.Operators[name]
-		op, _, err := registry.BuildOperator(opCfg.TypeName, opCfg.RawParams)
+		op, schema, err := registry.BuildOperator(opCfg.TypeName, opCfg.RawParams)
 		if err != nil {
 			return nil, err
 		}
+		// Populate OperatorType from registry schema
+		opCfg.OperatorType = string(schema.Type)
+		// For backwards compatibility: if recall flag not set in JSON, derive from type
+		if schema.Type == types.OpTypeRecall {
+			opCfg.Recall = true
+		}
+		cfg.PipelineConfig.Operators[name] = opCfg
 		// If the operator needs metadata, provide it
 		if ma, ok := op.(types.MetadataAware); ok {
 			ma.SetMetadata(
