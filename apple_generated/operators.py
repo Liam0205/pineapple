@@ -8,14 +8,12 @@ class FilterConditionOp(BaseOp):
     """Operator: filter_condition"""
     _name = "filter_condition"
     _params_schema = {
-        "field": {"type": "string", "required": True},
         "value": {"type": "any", "required": True},
     }
 
     def __call__(
         self,
         *,
-        field: str = ...,
         value: Any = ...,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
@@ -28,7 +26,6 @@ class FilterConditionOp(BaseOp):
     ) -> "FilterConditionOp":
         return self._apply(
             params={
-                "field": field,
                 "value": value,
             },
             common_input=common_input,
@@ -79,14 +76,12 @@ class MergeDedupOp(BaseOp):
     """Operator: merge_dedup"""
     _name = "merge_dedup"
     _params_schema = {
-        "dedup_by": {"type": "string", "required": True},
         "strategy": {"type": "string", "required": False, "default": "first"},
     }
 
     def __call__(
         self,
         *,
-        dedup_by: str = ...,
         strategy: str = "",
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
@@ -99,7 +94,6 @@ class MergeDedupOp(BaseOp):
     ) -> "MergeDedupOp":
         return self._apply(
             params={
-                "dedup_by": dedup_by,
                 "strategy": strategy,
             },
             common_input=common_input,
@@ -185,14 +179,12 @@ class ReorderSortOp(BaseOp):
     """Operator: reorder_sort"""
     _name = "reorder_sort"
     _params_schema = {
-        "field": {"type": "string", "required": True},
         "order": {"type": "string", "required": False, "default": "desc"},
     }
 
     def __call__(
         self,
         *,
-        field: str = ...,
         order: str = "",
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
@@ -205,7 +197,6 @@ class ReorderSortOp(BaseOp):
     ) -> "ReorderSortOp":
         return self._apply(
             params={
-                "field": field,
                 "order": order,
             },
             common_input=common_input,
@@ -262,15 +253,11 @@ class TransformDispatchOp(BaseOp):
     """Operator: transform_dispatch"""
     _name = "transform_dispatch"
     _params_schema = {
-        "common_field": {"type": "string", "required": True},
-        "item_field": {"type": "string", "required": True},
     }
 
     def __call__(
         self,
         *,
-        common_field: str = ...,
-        item_field: str = ...,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -282,8 +269,6 @@ class TransformDispatchOp(BaseOp):
     ) -> "TransformDispatchOp":
         return self._apply(
             params={
-                "common_field": common_field,
-                "item_field": item_field,
             },
             common_input=common_input,
             common_output=common_output,
@@ -299,17 +284,13 @@ class TransformNormalizeOp(BaseOp):
     """Operator: transform_normalize"""
     _name = "transform_normalize"
     _params_schema = {
-        "field": {"type": "string", "required": True},
         "method": {"type": "string", "required": False, "default": "min_max"},
-        "output_field": {"type": "string", "required": False},
     }
 
     def __call__(
         self,
         *,
-        field: str = ...,
         method: str = "",
-        output_field: str = "",
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -321,9 +302,7 @@ class TransformNormalizeOp(BaseOp):
     ) -> "TransformNormalizeOp":
         return self._apply(
             params={
-                "field": field,
                 "method": method,
-                "output_field": output_field,
             },
             common_input=common_input,
             common_output=common_output,

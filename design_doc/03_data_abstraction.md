@@ -270,3 +270,81 @@ func (out *OperatorOutput) SetWarning(err error)
 - **统一接口，按需使用**：所有算子共享同一个 `Operator` 接口和 `OperatorOutput`。不同类型的算子使用不同的方法子集，不使用的方法不调用即可。引擎通过 JSON 元数据（`recall: true`、`sources` 等）或 Go 接口断言识别算子类别，决定写回策略。
 - **无状态可重入**：算子在 `Init` 后不持有可变状态，`Execute` 可被多个 goroutine 并发调用。算子可持有只读配置和线程安全资源（如连接池），不可持有请求级状态。
 - **错误约定**：`return nil` 表示正常执行；`output.SetWarning(err)` 表示可恢复错误（DAG 继续）；`return err` 表示不可恢复错误（DAG 终止）。
+
+#### MetadataAware — 字段名自省
+
+算子操作的字段名已在 DSL 的 `common_input` / `common_output` / `item_input` / `item_output` 中声明。通过实现可选接口 `MetadataAware`，算子可以在初始化阶段获取这些声明的字段名，而无需通过 `Params` 重复指定。
+
+```go
+// MetadataAware is an optional interface. The engine calls SetMetadata
+// after Init for operators that implement it.
+type MetadataAware interface {
+    SetMetadata(commonInput, commonOutput, itemInput, itemOutput []string)
+}
+```
+
+引擎在 `Init(params)` 之后自动检测算子是否实现 `MetadataAware`，若实现则调用 `SetMetadata` 注入 `$metadata` 中声明的字段名。
+
+##### MetadataHolder — 嵌入式默认实现
+
+引擎提供 `MetadataHolder` 结构体，存储四个字段名切片并提供默认的 `SetMetadata` 实现。算子通过 Go embedding 嵌入即可自动满足 `MetadataAware` 接口，无需每个算子手写 `SetMetadata`：
+
+```go
+// MetadataHolder 存储 DSL 声明的字段名，提供默认 SetMetadata。
+type MetadataHolder struct {
+    CommonInput  []string
+    CommonOutput []string
+    ItemInput    []string
+    ItemOutput   []string
+}
+
+func (m *MetadataHolder) SetMetadata(commonInput, commonOutput, itemInput, itemOutput []string) {
+    m.CommonInput = commonInput
+    m.CommonOutput = commonOutput
+    m.ItemInput = itemInput
+    m.ItemOutput = itemOutput
+}
+```
+
+**使用方式**——算子嵌入 `pine.MetadataHolder`，在 `Execute` 中直接访问字段名：
+
+```go
+type SortOp struct {
+    pine.MetadataHolder   // 自动实现 MetadataAware
+    ascending bool
+}
+
+func (o *SortOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+    field := o.ItemInput[0]   // 直接从嵌入的 MetadataHolder 获取
+    // ...
+}
+```
+
+如果算子需要自定义 metadata 处理逻辑（极少见），可以覆写 `SetMetadata` 方法，此时嵌入的默认实现不再生效。
+
+**何时用 `MetadataAware` vs `Params`**：
+
+| 场景 | 推荐方式 | 说明 |
+|------|---------|------|
+| 算子操作的字段名由调用方决定 | 嵌入 `MetadataHolder` | 字段名已在 DSL 声明中给出，不应重复 |
+| 算子有固定的业务语义字段 | 硬编码 | 如 `filter_paginate` 固定读 `page`/`size` |
+| 算子有与字段名无关的配置 | `Params` | 如 `reorder_sort` 的 `order="desc"` |
+
+**反模式**：通过 `Params` 传入字段名，导致 DSL 调用时必须同时声明 `common_input=["x"]` 和 `field="x"`——信息重复，容易不一致。
+
+**正确模式示例**（以 `reorder_sort` 为例）：
+
+```python
+# 反模式: field 名在 item_input 和 params 中重复
+flow.reorder_sort(
+    item_input=["score"],
+    field="score",       # 冗余！
+    ascending=False,
+)
+
+# 正确模式: 算子通过 MetadataHolder 获取 item_input=["score"]
+flow.reorder_sort(
+    item_input=["score"],
+    order="desc",
+)
+```

@@ -3,8 +3,9 @@
 // Description: Removes items where a specified field equals a given value.
 //
 // Params:
-//   - field (string, required): Item field to check.
 //   - value (any, required): Items where field == value are removed.
+//
+// The item field to check is determined by item_input metadata (first field).
 //
 // Metadata contract (typical usage):
 //   CommonInput:  []
@@ -26,7 +27,6 @@ func init() {
 		Type:        pine.OpTypeFilter,
 		Description: "Removes items where a specified field equals a given value.",
 		Params: map[string]pine.ParamSpec{
-			"field": {Type: "string", Required: true, Description: "Item field to check."},
 			"value": {Type: "any", Required: true, Description: "Items where field == value are removed."},
 		},
 	}, func() pine.Operator {
@@ -36,12 +36,11 @@ func init() {
 
 // ConditionOp removes items where a field matches a specific value.
 type ConditionOp struct {
-	field string
+	pine.MetadataHolder
 	value any
 }
 
 func (o *ConditionOp) Init(params map[string]any) error {
-	o.field = params["field"].(string)
 	v, ok := params["value"]
 	if !ok {
 		return fmt.Errorf("filter_condition: missing required param 'value'")
@@ -51,8 +50,9 @@ func (o *ConditionOp) Init(params map[string]any) error {
 }
 
 func (o *ConditionOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+	field := o.ItemInput[0]
 	for i := 0; i < in.ItemCount(); i++ {
-		if fmt.Sprintf("%v", in.Item(i, o.field)) == fmt.Sprintf("%v", o.value) {
+		if fmt.Sprintf("%v", in.Item(i, field)) == fmt.Sprintf("%v", o.value) {
 			out.RemoveItem(i)
 		}
 	}

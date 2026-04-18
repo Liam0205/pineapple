@@ -8,7 +8,6 @@ Sorts items by a numeric field in ascending or descending order.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| field | string | Yes | - | Item field to sort by. |
 | order | string | No | `"desc"` | Sort direction — "asc" or "desc". |
 
 ## Metadata Contract
@@ -24,7 +23,6 @@ Sorts items by a numeric field in ascending or descending order.
 
 ```python
 flow.reorder_sort(
-    field=...,
     order=...,
     common_input=[...],
     item_input=[...],

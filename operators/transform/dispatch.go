@@ -2,9 +2,8 @@
 // Type: Transform
 // Description: Copies a common-side field value to every item as an item-side field.
 //
-// Params:
-//   - common_field (string, required): Source common field to read.
-//   - item_field (string, required): Target item field to write.
+// The source common field is determined by common_input metadata (first field).
+// The target item field is determined by item_output metadata (first field).
 //
 // Metadata contract (typical usage):
 //   CommonInput:  [<common_field>]
@@ -24,10 +23,7 @@ func init() {
 		Name:        "transform_dispatch",
 		Type:        pine.OpTypeTransform,
 		Description: "Copies a common-side field value to every item as an item-side field.",
-		Params: map[string]pine.ParamSpec{
-			"common_field": {Type: "string", Required: true, Description: "Source common field to read."},
-			"item_field":   {Type: "string", Required: true, Description: "Target item field to write."},
-		},
+		Params:      map[string]pine.ParamSpec{},
 	}, func() pine.Operator {
 		return &DispatchOp{}
 	})
@@ -35,20 +31,19 @@ func init() {
 
 // DispatchOp copies a common field value to all items.
 type DispatchOp struct {
-	commonField string
-	itemField   string
+	pine.MetadataHolder
 }
 
 func (o *DispatchOp) Init(params map[string]any) error {
-	o.commonField = params["common_field"].(string)
-	o.itemField = params["item_field"].(string)
 	return nil
 }
 
 func (o *DispatchOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
-	val := in.Common(o.commonField)
+	commonField := o.CommonInput[0]
+	itemField := o.ItemOutput[0]
+	val := in.Common(commonField)
 	for i := 0; i < in.ItemCount(); i++ {
-		out.SetItem(i, o.itemField, val)
+		out.SetItem(i, itemField, val)
 	}
 	return nil
 }

@@ -3,8 +3,9 @@
 // Description: Sorts items by a numeric field in ascending or descending order.
 //
 // Params:
-//   - field (string, required): Item field to sort by.
 //   - order (string, optional, default="desc"): Sort direction — "asc" or "desc".
+//
+// The sort field is determined by item_input metadata (first field).
 //
 // Metadata contract (typical usage):
 //   CommonInput:  []
@@ -27,7 +28,6 @@ func init() {
 		Type:        pine.OpTypeReorder,
 		Description: "Sorts items by a numeric field in ascending or descending order.",
 		Params: map[string]pine.ParamSpec{
-			"field": {Type: "string", Required: true, Description: "Item field to sort by."},
 			"order": {Type: "string", Required: false, Default: "desc", Description: "Sort direction — \"asc\" or \"desc\"."},
 		},
 	}, func() pine.Operator {
@@ -37,12 +37,11 @@ func init() {
 
 // SortOp sorts items by a numeric field.
 type SortOp struct {
-	field     string
+	pine.MetadataHolder
 	ascending bool
 }
 
 func (o *SortOp) Init(params map[string]any) error {
-	o.field = params["field"].(string)
 	order := params["order"].(string)
 	switch order {
 	case "asc":
@@ -61,6 +60,8 @@ func (o *SortOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Op
 		return nil
 	}
 
+	field := o.ItemInput[0]
+
 	// Collect values and indices
 	type entry struct {
 		idx int
@@ -68,9 +69,9 @@ func (o *SortOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Op
 	}
 	entries := make([]entry, n)
 	for i := 0; i < n; i++ {
-		v, err := sortToFloat64(in.Item(i, o.field))
+		v, err := sortToFloat64(in.Item(i, field))
 		if err != nil {
-			return fmt.Errorf("reorder_sort: item[%d].%s: %w", i, o.field, err)
+			return fmt.Errorf("reorder_sort: item[%d].%s: %w", i, field, err)
 		}
 		entries[i] = entry{idx: i, val: v}
 	}

@@ -3,9 +3,10 @@
 // Description: Normalizes a numeric item field using min-max scaling to [0, 1].
 //
 // Params:
-//   - field (string, required): Item field to normalize.
-//   - output_field (string, optional, default=<field>+"_norm"): Target field for normalized values.
 //   - method (string, optional, default="min_max"): Normalization method.
+//
+// The input field is determined by item_input metadata (first field).
+// The output field is determined by item_output metadata (first field).
 //
 // Metadata contract (typical usage):
 //   CommonInput:  []
@@ -27,9 +28,7 @@ func init() {
 		Type:        pine.OpTypeTransform,
 		Description: "Normalizes a numeric item field using min-max scaling to [0, 1].",
 		Params: map[string]pine.ParamSpec{
-			"field":        {Type: "string", Required: true, Description: "Item field to normalize."},
-			"output_field": {Type: "string", Required: false, Default: "", Description: "Target field for normalized values."},
-			"method":       {Type: "string", Required: false, Default: "min_max", Description: "Normalization method."},
+			"method": {Type: "string", Required: false, Default: "min_max", Description: "Normalization method."},
 		},
 	}, func() pine.Operator {
 		return &NormalizeOp{}
@@ -38,17 +37,11 @@ func init() {
 
 // NormalizeOp applies min-max normalization to an item field.
 type NormalizeOp struct {
-	field       string
-	outputField string
-	method      string
+	pine.MetadataHolder
+	method string
 }
 
 func (o *NormalizeOp) Init(params map[string]any) error {
-	o.field = params["field"].(string)
-	o.outputField = params["output_field"].(string)
-	if o.outputField == "" {
-		o.outputField = o.field + "_norm"
-	}
 	o.method = params["method"].(string)
 	if o.method != "min_max" {
 		return fmt.Errorf("transform_normalize: unsupported method %q", o.method)
@@ -62,12 +55,15 @@ func (o *NormalizeOp) Execute(_ context.Context, in *pine.OperatorInput, out *pi
 		return nil
 	}
 
+	field := o.ItemInput[0]
+	outputField := o.ItemOutput[0]
+
 	// Collect values
 	vals := make([]float64, n)
 	for i := 0; i < n; i++ {
-		v, err := toFloat64(in.Item(i, o.field))
+		v, err := toFloat64(in.Item(i, field))
 		if err != nil {
-			return fmt.Errorf("transform_normalize: item[%d].%s: %w", i, o.field, err)
+			return fmt.Errorf("transform_normalize: item[%d].%s: %w", i, field, err)
 		}
 		vals[i] = v
 	}
@@ -92,7 +88,7 @@ func (o *NormalizeOp) Execute(_ context.Context, in *pine.OperatorInput, out *pi
 		} else {
 			norm = (v - minV) / rng
 		}
-		out.SetItem(i, o.outputField, norm)
+		out.SetItem(i, outputField, norm)
 	}
 	return nil
 }

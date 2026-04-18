@@ -9,18 +9,19 @@ import (
 
 func TestSortOpInit(t *testing.T) {
 	op := &SortOp{}
-	err := op.Init(map[string]any{"field": "score", "order": "desc"})
+	err := op.Init(map[string]any{"order": "desc"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if op.field != "score" || op.ascending {
-		t.Errorf("unexpected config: field=%s, ascending=%v", op.field, op.ascending)
+	op.SetMetadata(nil, nil, []string{"score"}, nil)
+	if op.ItemInput[0] != "score" || op.ascending {
+		t.Errorf("unexpected config: ItemInput[0]=%s, ascending=%v", op.ItemInput[0], op.ascending)
 	}
 }
 
 func TestSortOpInitAsc(t *testing.T) {
 	op := &SortOp{}
-	err := op.Init(map[string]any{"field": "score", "order": "asc"})
+	err := op.Init(map[string]any{"order": "asc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,14 +32,15 @@ func TestSortOpInitAsc(t *testing.T) {
 
 func TestSortOpInitBadOrder(t *testing.T) {
 	op := &SortOp{}
-	err := op.Init(map[string]any{"field": "score", "order": "random"})
+	err := op.Init(map[string]any{"order": "random"})
 	if err == nil {
 		t.Fatal("expected error for unsupported order")
 	}
 }
 
 func TestSortOpExecuteDesc(t *testing.T) {
-	op := &SortOp{field: "score", ascending: false}
+	op := &SortOp{}
+	op.SetMetadata(nil, nil, []string{"score"}, nil)
 	items := []map[string]any{
 		{"item_id": "a", "score": 10.0},
 		{"item_id": "b", "score": 30.0},
@@ -61,7 +63,8 @@ func TestSortOpExecuteDesc(t *testing.T) {
 }
 
 func TestSortOpExecuteAsc(t *testing.T) {
-	op := &SortOp{field: "score", ascending: true}
+	op := &SortOp{ascending: true}
+	op.SetMetadata(nil, nil, []string{"score"}, nil)
 	items := []map[string]any{
 		{"item_id": "a", "score": 30.0},
 		{"item_id": "b", "score": 10.0},
@@ -78,7 +81,8 @@ func TestSortOpExecuteAsc(t *testing.T) {
 }
 
 func TestSortOpExecuteEmpty(t *testing.T) {
-	op := &SortOp{field: "score", ascending: false}
+	op := &SortOp{}
+	op.SetMetadata(nil, nil, []string{"score"}, nil)
 	in := pine.NewOperatorInput(nil, nil)
 	out := pine.NewOperatorOutput()
 	err := op.Execute(context.Background(), in, out)
@@ -91,7 +95,8 @@ func TestSortOpExecuteEmpty(t *testing.T) {
 }
 
 func TestSortOpExecuteInt64(t *testing.T) {
-	op := &SortOp{field: "score", ascending: false}
+	op := &SortOp{}
+	op.SetMetadata(nil, nil, []string{"score"}, nil)
 	items := []map[string]any{
 		{"score": int64(5)},
 		{"score": int64(15)},
@@ -110,7 +115,8 @@ func TestSortOpExecuteInt64(t *testing.T) {
 }
 
 func TestSortOpExecuteBadType(t *testing.T) {
-	op := &SortOp{field: "score", ascending: false}
+	op := &SortOp{}
+	op.SetMetadata(nil, nil, []string{"score"}, nil)
 	items := []map[string]any{{"score": "not_a_number"}}
 	in := pine.NewOperatorInput(nil, items)
 	out := pine.NewOperatorOutput()

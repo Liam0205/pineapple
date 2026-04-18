@@ -10,36 +10,27 @@ import (
 
 func TestNormalizeOpInit(t *testing.T) {
 	op := &NormalizeOp{}
-	err := op.Init(map[string]any{"field": "score", "output_field": "", "method": "min_max"})
+	err := op.Init(map[string]any{"method": "min_max"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if op.outputField != "score_norm" {
-		t.Errorf("expected output_field=score_norm, got %s", op.outputField)
-	}
-}
-
-func TestNormalizeOpInitCustomOutput(t *testing.T) {
-	op := &NormalizeOp{}
-	err := op.Init(map[string]any{"field": "score", "output_field": "s_norm", "method": "min_max"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if op.outputField != "s_norm" {
-		t.Errorf("expected output_field=s_norm, got %s", op.outputField)
+	op.SetMetadata(nil, nil, []string{"score"}, []string{"score_norm"})
+	if op.ItemInput[0] != "score" || op.ItemOutput[0] != "score_norm" {
+		t.Errorf("unexpected config: ItemInput[0]=%s, ItemOutput[0]=%s", op.ItemInput[0], op.ItemOutput[0])
 	}
 }
 
 func TestNormalizeOpInitBadMethod(t *testing.T) {
 	op := &NormalizeOp{}
-	err := op.Init(map[string]any{"field": "score", "output_field": "", "method": "z_score"})
+	err := op.Init(map[string]any{"method": "z_score"})
 	if err == nil {
 		t.Fatal("expected error for unsupported method")
 	}
 }
 
 func TestNormalizeOpExecute(t *testing.T) {
-	op := &NormalizeOp{field: "score", outputField: "score_norm", method: "min_max"}
+	op := &NormalizeOp{method: "min_max"}
+	op.SetMetadata(nil, nil, []string{"score"}, []string{"score_norm"})
 	items := []map[string]any{
 		{"score": 10.0},
 		{"score": 20.0},
@@ -63,7 +54,8 @@ func TestNormalizeOpExecute(t *testing.T) {
 }
 
 func TestNormalizeOpExecuteEqualValues(t *testing.T) {
-	op := &NormalizeOp{field: "score", outputField: "score_norm", method: "min_max"}
+	op := &NormalizeOp{method: "min_max"}
+	op.SetMetadata(nil, nil, []string{"score"}, []string{"score_norm"})
 	items := []map[string]any{
 		{"score": 5.0},
 		{"score": 5.0},
@@ -80,7 +72,8 @@ func TestNormalizeOpExecuteEqualValues(t *testing.T) {
 }
 
 func TestNormalizeOpExecuteEmpty(t *testing.T) {
-	op := &NormalizeOp{field: "score", outputField: "score_norm", method: "min_max"}
+	op := &NormalizeOp{method: "min_max"}
+	op.SetMetadata(nil, nil, []string{"score"}, []string{"score_norm"})
 	in := pine.NewOperatorInput(nil, nil)
 	out := pine.NewOperatorOutput()
 	err := op.Execute(context.Background(), in, out)
@@ -90,7 +83,8 @@ func TestNormalizeOpExecuteEmpty(t *testing.T) {
 }
 
 func TestNormalizeOpExecuteInt64(t *testing.T) {
-	op := &NormalizeOp{field: "score", outputField: "score_norm", method: "min_max"}
+	op := &NormalizeOp{method: "min_max"}
+	op.SetMetadata(nil, nil, []string{"score"}, []string{"score_norm"})
 	items := []map[string]any{
 		{"score": int64(0)},
 		{"score": int64(100)},
@@ -108,7 +102,8 @@ func TestNormalizeOpExecuteInt64(t *testing.T) {
 }
 
 func TestNormalizeOpExecuteBadType(t *testing.T) {
-	op := &NormalizeOp{field: "score", outputField: "score_norm", method: "min_max"}
+	op := &NormalizeOp{method: "min_max"}
+	op.SetMetadata(nil, nil, []string{"score"}, []string{"score_norm"})
 	items := []map[string]any{{"score": "not_a_number"}}
 	in := pine.NewOperatorInput(nil, items)
 	out := pine.NewOperatorOutput()

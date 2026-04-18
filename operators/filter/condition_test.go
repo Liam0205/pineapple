@@ -9,14 +9,20 @@ import (
 
 func TestConditionOpInit(t *testing.T) {
 	op := &ConditionOp{}
-	err := op.Init(map[string]any{"field": "status", "value": "offline"})
+	err := op.Init(map[string]any{"value": "offline"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	op.SetMetadata(nil, nil, []string{"status"}, nil)
+	if op.ItemInput[0] != "status" {
+		t.Errorf("expected ItemInput[0]=status, got %s", op.ItemInput[0])
 	}
 }
 
 func TestConditionOpExecute(t *testing.T) {
-	op := &ConditionOp{field: "status", value: "offline"}
+	op := &ConditionOp{}
+	op.SetMetadata(nil, nil, []string{"status"}, nil)
+	op.value = "offline"
 	items := []map[string]any{
 		{"item_id": "a", "status": "online"},
 		{"item_id": "b", "status": "offline"},
@@ -42,7 +48,9 @@ func TestConditionOpExecute(t *testing.T) {
 }
 
 func TestConditionOpExecuteNoMatch(t *testing.T) {
-	op := &ConditionOp{field: "status", value: "offline"}
+	op := &ConditionOp{}
+	op.SetMetadata(nil, nil, []string{"status"}, nil)
+	op.value = "offline"
 	items := []map[string]any{
 		{"item_id": "a", "status": "online"},
 	}
@@ -55,7 +63,9 @@ func TestConditionOpExecuteNoMatch(t *testing.T) {
 }
 
 func TestConditionOpExecuteNumericValue(t *testing.T) {
-	op := &ConditionOp{field: "flag", value: float64(0)}
+	op := &ConditionOp{}
+	op.SetMetadata(nil, nil, []string{"flag"}, nil)
+	op.value = float64(0)
 	items := []map[string]any{
 		{"flag": float64(0)},
 		{"flag": float64(1)},
@@ -73,7 +83,9 @@ func TestConditionOpExecuteNumericValue(t *testing.T) {
 }
 
 func TestConditionOpExecuteEmpty(t *testing.T) {
-	op := &ConditionOp{field: "status", value: "offline"}
+	op := &ConditionOp{}
+	op.SetMetadata(nil, nil, []string{"status"}, nil)
+	op.value = "offline"
 	in := pine.NewOperatorInput(nil, nil)
 	out := pine.NewOperatorOutput()
 	err := op.Execute(context.Background(), in, out)

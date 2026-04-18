@@ -33,3 +33,7 @@ type OperatorSchema = types.OperatorSchema
 // MetadataAware is an optional interface for operators that need access to
 // their declared input/output field names from $metadata.
 type MetadataAware = types.MetadataAware
+
+// MetadataHolder stores DSL-declared field-name slices and provides a default
+// SetMetadata. Embed it in operator structs for automatic MetadataAware compliance.
+type MetadataHolder = types.MetadataHolder

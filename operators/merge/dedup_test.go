@@ -9,25 +9,28 @@ import (
 
 func TestDedupOpInit(t *testing.T) {
 	op := &DedupOp{}
-	err := op.Init(map[string]any{"dedup_by": "item_id", "strategy": "first"})
+	err := op.Init(map[string]any{"strategy": "first"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if op.dedupBy != "item_id" || op.strategy != "first" {
+	op.SetMetadata(nil, nil, []string{"item_id", "_source"}, nil)
+	if op.ItemInput[0] != "item_id" || op.strategy != "first" {
 		t.Errorf("unexpected config: %+v", op)
 	}
 }
 
 func TestDedupOpInitBadStrategy(t *testing.T) {
 	op := &DedupOp{}
-	err := op.Init(map[string]any{"dedup_by": "item_id", "strategy": "unknown"})
+	err := op.Init(map[string]any{"strategy": "unknown"})
 	if err == nil {
 		t.Fatal("expected error for unsupported strategy")
 	}
 }
 
 func TestDedupOpExecute(t *testing.T) {
-	op := &DedupOp{dedupBy: "item_id", strategy: "first"}
+	op := &DedupOp{}
+	op.SetMetadata(nil, nil, []string{"item_id"}, nil)
+	op.strategy = "first"
 	items := []map[string]any{
 		{"item_id": "a", "score": 1.0},
 		{"item_id": "b", "score": 2.0},
@@ -54,7 +57,9 @@ func TestDedupOpExecute(t *testing.T) {
 }
 
 func TestDedupOpExecuteNoDuplicates(t *testing.T) {
-	op := &DedupOp{dedupBy: "item_id", strategy: "first"}
+	op := &DedupOp{}
+	op.SetMetadata(nil, nil, []string{"item_id"}, nil)
+	op.strategy = "first"
 	items := []map[string]any{
 		{"item_id": "a"},
 		{"item_id": "b"},
@@ -68,7 +73,9 @@ func TestDedupOpExecuteNoDuplicates(t *testing.T) {
 }
 
 func TestDedupOpExecuteEmpty(t *testing.T) {
-	op := &DedupOp{dedupBy: "item_id", strategy: "first"}
+	op := &DedupOp{}
+	op.SetMetadata(nil, nil, []string{"item_id"}, nil)
+	op.strategy = "first"
 	in := pine.NewOperatorInput(nil, nil)
 	out := pine.NewOperatorOutput()
 	err := op.Execute(context.Background(), in, out)

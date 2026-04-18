@@ -148,6 +148,31 @@ type MetadataAware interface {
 	SetMetadata(commonInput, commonOutput, itemInput, itemOutput []string)
 }
 
+// MetadataHolder stores the four DSL-declared field-name slices and provides
+// a default SetMetadata implementation. Embed it in an operator struct to
+// satisfy MetadataAware automatically:
+//
+//	type SortOp struct {
+//	    pine.MetadataHolder
+//	    ascending bool
+//	}
+//
+// The operator can then access o.CommonInput, o.ItemInput, etc. directly.
+type MetadataHolder struct {
+	CommonInput  []string
+	CommonOutput []string
+	ItemInput    []string
+	ItemOutput   []string
+}
+
+// SetMetadata implements MetadataAware.
+func (m *MetadataHolder) SetMetadata(commonInput, commonOutput, itemInput, itemOutput []string) {
+	m.CommonInput = commonInput
+	m.CommonOutput = commonOutput
+	m.ItemInput = itemInput
+	m.ItemOutput = itemOutput
+}
+
 // ParamSpec describes a single operator parameter for schema validation.
 type ParamSpec struct {
 	Type        string // "string", "int64", "float64", "bool", "any"

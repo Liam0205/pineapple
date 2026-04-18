@@ -9,17 +9,19 @@ import (
 
 func TestDispatchOpInit(t *testing.T) {
 	op := &DispatchOp{}
-	err := op.Init(map[string]any{"common_field": "scene", "item_field": "item_scene"})
+	err := op.Init(map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if op.commonField != "scene" || op.itemField != "item_scene" {
-		t.Errorf("unexpected config: %+v", op)
+	op.SetMetadata([]string{"scene"}, nil, nil, []string{"item_scene"})
+	if op.CommonInput[0] != "scene" || op.ItemOutput[0] != "item_scene" {
+		t.Errorf("unexpected config: CommonInput[0]=%s, ItemOutput[0]=%s", op.CommonInput[0], op.ItemOutput[0])
 	}
 }
 
 func TestDispatchOpExecute(t *testing.T) {
-	op := &DispatchOp{commonField: "scene", itemField: "item_scene"}
+	op := &DispatchOp{}
+	op.SetMetadata([]string{"scene"}, nil, nil, []string{"item_scene"})
 	items := []map[string]any{
 		{"item_id": "a"},
 		{"item_id": "b"},
@@ -40,7 +42,8 @@ func TestDispatchOpExecute(t *testing.T) {
 }
 
 func TestDispatchOpExecuteEmpty(t *testing.T) {
-	op := &DispatchOp{commonField: "scene", itemField: "item_scene"}
+	op := &DispatchOp{}
+	op.SetMetadata([]string{"scene"}, nil, nil, []string{"item_scene"})
 	in := pine.NewOperatorInput(map[string]any{"scene": "test"}, nil)
 	out := pine.NewOperatorOutput()
 	err := op.Execute(context.Background(), in, out)
@@ -53,7 +56,8 @@ func TestDispatchOpExecuteEmpty(t *testing.T) {
 }
 
 func TestDispatchOpExecuteNilCommon(t *testing.T) {
-	op := &DispatchOp{commonField: "missing", itemField: "item_missing"}
+	op := &DispatchOp{}
+	op.SetMetadata([]string{"missing"}, nil, nil, []string{"item_missing"})
 	items := []map[string]any{{"item_id": "a"}}
 	in := pine.NewOperatorInput(map[string]any{}, items)
 	out := pine.NewOperatorOutput()
