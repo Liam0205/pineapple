@@ -34,6 +34,7 @@ func init() {
 
 // StaticOp emits a fixed set of items configured at Init time.
 type StaticOp struct {
+	pine.MetadataHolder
 	items []map[string]any
 }
 

@@ -20,7 +20,6 @@ import (
 	"log"
 
 	pine "github.com/Liam0205/pineapple"
-	"github.com/Liam0205/pineapple/internal/types"
 )
 
 func init() {
@@ -38,9 +37,8 @@ func init() {
 
 // LogOp writes declared input fields to the Go standard logger.
 type LogOp struct {
-	prefix      string
-	commonInput []string
-	itemInput   []string
+	pine.MetadataHolder
+	prefix string
 }
 
 func (o *LogOp) Init(params map[string]any) error {
@@ -50,33 +48,24 @@ func (o *LogOp) Init(params map[string]any) error {
 	return nil
 }
 
-// SetMetadata implements types.MetadataAware.
-func (o *LogOp) SetMetadata(commonInput, commonOutput, itemInput, itemOutput []string) {
-	o.commonInput = commonInput
-	o.itemInput = itemInput
-}
-
-// Compile-time check that LogOp implements MetadataAware.
-var _ types.MetadataAware = (*LogOp)(nil)
-
 func (o *LogOp) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.OperatorOutput) error {
 	snapshot := make(map[string]any)
 
 	// Capture common fields
-	if len(o.commonInput) > 0 {
-		common := make(map[string]any, len(o.commonInput))
-		for _, k := range o.commonInput {
+	if len(o.CommonInput) > 0 {
+		common := make(map[string]any, len(o.CommonInput))
+		for _, k := range o.CommonInput {
 			common[k] = in.Common(k)
 		}
 		snapshot["common"] = common
 	}
 
 	// Capture item fields
-	if len(o.itemInput) > 0 && in.ItemCount() > 0 {
+	if len(o.ItemInput) > 0 && in.ItemCount() > 0 {
 		items := make([]map[string]any, in.ItemCount())
 		for i := 0; i < in.ItemCount(); i++ {
-			row := make(map[string]any, len(o.itemInput))
-			for _, k := range o.itemInput {
+			row := make(map[string]any, len(o.ItemInput))
+			for _, k := range o.ItemInput {
 				row[k] = in.Item(i, k)
 			}
 			items[i] = row

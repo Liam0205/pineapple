@@ -34,6 +34,7 @@ func init() {
 
 // TruncateOp keeps only the first top_n items.
 type TruncateOp struct {
+	pine.MetadataHolder
 	topN int64
 }
 

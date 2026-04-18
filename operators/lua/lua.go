@@ -41,23 +41,10 @@ func init() {
 
 // LuaOp executes Lua scripts for feature computation or control flow evaluation.
 type LuaOp struct {
+	pine.MetadataHolder
 	pool       *statePool
 	funcName   string
 	isItemMode bool
-
-	// Metadata fields, populated via MetadataAware interface
-	commonInput  []string
-	commonOutput []string
-	itemInput    []string
-	itemOutput   []string
-}
-
-// SetMetadata implements pine.MetadataAware.
-func (o *LuaOp) SetMetadata(commonInput, commonOutput, itemInput, itemOutput []string) {
-	o.commonInput = commonInput
-	o.commonOutput = commonOutput
-	o.itemInput = itemInput
-	o.itemOutput = itemOutput
 }
 
 func (o *LuaOp) Init(params map[string]any) error {
@@ -104,7 +91,7 @@ func (o *LuaOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Ope
 // Return values map positionally to itemOutput via SetItem.
 func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	// Set common globals once
-	for _, field := range o.commonInput {
+	for _, field := range o.CommonInput {
 		L.SetGlobal(field, goToLua(L, in.Common(field)))
 	}
 
@@ -113,12 +100,12 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 		return fmt.Errorf("lua: function %q not found", o.funcName)
 	}
 
-	nret := len(o.itemOutput)
+	nret := len(o.ItemOutput)
 	n := in.ItemCount()
 
 	for i := 0; i < n; i++ {
 		// Set item globals for this item
-		for _, field := range o.itemInput {
+		for _, field := range o.ItemInput {
 			L.SetGlobal(field, goToLua(L, in.Item(i, field)))
 		}
 
@@ -129,7 +116,7 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 		// Collect return values (stack has them in order, first return at bottom)
 		for j := 0; j < nret; j++ {
 			val := luaToGo(L.Get(-(nret - j)))
-			out.SetItem(i, o.itemOutput[j], val)
+			out.SetItem(i, o.ItemOutput[j], val)
 		}
 		L.Pop(nret)
 	}
@@ -142,13 +129,13 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 // Return values map positionally to commonOutput via SetCommon.
 func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	// Set common globals as scalars
-	for _, field := range o.commonInput {
+	for _, field := range o.CommonInput {
 		L.SetGlobal(field, goToLua(L, in.Common(field)))
 	}
 
 	// Set item fields as Lua tables (1-indexed arrays)
 	n := in.ItemCount()
-	for _, field := range o.itemInput {
+	for _, field := range o.ItemInput {
 		tbl := L.NewTable()
 		for i := 0; i < n; i++ {
 			tbl.Append(goToLua(L, in.Item(i, field)))
@@ -161,7 +148,7 @@ func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pi
 		return fmt.Errorf("lua: function %q not found", o.funcName)
 	}
 
-	nret := len(o.commonOutput)
+	nret := len(o.CommonOutput)
 	if err := L.CallByParam(glua.P{Fn: fn, NRet: nret, Protect: true}); err != nil {
 		return fmt.Errorf("lua: %w", err)
 	}
@@ -169,7 +156,7 @@ func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pi
 	// Collect return values positionally
 	for j := 0; j < nret; j++ {
 		val := luaToGo(L.Get(-(nret - j)))
-		out.SetCommon(o.commonOutput[j], val)
+		out.SetCommon(o.CommonOutput[j], val)
 	}
 	L.Pop(nret)
 

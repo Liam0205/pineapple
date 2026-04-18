@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Liam0205/pineapple/internal/types"
+	pine "github.com/Liam0205/pineapple"
 )
 
 func TestLogOpInit(t *testing.T) {
@@ -32,11 +32,11 @@ func TestLogOpInitDefault(t *testing.T) {
 func TestLogOpSetMetadata(t *testing.T) {
 	op := &LogOp{}
 	op.SetMetadata([]string{"user_id"}, nil, []string{"item_score"}, nil)
-	if len(op.commonInput) != 1 || op.commonInput[0] != "user_id" {
-		t.Errorf("commonInput = %v", op.commonInput)
+	if len(op.CommonInput) != 1 || op.CommonInput[0] != "user_id" {
+		t.Errorf("CommonInput = %v", op.CommonInput)
 	}
-	if len(op.itemInput) != 1 || op.itemInput[0] != "item_score" {
-		t.Errorf("itemInput = %v", op.itemInput)
+	if len(op.ItemInput) != 1 || op.ItemInput[0] != "item_score" {
+		t.Errorf("ItemInput = %v", op.ItemInput)
 	}
 }
 
@@ -44,14 +44,14 @@ func TestLogOpExecute(t *testing.T) {
 	op := &LogOp{prefix: "test"}
 	op.SetMetadata([]string{"user_id"}, nil, []string{"score"}, nil)
 
-	in := types.NewOperatorInput(
+	in := pine.NewOperatorInput(
 		map[string]any{"user_id": "u1"},
 		[]map[string]any{
 			{"score": 1.5},
 			{"score": 2.0},
 		},
 	)
-	out := types.NewOperatorOutput()
+	out := pine.NewOperatorOutput()
 
 	err := op.Execute(context.Background(), in, out)
 	if err != nil {
@@ -71,8 +71,8 @@ func TestLogOpExecuteEmpty(t *testing.T) {
 	op := &LogOp{}
 	op.SetMetadata(nil, nil, nil, nil)
 
-	in := types.NewOperatorInput(map[string]any{}, nil)
-	out := types.NewOperatorOutput()
+	in := pine.NewOperatorInput(map[string]any{}, nil)
+	out := pine.NewOperatorOutput()
 
 	err := op.Execute(context.Background(), in, out)
 	if err != nil {
