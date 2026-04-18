@@ -44,6 +44,12 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     name_counts: dict[str, int] = {}
     for op in all_ops:
         name = op.unique_name()
+        if op.name:
+            # Explicit name — must be unique
+            if name in name_counts:
+                raise ValidationError(
+                    f"duplicate explicit operator name: {name!r}"
+                )
         if name in name_counts:
             name_counts[name] += 1
             name = f"{name}_{name_counts[name]}"

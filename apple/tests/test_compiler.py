@@ -147,6 +147,60 @@ class TestOperatorNaming:
         assert name.startswith("lua_")
         assert len(name.split("_")) >= 2
 
+    def test_explicit_name(self):
+        """Explicit name= appears as JSON operator key."""
+        flow = Flow(name="exp", common_input=["x"], common_output=["y"])
+        flow._add_op("lua", name="my_step",
+                      common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        names = list(cfg["pipeline_config"]["operators"].keys())
+        assert "my_step" in names
+
+    def test_explicit_name_via_getattr(self):
+        """Explicit name= works through flow.op(...) dynamic dispatch."""
+        flow = Flow(name="ga", common_input=["x"], common_output=["y"])
+        flow.lua(name="custom_lua",
+                 common_input=["x"], common_output=["y"],
+                 lua_script="function f() return x end",
+                 function_for_common="f", function_for_item="")
+        cfg = compile_flow(flow)
+        names = list(cfg["pipeline_config"]["operators"].keys())
+        assert "custom_lua" in names
+
+    def test_duplicate_explicit_name_raises(self):
+        """Two operators with the same explicit name must fail."""
+        from apple.validator import ValidationError
+        flow = Flow(name="dup", common_input=["x"], common_output=["y"])
+        flow._add_op("lua", name="same_name",
+                      common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        flow._add_op("lua", name="same_name",
+                      common_input=["y"], common_output=["y"],
+                      lua_script="function g() return y end",
+                      function_for_common="g", function_for_item="")
+        with pytest.raises(ValidationError, match="duplicate explicit operator name"):
+            compile_flow(flow)
+
+    def test_mixed_explicit_and_auto(self):
+        """Mix of explicit and auto-generated names in a single flow."""
+        flow = Flow(name="mix", item_input=["x"], item_output=["a", "b"])
+        flow._add_op("lua", name="step_one",
+                      item_input=["x"], item_output=["a"],
+                      lua_script="function f() return x end",
+                      function_for_item="f", function_for_common="")
+        flow._add_op("lua", item_input=["a"], item_output=["b"],
+                      lua_script="function g() return a end",
+                      function_for_item="g", function_for_common="")
+        cfg = compile_flow(flow)
+        names = list(cfg["pipeline_config"]["operators"].keys())
+        assert len(names) == 2
+        assert "step_one" in names
+        auto_name = [n for n in names if n != "step_one"][0]
+        assert auto_name.startswith("lua_")
+
 
 class TestPipelineMap:
     def test_subflow_pipeline_map(self):

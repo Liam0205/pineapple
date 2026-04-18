@@ -24,6 +24,7 @@ class FeatureDispatchOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "FeatureDispatchOp":
         return self._apply(
             params={
@@ -37,6 +38,7 @@ class FeatureDispatchOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class FeatureNormalizeOp(BaseOp):
@@ -61,6 +63,7 @@ class FeatureNormalizeOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "FeatureNormalizeOp":
         return self._apply(
             params={
@@ -75,6 +78,7 @@ class FeatureNormalizeOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class FilterConditionOp(BaseOp):
@@ -97,6 +101,7 @@ class FilterConditionOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "FilterConditionOp":
         return self._apply(
             params={
@@ -110,6 +115,7 @@ class FilterConditionOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class FilterTruncateOp(BaseOp):
@@ -130,6 +136,7 @@ class FilterTruncateOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "FilterTruncateOp":
         return self._apply(
             params={
@@ -142,6 +149,7 @@ class FilterTruncateOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class LuaOp(BaseOp):
@@ -166,6 +174,7 @@ class LuaOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "LuaOp":
         return self._apply(
             params={
@@ -180,6 +189,7 @@ class LuaOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class MergeDedupOp(BaseOp):
@@ -202,6 +212,7 @@ class MergeDedupOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "MergeDedupOp":
         return self._apply(
             params={
@@ -215,6 +226,7 @@ class MergeDedupOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class ObserveLogOp(BaseOp):
@@ -235,6 +247,7 @@ class ObserveLogOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "ObserveLogOp":
         return self._apply(
             params={
@@ -247,6 +260,7 @@ class ObserveLogOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class RecallStaticOp(BaseOp):
@@ -267,6 +281,7 @@ class RecallStaticOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "RecallStaticOp":
         return self._apply(
             params={
@@ -279,6 +294,7 @@ class RecallStaticOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 
 class ReorderSortOp(BaseOp):
@@ -301,6 +317,7 @@ class ReorderSortOp(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "ReorderSortOp":
         return self._apply(
             params={
@@ -314,4 +331,5 @@ class ReorderSortOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )

@@ -135,6 +135,7 @@ class {{camelCase $schema.Name}}Op(BaseOp):
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
         debug: bool = False,
+        name: str | None = None,
     ) -> "{{camelCase $schema.Name}}Op":
         return self._apply(
             params={
@@ -149,6 +150,7 @@ class {{camelCase $schema.Name}}Op(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             debug=debug,
+            name=name or "",
         )
 {{end}}`
 

@@ -30,9 +30,13 @@ class OpCall:
     debug: bool = False
     # Debug info
     code_info: str = ""
+    # Explicit name (overrides auto-generated name)
+    name: str = ""
 
     def unique_name(self) -> str:
-        """Generate a unique operator name: type_name_HASH6."""
+        """Return explicit name if set, otherwise generate type_name_HASH6."""
+        if self.name:
+            return self.name
         h = hashlib.md5(repr(self).encode()).hexdigest()[:6].upper()
         return f"{self.type_name}_{h}"
 
@@ -61,6 +65,7 @@ class BaseOp:
         recall: bool = False,
         sources: list[str] | None = None,
         debug: bool = False,
+        name: str = "",
     ) -> Any:
         # Capture caller location for $code_info
         code_info = ""
@@ -83,6 +88,7 @@ class BaseOp:
             sources=sources,
             debug=debug,
             code_info=code_info,
+            name=name,
         )
         self._flow._ops.append(call)
         return self._flow

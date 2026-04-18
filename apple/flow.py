@@ -76,7 +76,7 @@ class _FlowBase:
 
         # Separate metadata kwargs from business params
         meta_keys = {
-            "common_input", "common_output", "item_input", "item_output",
+            "name", "common_input", "common_output", "item_input", "item_output",
             "item_defaults", "common_defaults", "recall", "sources", "debug",
         }
         meta = {}
@@ -100,6 +100,7 @@ class _FlowBase:
             sources=meta.get("sources"),
             debug=meta.get("debug", False),
             code_info=code_info,
+            name=meta.get("name", ""),
         )
 
         # Apply skip field if inside a control block
