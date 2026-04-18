@@ -1,4 +1,4 @@
-package main
+package codegen
 
 import (
 	"bytes"
@@ -170,7 +170,7 @@ func TestRegistryAllIntegration(t *testing.T) {
 
 func TestRunIntegration(t *testing.T) {
 	dir := t.TempDir()
-	if err := run(dir, "", ""); err != nil {
+	if err := Run(Config{OutputDir: dir}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,7 +200,7 @@ func TestRunWithDocGeneration(t *testing.T) {
 	pyDir := t.TempDir()
 	docDir := t.TempDir()
 
-	if err := run(pyDir, docDir, "../../operators"); err != nil {
+	if err := Run(Config{OutputDir: pyDir, DocDir: docDir, OpsDir: "../../operators"}); err != nil {
 		t.Fatal(err)
 	}
 

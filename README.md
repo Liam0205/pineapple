@@ -494,8 +494,10 @@ pineapple/
 │   ├── pineapple-server/   # HTTP 服务入口
 │   └── pineapple-codegen/  # 代码 & 文档生成工具
 ├── pkg/
-│   └── resource/           # 动态资源管理 (ResourceManager)
-├── design_doc/             # 设计文档 (01-11)
+│   ├── resource/           # 动态资源管理 (ResourceManager)
+│   ├── server/             # 可复用 HTTP 服务库
+│   └── codegen/            # 可复用代码生成库
+├── design_doc/             # 设计文档 (01-12)
 ├── doc/
 │   ├── operators/          # 自动生成的算子文档
 │   └── reports/            # 测试 & 性能报告
@@ -533,5 +535,80 @@ pineapple/
   - [Pine 集成模型](design_doc/09_pine_integration.md)
   - [文档自动生成](design_doc/10_docgen.md)
   - [动态资源管理](design_doc/11_resource_manager.md)
+  - [发布与第三方扩展](design_doc/12_distribution.md)
 
 - **[算子参考文档](doc/operators/README.md)** — 所有内置算子的详细说明、参数、用法示例
+
+## 第三方扩展
+
+第三方项目可以在**不修改 pineapple 源码**的前提下添加自定义算子。核心思路：写自己的算子包，通过 blank import 注册到全局 registry，然后用 `pkg/server` 和 `pkg/codegen` 构建自己的服务和 Python 绑定。
+
+```
+my-project/
+├── go.mod                    # require github.com/Liam0205/pineapple
+├── operators/
+│   └── my_scorer/
+│       └── scorer.go         # init() { pine.Register(schema, factory) }
+├── cmd/
+│   ├── my-server/
+│   │   └── main.go           # import 内置算子 + 自定义算子 → server.Run()
+│   └── my-codegen/
+│       └── main.go           # import 内置算子 + 自定义算子 → codegen.Run()
+├── apple/
+│   └── generated/            # codegen 产出（含内置 + 自定义算子的 binding）
+└── pipelines/
+    └── my_pipeline.py
+```
+
+### Server wrapper 示例
+
+```go
+package main
+
+import (
+    "flag"
+    "log"
+
+    _ "github.com/Liam0205/pineapple/operators" // 内置算子
+    _ "my-project/operators/my_scorer"            // 自定义算子
+    "github.com/Liam0205/pineapple/pkg/server"
+)
+
+func main() {
+    configPath := flag.String("config", "", "Pipeline config")
+    addr := flag.String("addr", ":8080", "Listen address")
+    flag.Parse()
+    if err := server.Run(server.Config{ConfigPath: *configPath, Addr: *addr}); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Codegen wrapper 示例
+
+```go
+package main
+
+import (
+    "flag"
+    "fmt"
+    "os"
+
+    _ "github.com/Liam0205/pineapple/operators"
+    _ "my-project/operators/my_scorer"
+    "github.com/Liam0205/pineapple/pkg/codegen"
+)
+
+func main() {
+    output := flag.String("output", "apple/generated", "Python output dir")
+    docDir := flag.String("doc-dir", "", "Doc output dir")
+    opsDir := flag.String("operators-dir", "operators", "Go operators source")
+    flag.Parse()
+    if err := codegen.Run(codegen.Config{OutputDir: *output, DocDir: *docDir, OpsDir: *opsDir}); err != nil {
+        fmt.Fprintf(os.Stderr, "codegen: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+详见 [发布与第三方扩展设计文档](design_doc/12_distribution.md)。
