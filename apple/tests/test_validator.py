@@ -64,6 +64,22 @@ class TestWriteWithoutRead:
                       function_for_common="g", function_for_item="")
         flow.compile()  # should not raise
 
+    def test_if_else_branches_write_same_field_ok(self):
+        """Mutually exclusive if/else branches may write the same field."""
+        flow = Flow(name="ok", common_input=["x"], common_output=["salt"])
+        flow.if_("x ~= nil") \
+            ._add_op("transform_by_lua",
+                     common_input=["x"], common_output=["salt"],
+                     lua_script="function f() return x end",
+                     function_for_common="f", function_for_item="") \
+        .else_() \
+            ._add_op("transform_by_lua",
+                     common_output=["salt"],
+                     lua_script="function g() return 'default' end",
+                     function_for_common="g", function_for_item="") \
+        .end_if_()
+        flow.compile()  # should not raise
+
 
 class TestDeadCode:
     def test_dead_operator(self):

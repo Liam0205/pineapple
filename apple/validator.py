@@ -102,12 +102,20 @@ def validate_write_without_read(
 ) -> None:
     """Detect writing a field that already exists (from upstream operator output)
     without reading it. Flow-contract inputs are not flagged — operators are
-    allowed to output fields that match flow inputs without reading them."""
-    # Track fields written by operators (not flow contract)
+    allowed to output fields that match flow inputs without reading them.
+
+    Operators inside a control-flow branch (``skip`` is set) are exempt from
+    *being flagged* AND their outputs do not count as "already written" for
+    downstream checks.  This is because mutually exclusive branches (if/else)
+    may legitimately write the same field without reading it."""
+    # Track fields written by operators (not flow contract).
+    # Only unconditional (non-skip) operators contribute.
     written_by_ops_common: set[str] = set()
     written_by_ops_item: set[str] = set()
 
     for name, op in ops:
+        if op.skip:
+            continue  # branch-internal ops are exempt
         for field in op.common_output:
             if field.startswith("_"):
                 continue
