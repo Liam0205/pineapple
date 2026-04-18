@@ -19,9 +19,11 @@ go run ./cmd/pineapple-codegen -output apple/generated
 
 | File | Purpose |
 |------|---------|
-| `cmd/pineapple-codegen/main.go` | CLI entry point, orchestrates generation |
-| `cmd/pineapple-codegen/template.go` | Go templates, type mapping, CamelCase conversion |
-| `cmd/pineapple-codegen/main_test.go` | Unit + integration tests |
+| `cmd/pineapple-codegen/main.go` | CLI entry point, thin wrapper |
+| `pkg/codegen/codegen.go` | `Run()` orchestration, doc generation |
+| `pkg/codegen/template.go` | Go templates, type mapping, CamelCase conversion |
+| `pkg/codegen/docparse.go` | Parse operator doc comments from Go source |
+| `pkg/codegen/codegen_test.go` | Unit + integration tests |
 | `internal/registry/export.go` | `registry.All()` — exports all registered schemas sorted by name |
 
 ### Generated Output
@@ -57,11 +59,11 @@ Each operator class:
 
 | Class | Operator | Params |
 |-------|----------|--------|
-| `FeatureDispatchOp` | feature_dispatch | common_field, item_field |
-| `FeatureNormalizeOp` | feature_normalize | field, method, output_field |
+| `TransformDispatchOp` | transform_dispatch | common_field, item_field |
+| `TransformNormalizeOp` | transform_normalize | field, method, output_field |
 | `FilterConditionOp` | filter_condition | field, value |
 | `FilterTruncateOp` | filter_truncate | top_n |
-| `LuaOp` | lua | lua_script, function_for_item, function_for_common |
+| `TransformByLuaOp` | transform_by_lua | lua_script, function_for_item, function_for_common |
 | `MergeDedupOp` | merge_dedup | dedup_by, strategy |
 | `RecallStaticOp` | recall_static | items |
 | `ReorderSortOp` | reorder_sort | field, order |

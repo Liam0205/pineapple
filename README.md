@@ -38,9 +38,9 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **配置热加载** — 服务运行时监控配置文件变更，自动无停机重载，算法迭代立即生效。
 
-**文档自动生成** — 算子的 Category、Description、参数描述在注册时强制填写，codegen 自动生成 Python 类型绑定和 Markdown 文档，保证代码与文档永远同步。
+**文档自动生成** — 算子的 Type、Description、参数描述在注册时强制填写，codegen 自动生成 Python 类型绑定和 Markdown 文档，保证代码与文档永远同步。
 
-**Schema 即约束** — `Register()` 强制校验算子元信息完整性，缺少 Category、Description 或参数描述则启动时直接 panic，从源头杜绝文档缺失。
+**Schema 即约束** — `Register()` 强制校验算子元信息完整性，缺少 Type、Description 或参数描述则启动时直接 panic，从源头杜绝文档缺失。
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ go mod download
 
 ### 2. 编写 Python Pipeline
 
-创建 `demo.py`（所有算子方法返回 Flow 自身，支持链式调用 `flow.recall_static(...).lua(...).reorder_sort(...)`）：
+创建 `demo.py`（所有算子方法返回 Flow 自身，支持链式调用 `flow.recall_static(...).transform_by_lua(...).reorder_sort(...)`）：
 
 ```python
 from apple.flow import Flow
@@ -78,11 +78,10 @@ flow.recall_static(
         {"item_id": "b", "item_price": 200.0},
         {"item_id": "c", "item_price": 50.0},
     ],
-    recall=True,
 )
 
 # 特征计算：用 Lua 根据用户年龄打折
-flow.lua(
+flow.transform_by_lua(
     common_input=["user_age"],
     item_input=["item_price"],
     item_output=["item_final_price"],
@@ -183,8 +182,8 @@ import (
 
 func init() {
     pine.Register(pine.OperatorSchema{
-        Name:        "my_custom_op",
-        Category:    "Feature",
+        Name:        "transform_my_custom",
+        Type:        pine.OpTypeTransform,
         Description: "Computes a custom feature for each item.",
         Params: map[string]pine.ParamSpec{
             "field":  {Type: "string", Required: true, Description: "Input field name."},
@@ -219,23 +218,23 @@ func (o *MyCustomOp) Execute(_ context.Context, in *pine.OperatorInput, out *pin
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `Name` | string | Yes | 算子唯一标识，蛇形命名 |
-| `Category` | string | Yes | 分类（Feature / Filter / Recall / Merge / Reorder / Observe 等） |
+| `Name` | string | Yes | 算子唯一标识，蛇形命名，前缀体现类型（`recall_`/`transform_`/`filter_`/`merge_`/`reorder_`/`observe_`） |
+| `Type` | OperatorType | Yes | 类型（Recall / Transform / Filter / Merge / Reorder / Observe） |
 | `Description` | string | Yes | 一句话功能描述 |
 | `Params[k].Type` | string | Yes | `"string"` / `"int64"` / `"float64"` / `"bool"` / `"any"` |
 | `Params[k].Required` | bool | Yes | 是否必填 |
 | `Params[k].Default` | any | No | 可选参数的默认值 |
 | `Params[k].Description` | string | Yes | 参数描述 |
 
-> 缺少 `Category`、`Description` 或任一参数的 `Description` 将导致启动 panic。
+> 缺少 `Type`、`Description` 或任一参数的 `Description` 将导致启动 panic。
 
 ### 注释中的 Metadata Contract（可选）
 
 在源文件顶部添加 `Metadata contract` 注释段，codegen 会将其解析到文档中：
 
 ```go
-// Operator: my_custom_op
-// Category: Feature
+// Operator: transform_my_custom
+// Type: Transform
 // ...
 //
 // Metadata contract (typical usage):
@@ -266,7 +265,7 @@ go run ./cmd/pineapple-codegen \
 
 ```bash
 # 单个算子包
-go test ./operators/feature/...
+go test ./operators/transform/...
 
 # 全量测试
 go test ./...
@@ -330,7 +329,6 @@ flow = Flow(
 flow.recall_static(
     item_output=["item_id", "item_score"],
     items=[...],
-    recall=True,
 )
 
 # 过滤
@@ -341,7 +339,7 @@ flow.filter_condition(
 )
 
 # 特征处理
-flow.feature_normalize(
+flow.transform_normalize(
     item_input=["item_score"],
     item_output=["item_score_norm"],
     field="item_score",
@@ -364,14 +362,14 @@ flow.reorder_sort(
 
 ```python
 flow.if_("is_new_user") \
-    .feature_dispatch(
+    .transform_dispatch(
         common_input=["default_score"],
         item_output=["item_score"],
         common_field="default_score",
         item_field="item_score",
     ) \
 .else_() \
-    .lua(
+    .transform_by_lua(
         common_input=["user_id"],
         item_input=["item_id"],
         item_output=["item_score"],
@@ -387,7 +385,7 @@ flow.if_("is_new_user") \
 from apple.flow import Flow, SubFlow
 
 normalize_sub = SubFlow(name="normalize")
-normalize_sub.feature_normalize(
+normalize_sub.transform_normalize(
     item_input=["raw_score"],
     item_output=["norm_score"],
     field="raw_score",
@@ -415,9 +413,10 @@ flow.recall_static(...)
 | `item_output` | 写入的物品级字段 |
 | `item_defaults` | 物品级字段默认值 |
 | `common_defaults` | 请求级字段默认值 |
-| `recall` | 标记为召回算子（产出候选集） |
 | `sources` | 合并算子的数据来源 |
 | `debug` | 启用此算子的调试快照 |
+
+> Recall 身份由算子名前缀 (`recall_`) 自动推导，无需手动声明。
 
 ### 编译和校验
 
@@ -509,9 +508,9 @@ pineapple/
 │   ├── runtime/            #   调度器、trace、stats
 │   └── types/              #   核心类型定义
 ├── operators/              # 内置算子实现
-│   ├── feature/            #   feature_dispatch, feature_normalize
+│   ├── transform/          #   transform_dispatch, transform_normalize
 │   ├── filter/             #   filter_condition, filter_truncate
-│   ├── lua/                #   lua (Lua 嵌入)
+│   ├── lua/                #   transform_by_lua (Lua 嵌入)
 │   ├── merge/              #   merge_dedup
 │   ├── observe/            #   observe_log
 │   ├── recall/             #   recall_static

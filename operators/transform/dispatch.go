@@ -11,7 +11,7 @@
 //   CommonOutput: []
 //   ItemInput:    []
 //   ItemOutput:   [<item_field>]
-package feature
+package transform
 
 import (
 	"context"

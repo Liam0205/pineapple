@@ -7,9 +7,31 @@
 | Go 引擎 | Go module (`go get github.com/Liam0205/pineapple`) | 引擎、算子接口、内置算子 |
 | Server 库 | `pkg/server` 包 | 可复用的 HTTP 服务框架 |
 | Codegen 库 | `pkg/codegen` 包 | 可复用的 Python binding 生成器 |
-| Python DSL | pip package（`apple` 核心包，不含 `generated/`） | 编译器、Flow 抽象、验证器 |
+| Python DSL | pip package `pineapple-apple`（核心包，不含 `generated/`） | 编译器、Flow 抽象、验证器 |
 
-`apple/generated/` 是按算子集合生成的产物，每个部署不同，不打入 pip 包。
+`apple/generated/` 是按算子集合生成的产物，每个部署不同，不打入 pip 包。第三方通过 `pip install pineapple-apple` 获得核心 DSL 能力，然后运行自己的 codegen wrapper 生成包含自定义算子的 Python 绑定。
+
+## 第三方安装步骤
+
+### Go 侧
+
+```bash
+# 在第三方项目中
+go get github.com/Liam0205/pineapple
+```
+
+### Python 侧
+
+```bash
+# 安装核心 DSL 包
+pip install pineapple-apple
+
+# 构建并运行自定义 codegen（生成含内置 + 自定义算子的 Python 绑定）
+go build -o my-codegen ./cmd/my-codegen
+./my-codegen -output apple/generated -doc-dir doc/operators -operators-dir operators
+```
+
+第三方的 `apple/generated/` 包含内置算子和自定义算子的完整 binding，放在项目本地，不依赖 pip 包分发。
 
 ## 第三方扩展模式
 
@@ -39,14 +61,18 @@ my-project/
 // my-project/operators/my_scorer/scorer.go
 package my_scorer
 
-import pine "github.com/Liam0205/pineapple"
+import (
+    "context"
+    pine "github.com/Liam0205/pineapple"
+)
 
 func init() {
     pine.Register(pine.OperatorSchema{
-        Name:     "my_scorer",
-        Category: "Scoring",
+        Name:        "transform_my_scorer",
+        Type:        pine.OpTypeTransform,
+        Description: "Scores items using a custom model.",
         Params: map[string]pine.ParamSpec{
-            "model_name": {Type: "string", Required: true},
+            "model_name": {Type: "string", Required: true, Description: "Name of the scoring model."},
         },
     }, func() pine.Operator { return &MyScorer{} })
 }
@@ -80,12 +106,10 @@ import (
 )
 
 func main() {
-    cfg := server.Config{
-        ConfigPath: flag.String("config", "", "Pipeline JSON config"),
-        Addr:       flag.String("addr", ":8080", "Listen address"),
-    }
+    configPath := flag.String("config", "", "Pipeline JSON config")
+    addr := flag.String("addr", ":8080", "Listen address")
     flag.Parse()
-    if err := server.Run(cfg); err != nil {
+    if err := server.Run(server.Config{ConfigPath: *configPath, Addr: *addr}); err != nil {
         log.Fatal(err)
     }
 }
@@ -99,7 +123,8 @@ package main
 
 import (
     "flag"
-    "log"
+    "fmt"
+    "os"
 
     _ "github.com/Liam0205/pineapple/operators"
     _ "my-project/operators"
@@ -107,14 +132,13 @@ import (
 )
 
 func main() {
-    cfg := codegen.Config{
-        OutputDir: flag.String("output", "apple/generated", "Python output dir"),
-        DocDir:    flag.String("doc-dir", "", "Doc output dir"),
-        OpsDir:    flag.String("operators-dir", "operators", "Go operators source"),
-    }
+    output := flag.String("output", "apple/generated", "Python output dir")
+    docDir := flag.String("doc-dir", "", "Doc output dir")
+    opsDir := flag.String("operators-dir", "operators", "Go operators source")
     flag.Parse()
-    if err := codegen.Run(cfg); err != nil {
-        log.Fatal(err)
+    if err := codegen.Run(codegen.Config{OutputDir: *output, DocDir: *docDir, OpsDir: *opsDir}); err != nil {
+        fmt.Fprintf(os.Stderr, "codegen: %v\n", err)
+        os.Exit(1)
     }
 }
 ```

@@ -12,7 +12,7 @@
 //   CommonOutput: []
 //   ItemInput:    [<field>]
 //   ItemOutput:   [<output_field>]
-package feature
+package transform
 
 import (
 	"context"
@@ -51,7 +51,7 @@ func (o *NormalizeOp) Init(params map[string]any) error {
 	}
 	o.method = params["method"].(string)
 	if o.method != "min_max" {
-		return fmt.Errorf("feature_normalize: unsupported method %q", o.method)
+		return fmt.Errorf("transform_normalize: unsupported method %q", o.method)
 	}
 	return nil
 }
@@ -67,7 +67,7 @@ func (o *NormalizeOp) Execute(_ context.Context, in *pine.OperatorInput, out *pi
 	for i := 0; i < n; i++ {
 		v, err := toFloat64(in.Item(i, o.field))
 		if err != nil {
-			return fmt.Errorf("feature_normalize: item[%d].%s: %w", i, o.field, err)
+			return fmt.Errorf("transform_normalize: item[%d].%s: %w", i, o.field, err)
 		}
 		vals[i] = v
 	}

@@ -12,7 +12,7 @@
 |----|--------|--------|
 | `operators/recall` | 95.2% | 7 |
 | `operators/merge` | 92.9% | 5 |
-| `operators/feature` | 91.5% | 12 |
+| `operators/transform` | 91.5% | 12 |
 | `operators/filter` | 84.0% | 12 |
 | `operators/reorder` | 94.1% | 8 |
 | Pine 根包 | 89.7% | 12 |
@@ -120,8 +120,8 @@ go vet ./...  → 无问题
 |------|------|------|
 | `recall_static` | Recall | 返回配置中指定的静态 item 集合 |
 | `merge_dedup` | Merge | 按指定字段去重，保留首次出现 |
-| `feature_normalize` | Feature | 对 item 字段做 min-max 归一化 |
-| `feature_dispatch` | Feature | 将 common 字段值复制到每个 item |
+| `transform_normalize` | Transform | 对 item 字段做 min-max 归一化 |
+| `transform_dispatch` | Transform | 将 common 字段值复制到每个 item |
 | `filter_condition` | Filter | 移除字段值匹配指定值的 item |
 | `filter_truncate` | Filter | 保留前 N 个 item |
 | `reorder_sort` | Reorder | 按数值字段升序/降序排列 |
