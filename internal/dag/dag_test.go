@@ -662,6 +662,62 @@ func TestRecallDependsOnDifferentTransforms(t *testing.T) {
 	}
 }
 
+func TestRecallIndependentParallelWithTransformRecallChain(t *testing.T) {
+	// recall_a has no dependencies at all.
+	// transform_b reads a request field, writes bbb.
+	// recall_c and recall_d both read bbb.
+	//
+	// Expected:
+	//   - recall_a: zero predecessors
+	//   - transform_b: zero predecessors (reads request-supplied field, no upstream writer)
+	//   - recall_c: depends on transform_b only
+	//   - recall_d: depends on transform_b only
+	//   - NO edges between any recall pair (additive item writes)
+	//   - recall_a is fully independent of transform_b/recall_c/recall_d
+	seq := []string{"recall_a", "transform_b", "recall_c", "recall_d"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":    recallOp(nil, []string{"item_id"}),
+		"transform_b": transformOp([]string{"req_field"}, []string{"bbb"}, nil, nil),
+		"recall_c":    recallOp([]string{"bbb"}, []string{"item_id"}),
+		"recall_d":    recallOp([]string{"bbb"}, []string{"item_id"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// recall_a: zero predecessors
+	if !hasNoPreds(g, "recall_a") {
+		t.Error("recall_a should have no predecessors")
+	}
+	// transform_b: zero predecessors (req_field has no upstream writer)
+	if !hasNoPreds(g, "transform_b") {
+		t.Error("transform_b should have no predecessors")
+	}
+	// recall_c depends on transform_b
+	if !hasPred(g, "recall_c", "transform_b") {
+		t.Error("expected RAW edge transform_b -> recall_c")
+	}
+	// recall_d depends on transform_b
+	if !hasPred(g, "recall_d", "transform_b") {
+		t.Error("expected RAW edge transform_b -> recall_d")
+	}
+	// No edges among any recall pair
+	recalls := []string{"recall_a", "recall_c", "recall_d"}
+	for i := 0; i < len(recalls); i++ {
+		for j := i + 1; j < len(recalls); j++ {
+			if hasPred(g, recalls[j], recalls[i]) || hasPred(g, recalls[i], recalls[j]) {
+				t.Errorf("expected no edge between %s and %s", recalls[i], recalls[j])
+			}
+		}
+	}
+	// recall_a has no edge to/from transform_b
+	if hasPred(g, "recall_a", "transform_b") || hasPred(g, "transform_b", "recall_a") {
+		t.Error("recall_a and transform_b should be fully independent")
+	}
+}
+
 func TestRecallChainThenTransformReadsItems(t *testing.T) {
 	// transform_embed writes user_vec (common), recall reads user_vec and outputs items,
 	// then a downstream transform reads the item fields.

@@ -1241,6 +1241,114 @@ func TestDAGOrder_RecallsDependOnDifferentTransforms(t *testing.T) {
 }
 
 // ===========================================================================
+// Test 11: Independent recall parallel with transform→recall chain
+//
+// recall_a has no deps.
+// transform_b reads request field, writes bbb.
+// recall_c and recall_d both read bbb.
+//
+// Expected timeline:
+//   recall_a(50ms) ─────────────────────────
+//   transform_b(0ms) → {recall_c(50ms), recall_d(50ms)}
+//   (recall_a || transform_b, then recall_a || recall_c || recall_d)
+// ===========================================================================
+
+func TestDAGOrder_IndependentRecallWithTransformRecallChain(t *testing.T) {
+	resetExecLog()
+
+	itemsA := []any{map[string]any{"item_id": "a1"}}
+	itemsC := []any{map[string]any{"item_id": "c1"}}
+	itemsD := []any{map[string]any{"item_id": "d1"}}
+
+	cfg := dagTestConfig(
+		map[string]any{
+			"recall_a": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall_a",
+				"delay_ms":  50.0,
+				"items":     itemsA,
+				"$metadata": map[string]any{
+					"item_output": []string{"item_id"},
+				},
+			},
+			"transform_b": map[string]any{
+				"type_name": "_test_transform",
+				"name":      "transform_b",
+				"$metadata": map[string]any{
+					"common_input":  []string{"req_field"},
+					"common_output": []string{"bbb"},
+				},
+			},
+			"recall_c": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall_c",
+				"delay_ms":  50.0,
+				"items":     itemsC,
+				"$metadata": map[string]any{
+					"common_input": []string{"bbb"},
+					"item_output":  []string{"item_id"},
+				},
+			},
+			"recall_d": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall_d",
+				"delay_ms":  50.0,
+				"items":     itemsD,
+				"$metadata": map[string]any{
+					"common_input": []string{"bbb"},
+					"item_output":  []string{"item_id"},
+				},
+			},
+		},
+		[]string{"recall_a", "transform_b", "recall_c", "recall_d"},
+	)
+
+	engine := mustBuildDAGEngine(t, cfg)
+	result := mustExecute(t, engine, &pine.Request{Common: map[string]any{"req_field": "hello"}})
+	events := getEvents()
+
+	if len(events) != 4 {
+		t.Fatalf("expected 4 events, got %d", len(events))
+	}
+
+	evA, _ := eventByName(events, "recall_a")
+	evB, _ := eventByName(events, "transform_b")
+	evC, _ := eventByName(events, "recall_c")
+	evD, _ := eventByName(events, "recall_d")
+
+	// 1. recall_a and transform_b start independently (both have no preds)
+	//    recall_a sleeps 50ms, transform_b is instant -> transform_b finishes first
+	assertTimesOverlap(t, events, "recall_a", "transform_b")
+
+	// 2. transform_b finishes before recall_c and recall_d start
+	assertFinishedBefore(t, events, "transform_b", "recall_c")
+	assertFinishedBefore(t, events, "transform_b", "recall_d")
+
+	// 3. recall_c and recall_d run in parallel (both depend only on transform_b)
+	assertTimesOverlap(t, events, "recall_c", "recall_d")
+
+	// 4. recall_a overlaps with recall_c and recall_d
+	//    (recall_a takes 50ms starting from time 0; recall_c/d start after transform_b ~0ms)
+	assertTimesOverlap(t, events, "recall_a", "recall_c")
+	assertTimesOverlap(t, events, "recall_a", "recall_d")
+
+	// 5. Verify all 3 items were recalled
+	if len(result.Items) != 3 {
+		t.Errorf("expected 3 items (a1+c1+d1), got %d", len(result.Items))
+	}
+
+	t.Logf("Timeline (relative to recall_a start):")
+	t.Logf("  recall_a(seq=%d):     [%6v, %6v]  (no deps, 50ms)",
+		evA.Seq, evA.Start.Sub(evA.Start), evA.End.Sub(evA.Start))
+	t.Logf("  transform_b(seq=%d):  [%6v, %6v]  (no deps, instant)",
+		evB.Seq, evB.Start.Sub(evA.Start), evB.End.Sub(evA.Start))
+	t.Logf("  recall_c(seq=%d):     [%6v, %6v]  (after transform_b, 50ms)",
+		evC.Seq, evC.Start.Sub(evA.Start), evC.End.Sub(evA.Start))
+	t.Logf("  recall_d(seq=%d):     [%6v, %6v]  (after transform_b, 50ms)",
+		evD.Seq, evD.Start.Sub(evA.Start), evD.End.Sub(evA.Start))
+}
+
+// ===========================================================================
 // Benchmark: DAG scheduling overhead with noop operators
 // ===========================================================================
 
