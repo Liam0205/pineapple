@@ -593,3 +593,102 @@ func TestObserveDoesNotCreateWAR(t *testing.T) {
 		t.Error("transform_b should NOT depend on observe (non-blocking)")
 	}
 }
+
+// --- Recall depending on Transform ---
+
+func TestRecallDependsOnTransform_ParallelAfter(t *testing.T) {
+	// transform writes user_vec, two recalls read it -> both depend on transform,
+	// but remain independent of each other (additive item writes, no WAW/WAR)
+	seq := []string{"transform", "recall_a", "recall_b"}
+	ops := map[string]config.OperatorConfig{
+		"transform": transformOp(nil, []string{"user_vec"}, nil, nil),
+		"recall_a":  recallOp([]string{"user_vec"}, []string{"item_id", "item_score"}),
+		"recall_b":  recallOp([]string{"user_vec"}, []string{"item_id", "item_score"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both recalls depend on transform (RAW on user_vec)
+	if !hasPred(g, "recall_a", "transform") {
+		t.Error("expected RAW edge transform -> recall_a")
+	}
+	if !hasPred(g, "recall_b", "transform") {
+		t.Error("expected RAW edge transform -> recall_b")
+	}
+	// Recalls remain independent (additive item writes)
+	if hasPred(g, "recall_b", "recall_a") || hasPred(g, "recall_a", "recall_b") {
+		t.Error("recalls should be independent despite same item outputs")
+	}
+}
+
+func TestRecallDependsOnDifferentTransforms(t *testing.T) {
+	// t_a writes feature_x, t_b reads feature_x writes feature_y.
+	// recall_a reads feature_x, recall_b reads feature_y.
+	// recall_a can start after t_a; recall_b must wait for t_b (which waits for t_a).
+	// So recall_a could potentially run in parallel with t_b.
+	seq := []string{"t_a", "t_b", "recall_a", "recall_b"}
+	ops := map[string]config.OperatorConfig{
+		"t_a":      transformOp(nil, []string{"feature_x"}, nil, nil),
+		"t_b":      transformOp([]string{"feature_x"}, []string{"feature_y"}, nil, nil),
+		"recall_a": recallOp([]string{"feature_x"}, []string{"item_id"}),
+		"recall_b": recallOp([]string{"feature_y"}, []string{"item_id"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// t_a -> t_b (RAW on feature_x)
+	if !hasPred(g, "t_b", "t_a") {
+		t.Error("expected RAW edge t_a -> t_b")
+	}
+	// t_a -> recall_a (RAW on feature_x)
+	if !hasPred(g, "recall_a", "t_a") {
+		t.Error("expected RAW edge t_a -> recall_a")
+	}
+	// t_b -> recall_b (RAW on feature_y)
+	if !hasPred(g, "recall_b", "t_b") {
+		t.Error("expected RAW edge t_b -> recall_b")
+	}
+	// recall_a does NOT depend on t_b (different common field)
+	if hasPred(g, "recall_a", "t_b") {
+		t.Error("recall_a should NOT depend on t_b")
+	}
+	// recall_a does NOT depend on recall_b (additive item writes)
+	if hasPred(g, "recall_a", "recall_b") || hasPred(g, "recall_b", "recall_a") {
+		t.Error("recalls should be independent")
+	}
+}
+
+func TestRecallChainThenTransformReadsItems(t *testing.T) {
+	// transform_embed writes user_vec (common), recall reads user_vec and outputs items,
+	// then a downstream transform reads the item fields.
+	// The downstream transform must depend on the recall (RAW on item_score),
+	// and transitively on transform_embed.
+	seq := []string{"transform_embed", "recall_a", "transform_score"}
+	ops := map[string]config.OperatorConfig{
+		"transform_embed": transformOp(nil, []string{"user_vec"}, nil, nil),
+		"recall_a":        recallOp([]string{"user_vec"}, []string{"item_id", "item_score"}),
+		"transform_score": transformOp(nil, nil, []string{"item_score"}, []string{"item_adjusted"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// transform_embed -> recall_a (RAW on user_vec)
+	if !hasPred(g, "recall_a", "transform_embed") {
+		t.Error("expected edge transform_embed -> recall_a")
+	}
+	// recall_a -> transform_score (RAW on item_score — additive writer is still a writer)
+	if !hasPred(g, "transform_score", "recall_a") {
+		t.Error("expected edge recall_a -> transform_score via item_score")
+	}
+	// transform_score should NOT directly depend on transform_embed
+	// (recall_a is the intermediary for item fields; no common field dependency)
+	if hasPred(g, "transform_score", "transform_embed") {
+		t.Error("transform_score should NOT directly depend on transform_embed")
+	}
+}

@@ -1087,6 +1087,160 @@ func TestDAGOrder_RepeatStability(t *testing.T) {
 }
 
 // ===========================================================================
+// Test 9: Transform → Recall dependency — recalls wait for transform,
+//         then run in parallel with each other
+// ===========================================================================
+
+func TestDAGOrder_TransformThenRecallParallel(t *testing.T) {
+	resetExecLog()
+
+	items1 := []any{map[string]any{"item_id": "a", "item_score": 1.0}}
+	items2 := []any{map[string]any{"item_id": "b", "item_score": 2.0}}
+
+	cfg := dagTestConfig(
+		map[string]any{
+			"compute_vec": map[string]any{
+				"type_name": "_test_transform",
+				"name":      "compute_vec",
+				"$metadata": map[string]any{
+					"common_input":  []string{"user_id"},
+					"common_output": []string{"user_vec"},
+				},
+			},
+			"recall_hot": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall_hot",
+				"delay_ms":  50.0,
+				"items":     items1,
+				"$metadata": map[string]any{
+					"common_input": []string{"user_vec"},
+					"item_output":  []string{"item_id", "item_score"},
+				},
+			},
+			"recall_ann": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall_ann",
+				"delay_ms":  50.0,
+				"items":     items2,
+				"$metadata": map[string]any{
+					"common_input": []string{"user_vec"},
+					"item_output":  []string{"item_id", "item_score"},
+				},
+			},
+			"merge": map[string]any{
+				"type_name": "_test_merge",
+				"name":      "merge",
+				"sources":   []string{"recall_hot", "recall_ann"},
+				"$metadata": map[string]any{
+					"item_input":  []string{"item_id"},
+					"item_output": []string{"item_id", "item_score"},
+				},
+			},
+		},
+		[]string{"compute_vec", "recall_hot", "recall_ann", "merge"},
+	)
+
+	engine := mustBuildDAGEngine(t, cfg)
+	mustExecute(t, engine, &pine.Request{Common: map[string]any{"user_id": "u1"}})
+	events := getEvents()
+
+	// compute_vec must finish before either recall starts
+	assertSeqBefore(t, events, "compute_vec", "recall_hot")
+	assertSeqBefore(t, events, "compute_vec", "recall_ann")
+	assertFinishedBefore(t, events, "compute_vec", "recall_hot")
+	assertFinishedBefore(t, events, "compute_vec", "recall_ann")
+
+	// Both recalls run in parallel (each sleeps 50ms, should overlap)
+	assertTimesOverlap(t, events, "recall_hot", "recall_ann")
+
+	// Merge after both recalls
+	assertSeqBefore(t, events, "recall_hot", "merge")
+	assertSeqBefore(t, events, "recall_ann", "merge")
+
+	evVec, _ := eventByName(events, "compute_vec")
+	evHot, _ := eventByName(events, "recall_hot")
+	evAnn, _ := eventByName(events, "recall_ann")
+	t.Logf("Transform→Recall: compute_vec(seq=%d) -> {recall_hot(seq=%d), recall_ann(seq=%d)} parallel",
+		evVec.Seq, evHot.Seq, evAnn.Seq)
+	t.Logf("  recall_hot: %v-%v", evHot.Start.Sub(evVec.End), evHot.End.Sub(evVec.End))
+	t.Logf("  recall_ann: %v-%v", evAnn.Start.Sub(evVec.End), evAnn.End.Sub(evVec.End))
+}
+
+// ===========================================================================
+// Test 10: Recalls depending on DIFFERENT transforms — staggered parallelism
+//
+// DAG:  t_a → t_b → recall_b
+//         └─────── recall_a (can start after t_a, parallel with t_b)
+// ===========================================================================
+
+func TestDAGOrder_RecallsDependOnDifferentTransforms(t *testing.T) {
+	resetExecLog()
+
+	items1 := []any{map[string]any{"item_id": "a"}}
+	items2 := []any{map[string]any{"item_id": "b"}}
+
+	cfg := dagTestConfig(
+		map[string]any{
+			"t_a": map[string]any{
+				"type_name": "_test_transform",
+				"name":      "t_a",
+				"$metadata": map[string]any{
+					"common_output": []string{"feature_x"},
+				},
+			},
+			"t_b": map[string]any{
+				"type_name": "_test_transform",
+				"name":      "t_b",
+				"delay_ms":  50.0,
+				"$metadata": map[string]any{
+					"common_input":  []string{"feature_x"},
+					"common_output": []string{"feature_y"},
+				},
+			},
+			"recall_a": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall_a",
+				"delay_ms":  50.0,
+				"items":     items1,
+				"$metadata": map[string]any{
+					"common_input": []string{"feature_x"},
+					"item_output":  []string{"item_id"},
+				},
+			},
+			"recall_b": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall_b",
+				"items":     items2,
+				"$metadata": map[string]any{
+					"common_input": []string{"feature_y"},
+					"item_output":  []string{"item_id"},
+				},
+			},
+		},
+		[]string{"t_a", "t_b", "recall_a", "recall_b"},
+	)
+
+	engine := mustBuildDAGEngine(t, cfg)
+	mustExecute(t, engine, &pine.Request{Common: map[string]any{}})
+	events := getEvents()
+
+	// t_a before everything
+	assertSeqBefore(t, events, "t_a", "t_b")
+	assertSeqBefore(t, events, "t_a", "recall_a")
+
+	// recall_a and t_b can run in parallel (both depend only on t_a)
+	assertTimesOverlap(t, events, "t_b", "recall_a")
+
+	// recall_b depends on t_b (RAW on feature_y)
+	assertSeqBefore(t, events, "t_b", "recall_b")
+
+	evTB, _ := eventByName(events, "t_b")
+	evRA, _ := eventByName(events, "recall_a")
+	t.Logf("Staggered: t_b(seq=%d) and recall_a(seq=%d) run in parallel after t_a",
+		evTB.Seq, evRA.Seq)
+}
+
+// ===========================================================================
 // Benchmark: DAG scheduling overhead with noop operators
 // ===========================================================================
 
