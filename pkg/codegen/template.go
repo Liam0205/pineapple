@@ -162,7 +162,7 @@ class {{camelCase $schema.Name}}Op(BaseOp):
 {{end}}`
 
 const initTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
-{{range .}}from apple.generated.operators import {{camelCase .Name}}Op
+{{range .}}from .operators import {{camelCase .Name}}Op
 {{end}}
 __all__ = [{{range .}}"{{camelCase .Name}}Op", {{end}}]
 `
@@ -280,7 +280,7 @@ class {{camelCase $schema.Name}}Resource(BaseResource):
 {{end}}`
 
 const resourceInitTemplate = `# auto-generated from pine resource schema — DO NOT EDIT
-{{range .}}from apple.generated.resources import {{camelCase .Name}}Resource
+{{range .}}from .resources import {{camelCase .Name}}Resource
 {{end}}
 __all__ = [{{range .}}"{{camelCase .Name}}Resource", {{end}}]
 `
