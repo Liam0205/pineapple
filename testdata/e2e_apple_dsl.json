@@ -1,9 +1,9 @@
 {
-  "_PINEAPPLE_VERSION": "0.2.9",
-  "_PINEAPPLE_CREATE_TIME": "2026-04-20T06:47:13Z",
+  "_PINEAPPLE_VERSION": "0.3.0",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-20T10:35:16Z",
   "pipeline_config": {
     "operators": {
-      "recall_static_B95D60": {
+      "recall_static_E16870": {
         "type_name": "recall_static",
         "$metadata": {
           "common_input": [],
@@ -31,7 +31,7 @@
           }
         ]
       },
-      "transform_by_lua_59A408": {
+      "transform_by_lua_74F242": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
@@ -50,7 +50,7 @@
         "function_for_item": "f",
         "function_for_common": ""
       },
-      "reorder_sort_0A5548": {
+      "reorder_sort_E8D69B": {
         "type_name": "reorder_sort",
         "$metadata": {
           "common_input": [],
@@ -68,9 +68,9 @@
     "pipeline_map": {
       "_main_apple_e2e": {
         "pipeline": [
-          "recall_static_B95D60",
-          "transform_by_lua_59A408",
-          "reorder_sort_0A5548"
+          "recall_static_E16870",
+          "transform_by_lua_74F242",
+          "reorder_sort_E8D69B"
         ]
       }
     }
