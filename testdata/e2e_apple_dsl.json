@@ -1,6 +1,6 @@
 {
-  "_PINEAPPLE_VERSION": "0.2.6",
-  "_PINEAPPLE_CREATE_TIME": "2026-04-18T12:45:16Z",
+  "_PINEAPPLE_VERSION": "0.2.7",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-20T05:21:59Z",
   "pipeline_config": {
     "operators": {
       "recall_static_B95D60": {
@@ -50,7 +50,7 @@
         "function_for_item": "f",
         "function_for_common": ""
       },
-      "reorder_sort_452755": {
+      "reorder_sort_EE727F": {
         "type_name": "reorder_sort",
         "$metadata": {
           "common_input": [],
@@ -60,7 +60,7 @@
           ],
           "item_output": []
         },
-        "$code_info": "/Users/liam/Documents/git-dev/awaken/pineapple/apple/flow.py:67 in op_caller(): .reorder_sort(...)",
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:67 in op_caller(): .reorder_sort(...)",
         "field": "item_final_price",
         "order": "desc"
       }
@@ -70,7 +70,7 @@
         "pipeline": [
           "recall_static_B95D60",
           "transform_by_lua_59A408",
-          "reorder_sort_452755"
+          "reorder_sort_EE727F"
         ]
       }
     }
