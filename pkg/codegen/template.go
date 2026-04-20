@@ -248,6 +248,43 @@ const operatorIndexTemplate = `# Operator Reference
 {{end}}
 `
 
+// --- Resource class template ---
+
+const resourceClassTemplate = `# auto-generated from pine resource schema — DO NOT EDIT
+from __future__ import annotations
+from typing import Any
+from apple.resource import BaseResource
+
+{{range $schema := .}}
+class {{camelCase $schema.Name}}Resource(BaseResource):
+    """Resource: {{$schema.Name}}{{if $schema.Description}} — {{$schema.Description}}{{end}}"""
+    _name = "{{$schema.Name}}"
+    _default_interval = {{$schema.DefaultInterval}}
+    _params_schema = { {{- range $k := sortedParams $schema.Params}}{{with $v := index $schema.Params $k}}
+        "{{$k}}": {"type": "{{$v.Type}}", "required": {{if $v.Required}}True{{else}}False{{end}}{{if $v.Default}}, "default": {{pythonLiteral $v.Default}}{{end}}},
+    {{- end}}{{end}}
+    }
+
+    def __init__(
+        self,
+        *,{{range $k := sortedParams $schema.Params}}{{with $v := index $schema.Params $k}}
+        {{$k}}: {{pythonType $v.Type}} = {{if $v.Required}}...{{else}}{{pythonDefault $v.Type}}{{end}},{{end}}{{end}}
+        interval: int = {{$schema.DefaultInterval}},
+    ):
+        super().__init__(
+            interval=interval,
+        {{- range $k := sortedParams $schema.Params}}
+            {{$k}}={{$k}},
+        {{- end}}
+        )
+{{end}}`
+
+const resourceInitTemplate = `# auto-generated from pine resource schema — DO NOT EDIT
+{{range .}}from apple.generated.resources import {{camelCase .Name}}Resource
+{{end}}
+__all__ = [{{range .}}"{{camelCase .Name}}Resource", {{end}}]
+`
+
 type indexCategory struct {
 	Name string
 	Ops  []indexOp
@@ -284,4 +321,16 @@ func parseTemplates() (*template.Template, *template.Template, error) {
 		return nil, nil, err
 	}
 	return opTmpl, initTmpl, nil
+}
+
+func parseResourceTemplates() (*template.Template, *template.Template, error) {
+	resTmpl, err := template.New("resources").Funcs(funcMap).Parse(resourceClassTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	initTmpl, err := template.New("resinit").Funcs(funcMap).Parse(resourceInitTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resTmpl, initTmpl, nil
 }

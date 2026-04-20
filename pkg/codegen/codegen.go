@@ -13,6 +13,7 @@ import (
 
 	"github.com/Liam0205/pineapple/internal/registry"
 	"github.com/Liam0205/pineapple/internal/types"
+	"github.com/Liam0205/pineapple/pkg/resource"
 )
 
 // Config holds the code-generation settings.
@@ -72,6 +73,49 @@ func Run(cfg Config) error {
 			return fmt.Errorf("generate docs: %w", err)
 		}
 	}
+
+	// Generate resource classes if any resources are registered
+	resSchemas := resource.All()
+	if len(resSchemas) > 0 {
+		if err := generateResources(cfg.OutputDir, resSchemas); err != nil {
+			return fmt.Errorf("generate resources: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func generateResources(outputDir string, schemas []types.ResourceSchema) error {
+	resTmpl, initTmpl, err := parseResourceTemplates()
+	if err != nil {
+		return fmt.Errorf("parse resource templates: %w", err)
+	}
+
+	// Generate resources.py
+	resPath := filepath.Join(outputDir, "resources.py")
+	resFile, err := os.Create(resPath)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", resPath, err)
+	}
+	defer resFile.Close()
+
+	if err := resTmpl.Execute(resFile, schemas); err != nil {
+		return fmt.Errorf("render resources.py: %w", err)
+	}
+	fmt.Printf("generated %s (%d resources)\n", resPath, len(schemas))
+
+	// Generate resources_init.py (for __init__.py-style imports)
+	initPath := filepath.Join(outputDir, "resources_init.py")
+	initFile, err := os.Create(initPath)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", initPath, err)
+	}
+	defer initFile.Close()
+
+	if err := initTmpl.Execute(initFile, schemas); err != nil {
+		return fmt.Errorf("render resources_init.py: %w", err)
+	}
+	fmt.Printf("generated %s\n", initPath)
 
 	return nil
 }
