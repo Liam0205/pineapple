@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Liam0205/pineapple/internal/types"
 )
 
 func TestBasicRegisterStartGet(t *testing.T) {
@@ -241,11 +243,19 @@ func TestManagerImplementsProvider(t *testing.T) {
 
 // --- FetcherFactory / LoadConfig / Names tests ---
 
-func TestRegisterFetcherAndLoadConfig(t *testing.T) {
+func testSchema(name string) types.ResourceSchema {
+	return types.ResourceSchema{
+		Name:            name,
+		Description:     "test resource " + name,
+		DefaultInterval: 600,
+	}
+}
+
+func TestRegisterAndLoadConfig(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
-	RegisterFetcher("test_type", func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("test_type"), func(params map[string]any) (Fetcher, error) {
 		prefix, _ := params["prefix"].(string)
 		return func(ctx context.Context) (any, error) {
 			return prefix + "_loaded", nil
@@ -300,7 +310,7 @@ func TestLoadConfigFactoryError(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
-	RegisterFetcher("fail_type", func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("fail_type"), func(params map[string]any) (Fetcher, error) {
 		return nil, fmt.Errorf("missing required param")
 	})
 
@@ -330,7 +340,7 @@ func TestLoadConfigDefaultInterval(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
-	RegisterFetcher("simple", func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("simple"), func(params map[string]any) (Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return "ok", nil
 		}, nil
@@ -359,19 +369,63 @@ func TestLoadConfigDefaultInterval(t *testing.T) {
 	}
 }
 
-func TestDuplicateRegisterFetcherPanics(t *testing.T) {
+func TestDuplicateRegisterResourcePanics(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
 	factory := func(params map[string]any) (Fetcher, error) { return nil, nil }
-	RegisterFetcher("dup_type", factory)
+	Register(testSchema("dup_type"), factory)
 
 	defer func() {
 		if r := recover(); r == nil {
-			t.Error("expected panic on duplicate RegisterFetcher")
+			t.Error("expected panic on duplicate Register")
 		}
 	}()
-	RegisterFetcher("dup_type", factory)
+	Register(testSchema("dup_type"), factory)
+}
+
+func TestAll(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	factory := func(params map[string]any) (Fetcher, error) { return nil, nil }
+	Register(types.ResourceSchema{
+		Name:            "bravo_res",
+		Description:     "bravo",
+		DefaultInterval: 300,
+		Params: map[string]types.ParamSpec{
+			"dsn": {Type: "string", Required: true, Description: "DSN"},
+		},
+	}, factory)
+	Register(types.ResourceSchema{
+		Name:            "alpha_res",
+		Description:     "alpha",
+		DefaultInterval: 600,
+	}, factory)
+
+	schemas := All()
+	if len(schemas) != 2 {
+		t.Fatalf("All() returned %d schemas, want 2", len(schemas))
+	}
+	if schemas[0].Name != "alpha_res" {
+		t.Errorf("All()[0].Name = %q, want alpha_res", schemas[0].Name)
+	}
+	if schemas[1].Name != "bravo_res" {
+		t.Errorf("All()[1].Name = %q, want bravo_res", schemas[1].Name)
+	}
+	if len(schemas[1].Params) != 1 {
+		t.Errorf("All()[1].Params has %d entries, want 1", len(schemas[1].Params))
+	}
+}
+
+func TestAllEmpty(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	schemas := All()
+	if len(schemas) != 0 {
+		t.Errorf("All() = %v, want empty", schemas)
+	}
 }
 
 func TestNames(t *testing.T) {
@@ -404,7 +458,7 @@ func TestLoadConfigWithManualRegister(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
-	RegisterFetcher("cfg_type", func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("cfg_type"), func(params map[string]any) (Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return "from_config", nil
 		}, nil

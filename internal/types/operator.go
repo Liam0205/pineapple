@@ -188,3 +188,12 @@ type OperatorSchema struct {
 	Description string       // One-line summary of the operator (required by Register).
 	Params      map[string]ParamSpec
 }
+
+// ResourceSchema describes a resource type for registration, codegen,
+// and documentation generation. Symmetric with OperatorSchema.
+type ResourceSchema struct {
+	Name            string               // Resource type name (e.g. "feed_data").
+	Description     string               // One-line summary.
+	DefaultInterval int                  // Default refresh interval in seconds; 0 → 10min.
+	Params          map[string]ParamSpec // Reuses operator ParamSpec.
+}

@@ -37,3 +37,6 @@ type MetadataAware = types.MetadataAware
 // MetadataHolder stores DSL-declared field-name slices and provides a default
 // SetMetadata. Embed it in operator structs for automatic MetadataAware compliance.
 type MetadataHolder = types.MetadataHolder
+
+// ResourceSchema describes a resource type for registration and codegen.
+type ResourceSchema = types.ResourceSchema
