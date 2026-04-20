@@ -110,7 +110,6 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) 
 				cop.Config.CommonDefaults,
 				cop.Config.ItemDefaults,
 			)
-			input.SetDebugInfo(cop.Name, cop.Config.Debug)
 			mu.Unlock()
 
 			// Capture input snapshot for debug operators

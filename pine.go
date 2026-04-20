@@ -62,6 +62,10 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 				opCfg.Meta.ItemOutput,
 			)
 		}
+		// If the operator wants debug info, provide it
+		if da, ok := op.(types.DebugAware); ok {
+			da.SetDebugInfo(name, opCfg.Debug)
+		}
 		compiledOps[i] = &runtime.CompiledOperator{
 			Name:     name,
 			Instance: op,

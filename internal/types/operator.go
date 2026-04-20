@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"log"
 )
 
 // OperatorType represents the semantic type of an operator.
@@ -171,6 +172,47 @@ func (m *MetadataHolder) SetMetadata(commonInput, commonOutput, itemInput, itemO
 	m.CommonOutput = commonOutput
 	m.ItemInput = itemInput
 	m.ItemOutput = itemOutput
+}
+
+// DebugAware is an optional interface for operators that need access to
+// their debug flag and operator name. The engine calls SetDebugInfo after
+// Init for operators that implement this interface.
+type DebugAware interface {
+	SetDebugInfo(operatorName string, debug bool)
+}
+
+// DebugHolder stores the debug flag and operator name, and provides
+// IsDebug / DebugLog helpers. Embed it in an operator struct to satisfy
+// DebugAware automatically:
+//
+//	type MyOp struct {
+//	    pine.MetadataHolder
+//	    pine.DebugHolder
+//	}
+type DebugHolder struct {
+	operatorName string
+	debug        bool
+}
+
+// SetDebugInfo implements DebugAware.
+func (d *DebugHolder) SetDebugInfo(operatorName string, debug bool) {
+	d.operatorName = operatorName
+	d.debug = debug
+}
+
+// IsDebug returns whether this operator has debug mode enabled.
+func (d *DebugHolder) IsDebug() bool {
+	return d.debug
+}
+
+// DebugLog prints a log line prefixed with the operator name.
+// Only outputs when debug is enabled; silent otherwise.
+func (d *DebugHolder) DebugLog(format string, args ...any) {
+	if !d.debug {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	log.Printf("[pine:debug] operator=%q %s", d.operatorName, msg)
 }
 
 // ParamSpec describes a single operator parameter for schema validation.

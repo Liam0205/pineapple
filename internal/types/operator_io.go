@@ -1,16 +1,9 @@
 package types
 
-import (
-	"fmt"
-	"log"
-)
-
 // OperatorInput provides read-only access to DataFrame data for one operator invocation.
 type OperatorInput struct {
-	common       map[string]any
-	items        []map[string]any
-	debug        bool
-	operatorName string
+	common map[string]any
+	items  []map[string]any
 }
 
 // NewOperatorInput creates an OperatorInput. Intended for engine-internal use.
@@ -58,28 +51,6 @@ func (in *OperatorInput) ItemKeys(index int) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}
-
-// SetDebugInfo injects debug flag and operator name. Called by the engine
-// after BuildInput; not intended for operator use.
-func (in *OperatorInput) SetDebugInfo(operatorName string, debug bool) {
-	in.operatorName = operatorName
-	in.debug = debug
-}
-
-// Debug returns whether this operator has debug mode enabled.
-func (in *OperatorInput) Debug() bool {
-	return in.debug
-}
-
-// Log prints a debug log line prefixed with the operator name.
-// Only outputs when debug is enabled; silent otherwise.
-func (in *OperatorInput) Log(format string, args ...any) {
-	if !in.debug {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	log.Printf("[pine:debug] operator=%q %s", in.operatorName, msg)
 }
 
 // OperatorOutput collects writes from an operator, applied to the DataFrame by the engine.
