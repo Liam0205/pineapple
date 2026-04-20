@@ -21,6 +21,7 @@ class FilterConditionOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterConditionOp":
@@ -34,6 +35,40 @@ class FilterConditionOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
+class FilterPaginateOp(BaseOp):
+    """Operator: filter_paginate"""
+    _name = "filter_paginate"
+    _params_schema = {
+    }
+
+    def __call__(
+        self,
+        *,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "FilterPaginateOp":
+        return self._apply(
+            params={
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -55,6 +90,7 @@ class FilterTruncateOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterTruncateOp":
@@ -68,6 +104,7 @@ class FilterTruncateOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -89,6 +126,7 @@ class MergeDedupOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "MergeDedupOp":
@@ -102,6 +140,7 @@ class MergeDedupOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -123,6 +162,7 @@ class ObserveLogOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "ObserveLogOp":
@@ -136,6 +176,7 @@ class ObserveLogOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -157,6 +198,7 @@ class RecallStaticOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "RecallStaticOp":
@@ -171,6 +213,40 @@ class RecallStaticOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             recall=True,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
+class ReorderShuffleBySaltOp(BaseOp):
+    """Operator: reorder_shuffle_by_salt"""
+    _name = "reorder_shuffle_by_salt"
+    _params_schema = {
+    }
+
+    def __call__(
+        self,
+        *,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "ReorderShuffleBySaltOp":
+        return self._apply(
+            params={
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -192,6 +268,7 @@ class ReorderSortOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "ReorderSortOp":
@@ -205,6 +282,7 @@ class ReorderSortOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -230,6 +308,7 @@ class TransformByLuaOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformByLuaOp":
@@ -245,6 +324,43 @@ class TransformByLuaOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformCopyOp(BaseOp):
+    """Operator: transform_copy"""
+    _name = "transform_copy"
+    _params_schema = {
+        "direction": {"type": "string", "required": True},
+    }
+
+    def __call__(
+        self,
+        *,
+        direction: str = ...,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformCopyOp":
+        return self._apply(
+            params={
+                "direction": direction,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -264,6 +380,7 @@ class TransformDispatchOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformDispatchOp":
@@ -276,6 +393,7 @@ class TransformDispatchOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
@@ -297,6 +415,7 @@ class TransformNormalizeOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformNormalizeOp":
@@ -310,6 +429,139 @@ class TransformNormalizeOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformRedisGetOp(BaseOp):
+    """Operator: transform_redis_get"""
+    _name = "transform_redis_get"
+    _params_schema = {
+        "data_type": {"type": "string", "required": False, "default": "string"},
+        "key_prefix": {"type": "string", "required": True},
+        "redis_addr": {"type": "string", "required": True},
+        "redis_db": {"type": "int", "required": False},
+        "redis_password": {"type": "string", "required": False},
+    }
+
+    def __call__(
+        self,
+        *,
+        data_type: str = "",
+        key_prefix: str = ...,
+        redis_addr: str = ...,
+        redis_db: Any = None,
+        redis_password: str = "",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformRedisGetOp":
+        return self._apply(
+            params={
+                "data_type": data_type,
+                "key_prefix": key_prefix,
+                "redis_addr": redis_addr,
+                "redis_db": redis_db,
+                "redis_password": redis_password,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformRedisSetOp(BaseOp):
+    """Operator: transform_redis_set"""
+    _name = "transform_redis_set"
+    _params_schema = {
+        "data_type": {"type": "string", "required": False, "default": "string"},
+        "key_prefix": {"type": "string", "required": True},
+        "redis_addr": {"type": "string", "required": True},
+        "redis_db": {"type": "int", "required": False},
+        "redis_password": {"type": "string", "required": False},
+        "ttl": {"type": "int", "required": False},
+    }
+
+    def __call__(
+        self,
+        *,
+        data_type: str = "",
+        key_prefix: str = ...,
+        redis_addr: str = ...,
+        redis_db: Any = None,
+        redis_password: str = "",
+        ttl: Any = None,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformRedisSetOp":
+        return self._apply(
+            params={
+                "data_type": data_type,
+                "key_prefix": key_prefix,
+                "redis_addr": redis_addr,
+                "redis_db": redis_db,
+                "redis_password": redis_password,
+                "ttl": ttl,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformSizeOp(BaseOp):
+    """Operator: transform_size"""
+    _name = "transform_size"
+    _params_schema = {
+    }
+
+    def __call__(
+        self,
+        *,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformSizeOp":
+        return self._apply(
+            params={
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )
