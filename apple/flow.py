@@ -30,6 +30,7 @@ from apple.control import (
     extract_fields,
     make_control_op,
 )
+from apple.resource import BaseResource, ResourceDecl
 
 
 def _capture_code_info(type_name: str, stack_depth: int = 2) -> str:
@@ -226,6 +227,17 @@ class Flow(_FlowBase):
         self._common_output = common_output
         self._item_output = item_output
         self._sub_flows = sub_flows or []
+        self._resources: list[ResourceDecl] = []
+
+    def resource(self, name: str, res: BaseResource) -> Flow:
+        """Declare a resource this flow depends on."""
+        self._resources.append(ResourceDecl(
+            name=name,
+            resource_type=res.resource_type,
+            interval=res.interval,
+            params=res.params,
+        ))
+        return self
 
     def compile(self) -> str:
         """Compile this flow to a JSON config string."""

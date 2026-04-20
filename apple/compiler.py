@@ -149,7 +149,14 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     else:
         flow_contract["item_output"] = []
 
-    return {
+    # 8. Validate resource references
+    declared_resources: set[str] = set()
+    if hasattr(flow, '_resources'):
+        declared_resources = {r.name for r in flow._resources}
+    _validate_resource_refs(named_ops, declared_resources)
+
+    # 9. Build result
+    result: dict[str, Any] = {
         "_PINEAPPLE_VERSION": __version__,
         "_PINEAPPLE_CREATE_TIME": datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
@@ -161,6 +168,34 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         "pipeline_group": pipeline_group,
         "flow_contract": flow_contract,
     }
+
+    # 10. Add resource_config if resources declared
+    if hasattr(flow, '_resources') and flow._resources:
+        result["resource_config"] = {
+            r.name: {
+                "type": r.resource_type,
+                "interval": r.interval,
+                "params": r.params,
+            }
+            for r in flow._resources
+        }
+
+    return result
+
+
+def _validate_resource_refs(
+    named_ops: list[tuple[str, OpCall]],
+    declared_resources: set[str],
+) -> None:
+    """Validate that all resource_name params reference declared resources."""
+    for op_name, op in named_ops:
+        res_name = op.params.get("resource_name")
+        if res_name is not None and res_name not in declared_resources:
+            raise ValidationError(
+                f"operator {op_name!r} references resource_name={res_name!r} "
+                f"but no such resource was declared via flow.resource(). "
+                f"Declared resources: {sorted(declared_resources) or '(none)'}"
+            )
 
 
 def compile_to_json(flow: Any, indent: int = 2) -> str:
