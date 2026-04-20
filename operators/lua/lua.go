@@ -42,6 +42,7 @@ func init() {
 // LuaOp executes Lua scripts for feature computation or control flow evaluation.
 type LuaOp struct {
 	pine.MetadataHolder
+	pine.DebugHolder
 	pool       *statePool
 	funcName   string
 	isItemMode bool
@@ -77,6 +78,18 @@ func (o *LuaOp) Init(params map[string]any) error {
 }
 
 func (o *LuaOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+	if o.IsDebug() {
+		nonNil := 0
+		for _, f := range o.CommonInput {
+			if in.Common(f) != nil {
+				nonNil++
+			}
+		}
+		o.DebugLog("common_input fields=%d non_nil=%d items=%d mode=%s func=%s",
+			len(o.CommonInput), nonNil, in.ItemCount(),
+			map[bool]string{true: "item", false: "common"}[o.isItemMode], o.funcName)
+	}
+
 	L := o.pool.Borrow()
 	defer o.pool.Return(L)
 
