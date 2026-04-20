@@ -33,3 +33,9 @@ build/
 
 # Claude Code
 .claude/
+
+# Liam
+demo.py
+design_doc/ref_dragonfly_dsl
+design_doc/ref_more.md
+
