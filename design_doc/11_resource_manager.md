@@ -118,43 +118,54 @@ func main() {
 
 ### 通过 `pkg/server` 注入（推荐）
 
-`server.Config` 支持传入预注册的 `*resource.Manager`。调用方在 `Run()` 之前完成所有 `Register()` 调用，`Run()` 负责 `Start()` 和 `Stop()`：
+统一配置文件中同时包含 pipeline 和资源配置，server 只需一个 config 路径：
 
 ```go
 func main() {
-    rm := resource.NewManager()
-    rm.Register("feed_data", fetchFeedData, 10*time.Minute)
-    rm.Register("abtest_config", fetchABConfig, 30*time.Second)
-
     server.Run(server.Config{
         ConfigPath: *configPath,
         Addr:       *addr,
-        Resources:  rm,
     })
 }
 ```
 
-若 `Config.Resources` 为 nil，`Run()` 内部创建空 Manager（向后兼容）。
+`Run()` 内部从统一 JSON 提取 `resource_config`，自动创建 Manager、加载、启动、校验依赖。
 
-## FetcherFactory 注册机制
+若需要在配置文件之外额外手动注册资源，可传入预注册的 `Config.Resources`。
 
-对称于算子注册（`RegisterOperator`），资源类型也通过全局 registry 注册。业务代码在 `init()` 中注册 FetcherFactory，由配置文件驱动实例化。
+## ResourceSchema 注册
+
+与算子注册（`pine.Register(OperatorSchema, factory)`）完全对称，资源类型也通过 schema + factory 注册。
 
 ```go
+// ResourceSchema 描述资源类型的元信息，供注册、codegen 和文档生成使用。
+type ResourceSchema struct {
+    Name            string                 // 资源类型名（如 "feed_data"）
+    Description     string                 // 一行描述
+    DefaultInterval int                    // 默认刷新间隔（秒），0 → 10min
+    Params          map[string]ParamSpec   // 复用算子的 ParamSpec
+}
+
 // FetcherFactory 根据配置参数创建 Fetcher。
 type FetcherFactory func(params map[string]any) (Fetcher, error)
 
-// RegisterFetcher 注册资源类型的工厂函数。
-// typeName 与配置文件中的 "type" 字段匹配。
-// 重复注册同名 type 时 panic（和算子注册行为一致）。
-func RegisterFetcher(typeName string, factory FetcherFactory)
+// 注册入口（顶层 pine 包便利函数）
+pine.RegisterResource(schema pine.ResourceSchema, factory resource.FetcherFactory)
 ```
 
-业务代码示例：
+业务代码在 `init()` 中注册，放在业务仓库的 `resources/` 目录下（与 `operators/` 对称）：
 
 ```go
+// resources/feed_data.go
 func init() {
-    resource.RegisterFetcher("feed_data", func(params map[string]any) (resource.Fetcher, error) {
+    pine.RegisterResource(pine.ResourceSchema{
+        Name:            "feed_data",
+        Description:     "Full recommend_feed_item table with bitmap indices",
+        DefaultInterval: 600,
+        Params: map[string]pine.ParamSpec{
+            "mysql_dsn": {Type: "string", Required: true, Description: "MySQL connection DSN"},
+        },
+    }, func(params map[string]any) (resource.Fetcher, error) {
         dsn, _ := params["mysql_dsn"].(string)
         if dsn == "" {
             return nil, fmt.Errorf("feed_data: mysql_dsn is required")
@@ -168,40 +179,98 @@ func init() {
 }
 ```
 
-## JSON 配置驱动的资源加载
+重复注册同名资源类型时 panic（和算子注册行为一致）。
 
-`Manager.LoadConfig(data)` 从 JSON 配置批量注册资源，取代在 `main.go` 中硬编码 `Register()` 调用。
+`resource.All()` 返回所有已注册的 ResourceSchema，供 codegen 读取。
 
-```go
-func (m *Manager) LoadConfig(data []byte) error
+## Codegen 生成 Python 资源类
+
+与算子 codegen 完全对称：Go ResourceSchema → codegen → Python typed 资源类。
+
+codegen 读取 `resource.All()`，为每个 ResourceSchema 生成 Python 类：
+
+```python
+# apple_generated/resources.py（codegen 生成，勿手动编辑）
+from apple.base import BaseResource
+
+class FeedDataResource(BaseResource):
+    """Resource: feed_data — Full recommend_feed_item table with bitmap indices."""
+    _name = "feed_data"
+    _default_interval = 600
+    _params_schema = {"mysql_dsn": {"type": "string", "required": True}}
+
+    def __init__(self, *, mysql_dsn: str, interval: int = 600):
+        super().__init__(interval=interval, mysql_dsn=mysql_dsn)
 ```
 
-JSON 格式：
+`BaseResource` 是 Apple DSL 提供的基类（`apple/base.py`）。
+
+## DSL 资源声明
+
+用户在 pipeline Python 文件中使用 codegen 生成的资源类声明资源：
+
+```python
+from apple import Flow
+from apple_generated.resources import FeedDataResource
+
+flow = Flow("recommend_feed", ...)
+
+# 声明资源
+flow.resource("feed_data", FeedDataResource(
+    mysql_dsn="user:pass@tcp(127.0.0.1:3306)/tipsy?charset=utf8mb4&parseTime=True",
+))
+
+# 算子引用资源
+flow.recall_feed_data(resource_name="feed_data", ...)
+```
+
+`Flow.resource(name, res)` 记录资源声明，编译时输出到统一 JSON。
+
+### 编译期校验
+
+DSL 编译器在 `compile_flow()` 中校验：所有算子 `params` 中的 `resource_name` 值必须在 `flow._resources` 中有对应声明。缺失则抛出 `ValidationError`。
+
+这将资源配置缺失从运行时 fail 前移到编译期。
+
+## 统一配置格式
+
+编译后的 JSON 包含 `resource_config` 顶层字段，与 pipeline 配置合并为一个文件：
 
 ```json
 {
-  "feed_data": {
-    "type": "feed_data",
-    "interval": 600,
-    "params": {
-      "mysql_dsn": "user:pass@tcp(127.0.0.1:3306)/tipsy?..."
+  "_PINEAPPLE_VERSION": "0.2.8",
+  "_PINEAPPLE_CREATE_TIME": "...",
+  "pipeline_config": { ... },
+  "pipeline_group": { ... },
+  "flow_contract": { ... },
+  "resource_config": {
+    "feed_data": {
+      "type": "feed_data",
+      "interval": 600,
+      "params": {
+        "mysql_dsn": "user:pass@tcp(127.0.0.1:3306)/tipsy?..."
+      }
     }
   }
 }
 ```
 
-- `type`：对应 `RegisterFetcher` 注册的类型名
-- `interval`：刷新间隔（秒）
-- `params`：传递给 `FetcherFactory` 的参数，由业务自行定义
+Go 侧加载：
 
-`LoadConfig` 逻辑：
+```go
+// LoadFromRootConfig 从统一 JSON 配置中提取 resource_config 并注册。
+// 若 resource_config 不存在或为空，不报错（pipeline 可能不依赖资源）。
+func (m *Manager) LoadFromRootConfig(data []byte) error
+```
 
-1. 解析 JSON
-2. 对每个资源名：从全局 registry 查找对应 `FetcherFactory`
-3. 调用 `factory(params)` 创建 `Fetcher`
-4. 调用 `m.Register(name, fetcher, interval)` 注册
+`RootConfig` 新增字段：
 
-必须在 `Start()` 之前调用。与手动 `Register()` 兼容——可以先手动注册一些，再通过配置文件加载其余的。
+```go
+type RootConfig struct {
+    // ... existing fields ...
+    ResourceConfig map[string]ResourceEntry `json:"resource_config,omitempty"`
+}
+```
 
 ## Names 方法
 
@@ -223,28 +292,26 @@ func ValidateResourceDeps(pipelineConfig []byte, rm *Manager) error
 
 使用位置：壳子在 `rm.Start()` 成功后、启动 HTTP 监听前调用。
 
-## 通用 Server 配置驱动资源
+## 通用 Server 统一配置
 
-`server.Config` 新增 `ResourceConfigPath` 字段：
+Server 只接受一个配置文件路径，pipeline 和资源配置统一在一个 JSON 中：
 
 ```go
 type Config struct {
-    ConfigPath         string
-    ResourceConfigPath string // 资源配置 JSON 文件路径
-    Addr               string
-    Resources          *resource.Manager
+    ConfigPath string            // 统一 JSON 配置文件路径
+    Addr       string
+    Resources  *resource.Manager // 可选：预注册的 Manager
 }
 ```
 
-`Run()` 流程更新：
+`Run()` 流程：
 
-1. 若 `ResourceConfigPath` 非空，读取文件并调用 `rm.LoadConfig(data)`
-2. `rm.Start()`
-3. 加载 pipeline engine
-4. 调用 `ValidateResourceDeps(pipelineData, rm)`，缺失则 fatal
-5. 启动 HTTP server
-
-与手动 `Register()` 完全兼容：调用方可以同时在 `Config.Resources` 上手动 `Register()` 并提供 `ResourceConfigPath`。
+1. 读取统一配置文件
+2. `pine.NewEngine(configData)` — 加载 pipeline
+3. `resources.LoadFromRootConfig(configData)` — 从同一 JSON 提取资源配置
+4. `resources.Start(ctx)`
+5. `ValidateResourceDeps(configData, resources)` — 校验
+6. 启动 HTTP server
 
 ## 设计要点
 
