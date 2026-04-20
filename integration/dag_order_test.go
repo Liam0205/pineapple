@@ -1274,6 +1274,7 @@ func TestDAGOrder_IndependentRecallWithTransformRecallChain(t *testing.T) {
 			"transform_b": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "transform_b",
+				"delay_ms":  1.0,
 				"$metadata": map[string]any{
 					"common_input":  []string{"req_field"},
 					"common_output": []string{"bbb"},
@@ -1340,7 +1341,7 @@ func TestDAGOrder_IndependentRecallWithTransformRecallChain(t *testing.T) {
 	t.Logf("Timeline (relative to recall_a start):")
 	t.Logf("  recall_a(seq=%d):     [%6v, %6v]  (no deps, 50ms)",
 		evA.Seq, evA.Start.Sub(evA.Start), evA.End.Sub(evA.Start))
-	t.Logf("  transform_b(seq=%d):  [%6v, %6v]  (no deps, instant)",
+	t.Logf("  transform_b(seq=%d):  [%6v, %6v]  (no deps, 1ms)",
 		evB.Seq, evB.Start.Sub(evA.Start), evB.End.Sub(evA.Start))
 	t.Logf("  recall_c(seq=%d):     [%6v, %6v]  (after transform_b, 50ms)",
 		evC.Seq, evC.Start.Sub(evA.Start), evC.End.Sub(evA.Start))
