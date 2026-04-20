@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"runtime/debug"
@@ -109,6 +110,7 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) 
 				cop.Config.CommonDefaults,
 				cop.Config.ItemDefaults,
 			)
+			input.SetDebugInfo(cop.Name, cop.Config.Debug)
 			mu.Unlock()
 
 			// Capture input snapshot for debug operators
@@ -178,8 +180,16 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) 
 			var outputSnapshot map[string]any
 			if cop.Config.Debug {
 				outputSnapshot = snapshotOutput(output)
-				log.Printf("[pine:debug] operator=%q duration=%v input=%v output=%v",
-					cop.Name, duration, inputSnapshot, outputSnapshot)
+				inputJSON, err := json.Marshal(inputSnapshot)
+				if err != nil {
+					inputJSON = []byte(fmt.Sprintf("%v", inputSnapshot))
+				}
+				outputJSON, err := json.Marshal(outputSnapshot)
+				if err != nil {
+					outputJSON = []byte(fmt.Sprintf("%v", outputSnapshot))
+				}
+				log.Printf("[pine:debug] operator=%q duration=%v\n  input: %s\n  output: %s",
+					cop.Name, duration, inputJSON, outputJSON)
 			}
 
 			// Apply output under lock
