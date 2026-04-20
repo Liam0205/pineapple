@@ -38,11 +38,11 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **白盒可观测** — 每次请求返回算子级别的执行 trace（耗时、输入/输出快照、跳过状态），配合 debug 参数可逐算子深入排查。
 
-**动态资源管理** — `pkg/resource` 提供后台定时刷新的内存资源管理器，无锁读、刷新失败保留旧值，任何外壳（HTTP / RPC / Runner）均可组合 Pine 使用。
+**动态资源管理** — `pkg/resource` 提供后台定时刷新的内存资源管理器，无锁读、刷新失败保留旧值。资源通过 `ResourceSchema` 注册，codegen 自动生成 Python 类型类，DSL 声明后编译到统一 JSON 配置。
 
 **配置热加载** — 服务运行时监控配置文件变更，自动无停机重载，业务迭代立即生效。
 
-**文档自动生成** — 算子的 Type、Description、参数描述在注册时强制填写，codegen 自动生成 Python 类型绑定和 Markdown 文档，保证代码与文档永远同步。
+**文档自动生成** — 算子和资源的 Type、Description、参数描述在注册时强制填写，codegen 自动生成 Python 类型绑定和 Markdown 文档，保证代码与文档永远同步。
 
 **Schema 即约束** — `Register()` 强制校验算子元信息完整性，缺少 Type、Description 或参数描述则启动时直接 panic，从源头杜绝文档缺失。
 
@@ -261,7 +261,9 @@ go run ./cmd/pineapple-codegen \
 
 这将自动生成：
 - `apple_generated/operators.py` — 带类型提示的 Python 算子类
-- `apple_generated/__init__.py` — 导出列表
+- `apple_generated/__init__.py` — 算子导出列表
+- `apple_generated/resources.py` — 带类型提示的 Python 资源类（若有注册资源）
+- `apple_generated/resources_init.py` — 资源导出列表（若有注册资源）
 - `doc/operators/<name>.md` — 每个算子的文档
 - `doc/operators/README.md` — 按分类索引
 
@@ -277,7 +279,72 @@ go test ./...
 
 ### 动态资源管理
 
-算子若需读取定时刷新的数据（特征索引、AB 配置等），可通过 `pkg/resource` 获取：
+资源（特征索引、AB 配置等需要定时刷新的数据）与算子对称，走 **Go Schema → codegen Python 类 → DSL 声明 → 编译到统一 JSON** 的全流程。
+
+#### 注册资源 Schema
+
+在 `init()` 中调用 `pine.RegisterResource()`：
+
+```go
+package myresource
+
+import (
+    pine "github.com/Liam0205/pineapple"
+    "github.com/Liam0205/pineapple/pkg/resource"
+)
+
+func init() {
+    pine.RegisterResource(pine.ResourceSchema{
+        Name:            "feature_index",
+        Description:     "User feature lookup table.",
+        DefaultInterval: 600,  // 刷新间隔（秒），0 → 默认 10min
+        Params: map[string]pine.ParamSpec{
+            "dsn": {Type: "string", Required: true, Description: "Database DSN."},
+        },
+    }, func(params map[string]any) (resource.Fetcher, error) {
+        dsn := params["dsn"].(string)
+        return newFeatureIndexFetcher(dsn), nil
+    })
+}
+```
+
+#### ResourceSchema 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `Name` | string | Yes | 资源唯一标识，蛇形命名 |
+| `Description` | string | Yes | 一句话功能描述 |
+| `DefaultInterval` | int | No | 刷新间隔（秒），0 → 默认 10min |
+| `Params[k]` | ParamSpec | — | 与算子共用 `ParamSpec`（Type、Required、Default、Description） |
+
+#### DSL 中声明资源
+
+codegen 会生成带类型的 Python 资源类。在 pipeline 文件中：
+
+```python
+from apple_generated.resources import FeatureIndexResource
+
+flow.resource("my_index", FeatureIndexResource(dsn="host:3306/db"))
+```
+
+编译后，统一 JSON 配置包含 `resource_config`：
+
+```json
+{
+  "pipeline_config": { ... },
+  "pipeline_group": { ... },
+  "flow_contract": { ... },
+  "resource_config": {
+    "my_index": {
+      "type": "feature_index",
+      "interval": 600,
+      "params": {"dsn": "host:3306/db"}
+    }
+  }
+}
+```
+
+#### 算子中读取资源
 
 ```go
 import "github.com/Liam0205/pineapple/pkg/resource"
@@ -287,7 +354,7 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
     if rp == nil {
         return nil // 未注入，降级处理
     }
-    idx, ok := rp.Get("feature_index")
+    idx, ok := rp.Get("my_index")
     if !ok {
         return nil // 资源未就绪，降级
     }
@@ -295,34 +362,6 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
     // 使用 table ...
     return nil
 }
-```
-
-壳子侧注册并启动资源，在请求时注入 context：
-
-```go
-rm := resource.NewManager()
-rm.Register("feature_index", fetchFeatureTable, 5*time.Minute)
-rm.Start(ctx)
-defer rm.Stop()
-
-// 请求处理中
-ctx = resource.WithResources(r.Context(), rm)
-result, err := engine.Execute(ctx, req)
-```
-
-也可通过 JSON 配置文件批量注册（需先 `RegisterFetcher` 注册工厂函数）：
-
-```go
-// init() 中注册工厂
-resource.RegisterFetcher("feature_index", func(params map[string]any) (resource.Fetcher, error) {
-    dsn := params["dsn"].(string)
-    return newFeatureIndexFetcher(dsn), nil
-})
-
-// main() 中从配置加载
-rm := resource.NewManager()
-rm.LoadConfig(configJSON)  // JSON 格式见设计文档
-rm.Start(ctx)
 ```
 
 详见 [动态资源管理设计文档](design_doc/11_resource_manager.md)。
@@ -420,6 +459,27 @@ flow.recall_static(...)
 # normalize_sub 的算子会被展开到 flow 中
 ```
 
+### 资源声明
+
+当算子依赖外部数据时，在 pipeline 中声明资源。codegen 会为每种资源生成带类型的 Python 类：
+
+```python
+from apple_generated.resources import FeatureIndexResource
+
+flow = Flow(name="my_pipeline", ...)
+
+# 声明资源
+flow.resource("my_index", FeatureIndexResource(dsn="host:3306/db"))
+
+# 算子引用资源（通过 resource_name 参数）
+flow.recall_feature_index(
+    resource_name="my_index",
+    item_output=["item_id", "score"],
+)
+```
+
+编译器会校验所有 `resource_name` 引用是否有匹配的资源声明，未声明即报错。
+
 ### Metadata 声明
 
 每个算子调用需要声明它读写的字段：
@@ -502,11 +562,12 @@ config = flow.compile_dict()
 pineapple/
 ├── apple/                  # Python DSL (Apple)
 │   ├── base.py             #   算子基类
-│   ├── flow.py             #   Flow/SubFlow 声明
-│   ├── compiler.py         #   编译器：DSL -> JSON
+│   ├── resource.py         #   资源基类 + ResourceDecl
+│   ├── flow.py             #   Flow/SubFlow 声明（含资源声明）
+│   ├── compiler.py         #   编译器：DSL -> JSON（含 resource_config）
 │   ├── validator.py        #   静态校验器
 │   ├── control.py          #   控制流 (if/else) 支持
-│   ├── generated/          #   自动生成的算子 Python 绑定
+│   ├── generated/          #   自动生成的 Python 绑定
 │   └── tests/              #   Python 测试
 ├── cmd/
 │   ├── pineapple-server/   # HTTP 服务入口
@@ -559,7 +620,7 @@ pineapple/
 
 ## 第三方扩展
 
-第三方项目可以在**不修改 pineapple 源码**的前提下添加自定义算子。核心思路：写自己的算子包，通过 blank import 注册到全局 registry，然后用 `pkg/server` 和 `pkg/codegen` 构建自己的服务和 Python 绑定。
+第三方项目可以在**不修改 pineapple 源码**的前提下添加自定义算子和资源。核心思路：写自己的算子/资源包，通过 blank import 注册到全局 registry，然后用 `pkg/server` 和 `pkg/codegen` 构建自己的服务和 Python 绑定。
 
 ```
 my-project/
@@ -567,15 +628,17 @@ my-project/
 ├── operators/
 │   └── my_scorer/
 │       └── scorer.go         # init() { pine.Register(schema, factory) }
+├── resources/
+│   └── feature_index/
+│       └── feature_index.go  # init() { pine.RegisterResource(schema, factory) }
 ├── cmd/
 │   ├── my-server/
-│   │   └── main.go           # import 内置算子 + 自定义算子 → server.Run()
+│   │   └── main.go           # import 算子 + 资源 → server.Run()
 │   └── my-codegen/
-│       └── main.go           # import 内置算子 + 自定义算子 → codegen.Run()
-├── apple/
-│   └── generated/            # codegen 产出（含内置 + 自定义算子的 binding）
+│       └── main.go           # import 算子 + 资源 → codegen.Run()
+├── apple_generated/          # codegen 产出（算子 + 资源的 Python 绑定）
 └── pipelines/
-    └── my_pipeline.py
+    └── my_pipeline.py        # DSL 声明算子 + 资源 → 编译统一 JSON
 ```
 
 ### Server wrapper 示例
@@ -589,18 +652,17 @@ import (
 
     _ "github.com/Liam0205/pineapple/operators" // 内置算子
     _ "my-project/operators/my_scorer"            // 自定义算子
+    _ "my-project/resources/feature_index"        // 自定义资源
     "github.com/Liam0205/pineapple/pkg/server"
 )
 
 func main() {
-    configPath := flag.String("config", "", "Pipeline config")
-    resourceConfig := flag.String("resource-config", "", "Resource config (optional)")
+    configPath := flag.String("config", "", "Unified JSON config (pipeline + resources)")
     addr := flag.String("addr", ":8080", "Listen address")
     flag.Parse()
     if err := server.Run(server.Config{
-        ConfigPath:         *configPath,
-        ResourceConfigPath: *resourceConfig,
-        Addr:               *addr,
+        ConfigPath: *configPath,
+        Addr:       *addr,
     }); err != nil {
         log.Fatal(err)
     }
@@ -619,6 +681,7 @@ import (
 
     _ "github.com/Liam0205/pineapple/operators"
     _ "my-project/operators/my_scorer"
+    _ "my-project/resources/feature_index"
     "github.com/Liam0205/pineapple/pkg/codegen"
 )
 
