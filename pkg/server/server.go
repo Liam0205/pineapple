@@ -199,14 +199,16 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 		for _, warn := range result.Warnings {
 			resp.Warnings = append(resp.Warnings, warn.Error())
 		}
-		for _, t := range result.Trace {
-			resp.Trace = append(resp.Trace, traceEntry{
-				Name:           t.Name,
-				DurationMs:     float64(t.Duration.Microseconds()) / 1000.0,
-				Skipped:        t.Skipped,
-				InputSnapshot:  t.InputSnapshot,
-				OutputSnapshot: t.OutputSnapshot,
-			})
+		if returnTrace, _ := req.Common["_return_trace"].(bool); returnTrace {
+			for _, t := range result.Trace {
+				resp.Trace = append(resp.Trace, traceEntry{
+					Name:           t.Name,
+					DurationMs:     float64(t.Duration.Microseconds()) / 1000.0,
+					Skipped:        t.Skipped,
+					InputSnapshot:  t.InputSnapshot,
+					OutputSnapshot: t.OutputSnapshot,
+				})
+			}
 		}
 	}
 	if err != nil {

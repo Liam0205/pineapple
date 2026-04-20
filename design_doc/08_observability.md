@@ -12,6 +12,27 @@
 
 引擎在每次 DAG 执行时自动记录这些信息。回查时按请求标识检索历史记录，还原完整的执行链路。
 
+#### Trace 返回控制
+
+引擎内部始终记录每个算子的 trace（名称、耗时、是否 skip）。但 HTTP 响应中默认不返回 trace，以减少传输体积。
+
+请求方通过 common 字段 `_return_trace` 控制：
+
+```json
+{
+  "common": {
+    "_return_trace": true,
+    ...
+  },
+  "items": []
+}
+```
+
+- `_return_trace` 为 `true` → 响应包含 `trace` 数组
+- `_return_trace` 缺失或为 `false`（默认） → 响应不含 `trace`
+
+`_return_trace` 以 `_` 开头，属于引擎保留字段，不会被算子读取，不需要在 `common_input` 中声明。
+
 ### 2. 代码治理
 
 自动检测和报告无用算子/分支：
