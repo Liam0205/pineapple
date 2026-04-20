@@ -21,10 +21,9 @@ import (
 
 // Config holds the server startup settings.
 type Config struct {
-	ConfigPath         string            // Path to pipeline JSON config file
-	ResourceConfigPath string            // Path to resource config JSON file (optional)
-	Addr               string            // Listen address (e.g. ":8080")
-	Resources          *resource.Manager // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
+	ConfigPath string            // Path to unified JSON config file (pipeline + resources)
+	Addr       string            // Listen address (e.g. ":8080")
+	Resources  *resource.Manager // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
 }
 
 var (
@@ -64,16 +63,9 @@ func Run(cfg Config) error {
 		resources = resource.NewManager()
 	}
 
-	// Load resource config file if provided.
-	if cfg.ResourceConfigPath != "" {
-		resData, err := os.ReadFile(cfg.ResourceConfigPath)
-		if err != nil {
-			log.Fatalf("failed to read resource config: %v", err)
-		}
-		if err := resources.LoadConfig(resData); err != nil {
-			log.Fatalf("failed to load resource config: %v", err)
-		}
-		log.Printf("resource config loaded from %s", cfg.ResourceConfigPath)
+	// Load resource config from unified JSON.
+	if err := resources.LoadFromRootConfig(configData); err != nil {
+		log.Fatalf("failed to load resource config: %v", err)
 	}
 
 	if err := resources.Start(context.Background()); err != nil {
