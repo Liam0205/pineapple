@@ -21,9 +21,10 @@ import (
 
 // Config holds the server startup settings.
 type Config struct {
-	ConfigPath string            // Path to pipeline JSON config file
-	Addr       string            // Listen address (e.g. ":8080")
-	Resources  *resource.Manager // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
+	ConfigPath         string            // Path to pipeline JSON config file
+	ResourceConfigPath string            // Path to resource config JSON file (optional)
+	Addr               string            // Listen address (e.g. ":8080")
+	Resources          *resource.Manager // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
 }
 
 var (
@@ -43,9 +44,15 @@ func Run(cfg Config) error {
 	}
 
 	// Load initial config
-	if err := loadEngine(cfg.ConfigPath); err != nil {
-		log.Fatalf("failed to load config: %v", err)
+	configData, err := os.ReadFile(cfg.ConfigPath)
+	if err != nil {
+		log.Fatalf("failed to read config: %v", err)
 	}
+	engine, err := pine.NewEngine(configData)
+	if err != nil {
+		log.Fatalf("failed to load engine: %v", err)
+	}
+	enginePtr.Store(engine)
 	log.Printf("engine loaded from %s", cfg.ConfigPath)
 
 	// Initialize ResourceManager.
@@ -56,10 +63,28 @@ func Run(cfg Config) error {
 	} else {
 		resources = resource.NewManager()
 	}
+
+	// Load resource config file if provided.
+	if cfg.ResourceConfigPath != "" {
+		resData, err := os.ReadFile(cfg.ResourceConfigPath)
+		if err != nil {
+			log.Fatalf("failed to read resource config: %v", err)
+		}
+		if err := resources.LoadConfig(resData); err != nil {
+			log.Fatalf("failed to load resource config: %v", err)
+		}
+		log.Printf("resource config loaded from %s", cfg.ResourceConfigPath)
+	}
+
 	if err := resources.Start(context.Background()); err != nil {
 		log.Fatalf("failed to start resource manager: %v", err)
 	}
 	defer resources.Stop()
+
+	// Validate resource dependencies against pipeline config.
+	if err := resource.ValidateResourceDeps(configData, resources); err != nil {
+		log.Fatalf("resource dependency check failed: %v", err)
+	}
 
 	// Start config reload watcher
 	go watchConfig(cfg.ConfigPath)
