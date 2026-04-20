@@ -241,7 +241,7 @@ func TestManagerImplementsProvider(t *testing.T) {
 	var _ ResourceProvider = (*Manager)(nil)
 }
 
-// --- FetcherFactory / LoadConfig / Names tests ---
+// --- Resource registry / LoadFromRootConfig / Names tests ---
 
 func testSchema(name string) types.ResourceSchema {
 	return types.ResourceSchema{
@@ -251,7 +251,12 @@ func testSchema(name string) types.ResourceSchema {
 	}
 }
 
-func TestRegisterAndLoadConfig(t *testing.T) {
+// wrapResourceConfig wraps a resource_config map in a minimal unified JSON.
+func wrapResourceConfig(inner string) string {
+	return `{"resource_config": ` + inner + `}`
+}
+
+func TestRegisterAndLoadFromRootConfig(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
@@ -263,14 +268,14 @@ func TestRegisterAndLoadConfig(t *testing.T) {
 	})
 
 	m := NewManager()
-	config := `{
+	config := wrapResourceConfig(`{
 		"my_resource": {
 			"type": "test_type",
 			"interval": 600,
 			"params": {"prefix": "hello"}
 		}
-	}`
-	if err := m.LoadConfig([]byte(config)); err != nil {
+	}`)
+	if err := m.LoadFromRootConfig([]byte(config)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -288,25 +293,25 @@ func TestRegisterAndLoadConfig(t *testing.T) {
 	}
 }
 
-func TestLoadConfigUnknownType(t *testing.T) {
+func TestLoadFromRootConfigUnknownType(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
 	m := NewManager()
-	config := `{
+	config := wrapResourceConfig(`{
 		"bad": {
 			"type": "nonexistent_type",
 			"interval": 60,
 			"params": {}
 		}
-	}`
-	err := m.LoadConfig([]byte(config))
+	}`)
+	err := m.LoadFromRootConfig([]byte(config))
 	if err == nil {
 		t.Fatal("expected error for unknown type")
 	}
 }
 
-func TestLoadConfigFactoryError(t *testing.T) {
+func TestLoadFromRootConfigFactoryError(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
@@ -315,28 +320,28 @@ func TestLoadConfigFactoryError(t *testing.T) {
 	})
 
 	m := NewManager()
-	config := `{
+	config := wrapResourceConfig(`{
 		"broken": {
 			"type": "fail_type",
 			"interval": 60,
 			"params": {}
 		}
-	}`
-	err := m.LoadConfig([]byte(config))
+	}`)
+	err := m.LoadFromRootConfig([]byte(config))
 	if err == nil {
 		t.Fatal("expected error from factory")
 	}
 }
 
-func TestLoadConfigInvalidJSON(t *testing.T) {
+func TestLoadFromRootConfigInvalidJSON(t *testing.T) {
 	m := NewManager()
-	err := m.LoadConfig([]byte(`{invalid`))
+	err := m.LoadFromRootConfig([]byte(`{invalid`))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
 
-func TestLoadConfigDefaultInterval(t *testing.T) {
+func TestLoadFromRootConfigDefaultInterval(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
@@ -347,14 +352,14 @@ func TestLoadConfigDefaultInterval(t *testing.T) {
 	})
 
 	m := NewManager()
-	config := `{
+	config := wrapResourceConfig(`{
 		"res": {
 			"type": "simple",
 			"interval": 0,
 			"params": {}
 		}
-	}`
-	if err := m.LoadConfig([]byte(config)); err != nil {
+	}`)
+	if err := m.LoadFromRootConfig([]byte(config)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -366,6 +371,18 @@ func TestLoadConfigDefaultInterval(t *testing.T) {
 	val, ok := m.Get("res")
 	if !ok || val != "ok" {
 		t.Errorf("Get(res) = %v, %v", val, ok)
+	}
+}
+
+func TestLoadFromRootConfigNoResources(t *testing.T) {
+	m := NewManager()
+	// Valid JSON but no resource_config key
+	config := `{"_PINEAPPLE_VERSION": "0.2.8", "pipeline_config": {}}`
+	if err := m.LoadFromRootConfig([]byte(config)); err != nil {
+		t.Fatalf("expected no error for missing resource_config, got: %v", err)
+	}
+	if len(m.Names()) != 0 {
+		t.Errorf("expected no resources, got %v", m.Names())
 	}
 }
 
@@ -454,7 +471,7 @@ func TestNamesEmpty(t *testing.T) {
 	}
 }
 
-func TestLoadConfigWithManualRegister(t *testing.T) {
+func TestLoadFromRootConfigWithManualRegister(t *testing.T) {
 	resetRegistry()
 	defer resetRegistry()
 
@@ -471,14 +488,14 @@ func TestLoadConfigWithManualRegister(t *testing.T) {
 	}, time.Hour)
 
 	// Then config
-	config := `{
+	config := wrapResourceConfig(`{
 		"config_res": {
 			"type": "cfg_type",
 			"interval": 300,
 			"params": {}
 		}
-	}`
-	if err := m.LoadConfig([]byte(config)); err != nil {
+	}`)
+	if err := m.LoadFromRootConfig([]byte(config)); err != nil {
 		t.Fatal(err)
 	}
 

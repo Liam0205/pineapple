@@ -111,15 +111,25 @@ type resourceConfig struct {
 	Params   map[string]any `json:"params"`
 }
 
-// LoadConfig parses a JSON resource configuration and registers each resource
-// using the globally registered FetcherFactory for its type.
-// Must be called before Start. Compatible with manual Register calls.
-func (m *Manager) LoadConfig(data []byte) error {
-	var configs map[string]resourceConfig
-	if err := json.Unmarshal(data, &configs); err != nil {
-		return fmt.Errorf("resource: invalid config JSON: %w", err)
+// LoadFromRootConfig extracts resource_config from a unified Pine JSON config
+// and registers each resource using the globally registered FetcherFactory.
+// If resource_config is absent or empty, this is a no-op (pipeline may not use resources).
+// Must be called before Start.
+func (m *Manager) LoadFromRootConfig(data []byte) error {
+	var root struct {
+		ResourceConfig map[string]resourceConfig `json:"resource_config"`
 	}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("resource: failed to parse config: %w", err)
+	}
+	if len(root.ResourceConfig) == 0 {
+		return nil
+	}
+	return m.loadResources(root.ResourceConfig)
+}
 
+// loadResources is the shared implementation for registering resources from config.
+func (m *Manager) loadResources(configs map[string]resourceConfig) error {
 	for name, cfg := range configs {
 		factory := lookupFactory(cfg.Type)
 		if factory == nil {

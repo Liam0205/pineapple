@@ -7,6 +7,14 @@ type RootConfig struct {
 	PipelineConfig      PipelineConfig        `json:"pipeline_config"`
 	PipelineGroup       map[string]SubFlowRef `json:"pipeline_group"`
 	FlowContract        FlowContract          `json:"flow_contract"`
+	ResourceConfig      map[string]ResourceEntry `json:"resource_config,omitempty"`
+}
+
+// ResourceEntry describes a single resource in the unified config.
+type ResourceEntry struct {
+	Type     string         `json:"type"`
+	Interval int            `json:"interval"`
+	Params   map[string]any `json:"params"`
 }
 
 // PipelineConfig holds operator definitions and sub-flow definitions.
