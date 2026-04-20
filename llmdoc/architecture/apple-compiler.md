@@ -1,10 +1,10 @@
-# Apple Compiler Architecture
+# Apple 编译器架构
 
-This document explains how the Apple DSL records flows and compiles them into the JSON contract consumed by the Go engine.
+本文档说明 Apple DSL 如何记录流水线并将其编译为 Go 引擎消费的 JSON 契约。
 
-## Scope
+## 适用范围
 
-Use this doc when a task touches:
+当任务涉及以下文件时使用本文档：
 
 - `apple/flow.py`
 - `apple/compiler.py`
@@ -14,156 +14,156 @@ Use this doc when a task touches:
 - `apple/base.py`
 - `apple_generated/`
 
-## Role in the system
+## 在系统中的角色
 
-Apple is the declaration side of Pineapple. It does not execute pipelines. Its job is to:
+Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 
-- provide a Python API for flow declaration
-- record operator calls as structured `OpCall` values
-- validate declaration correctness before runtime
-- lower control flow into plain operators plus skip fields
-- emit JSON matching `internal/config/types.go`
+- 提供流水线声明的 Python API
+- 将算子调用记录为结构化的 `OpCall` 值
+- 在运行时之前校验声明正确性
+- 将控制流降级为普通算子 + skip 字段
+- 输出匹配 `internal/config/types.go` 的 JSON
 
-The compiler's output is the durable boundary between Python and Go.
+编译器的输出是 Python 和 Go 之间的持久边界。
 
-## Declaration API
+## 声明 API
 
-### Flow and SubFlow
+### Flow 和 SubFlow
 
-`apple/flow.py` defines two main user-facing builders:
+`apple/flow.py` 定义两个主要的面向用户的构建器：
 
-- `Flow` — top-level declaration with input/output contract and resources
-- `SubFlow` — reusable operator fragments with no independent contract
+- `Flow` — 带输入/输出契约和资源的顶层声明
+- `SubFlow` — 无独立契约的可复用算子片段
 
-Both inherit `_FlowBase`, which owns the operator list and control-flow bookkeeping.
+两者继承 `_FlowBase`，持有算子列表和控制流记账。
 
-### Two dispatch paths
+### 两条分发路径
 
-Apple supports two ways to declare operators.
+Apple 支持两种声明算子的方式。
 
-#### Dynamic dispatch
+#### 动态分发
 
-`_FlowBase.__getattr__` turns unknown attribute access into operator recording, so code like `flow.transform_copy(...)` or even `flow.some_future_op(...)` is accepted.
+`_FlowBase.__getattr__` 将未知属性访问转为算子记录，因此 `flow.transform_copy(...)` 甚至 `flow.some_future_op(...)` 都会被接受。
 
-Characteristics:
+特点：
 
-- no static typing requirement
-- operator name is taken directly from the called attribute
-- metadata kwargs and business params are separated at runtime
+- 无静态类型要求
+- 算子名直接取自调用的属性名
+- 元数据 kwargs 和业务参数在运行时分离
 
-This is the baseline API and explains why the wheel does not need `apple_generated/` to function.
+这是基线 API，也解释了为何 wheel 无需 `apple_generated/` 即可运行。
 
-#### Typed dispatch
+#### 类型化分发
 
-`apple_generated/operators.py` contains generated helper classes that inherit `apple.base.BaseOp`.
+`apple_generated/operators.py` 包含从 `apple.base.BaseOp` 继承的生成 helper 类。
 
-Characteristics:
+特点：
 
-- generated from Go operator schemas
-- typed `__call__` signatures for params and metadata kwargs
-- ultimately call `BaseOp._apply()` to append an `OpCall`
+- 从 Go 算子 Schema 生成
+- 带类型的 `__call__` 签名，包含参数和元数据 kwargs
+- 最终调用 `BaseOp._apply()` 追加 `OpCall`
 
-These are development-time conveniences for typed authoring, not a distinct execution path.
+这些是开发时的类型化编写便利，不是独立的执行路径。
 
-### `OpCall` as the compiler IR
+### `OpCall` 作为编译器 IR
 
-`apple/base.py` defines `OpCall`, the intermediate representation recorded by both dispatch styles. It stores:
+`apple/base.py` 定义 `OpCall`，这是两种分发方式记录的中间表示。它存储：
 
 - `type_name`
-- business params
-- metadata fields (`common_input`, `common_output`, `item_input`, `item_output`)
-- defaults
-- control-flow fields like `skip` and `for_branch_control`
-- merge ancestry (`sources`)
+- 业务参数
+- 元数据字段（`common_input`、`common_output`、`item_input`、`item_output`）
+- 默认值
+- 控制流字段如 `skip` 和 `for_branch_control`
+- merge 祖先（`sources`）
 - `row_dependency`
 - `debug`
 - `code_info`
-- optional explicit `name`
+- 可选的显式 `name`
 
-Compilation operates over ordered `OpCall` values.
+编译在有序 `OpCall` 值上操作。
 
-## Control flow lowering
+## 控制流降级
 
-The Go engine has no native if/else construct. Apple lowers control flow entirely in the compiler.
+Go 引擎没有原生 if/else 构造。Apple 在编译器中完全降级控制流。
 
-### User-facing API
+### 用户 API
 
-`_FlowBase` provides:
+`_FlowBase` 提供：
 
 - `if_(condition)`
 - `elseif_(condition)`
 - `else_()`
 - `end_if_()`
 
-These mutate an internal control-block stack and emit control operators.
+这些操作内部控制块栈并发出控制算子。
 
-### Lowering strategy
+### 降级策略
 
-`apple/control.py` converts each branch into a `transform_by_lua` operator created by `make_control_op`.
+`apple/control.py` 通过 `make_control_op` 将每个分支转为一个 `transform_by_lua` 算子。
 
-Each branch writes a compiler-generated common field such as:
+每个分支写入一个编译器生成的 common 字段，如：
 
 - `_if_1`
 - `_elif_1`
 - `_else_1`
 
-Branch operators declared inside the block receive:
+块内声明的分支算子接收：
 
-- `skip=<that control field>`
-- an added `common_input` dependency on the same field
+- `skip=<该控制字段>`
+- 添加到 `common_input` 的对同一字段的依赖
 
-Runtime meaning:
+运行时含义：
 
-- control operator returns `false` when the branch should execute
-- control operator returns `true` when downstream branch operators should skip
+- 控制算子返回 `false` 时分支应执行
+- 控制算子返回 `true` 时下游分支算子应跳过
 
-So the scheduler's skip convention is `true = skip`, `false = run`.
+因此调度器的 skip 约定是 `true = 跳过`，`false = 运行`。
 
-### Condition field extraction
+### 条件字段提取
 
-For control operators, `extract_fields()` heuristically scans the Lua condition string for referenced field names. Those fields are added to the control operator's `common_input` set, along with prior branch-control fields for `elseif` and `else` logic.
+对于控制算子，`extract_fields()` 启发式扫描 Lua 条件字符串中引用的字段名。这些字段被添加到控制算子的 `common_input` 集合，连同 `elseif` 和 `else` 逻辑所需的先前分支控制字段。
 
-## Compile pipeline
+## 编译流水线
 
-`apple/compiler.py` performs a fixed sequence. The pipeline is important because later steps assume earlier steps have already stabilized ordering and naming.
+`apple/compiler.py` 执行固定序列。流水线很重要，因为后续步骤假设前面的步骤已稳定了排序和命名。
 
-### Step 1: flatten sub-flows
+### 步骤 1：展平子流程
 
-All declared `SubFlow` operator lists are concatenated first, followed by the main flow's own operators.
+所有声明的 `SubFlow` 算子列表先拼接，然后是主流程自身的算子。
 
-The compiler also records each sub-flow's `[start, end)` slice so it can rebuild `pipeline_map` entries later.
+编译器还记录每个子流程的 `[start, end)` 切片，以便后续重建 `pipeline_map` 条目。
 
-### Step 2: generate unique operator names
+### 步骤 2：生成唯一算子名
 
-Every operator needs a stable JSON key.
+每个算子需要一个稳定的 JSON 键。
 
-Naming rules:
+命名规则：
 
-- explicit `name=` is used as-is
-- explicit names must be globally unique
-- auto names use `{type_name}_{MD5[:6].upper()}`
-- if an auto-name collision occurs, the compiler appends `_N`
+- 显式 `name=` 直接使用
+- 显式名必须全局唯一
+- 自动名使用 `{type_name}_{MD5[:6].upper()}`
+- 自动名冲突时追加 `_N`
 
-This creates the ordered named sequence used by all later phases.
+这创建了后续所有阶段使用的有序命名序列。
 
-### Step 3: run the four validation passes
+### 步骤 3：运行四项校验
 
-Validation is fail-fast and runs in a specific order.
+校验采用 fail-fast，按特定顺序运行。
 
 1. `validate_no_underscore_output`
 2. `validate_field_coverage`
 3. `validate_write_without_read`
 4. `detect_dead_code`
 
-The ordering matters because each later rule assumes the operator sequence and field sets are already sensible enough for the next analysis.
+顺序重要，因为每个后续规则假设算子序列和字段集已足够合理。
 
-### Step 4: build the operators dict
+### 步骤 4：构建 operators dict
 
-The compiler emits one JSON object per named operator with:
+编译器为每个命名算子输出一个 JSON 对象，包含：
 
 - `type_name`
 - `$metadata`
-- optional `$code_info`
+- 可选 `$code_info`
 - `recall`
 - `sources`
 - `skip`
@@ -172,206 +172,206 @@ The compiler emits one JSON object per named operator with:
 - `item_defaults`
 - `common_defaults`
 - `debug`
-- business params
+- 业务参数
 
-This is the object the Go config loader later parses into `internal/config.OperatorConfig`.
+这是 Go 配置加载器后续解析为 `internal/config.OperatorConfig` 的对象。
 
-### Step 5: build `pipeline_map`
+### 步骤 5：构建 `pipeline_map`
 
-Each sub-flow becomes a named pipeline containing the operator names assigned to that fragment. The main flow's own direct operators are grouped into an internal `_main_*` pipeline entry.
+每个子流程成为一个命名 pipeline，包含分配给该片段的算子名。主流程自身的直接算子归入内部 `_main_*` pipeline 条目。
 
-### Step 6: build `pipeline_group`
+### 步骤 6：构建 `pipeline_group`
 
-Apple currently emits a single group named `main` whose pipeline list preserves the flattened order of pipeline-map entries.
+Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipeline-map 条目的展平顺序。
 
-### Step 7: build `flow_contract`
+### 步骤 7：构建 `flow_contract`
 
-The top-level contract copies the `Flow` declaration's:
+顶层契约复制 `Flow` 声明的：
 
 - `common_input`
 - `item_input`
 - `common_output`
 - `item_output`
 
-This contract is later enforced at engine request/result boundaries.
+此契约后续在引擎请求/结果边界强制执行。
 
-### Step 8: validate resource references
+### 步骤 8：校验资源引用
 
-After core operator validation, `_validate_resource_refs` scans business params for `resource_name` and checks that each name matches a declared `flow.resource(...)` entry.
+核心算子校验之后，`_validate_resource_refs` 扫描业务参数中的 `resource_name`，检查每个名称是否匹配已声明的 `flow.resource(...)` 条目。
 
-### Step 9: assemble root metadata
+### 步骤 9：组装根元数据
 
-The compiler adds:
+编译器添加：
 
-- `_PINEAPPLE_VERSION` from `apple/_version.py`
-- `_PINEAPPLE_CREATE_TIME` as UTC ISO timestamp
-- optional `resource_config`
+- `_PINEAPPLE_VERSION`（来自 `apple/_version.py`）
+- `_PINEAPPLE_CREATE_TIME`（UTC ISO 时间戳）
+- 可选 `resource_config`
 
-### Step 10: serialize to JSON
+### 步骤 10：序列化为 JSON
 
-`compile_to_json()` is a thin `json.dumps(..., indent=2)` wrapper over the result dict.
+`compile_to_json()` 是对结果 dict 的薄包装 `json.dumps(..., indent=2)`。
 
-## Validation rules
+## 校验规则
 
-The compiler's validation logic is declaration-oriented rather than runtime-oriented.
+编译器的校验逻辑是面向声明的而非面向运行时的。
 
-### 1. No underscore-prefixed user outputs
+### 1. 禁止下划线前缀的用户输出
 
-`validate_no_underscore_output` reserves `_`-prefixed outputs for engine/compiler internals.
+`validate_no_underscore_output` 将 `_` 前缀输出保留给引擎/编译器内部。
 
-Applies to:
+适用于：
 
-- flow-level declared outputs
-- per-operator declared outputs
+- flow 级声明输出
+- 逐算子声明输出
 
-Exemption:
+豁免：
 
-- compiler-generated control operators marked `for_branch_control=True`
+- 标记 `for_branch_control=True` 的编译器生成控制算子
 
-### 2. Field coverage
+### 2. 字段覆盖
 
-`validate_field_coverage` walks the named operator sequence in order.
+`validate_field_coverage` 按顺序遍历命名算子序列。
 
-State:
+状态：
 
-- `available_common`, seeded from the flow's common input contract
-- `available_item`, seeded from the flow's item input contract
+- `available_common`，从 flow 的 common input 契约初始化
+- `available_item`，从 flow 的 item input 契约初始化
 
-For each operator:
+对每个算子：
 
-- all declared inputs must already be available
-- then the operator's declared outputs are added to the available sets
+- 所有声明的输入必须已可用
+- 然后该算子声明的输出加入可用集
 
-Internal `_`-prefixed input fields are ignored so compiler-generated control fields do not trigger false missing-input errors.
+内部 `_` 前缀输入字段被忽略，使编译器生成的控制字段不触发误报。
 
-### 3. Write without read
+### 3. 写后未读
 
-`validate_write_without_read` detects overwriting a field already produced upstream without reading it first.
+`validate_write_without_read` 检测覆写上游已产出的字段而未先读取的情况。
 
-Purpose:
+目的：
 
-- catch suspicious accidental overwrites in declaration order
-- force authors to make dependencies explicit through input metadata
+- 捕获声明顺序中可疑的意外覆写
+- 强制作者通过输入元数据显式化依赖
 
-Control-flow exemption:
+控制流豁免：
 
-- operators with `skip` set are exempt
-- their outputs also do not count as globally written for downstream checks
+- 设置了 `skip` 的算子被豁免
+- 它们的输出也不计入全局"已写"集
 
-This is what allows mutually exclusive if/elseif/else branches to write the same field.
+这使互斥的 if/elseif/else 分支可以写入相同字段。
 
-### 4. Dead code detection
+### 4. 死代码检测
 
-`detect_dead_code` flags operators that produce outputs no downstream consumer ever reads and that the flow output contract never exposes.
+`detect_dead_code` 标记产出的输出未被任何下游消费者读取且 flow 输出契约也未暴露的算子。
 
-Exemptions:
+豁免：
 
-- recall ops
-- control ops
-- observe-style ops with no outputs
+- recall 算子
+- 控制算子
+- 无输出的 observe 类算子
 
-The compiler raises `ValidationError` if any dead operators are found.
+编译器在发现死算子时抛出 `ValidationError`。
 
-## Key invariant: validation order must align with execution order
+## 关键不变量：校验顺序必须与执行顺序对齐
 
-Validation correctness depends on the operator order used by the compiler matching the order assumptions used by the runtime.
+校验正确性取决于编译器使用的算子顺序与运行时使用的顺序假设一致。
 
-Why this matters:
+原因：
 
-- field coverage assumes earlier declarations are the producers for later consumers
-- write-without-read assumes earlier writes are the causally prior ones
-- dead-code detection reasons about downstream consumption in the declared sequence
+- 字段覆盖假设更早的声明是更晚消费者的生产者
+- 写后未读假设更早的写入是因果在先的
+- 死代码检测按声明序列推理下游消费
 
-This only works because the runtime's DAG construction also uses the flattened declaration order as the base sequence for hazard tracking and tie-breaking. If compile-time order and runtime order diverged, validation could approve flows that execute differently than analyzed.
+这仅成立因为运行时的 DAG 构建也使用展平声明顺序作为冒险追踪和平局打破的基础序列。若编译时顺序和运行时顺序分歧，校验可能批准执行行为与分析不同的流水线。
 
-## Metadata and defaults semantics
+## 元数据和默认值语义
 
-Apple emits metadata that the Go engine consumes directly.
+Apple 输出的元数据被 Go 引擎直接消费。
 
 ### `$metadata`
 
-Per-operator metadata carries:
+逐算子元数据包含：
 
 - `common_input`
 - `common_output`
 - `item_input`
 - `item_output`
 
-These fields are not documentation only. They drive:
+这些字段不只是文档。它们驱动：
 
-- compiler validation
-- runtime input projection
-- DAG hazard inference
-- generated operator docs
+- 编译器校验
+- 运行时输入投影
+- DAG 冒险推导
+- 生成的算子文档
 
-### Defaults
+### 默认值
 
-Apple can attach:
+Apple 可附加：
 
 - `common_defaults`
 - `item_defaults`
 
-These become part of the config and are applied by the Go DataFrame when building an operator input snapshot.
+这些成为配置的一部分，在构建算子输入快照时由 Go DataFrame 应用。
 
 ### Debug
 
-`debug=True` is emitted per operator and later tells the runtime to capture input/output snapshots in traces.
+`debug=True` 按算子输出，后续告知运行时在 trace 中捕获输入/输出快照。
 
-### Row dependency
+### 行依赖
 
-`row_dependency=True` is declaration metadata that later tells the Go DAG builder to read the `_row_set_` sentinel during item-level dependency inference.
+`row_dependency=True` 是声明元数据，后续告知 Go DAG 构建器在 item 级依赖推导中读取 `_row_set_` 哨兵。
 
-## Resource declaration model
+## 资源声明模型
 
-`apple/resource.py` defines the declaration side of resources.
+`apple/resource.py` 定义资源的声明侧。
 
-### Resource objects
+### 资源对象
 
-- `BaseResource` is the generated resource-class base.
-- `ResourceDecl` is the serialized declaration form.
+- `BaseResource` 是生成的资源类基类。
+- `ResourceDecl` 是序列化的声明形式。
 
-A `Flow` records resources through `flow.resource(name, instance)`.
+`Flow` 通过 `flow.resource(name, instance)` 记录资源。
 
-### Emitted shape
+### 输出形状
 
-Resources are emitted under `resource_config` with:
+资源在 `resource_config` 下输出，包含：
 
-- resource name
-- resource type
-- refresh interval
-- params
+- 资源名
+- 资源类型
+- 刷新间隔
+- 参数
 
-The Go server-side resource manager later loads these definitions and injects live values into request context.
+Go 服务端资源管理器后续加载这些定义并将活值注入请求上下文。
 
-## Relationship to Go code generation
+## 与 Go 代码生成的关系
 
-Apple's typed helper classes are generated from Go, not the other way around.
+Apple 的类型化 helper 类从 Go 生成，而非反向。
 
-Flow of authority:
+权威流向：
 
-1. Go operator schema registration under `operators/`
-2. Go codegen in `pkg/codegen/`
-3. generated Python helper classes in `apple_generated/`
-4. Apple compilation emits JSON
-5. Go runtime consumes the JSON
+1. `operators/` 下的 Go 算子 Schema 注册
+2. `pkg/codegen/` 中的 Go codegen
+3. `apple_generated/` 中生成的 Python helper 类
+4. Apple 编译输出 JSON
+5. Go 运行时消费 JSON
 
-The compiler therefore sits between generated declaration helpers and runtime config consumption.
+编译器因此位于生成的声明 helper 和运行时配置消费之间。
 
-## Important invariants to preserve
+## 需要保持的重要不变量
 
-1. **Apple emits JSON, not executable runtime objects.** Keep the boundary file-based/schema-based.
-2. **Validation uses flattened declaration order.** That order must stay aligned with runtime ordering assumptions.
-3. **Control flow is fully lowered before runtime.** The engine should continue treating it as ordinary operators plus skip fields.
-4. **Underscore-prefixed fields are reserved.** User outputs should not collide with compiler/runtime internals.
-5. **Resource references are validated after operator sequence construction.** A `resource_name` param without a declaration is a compile error.
-6. **Dynamic dispatch remains viable even without generated helpers.** `apple_generated/` is convenience, not the language core.
+1. **Apple 输出 JSON，而非可执行运行时对象。** 保持基于文件/Schema 的边界。
+2. **校验使用展平声明顺序。** 该顺序必须与运行时排序假设保持对齐。
+3. **控制流在运行时之前完全降级。** 引擎应继续将其视为普通算子 + skip 字段。
+4. **下划线前缀字段保留。** 用户输出不应与编译器/运行时内部冲突。
+5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
+6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 
-## Retrieval pointers
+## 检索指针
 
-- Flow API and control stack behavior: `apple/flow.py`
-- Compiler orchestration: `apple/compiler.py`
-- Validation logic: `apple/validator.py`
-- Control flow lowering helpers: `apple/control.py`
-- Compiler IR and typed helper base: `apple/base.py`
-- Resource declaration types: `apple/resource.py`
-- Generated typed operators: `apple_generated/operators.py`
+- Flow API 和控制栈行为：`apple/flow.py`
+- 编译器编排：`apple/compiler.py`
+- 校验逻辑：`apple/validator.py`
+- 控制流降级 helper：`apple/control.py`
+- 编译器 IR 和类型化 helper 基类：`apple/base.py`
+- 资源声明类型：`apple/resource.py`
+- 生成的类型化算子：`apple_generated/operators.py`

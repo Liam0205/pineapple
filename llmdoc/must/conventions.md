@@ -1,21 +1,21 @@
-# Key Conventions
+# 关键约定
 
-These conventions recur across most Pineapple work and should be treated as stable defaults.
+以下约定贯穿 Pineapple 大部分工作，应视为稳定默认行为。
 
-## JSON config is the contract between Python and Go
+## JSON 配置是 Python 与 Go 之间的契约
 
-The Apple DSL in `apple/` declares flows, but the Go engine only consumes JSON shaped like `internal/config/types.go`. Treat that JSON as the decoupling boundary for:
+`apple/` 中的 Apple DSL 声明流水线，但 Go 引擎仅消费符合 `internal/config/types.go` 结构的 JSON。该 JSON 是以下场景的解耦边界：
 
-- Python DSL compilation
-- Go engine loading
-- test fixtures in `testdata/`
-- generated artifacts and cross-language integration tests
+- Python DSL 编译
+- Go 引擎加载
+- `testdata/` 中的测试数据
+- 生成产物和跨语言集成测试
 
-A change that crosses the Python/Go boundary should usually preserve or intentionally evolve this JSON contract rather than add a runtime bridge.
+跨 Python/Go 边界的变更应优先保持或有意演进该 JSON 契约，而非引入运行时桥接。
 
-## Operator names encode operator type
+## 算子名称编码算子类型
 
-Built-in operator names use a type-prefixed convention:
+内置算子采用类型前缀命名：
 
 - `recall_*`
 - `transform_*`
@@ -24,73 +24,73 @@ Built-in operator names use a type-prefixed convention:
 - `reorder_*`
 - `observe_*`
 
-This naming matters in several places:
+该命名在多处有意义：
 
-- humans infer runtime semantics from the prefix
-- the Apple DSL infers `recall=true` from the `recall_` prefix in `apple/flow.py`
-- generated docs and helper classes preserve these stable names
+- 开发者从前缀即可推断运行时语义
+- Apple DSL 在 `apple/flow.py` 中通过 `recall_` 前缀推断 `recall=true`
+- 生成文档和 helper 类保持这些稳定名称
 
-Do not introduce operator names that hide their type category.
+不要引入隐藏类型分类的算子名称。
 
-## Registration is side-effect based
+## 注册基于副作用
 
-Operators and resources register themselves with `init()` functions and public wrappers:
+算子和资源通过 `init()` 函数和公共包装器自注册：
 
-- operators call `pine.Register(...)`
-- resources call `pine.RegisterResource(...)`
+- 算子调用 `pine.Register(...)`
+- 资源调用 `pine.RegisterResource(...)`
 
-Blank imports are the normal aggregation mechanism. `operators/all.go` exists so entrypoints such as `cmd/pineapple-server/main.go` and `cmd/pineapple-codegen/main.go` can register the full built-in operator set by importing `operators` for side effects.
+Blank import 是标准的聚合机制。`operators/all.go` 使得 `cmd/pineapple-server/main.go` 和 `cmd/pineapple-codegen/main.go` 等入口点可通过 import 副作用注册全部内置算子。
 
-When a binary or test depends on built-in operators, check the blank imports first.
+当二进制文件或测试依赖内置算子时，先检查 blank import。
 
-## Version sync spans three file groups
+## 版本同步跨三组文件
 
-Pineapple versions are intentionally synchronized across:
+Pineapple 版本号在以下位置有意同步：
 
 - `version.go`
 - `apple/_version.py`
-- JSON fixtures carrying `_PINEAPPLE_VERSION`, including `pipeline.json` and files in `testdata/`
+- 包含 `_PINEAPPLE_VERSION` 的 JSON fixture，包括 `pipeline.json` 和 `testdata/` 中的文件
 
-`scripts/bump-version.sh` is the established path for keeping them aligned. A version bump is incomplete if only one language constant changes.
+`scripts/bump-version.sh` 是保持对齐的标准路径。仅修改一侧语言常量的版本升级是不完整的。
 
-## Generated code must stay fresh
+## 生成代码必须保持最新
 
-Generated artifacts are checked into the repo and must match current schemas. The key generated outputs are:
+生成产物已提交到仓库，必须与当前 Schema 一致。关键生成输出：
 
 - `apple_generated/`
 - `doc/operators/`
 
-CI enforces freshness through `.github/workflows/ci.yml`, which runs the codegen binary and fails on `git diff --exit-code`. If a change touches operator schemas, codegen templates, or resource schemas, regenerate artifacts before considering the work complete.
+CI 通过 `.github/workflows/ci.yml` 强制检查新鲜度：运行 codegen 二进制并在 `git diff --exit-code` 时失败。若变更涉及算子 Schema、codegen 模板或资源 Schema，在认为工作完成前必须重新生成产物。
 
-## Go schemas are the source of truth for operators
+## Go Schema 是算子的唯一事实源
 
-Operator contracts originate in Go registration under `operators/` plus `internal/types/operator.go` and `internal/registry/registry.go`. The Python DSL and generated helpers consume these contracts but do not supersede them.
+算子契约源自 `operators/` 下的 Go 注册 + `internal/types/operator.go` 和 `internal/registry/registry.go`。Python DSL 和生成的 helper 消费这些契约但不覆盖它们。
 
-In practice this means:
+实践中意味着：
 
-- schema fixes belong in Go registration first
-- generated Python classes should be treated as derived output
-- Markdown operator docs are also derived output
+- Schema 修复应先在 Go 注册中完成
+- 生成的 Python 类应视为派生输出
+- Markdown 算子文档也是派生输出
 
-## Test changes should follow the existing test shape
+## 测试变更应遵循已有测试结构
 
-Pineapple's durable test pattern has four layers:
+Pineapple 的持久测试模式有四层：
 
-1. unit tests for runtime/config/registry/resource subsystems
-2. unit tests for each built-in operator package
-3. engine and integration tests in Go using real or test-only operators
-4. Python DSL tests, including cross-language JSON-to-Go execution
+1. `internal/` 和 `pkg/` 中运行时/配置/注册表/资源子系统的单元测试
+2. 每个内置算子包的单元测试
+3. 使用真实或仅测试用算子的 Go 引擎和集成测试
+4. Python DSL 测试，包括跨语言 JSON→Go 执行测试
 
-Prefer extending the nearest existing layer instead of creating a one-off test style.
+优先扩展最近的已有层，而非创建一次性测试风格。
 
-## Concurrency assumptions are deliberate
+## 并发假设是刻意的
 
-The engine is built once and reused concurrently. Operators are initialized once, then executed for many requests. Any operator implementation should assume `Execute` may run concurrently across requests and should not rely on request-local mutable state stored on the operator struct unless it is synchronized or immutable.
+引擎构建一次后并发复用。算子初始化一次，然后为多个请求执行。任何算子实现都应假设 `Execute` 可能跨请求并发运行，除非显式同步或在 `Init()` 后不可变，否则不应依赖存储在算子结构体上的请求本地可变状态。
 
-## Codegen is a build-time bridge, not a runtime bridge
+## Codegen 是构建时桥梁，而非运行时桥梁
 
-`cmd/pineapple-codegen/main.go` reads the Go registry and emits helper code and docs. It does not create a runtime integration path. Preserve the current architecture where:
+`cmd/pineapple-codegen/main.go` 读取 Go 注册表并生成 helper 代码和文档，不创建运行时集成路径。保持当前架构：
 
-- Python declares
-- JSON carries the contract
-- Go executes
+- Python 声明
+- JSON 承载契约
+- Go 执行
