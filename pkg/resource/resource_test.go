@@ -238,3 +238,212 @@ func TestManagerImplementsProvider(t *testing.T) {
 	// Compile-time check that *Manager satisfies ResourceProvider.
 	var _ ResourceProvider = (*Manager)(nil)
 }
+
+// --- FetcherFactory / LoadConfig / Names tests ---
+
+func TestRegisterFetcherAndLoadConfig(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	RegisterFetcher("test_type", func(params map[string]any) (Fetcher, error) {
+		prefix, _ := params["prefix"].(string)
+		return func(ctx context.Context) (any, error) {
+			return prefix + "_loaded", nil
+		}, nil
+	})
+
+	m := NewManager()
+	config := `{
+		"my_resource": {
+			"type": "test_type",
+			"interval": 600,
+			"params": {"prefix": "hello"}
+		}
+	}`
+	if err := m.LoadConfig([]byte(config)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	val, ok := m.Get("my_resource")
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if val != "hello_loaded" {
+		t.Errorf("val = %v, want hello_loaded", val)
+	}
+}
+
+func TestLoadConfigUnknownType(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	m := NewManager()
+	config := `{
+		"bad": {
+			"type": "nonexistent_type",
+			"interval": 60,
+			"params": {}
+		}
+	}`
+	err := m.LoadConfig([]byte(config))
+	if err == nil {
+		t.Fatal("expected error for unknown type")
+	}
+}
+
+func TestLoadConfigFactoryError(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	RegisterFetcher("fail_type", func(params map[string]any) (Fetcher, error) {
+		return nil, fmt.Errorf("missing required param")
+	})
+
+	m := NewManager()
+	config := `{
+		"broken": {
+			"type": "fail_type",
+			"interval": 60,
+			"params": {}
+		}
+	}`
+	err := m.LoadConfig([]byte(config))
+	if err == nil {
+		t.Fatal("expected error from factory")
+	}
+}
+
+func TestLoadConfigInvalidJSON(t *testing.T) {
+	m := NewManager()
+	err := m.LoadConfig([]byte(`{invalid`))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestLoadConfigDefaultInterval(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	RegisterFetcher("simple", func(params map[string]any) (Fetcher, error) {
+		return func(ctx context.Context) (any, error) {
+			return "ok", nil
+		}, nil
+	})
+
+	m := NewManager()
+	config := `{
+		"res": {
+			"type": "simple",
+			"interval": 0,
+			"params": {}
+		}
+	}`
+	if err := m.LoadConfig([]byte(config)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	val, ok := m.Get("res")
+	if !ok || val != "ok" {
+		t.Errorf("Get(res) = %v, %v", val, ok)
+	}
+}
+
+func TestDuplicateRegisterFetcherPanics(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	factory := func(params map[string]any) (Fetcher, error) { return nil, nil }
+	RegisterFetcher("dup_type", factory)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic on duplicate RegisterFetcher")
+		}
+	}()
+	RegisterFetcher("dup_type", factory)
+}
+
+func TestNames(t *testing.T) {
+	m := NewManager()
+	m.Register("bravo", func(ctx context.Context) (any, error) { return nil, nil }, time.Hour)
+	m.Register("alpha", func(ctx context.Context) (any, error) { return nil, nil }, time.Hour)
+	m.Register("charlie", func(ctx context.Context) (any, error) { return nil, nil }, time.Hour)
+
+	names := m.Names()
+	expected := []string{"alpha", "bravo", "charlie"}
+	if len(names) != len(expected) {
+		t.Fatalf("Names() = %v, want %v", names, expected)
+	}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Errorf("Names()[%d] = %q, want %q", i, name, expected[i])
+		}
+	}
+}
+
+func TestNamesEmpty(t *testing.T) {
+	m := NewManager()
+	names := m.Names()
+	if len(names) != 0 {
+		t.Errorf("Names() = %v, want empty", names)
+	}
+}
+
+func TestLoadConfigWithManualRegister(t *testing.T) {
+	resetRegistry()
+	defer resetRegistry()
+
+	RegisterFetcher("cfg_type", func(params map[string]any) (Fetcher, error) {
+		return func(ctx context.Context) (any, error) {
+			return "from_config", nil
+		}, nil
+	})
+
+	m := NewManager()
+	// Manual register first
+	m.Register("manual_res", func(ctx context.Context) (any, error) {
+		return "from_manual", nil
+	}, time.Hour)
+
+	// Then config
+	config := `{
+		"config_res": {
+			"type": "cfg_type",
+			"interval": 300,
+			"params": {}
+		}
+	}`
+	if err := m.LoadConfig([]byte(config)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	v1, ok := m.Get("manual_res")
+	if !ok || v1 != "from_manual" {
+		t.Errorf("manual_res = %v, %v", v1, ok)
+	}
+	v2, ok := m.Get("config_res")
+	if !ok || v2 != "from_config" {
+		t.Errorf("config_res = %v, %v", v2, ok)
+	}
+
+	names := m.Names()
+	if len(names) != 2 {
+		t.Errorf("Names() = %v, want 2 entries", names)
+	}
+}

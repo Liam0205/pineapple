@@ -5,8 +5,10 @@ package resource
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,6 +102,52 @@ func (m *Manager) Register(name string, fetcher Fetcher, interval time.Duration)
 		fetcher:  fetcher,
 		interval: interval,
 	}
+}
+
+// resourceConfig is the JSON schema for a single resource entry.
+type resourceConfig struct {
+	Type     string         `json:"type"`
+	Interval int            `json:"interval"` // seconds
+	Params   map[string]any `json:"params"`
+}
+
+// LoadConfig parses a JSON resource configuration and registers each resource
+// using the globally registered FetcherFactory for its type.
+// Must be called before Start. Compatible with manual Register calls.
+func (m *Manager) LoadConfig(data []byte) error {
+	var configs map[string]resourceConfig
+	if err := json.Unmarshal(data, &configs); err != nil {
+		return fmt.Errorf("resource: invalid config JSON: %w", err)
+	}
+
+	for name, cfg := range configs {
+		factory := lookupFactory(cfg.Type)
+		if factory == nil {
+			return fmt.Errorf("resource: unknown fetcher type %q for resource %q", cfg.Type, name)
+		}
+		fetcher, err := factory(cfg.Params)
+		if err != nil {
+			return fmt.Errorf("resource: failed to create fetcher for %q: %w", name, err)
+		}
+		interval := time.Duration(cfg.Interval) * time.Second
+		if interval <= 0 {
+			interval = 10 * time.Minute // default
+		}
+		m.Register(name, fetcher, interval)
+	}
+	return nil
+}
+
+// Names returns the names of all registered resources, sorted alphabetically.
+func (m *Manager) Names() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	names := make([]string, 0, len(m.resources))
+	for name := range m.resources {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Start performs a synchronous initial load for all resources, then launches
