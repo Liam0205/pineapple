@@ -27,6 +27,7 @@ class OpCall:
     sources: list[str] | None = None
     skip: str | None = None
     for_branch_control: bool = False
+    row_dependency: bool = False
     debug: bool = False
     # Debug info
     code_info: str = ""
@@ -64,6 +65,7 @@ class BaseOp:
         common_defaults: dict[str, Any] | None = None,
         recall: bool = False,
         sources: list[str] | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str = "",
     ) -> Any:
@@ -86,6 +88,7 @@ class BaseOp:
             common_defaults=common_defaults,
             recall=recall,
             sources=sources,
+            row_dependency=row_dependency,
             debug=debug,
             code_info=code_info,
             name=name,

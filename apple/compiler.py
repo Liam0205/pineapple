@@ -110,6 +110,8 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             entry["skip"] = op.skip
         if op.for_branch_control:
             entry["for_branch_control"] = True
+        if op.row_dependency:
+            entry["row_dependency"] = True
         if op.item_defaults:
             entry["item_defaults"] = op.item_defaults
         if op.common_defaults:

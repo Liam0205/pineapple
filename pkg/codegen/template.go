@@ -140,6 +140,7 @@ class {{camelCase $schema.Name}}Op(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "{{camelCase $schema.Name}}Op":
@@ -156,6 +157,7 @@ class {{camelCase $schema.Name}}Op(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,{{if isRecall $schema.Type}}
             recall=True,{{end}}
+            row_dependency=row_dependency,
             debug=debug,
             name=name or "",
         )

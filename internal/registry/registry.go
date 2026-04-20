@@ -16,6 +16,7 @@ var reservedKeys = map[string]struct{}{
 	"recall":             {},
 	"sources":            {},
 	"debug":              {},
+	"row_dependency":     {},
 	"common_defaults":    {},
 	"item_defaults":      {},
 	"for_branch_control": {},

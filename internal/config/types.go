@@ -53,6 +53,7 @@ type OperatorConfig struct {
 	Recall           bool           `json:"recall,omitempty"`
 	Sources          []string       `json:"sources,omitempty"`
 	Debug            bool           `json:"debug,omitempty"`
+	RowDependency    bool           `json:"row_dependency,omitempty"`
 	CommonDefaults   map[string]any `json:"common_defaults,omitempty"`
 	ItemDefaults     map[string]any `json:"item_defaults,omitempty"`
 	ForBranchControl bool           `json:"for_branch_control,omitempty"`

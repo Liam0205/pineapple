@@ -81,6 +81,17 @@ func observeOp(commonIn, itemIn []string) config.OperatorConfig {
 	}
 }
 
+// rowDepOp creates a Transform-type operator with row_dependency=true for testing.
+// It only declares common output (no item fields), relying on row-set dependency.
+func rowDepOp(commonOut []string) config.OperatorConfig {
+	return config.OperatorConfig{
+		TypeName:      "test",
+		OperatorType:  string(types.OpTypeTransform),
+		RowDependency: true,
+		Meta:          config.Metadata{CommonOutput: commonOut},
+	}
+}
+
 func hasPred(g *Graph, name string, pred string) bool {
 	idx := g.NameToIndex[name]
 	predIdx := g.NameToIndex[pred]
@@ -746,5 +757,168 @@ func TestRecallChainThenTransformReadsItems(t *testing.T) {
 	// (recall_a is the intermediary for item fields; no common field dependency)
 	if hasPred(g, "transform_score", "transform_embed") {
 		t.Error("transform_score should NOT directly depend on transform_embed")
+	}
+}
+
+// --- Row dependency ---
+
+func TestRowDependency_WaitsForRecalls(t *testing.T) {
+	// Two recalls write items, row_dep op needs item set stable.
+	// row_dep should depend on both recalls via _row_set_ RAW.
+	seq := []string{"recall_a", "recall_b", "size"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a": recallOp(nil, []string{"item_id"}),
+		"recall_b": recallOp(nil, []string{"item_id"}),
+		"size":     rowDepOp([]string{"item_count"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPred(g, "size", "recall_a") {
+		t.Error("expected row-dep edge recall_a -> size")
+	}
+	if !hasPred(g, "size", "recall_b") {
+		t.Error("expected row-dep edge recall_b -> size")
+	}
+	// recalls remain independent
+	if hasPred(g, "recall_b", "recall_a") || hasPred(g, "recall_a", "recall_b") {
+		t.Error("recalls should be independent")
+	}
+}
+
+func TestRowDependency_WaitsForRecallsAfterBarrier(t *testing.T) {
+	// recall_a, recall_b -> filter (barrier) -> recall_c -> size (row_dep)
+	// size should depend on filter (barrier, also lastMutWriter of _row_set_) AND recall_c.
+	seq := []string{"recall_a", "recall_b", "filter", "recall_c", "size"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a": recallOp(nil, []string{"item_id"}),
+		"recall_b": recallOp(nil, []string{"item_id"}),
+		"filter":   filterOp([]string{"item_id"}, nil),
+		"recall_c": recallOp(nil, []string{"item_id"}),
+		"size":     rowDepOp([]string{"item_count"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// size depends on filter (barrier is lastMutWriter of _row_set_)
+	if !hasPred(g, "size", "filter") {
+		t.Error("expected row-dep edge filter -> size")
+	}
+	// size depends on recall_c (post-barrier additive writer of _row_set_)
+	if !hasPred(g, "size", "recall_c") {
+		t.Error("expected row-dep edge recall_c -> size")
+	}
+	// size should NOT directly depend on pre-barrier recalls (barrier reset the tracker)
+	// Note: barrier edges already make recall_a/b -> filter -> size transitive,
+	// but the _row_set_ tracker should not create direct recall_a -> size edges.
+	// Since filter is a barrier that forces all pre-filter ops to complete,
+	// size already transitively depends on recall_a/b via filter.
+	// The key point: _row_set_ tracker was reset by the barrier.
+}
+
+func TestRowDependency_DoesNotBlockDownstream(t *testing.T) {
+	// recall_a -> size (row_dep, writes common item_count)
+	//          -> transform_b (reads item_id, no row_dep)
+	// transform_b should depend on recall_a (RAW on item_id), NOT on size.
+	// size should not block unrelated downstream operators.
+	seq := []string{"recall_a", "size", "transform_b"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":    recallOp(nil, []string{"item_id"}),
+		"size":        rowDepOp([]string{"item_count"}),
+		"transform_b": transformOp(nil, nil, []string{"item_id"}, []string{"item_score"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// transform_b depends on recall_a (RAW on item_id)
+	if !hasPred(g, "transform_b", "recall_a") {
+		t.Error("expected RAW edge recall_a -> transform_b via item_id")
+	}
+	// transform_b should NOT depend on size (no field overlap)
+	if hasPred(g, "transform_b", "size") {
+		t.Error("transform_b should NOT depend on size (no field overlap)")
+	}
+	// size depends on recall_a (row-dep)
+	if !hasPred(g, "size", "recall_a") {
+		t.Error("expected row-dep edge recall_a -> size")
+	}
+}
+
+func TestRowDependency_WithBarrier(t *testing.T) {
+	// recall_a, recall_b -> filter -> size (row_dep)
+	// No post-barrier recalls. size should depend on filter only via _row_set_.
+	seq := []string{"recall_a", "recall_b", "filter", "size"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a": recallOp(nil, []string{"item_id"}),
+		"recall_b": recallOp(nil, []string{"item_id"}),
+		"filter":   filterOp([]string{"item_id"}, nil),
+		"size":     rowDepOp([]string{"item_count"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// size depends on filter (barrier is lastMutWriter of _row_set_)
+	if !hasPred(g, "size", "filter") {
+		t.Error("expected row-dep edge filter -> size")
+	}
+}
+
+func TestRowDependency_IndependentOfColumnOnlyTransform(t *testing.T) {
+	// recall_a writes item_id, transform_b writes item_score (column-only transform).
+	// size (row_dep) should depend on recall_a but NOT on transform_b.
+	// transform_b only modifies columns, not the row set.
+	seq := []string{"recall_a", "transform_b", "size"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":    recallOp(nil, []string{"item_id"}),
+		"transform_b": transformOp(nil, nil, []string{"item_id"}, []string{"item_score"}),
+		"size":        rowDepOp([]string{"item_count"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// size depends on recall_a (additive writer of _row_set_)
+	if !hasPred(g, "size", "recall_a") {
+		t.Error("expected row-dep edge recall_a -> size")
+	}
+	// size should NOT depend on transform_b (column-only, no row-set mutation)
+	if hasPred(g, "size", "transform_b") {
+		t.Error("size should NOT depend on transform_b (column-only transform)")
+	}
+}
+
+func TestRowDependency_MultipleRowDepOps(t *testing.T) {
+	// Two row_dep ops reading the same row set should be independent of each other.
+	// Both depend on recalls, but not on each other.
+	seq := []string{"recall_a", "size_a", "size_b"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a": recallOp(nil, []string{"item_id"}),
+		"size_a":   rowDepOp([]string{"item_count"}),
+		"size_b":   rowDepOp([]string{"item_total"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both depend on recall_a
+	if !hasPred(g, "size_a", "recall_a") {
+		t.Error("expected row-dep edge recall_a -> size_a")
+	}
+	if !hasPred(g, "size_b", "recall_a") {
+		t.Error("expected row-dep edge recall_a -> size_b")
+	}
+	// Independent of each other (different common output fields, both just read _row_set_)
+	if hasPred(g, "size_b", "size_a") || hasPred(g, "size_a", "size_b") {
+		t.Error("size_a and size_b should be independent")
 	}
 }

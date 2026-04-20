@@ -7,6 +7,10 @@ import (
 	"github.com/Liam0205/pineapple/internal/types"
 )
 
+// rowSetSentinel is an implicit field name used to track item-collection-level
+// (row-level) dependencies. See design_doc/02_flow_abstraction.md.
+const rowSetSentinel = "_row_set_"
+
 // Node represents an operator in the DAG.
 type Node struct {
 	Name   string
@@ -165,6 +169,13 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 				// Reset readers: barrier consumed everything before it
 				ft.activeReaders = []int{i}
 			}
+			// Reset row-set sentinel: barrier mutates the item collection
+			if !isCommon {
+				ft := getOrCreate(rowSetSentinel)
+				ft.lastMutWriter = i
+				ft.additiveWriters = nil
+				ft.activeReaders = nil
+			}
 			continue
 		}
 
@@ -178,6 +189,18 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 		}
 
 		isAdditiveWrite := !isCommon && opType == types.OpTypeRecall
+
+		// Inject implicit row-set tracking for item pass.
+		// Recall → additive writer on _row_set_ (parallel with other recalls).
+		// RowDependency → reader of _row_set_ (waits for recalls and barriers).
+		if !isCommon {
+			if isAdditiveWrite {
+				writeFields = append(writeFields[:len(writeFields):len(writeFields)], rowSetSentinel)
+			}
+			if opCfg.RowDependency {
+				readFields = append(readFields[:len(readFields):len(readFields)], rowSetSentinel)
+			}
+		}
 
 		// Process reads — RAW dependencies
 		for _, field := range readFields {

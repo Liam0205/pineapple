@@ -158,6 +158,55 @@ flow.op_a(common_input=["foo"], common_output=["foo"]) \
 
 依赖推导基于 **DSL 编排顺序**：对同一字段，引擎追踪该字段最近的写者和所有未被后续写覆盖的读者，自动添加依赖边。
 
+上述冒险处理基于**列级依赖**——跟踪具体字段名的读写关系。这足以覆盖大多数算子场景，但无法表达"需要 item 集合稳定"的语义。
+
+#### 行依赖（Row Dependency）
+
+某些算子需要读取 item 集合的**整体状态**（如 item 数量），而非某个具体字段。例如：
+
+- `transform_size`：统计 item 数量，输出到 common 字段
+- `function_for_common` 模式的 Lua 算子：将 item 字段聚合为 list，跨 item 计算
+
+这类算子：
+- **不读任何 item 字段**（无列依赖），但需要所有 item 已就绪
+- **不改变 item 集合结构**，因此不应阻塞后续无关算子
+
+| 依赖维度 | 读 | 写/变更 |
+|----------|---|---------|
+| **列**（字段级） | Transform 读 item_input | Transform 写 item_output |
+| **行**（集合级） | transform_size、跨 item 聚合 | Recall 加行、Filter 删行、Reorder 改序 |
+
+**设计：将 item 集合建模为隐式追踪字段**
+
+引擎在 item 字段追踪中维护一个内部 sentinel 字段 `_row_set_`：
+
+- **Recall** 算子自动成为 `_row_set_` 的 additive writer（与其他 Recall 并行，无 WAW）
+- **Barrier**（Filter/Merge/Reorder）在状态更新时重置 `_row_set_` 的 tracker（成为 lastMutWriter）
+- 声明 **`row_dependency: true`** 的算子自动成为 `_row_set_` 的 reader
+
+这样完全复用现有 RAW/WAW/WAR 机制，无需新增推导逻辑。
+
+**示例推导：**
+
+```
+0: recall_a       → _row_set_ additive writer [0]
+1: recall_b       → _row_set_ additive writer [0, 1]
+2: filter_y       → barrier, _row_set_ lastMutWriter=2, reset
+3: recall_c       → _row_set_ additive writer [3] (post-barrier)
+4: transform_size → reads _row_set_: RAW from 2 + 3
+```
+
+`transform_size` 正确等待 barrier 和 post-barrier recall 完成，但不阻塞后续无关算子。
+
+**DSL 使用：**
+
+```python
+flow.transform_size(
+    common_output=["item_count"],
+    row_dependency=True,
+)
+```
+
 #### Recall 算子的写入语义
 
 上述三种冒险处理针对的是普通算子的 **SetItem**（修改已有行）语义。Recall 算子使用 **AddItem**（追加新行），写入语义不同：

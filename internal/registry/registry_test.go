@@ -190,7 +190,7 @@ func TestBuildOperatorInitFails(t *testing.T) {
 
 func TestIsReservedKey(t *testing.T) {
 	reserved := []string{"type_name", "$metadata", "$code_info", "skip", "recall",
-		"sources", "debug", "common_defaults", "item_defaults", "for_branch_control"}
+		"sources", "debug", "row_dependency", "common_defaults", "item_defaults", "for_branch_control"}
 	for _, k := range reserved {
 		if !IsReservedKey(k) {
 			t.Errorf("%q should be reserved", k)
