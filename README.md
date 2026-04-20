@@ -310,6 +310,21 @@ ctx = resource.WithResources(r.Context(), rm)
 result, err := engine.Execute(ctx, req)
 ```
 
+也可通过 JSON 配置文件批量注册（需先 `RegisterFetcher` 注册工厂函数）：
+
+```go
+// init() 中注册工厂
+resource.RegisterFetcher("feature_index", func(params map[string]any) (resource.Fetcher, error) {
+    dsn := params["dsn"].(string)
+    return newFeatureIndexFetcher(dsn), nil
+})
+
+// main() 中从配置加载
+rm := resource.NewManager()
+rm.LoadConfig(configJSON)  // JSON 格式见设计文档
+rm.Start(ctx)
+```
+
 详见 [动态资源管理设计文档](design_doc/11_resource_manager.md)。
 
 ## Pipeline 编写指南（算法视角）
@@ -579,9 +594,14 @@ import (
 
 func main() {
     configPath := flag.String("config", "", "Pipeline config")
+    resourceConfig := flag.String("resource-config", "", "Resource config (optional)")
     addr := flag.String("addr", ":8080", "Listen address")
     flag.Parse()
-    if err := server.Run(server.Config{ConfigPath: *configPath, Addr: *addr}); err != nil {
+    if err := server.Run(server.Config{
+        ConfigPath:         *configPath,
+        ResourceConfigPath: *resourceConfig,
+        Addr:               *addr,
+    }); err != nil {
         log.Fatal(err)
     }
 }
