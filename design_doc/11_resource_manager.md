@@ -136,6 +136,116 @@ func main() {
 
 若 `Config.Resources` 为 nil，`Run()` 内部创建空 Manager（向后兼容）。
 
+## FetcherFactory 注册机制
+
+对称于算子注册（`RegisterOperator`），资源类型也通过全局 registry 注册。业务代码在 `init()` 中注册 FetcherFactory，由配置文件驱动实例化。
+
+```go
+// FetcherFactory 根据配置参数创建 Fetcher。
+type FetcherFactory func(params map[string]any) (Fetcher, error)
+
+// RegisterFetcher 注册资源类型的工厂函数。
+// typeName 与配置文件中的 "type" 字段匹配。
+// 重复注册同名 type 时 panic（和算子注册行为一致）。
+func RegisterFetcher(typeName string, factory FetcherFactory)
+```
+
+业务代码示例：
+
+```go
+func init() {
+    resource.RegisterFetcher("feed_data", func(params map[string]any) (resource.Fetcher, error) {
+        dsn, _ := params["mysql_dsn"].(string)
+        if dsn == "" {
+            return nil, fmt.Errorf("feed_data: mysql_dsn is required")
+        }
+        db, err := dao.GetDB(dsn)
+        if err != nil {
+            return nil, err
+        }
+        return NewFeedDataFetcher(db), nil
+    })
+}
+```
+
+## JSON 配置驱动的资源加载
+
+`Manager.LoadConfig(data)` 从 JSON 配置批量注册资源，取代在 `main.go` 中硬编码 `Register()` 调用。
+
+```go
+func (m *Manager) LoadConfig(data []byte) error
+```
+
+JSON 格式：
+
+```json
+{
+  "feed_data": {
+    "type": "feed_data",
+    "interval": 600,
+    "params": {
+      "mysql_dsn": "user:pass@tcp(127.0.0.1:3306)/tipsy?..."
+    }
+  }
+}
+```
+
+- `type`：对应 `RegisterFetcher` 注册的类型名
+- `interval`：刷新间隔（秒）
+- `params`：传递给 `FetcherFactory` 的参数，由业务自行定义
+
+`LoadConfig` 逻辑：
+
+1. 解析 JSON
+2. 对每个资源名：从全局 registry 查找对应 `FetcherFactory`
+3. 调用 `factory(params)` 创建 `Fetcher`
+4. 调用 `m.Register(name, fetcher, interval)` 注册
+
+必须在 `Start()` 之前调用。与手动 `Register()` 兼容——可以先手动注册一些，再通过配置文件加载其余的。
+
+## Names 方法
+
+```go
+func (m *Manager) Names() []string
+```
+
+返回已注册资源名列表。用于启动阶段校验：对比 pipeline 配置中引用的 `resource_name` 与 `Names()` 的返回值，尽早发现配置缺失。
+
+## 资源依赖校验
+
+```go
+func ValidateResourceDeps(pipelineConfig []byte, rm *Manager) error
+```
+
+在启动阶段，从 pipeline JSON 配置中提取所有算子的 `resource_name` 参数值，与 `rm.Names()` 交叉检查。若存在 pipeline 引用但 ResourceManager 中未注册的资源名，返回明确错误。
+
+这避免了运行时才在 `Execute()` 中发现资源缺失的问题——尽早 fail fast。
+
+使用位置：壳子在 `rm.Start()` 成功后、启动 HTTP 监听前调用。
+
+## 通用 Server 配置驱动资源
+
+`server.Config` 新增 `ResourceConfigPath` 字段：
+
+```go
+type Config struct {
+    ConfigPath         string
+    ResourceConfigPath string // 资源配置 JSON 文件路径
+    Addr               string
+    Resources          *resource.Manager
+}
+```
+
+`Run()` 流程更新：
+
+1. 若 `ResourceConfigPath` 非空，读取文件并调用 `rm.LoadConfig(data)`
+2. `rm.Start()`
+3. 加载 pipeline engine
+4. 调用 `ValidateResourceDeps(pipelineData, rm)`，缺失则 fatal
+5. 启动 HTTP server
+
+与手动 `Register()` 完全兼容：调用方可以同时在 `Config.Resources` 上手动 `Register()` 并提供 `ResourceConfigPath`。
+
 ## 设计要点
 
 ### 1. 首次加载同步，后续异步
