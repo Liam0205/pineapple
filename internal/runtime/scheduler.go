@@ -222,7 +222,15 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) 
 	}
 
 	wg.Wait()
-	return warnings, traces, fatalErr
+
+	var filtered []types.OpTrace
+	for _, t := range traces {
+		if t.Name != "" {
+			filtered = append(filtered, t)
+		}
+	}
+
+	return warnings, filtered, fatalErr
 }
 
 // snapshotInput creates a serializable snapshot of an operator's input.

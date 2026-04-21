@@ -336,7 +336,7 @@ func TestRunFatalError(t *testing.T) {
 		"op_a": opA, "op_b": opB,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, _, err := Run(context.Background(), plan, frame, nil)
+	_, traces, err := Run(context.Background(), plan, frame, nil)
 	if err == nil {
 		t.Fatal("expected fatal error")
 	}
@@ -347,6 +347,18 @@ func TestRunFatalError(t *testing.T) {
 	// op_b should not have executed
 	if frame.Common("y") != nil {
 		t.Error("op_b should not have executed after op_a error")
+	}
+	// traces should not contain empty entries from unexecuted operators
+	for _, tr := range traces {
+		if tr.Name == "" {
+			t.Error("trace contains empty entry from unexecuted operator")
+		}
+	}
+	// only op_a should appear in traces
+	if len(traces) != 1 {
+		t.Errorf("expected 1 trace entry, got %d", len(traces))
+	} else if traces[0].Name != "op_a" {
+		t.Errorf("expected trace for op_a, got %q", traces[0].Name)
 	}
 }
 

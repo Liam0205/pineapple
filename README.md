@@ -38,7 +38,7 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **Lua 嵌入扩展** — 内置 Lua 算子支持轻量级的自定义计算和条件分支，无需新增 Go 代码即可实现灵活逻辑。
 
-**白盒可观测** — 引擎内部始终记录算子级别的执行 trace（耗时、跳过状态）。请求方通过 `common._return_trace = true` 控制是否在响应中返回 trace；默认不返回。配合算子 `debug` 参数可获取输入/输出快照，逐算子深入排查。
+**白盒可观测** — 引擎内部始终记录算子级别的执行 trace（耗时、跳过状态）。请求方通过 `common._return_trace = true` 控制是否在响应中返回 trace；默认不返回。trace 仅包含实际执行或跳过的算子，DAG 中止时未开始执行的算子不会出现。配合算子 `debug` 参数可获取输入/输出快照，逐算子深入排查。
 
 **动态资源管理** — `pkg/resource` 提供后台定时刷新的内存资源管理器，无锁读、刷新失败保留旧值。资源通过 `ResourceSchema` 注册，codegen 自动生成 Python 类型类，DSL 声明后编译到统一 JSON 配置。
 
