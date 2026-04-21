@@ -209,6 +209,8 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 - `common_output`
 - `item_output`
 
+当 `Flow._common_output` 或 `Flow._item_output` 为 `None`（用户未传该参数）时，编译器仍会在 JSON 中写入 `[]`。该编码刻意表示"该维度不输出任何字段"；Go 引擎会为该侧返回空 map，因此 `None` 与 `[]` 在持久 JSON 契约上都表示"不要输出任何字段"。
+
 此契约后续在引擎请求/结果边界强制执行。
 
 ### 步骤 8：校验资源引用

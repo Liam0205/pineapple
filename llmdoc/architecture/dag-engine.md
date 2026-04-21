@@ -292,7 +292,7 @@ Frame 持有：
 
 ### 结果投影
 
-`ToResult` 通过 flow contract 声明的输出字段投影最终 frame。空输出列表表示"返回该维度当前存在的所有内容"。
+`ToResult` 通过 flow contract 声明的输出字段投影最终 frame。底层 `projectMap` 只投影显式声明的字段：空输出列表表示空输出（该维度不返回任何字段），不会回退为"返回当前存在的全部字段"。
 
 ## 算子类型约束
 
