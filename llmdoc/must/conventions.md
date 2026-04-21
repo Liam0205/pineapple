@@ -62,6 +62,8 @@ Pineapple 版本号在以下位置有意同步：
 
 CI 通过 `.github/workflows/ci.yml` 强制检查新鲜度：运行 codegen 二进制并在 `git diff --exit-code` 时失败。若变更涉及算子 Schema、codegen 模板或资源 Schema，在认为工作完成前必须重新生成产物。
 
+Python lint 使用 `ruff`，配置位于 `pyproject.toml` 的 `[tool.ruff]`。其中 `apple_generated/` 是 codegen 产物，已通过 `extend-exclude` 排除；若生成代码不符合 lint 规则，应修复 codegen 或其输入，而不是手工修改产物。
+
 ## Go Schema 是算子的唯一事实源
 
 算子契约源自 `operators/` 下的 Go 注册 + `internal/types/operator.go` 和 `internal/registry/registry.go`。Python DSL 和生成的 helper 消费这些契约但不覆盖它们。
@@ -82,6 +84,13 @@ Pineapple 的持久测试模式有四层：
 4. Python DSL 测试，包括跨语言 JSON→Go 执行测试
 
 优先扩展最近的已有层，而非创建一次性测试风格。
+
+工程质量基线默认包含两类 lint：
+
+- Go 使用 `golangci-lint`，配置位于 `.golangci.yml`
+- Python 使用 `ruff`，配置位于 `pyproject.toml` 的 `[tool.ruff]`
+
+关键输入边界应补 Go native fuzz 测试，优先覆盖 JSON/配置解析、DAG 构建等高扇出入口。
 
 ## 并发假设是刻意的
 
