@@ -166,8 +166,7 @@ func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool
 }
 
 // ToResult extracts the final state into a Result, projecting only the
-// fields declared in commonOut/itemOut. If both slices are empty, all fields
-// are returned (backward-compatible with contracts that omit output lists).
+// fields declared in commonOut/itemOut. Empty slices produce empty maps.
 func ToResult(f *Frame, commonOut, itemOut []string) *types.Result {
 	common := projectMap(f.common, commonOut)
 	items := make([]map[string]any, len(f.items))
@@ -177,16 +176,8 @@ func ToResult(f *Frame, commonOut, itemOut []string) *types.Result {
 	return &types.Result{Common: common, Items: items}
 }
 
-// projectMap returns a shallow copy of src. If fields is non-empty, only
-// those keys are included; otherwise all keys are copied.
+// projectMap returns a shallow copy of src containing only the keys in fields.
 func projectMap(src map[string]any, fields []string) map[string]any {
-	if len(fields) == 0 {
-		out := make(map[string]any, len(src))
-		for k, v := range src {
-			out[k] = v
-		}
-		return out
-	}
 	out := make(map[string]any, len(fields))
 	for _, k := range fields {
 		if v, ok := src[k]; ok {

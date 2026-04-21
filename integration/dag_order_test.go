@@ -439,6 +439,9 @@ func TestDAGOrder_LinearChain(t *testing.T) {
 		},
 		[]string{"op_a", "op_b", "op_c"},
 	)
+	cfg["flow_contract"] = map[string]any{
+		"common_output": []string{"_seq_op_a", "_seq_op_b", "_seq_op_c"},
+	}
 
 	engine := mustBuildDAGEngine(t, cfg)
 	result := mustExecute(t, engine, &pine.Request{Common: map[string]any{}})

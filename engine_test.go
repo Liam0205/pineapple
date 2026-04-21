@@ -242,6 +242,7 @@ func TestEngineBasicPipeline(t *testing.T) {
 		map[string]any{
 			"common_input": []string{"multiplier"},
 			"item_input":   []string{"item_score"},
+			"item_output":  []string{"item_adjusted"},
 		},
 	)
 
@@ -299,7 +300,7 @@ func TestEngineHazardChain(t *testing.T) {
 			},
 		},
 		map[string]any{"stage1": map[string]any{"pipeline": []string{"set_x", "double1", "double2"}}},
-		map[string]any{"common_input": []string{}},
+		map[string]any{"common_input": []string{}, "common_output": []string{"x"}},
 	)
 
 	engine, err := pine.NewEngine(mustJSON(t, cfg))
@@ -353,7 +354,7 @@ func TestEngineRecallAndMerge(t *testing.T) {
 			},
 		},
 		map[string]any{"stage1": map[string]any{"pipeline": []string{"recall_a", "recall_b", "merge"}}},
-		map[string]any{"common_input": []string{}},
+		map[string]any{"common_input": []string{}, "item_output": []string{"item_id", "item_score", "_source"}},
 	)
 
 	engine, err := pine.NewEngine(mustJSON(t, cfg))
@@ -504,7 +505,7 @@ func TestEngineWarning(t *testing.T) {
 			},
 		},
 		map[string]any{"stage1": map[string]any{"pipeline": []string{"warn_op", "after_op"}}},
-		map[string]any{"common_input": []string{}},
+		map[string]any{"common_input": []string{}, "common_output": []string{"fallback"}},
 	)
 
 	engine, err := pine.NewEngine(mustJSON(t, cfg))
@@ -581,6 +582,7 @@ func TestEngineConcurrentExecute(t *testing.T) {
 		map[string]any{
 			"common_input": []string{"multiplier"},
 			"item_input":   []string{"item_score"},
+			"item_output":  []string{"item_adjusted"},
 		},
 	)
 
@@ -642,6 +644,7 @@ func TestEngineFilterAndSort(t *testing.T) {
 		map[string]any{
 			"common_input": []string{},
 			"item_input":   []string{"item_status", "item_score"},
+			"item_output":  []string{"item_id", "item_status", "item_score"},
 		},
 	)
 

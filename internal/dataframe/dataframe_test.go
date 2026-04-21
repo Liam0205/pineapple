@@ -283,7 +283,7 @@ func TestToResultIsolation(t *testing.T) {
 		map[string]any{"k": "v"},
 		[]map[string]any{{"a": int64(1)}},
 	)
-	result := ToResult(f, nil, nil)
+	result := ToResult(f, []string{"k"}, []string{"a"})
 
 	// Mutate result — frame should be unaffected
 	result.Common["k"] = "mutated"
@@ -324,13 +324,13 @@ func TestToResultProjection(t *testing.T) {
 		}
 	}
 
-	// Empty slices → return all fields
+	// Empty/nil slices → return empty maps (no fields projected)
 	full := ToResult(f, nil, nil)
-	if len(full.Common) != 3 {
-		t.Errorf("full common len = %d, want 3", len(full.Common))
+	if len(full.Common) != 0 {
+		t.Errorf("full common len = %d, want 0", len(full.Common))
 	}
-	if len(full.Items[0]) != 3 {
-		t.Errorf("full item len = %d, want 3", len(full.Items[0]))
+	if len(full.Items[0]) != 0 {
+		t.Errorf("full item len = %d, want 0", len(full.Items[0]))
 	}
 }
 
