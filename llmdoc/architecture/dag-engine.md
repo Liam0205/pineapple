@@ -223,6 +223,12 @@
 
 被跳过的算子仍参与图和 trace 流，但不运行业务逻辑。
 
+编译器将控制字段注入 `$metadata.CommonInput` 以建立 DAG 依赖。但引擎在两处过滤 skip 字段，使控制字段对算子透明：
+- `pine.go` 在调用 `SetMetadata` 前剔除 skip 字段，算子的 `MetadataHolder.CommonInput` 不含控制字段
+- `scheduler.go` 在调用 `BuildInput` 前剔除 skip 字段，算子的 `OperatorInput` 不含控制字段值
+
+DAG 推导仍使用完整的 `$metadata`（含控制字段），因此依赖关系不受影响。
+
 ### 错误处理
 
 每个算子 goroutine 包裹了 panic 恢复。

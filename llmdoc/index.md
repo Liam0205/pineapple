@@ -30,3 +30,4 @@
 - `llmdoc/memory/reflections/fix-three-small-defects.md` — 三项小缺陷修复的复盘，补充控制流校验、source 语义与相关文档检索线索。
 - `llmdoc/memory/reflections/ci-quality-lint-coverage-fuzz.md` — CI 质量基线补齐的复盘，涵盖 lint、覆盖率产物、fuzz 入口选择与 codegen 目录边界。
 - `llmdoc/memory/reflections/fix-empty-trace-on-dag-abort.md` — DAG 中止时 trace 空条目修复复盘，记录预分配零值过滤、文档同步经验。
+- `llmdoc/memory/reflections/fix-control-field-pollutes-redis-key.md` — if_ 控制字段污染 Redis key 修复复盘，记录两层过滤策略与 design_doc 假设验证。
