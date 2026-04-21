@@ -35,6 +35,7 @@ func TestToCamelCase(t *testing.T) {
 func TestPythonType(t *testing.T) {
 	tests := map[string]string{
 		"string":  "str",
+		"int":     "int",
 		"int64":   "int",
 		"float64": "float",
 		"bool":    "bool",
@@ -52,6 +53,7 @@ func TestPythonType(t *testing.T) {
 func TestPythonDefault(t *testing.T) {
 	tests := map[string]string{
 		"string":  `""`,
+		"int":     "0",
 		"int64":   "0",
 		"float64": "0.0",
 		"bool":    "False",

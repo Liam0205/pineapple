@@ -1,0 +1,32 @@
+{
+  "_PINEAPPLE_VERSION": "0.3.0",
+  "pipeline_config": {
+    "operators": {
+      "step_one": {
+        "type_name": "nonexistent_operator",
+        "$metadata": {
+          "common_input": [],
+          "common_output": ["x"],
+          "item_input": [],
+          "item_output": []
+        }
+      }
+    },
+    "pipeline_map": {
+      "_main_test": {
+        "pipeline": ["step_one"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["_main_test"]
+    }
+  },
+  "flow_contract": {
+    "common_input": [],
+    "item_input": [],
+    "common_output": ["x"],
+    "item_output": []
+  }
+}

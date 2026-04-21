@@ -1,0 +1,33 @@
+{
+  "_PINEAPPLE_VERSION": "0.3.0",
+  "pipeline_config": {
+    "operators": {
+      "read_resource": {
+        "type_name": "transform_test_resource_read",
+        "resource_name": "my_resource",
+        "$metadata": {
+          "common_input": [],
+          "common_output": ["resource_value"],
+          "item_input": [],
+          "item_output": []
+        }
+      }
+    },
+    "pipeline_map": {
+      "_main_resource_test": {
+        "pipeline": ["read_resource"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["_main_resource_test"]
+    }
+  },
+  "flow_contract": {
+    "common_input": [],
+    "item_input": [],
+    "common_output": ["resource_value"],
+    "item_output": []
+  }
+}

@@ -38,3 +38,21 @@ jobs:
         run: go run ./cmd/pineapple-codegen -output apple_generated -doc-dir doc/operators -operators-dir operators
       - name: Check no diff
         run: git diff --exit-code
+
+  benchmark:
+    runs-on: ubuntu-latest
+    needs: go-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run benchmarks
+        run: go test -bench=. -benchmem -count=1 -run=^$ ./benchmarks/ ./integration/
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: "*.test"
+          retention-days: 30

@@ -201,6 +201,35 @@ class TestOperatorNaming:
         auto_name = [n for n in names if n != "step_one"][0]
         assert auto_name.startswith("transform_by_lua_")
 
+    def test_hash_collision_appends_suffix(self):
+        """When two auto-named ops produce the same hash, compiler appends _N."""
+        from unittest.mock import patch, MagicMock
+
+        class FakeMD5:
+            def __init__(self):
+                pass
+            def hexdigest(self):
+                return "aabbcc000000"
+            def update(self, data):
+                pass
+
+        flow = Flow(name="collision", item_input=["x"], item_output=["a", "b"])
+        flow._add_op("transform_by_lua", item_input=["x"], item_output=["a"],
+                      lua_script="function f() return x end",
+                      function_for_item="f", function_for_common="")
+        flow._add_op("transform_by_lua", item_input=["a"], item_output=["b"],
+                      lua_script="function g() return a end",
+                      function_for_item="g", function_for_common="")
+
+        with patch("hashlib.md5", return_value=FakeMD5()):
+            cfg = compile_flow(flow)
+
+        names = list(cfg["pipeline_config"]["operators"].keys())
+        assert len(names) == 2
+        assert names[0] == "transform_by_lua_AABBCC"
+        assert names[1] == "transform_by_lua_AABBCC_1"
+        assert len(set(names)) == 2
+
 
 class TestPipelineMap:
     def test_subflow_pipeline_map(self):

@@ -12,7 +12,7 @@ func pythonType(goType string) string {
 	switch goType {
 	case "string":
 		return "str"
-	case "int64":
+	case "int", "int64":
 		return "int"
 	case "float64":
 		return "float"
@@ -28,7 +28,7 @@ func pythonDefault(goType string) string {
 	switch goType {
 	case "string":
 		return `""`
-	case "int64":
+	case "int", "int64":
 		return "0"
 	case "float64":
 		return "0.0"

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -131,5 +132,50 @@ func TestFullPipelineConcurrent(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Error(err)
+	}
+}
+
+func TestNewEngineInvalidJSON_E2E(t *testing.T) {
+	_, err := pine.NewEngine([]byte(`{not valid json`))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+	var cfgErr *pine.ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Errorf("expected ConfigError, got %T: %v", err, err)
+	}
+}
+
+func TestNewEngineMissingOperator_E2E(t *testing.T) {
+	cfg := loadConfig(t, "../testdata/negative_unknown_operator.json")
+	_, err := pine.NewEngine(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown operator type")
+	}
+	var regErr *pine.RegistryError
+	if !errors.As(err, &regErr) {
+		t.Errorf("expected RegistryError, got %T: %v", err, err)
+	}
+}
+
+func TestExecuteMissingCommonField_E2E(t *testing.T) {
+	cfg := loadConfig(t, "../testdata/e2e_full_pipeline.json")
+	engine, err := pine.NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// flow_contract requires common_input: ["scene"], omit it
+	req := &pine.Request{
+		Common: map[string]any{},
+		Items:  nil,
+	}
+	_, err = engine.Execute(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for missing common field")
+	}
+	var valErr *pine.ValidationError
+	if !errors.As(err, &valErr) {
+		t.Errorf("expected ValidationError, got %T: %v", err, err)
 	}
 }

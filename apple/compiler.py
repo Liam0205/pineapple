@@ -41,6 +41,20 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         all_ops.extend(flow._ops)
         sub_flow_boundaries[f"_main_{flow._name}"] = [start, len(all_ops)]
 
+    # 1b. Check for unclosed control blocks
+    if flow._ctrl_stack:
+        raise ValidationError(
+            f"unclosed if_ block in flow {flow._name!r}: "
+            f"missing end_if_() for {len(flow._ctrl_stack)} block(s)"
+        )
+    if flow._sub_flows:
+        for sf in flow._sub_flows:
+            if sf._ctrl_stack:
+                raise ValidationError(
+                    f"unclosed if_ block in sub_flow {sf._name!r}: "
+                    f"missing end_if_() for {len(sf._ctrl_stack)} block(s)"
+                )
+
     # 2. Generate unique names
     named_ops: list[tuple[str, OpCall]] = []
     name_counts: dict[str, int] = {}

@@ -25,4 +25,4 @@
 
 ## memory/
 
-- 初始化时未创建 recorder 级别的 memory 文档。
+- `llmdoc/memory/reflections/bugfix-six-items.md` — 六项缺陷修复与测试补齐的复盘，记录 llmdoc 的有效导航点、缺失信息与可提升为稳定文档的候选项。

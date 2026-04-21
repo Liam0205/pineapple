@@ -168,6 +168,30 @@ class TestControlFlowValidation:
         with pytest.raises(ValueError, match="end_if_ without matching if_"):
             flow.end_if_()
 
+    def test_unclosed_if_raises(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        flow.if_("x ~= nil")
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        with pytest.raises(ValidationError, match="unclosed if_ block"):
+            flow.compile()
+
+    def test_unclosed_if_in_subflow_raises(self):
+        from apple.flow import SubFlow
+        sf = SubFlow(name="bad_sub")
+        sf.if_("true")
+        sf._add_op("transform_by_lua",
+                    common_output=["y"],
+                    lua_script="function f() return 1 end",
+                    function_for_common="f", function_for_item="")
+
+        flow = Flow(name="main", common_input=["x"], common_output=["y"],
+                     sub_flows=[sf])
+        with pytest.raises(ValidationError, match="unclosed if_ block in sub_flow"):
+            flow.compile()
+
 
 class TestUnderscorePrefix:
     def test_underscore_in_flow_common_output_rejected(self):
