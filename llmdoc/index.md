@@ -35,3 +35,4 @@
 - `llmdoc/memory/reflections/fix-control-field-pollutes-redis-key.md` — if_ 控制字段污染 Redis key 修复复盘，记录两层过滤策略与 design_doc 假设验证。
 - `llmdoc/memory/reflections/fix-ci-lint-v2-release-gate.md` — CI lint v2 迁移与 Release 触发机制两轮修复复盘：从复制检查到 workflow_run 依赖，记录 workflow 隔离模型认知演进。
 - `llmdoc/memory/reflections/bench-lua-vs-go-performance.md` — Lua vs Go 原生算子 benchmark 复盘，记录端到端测试下 VM 开销被引擎框架稀释的发现，以及预估偏差反思。
+- `llmdoc/memory/reflections/isolated-bench-and-resource-ops.md` — 隔离 benchmark 与资源消费算子复盘，记录引擎框架稀释效应量化、BuildOperator 暴露、inventory 幻觉教训。

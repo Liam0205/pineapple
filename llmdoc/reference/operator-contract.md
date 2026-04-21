@@ -74,6 +74,30 @@
 
 将 Schema 注册视为启动时校验。缺失元数据被认为是程序员错误，不是可恢复的运行时条件。
 
+### 外部构建算子实例
+
+`pine.BuildOperator(typeName, params)` 是 `internal/registry.BuildOperator` 的公共包装器，允许外部消费者（benchmark、测试工具）按类型名构建已注册算子的实例。
+
+流程：查找注册表 → 校验参数 → 创建实例 → 调用 `Init(params)` → 返回 `(Operator, OperatorSchema, error)`。
+
+若算子实现 `MetadataAware`，调用方需在 `BuildOperator` 之后手动调用 `SetMetadata` 注入字段元数据（引擎内部会自动做，外部消费者需显式处理）。
+
+## 资源消费模式
+
+算子可通过 `resource.FromContext(ctx)` 从请求上下文中拉取资源。无需实现特殊接口。
+
+约定：
+
+- 声明 `resource_name` (string) 参数——`ValidateResourceDeps` 依赖此命名约定在启动时校验资源依赖
+- `Init` 中存储 `resource_name` 参数值
+- `Execute` 中调用 `resource.FromContext(ctx).Get(name)` 拉取资源值
+- 处理 `nil` provider（未注入）和 `(nil, false)` 返回（资源不存在）
+
+内置资源消费算子：
+
+- `recall_resource` — 资源值为 `[]map[string]any`，逐个 `AddItem`
+- `transform_resource_lookup` — 资源值为 `map[string]any`（lookup table），按 item 字段值查找写入
+
 ## 保留 JSON/配置键
 
 这些键为引擎所有，在 `Init(params)` 接收其 map 之前被过滤：
