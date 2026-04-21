@@ -192,6 +192,22 @@ class TestControlFlowValidation:
         with pytest.raises(ValidationError, match="unclosed if_ block in sub_flow"):
             flow.compile()
 
+    def test_empty_if_branch_raises(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        with pytest.raises(ValueError, match="empty if branch"):
+            flow.if_("x ~= nil").end_if_()
+
+    def test_empty_else_branch_raises(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        flow.if_("x ~= nil")
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        flow.else_()
+        with pytest.raises(ValueError, match="empty else branch"):
+            flow.end_if_()
+
 
 class TestUnderscorePrefix:
     def test_underscore_in_flow_common_output_rejected(self):

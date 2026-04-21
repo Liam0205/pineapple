@@ -224,11 +224,9 @@ def _resolve_source(
     named_ops: list[tuple[str, OpCall]],
     source_type_hint: str,
 ) -> str:
-    """Resolve a source reference to the actual named operator.
+    """Pass through the source operator name.
 
-    Sources in the DSL reference operator type names. We find the matching
-    named operator. If ambiguous, error.
+    Source refs are already final operator names provided by the user
+    via the sources=[...] metadata kwarg in the DSL. No resolution needed.
     """
-    # Source refs are already resolved operator names from the flow
-    # (they get resolved during flow.merge_dedup call which passes recall names)
     return source_type_hint

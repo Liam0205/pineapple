@@ -197,6 +197,13 @@ class _FlowBase:
             raise ValueError("end_if_ without matching if_")
         block = self._ctrl_stack.pop()
         block.closed = True
+        for branch in block.branches:
+            has_ops = any(op.skip == branch.ctrl_field for op in self._ops)
+            if not has_ops:
+                raise ValueError(
+                    f"empty {branch.kind} branch: no operators under "
+                    f"condition field {branch.ctrl_field!r}"
+                )
         return self
 
 
