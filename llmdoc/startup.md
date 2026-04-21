@@ -16,3 +16,6 @@
 
 5. `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册、类型/输出约束。
    - 深入阅读场景：涉及新增或修改算子、Schema、元数据契约、codegen 定义的任务。
+
+6. `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、对齐、任务跟踪、验证、文档同步。
+   - 深入阅读场景：非平凡任务开始前，回顾完整流程以避免遗漏步骤。
