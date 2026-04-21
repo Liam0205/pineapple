@@ -53,10 +53,17 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 			opCfg.Recall = true
 		}
 		cfg.PipelineConfig.Operators[name] = opCfg
-		// If the operator needs metadata, provide it
+		// If the operator needs metadata, provide it.
+		// Filter out the skip (control-flow) field so operators see only
+		// business fields — DAG dependency inference still uses the full
+		// $metadata.CommonInput that includes the control field.
 		if ma, ok := op.(types.MetadataAware); ok {
+			commonIn := opCfg.Meta.CommonInput
+			if opCfg.Skip != "" {
+				commonIn = filterOutField(commonIn, opCfg.Skip)
+			}
 			ma.SetMetadata(
-				opCfg.Meta.CommonInput,
+				commonIn,
 				opCfg.Meta.CommonOutput,
 				opCfg.Meta.ItemInput,
 				opCfg.Meta.ItemOutput,
@@ -142,4 +149,14 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 // accumulated since this Engine was created.
 func (e *Engine) Stats() map[string]runtime.OpStatsSnapshot {
 	return e.stats.Snapshot()
+}
+
+func filterOutField(ss []string, exclude string) []string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if s != exclude {
+			out = append(out, s)
+		}
+	}
+	return out
 }

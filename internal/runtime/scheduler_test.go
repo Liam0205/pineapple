@@ -133,6 +133,21 @@ func (o *sleepOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.
 	return nil
 }
 
+// captureKeysOp records the common keys it sees in the input.
+type captureKeysOp struct {
+	mu   sync.Mutex
+	keys []string
+}
+
+func (o *captureKeysOp) Init(params map[string]any) error { return nil }
+func (o *captureKeysOp) Execute(_ context.Context, in *types.OperatorInput, out *types.OperatorOutput) error {
+	o.mu.Lock()
+	o.keys = in.CommonKeys()
+	o.mu.Unlock()
+	out.SetCommon("captured", true)
+	return nil
+}
+
 // --- helper to build plan ---
 
 func buildPlan(t *testing.T, seq []string, cops map[string]*CompiledOperator) *Plan {
@@ -359,6 +374,66 @@ func TestRunFatalError(t *testing.T) {
 		t.Errorf("expected 1 trace entry, got %d", len(traces))
 	} else if traces[0].Name != "op_a" {
 		t.Errorf("expected trace for op_a, got %q", traces[0].Name)
+	}
+}
+
+func TestRunSkipFieldFilteredFromInput(t *testing.T) {
+	// ctrl_op writes _if_1=false, branch_op has skip=_if_1 and
+	// common_input=[_if_1, user_id]. The scheduler should filter _if_1
+	// out of BuildInput so the operator only sees user_id.
+	ctrlOp := &CompiledOperator{
+		Name:     "ctrl_op",
+		Instance: &setCommonOp{field: "_if_1", value: false},
+		Config: config.OperatorConfig{
+			TypeName:         "set",
+			ForBranchControl: true,
+			Meta:             config.Metadata{CommonOutput: []string{"_if_1"}},
+		},
+	}
+	capture := &captureKeysOp{}
+	branchOp := &CompiledOperator{
+		Name:     "branch_op",
+		Instance: capture,
+		Config: config.OperatorConfig{
+			TypeName: "capture",
+			Skip:     "_if_1",
+			Meta:     config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}},
+		},
+	}
+
+	plan := buildPlan(t, []string{"ctrl_op", "branch_op"}, map[string]*CompiledOperator{
+		"ctrl_op":  ctrlOp,
+		"branch_op": branchOp,
+	})
+	frame := dataframe.New(map[string]any{"user_id": "u123"}, nil)
+	_, _, err := Run(context.Background(), plan, frame, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// branch_op should have executed (skip=_if_1=false means not skipped)
+	if frame.Common("captured") != true {
+		t.Error("branch_op should have executed")
+	}
+
+	// The operator input should NOT contain the skip field _if_1
+	capture.mu.Lock()
+	keys := capture.keys
+	capture.mu.Unlock()
+	for _, k := range keys {
+		if k == "_if_1" {
+			t.Error("skip field _if_1 should not appear in operator input")
+		}
+	}
+	// Should contain user_id
+	found := false
+	for _, k := range keys {
+		if k == "user_id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("user_id should appear in operator input")
 	}
 }
 

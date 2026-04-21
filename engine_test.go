@@ -173,6 +173,18 @@ func (o *warningTestOp) Execute(_ context.Context, _ *types.OperatorInput, out *
 	return nil
 }
 
+// metadataCaptureOp records the CommonInput it received via SetMetadata
+// and writes it as a JSON string into a common field for assertion.
+type metadataCaptureOp struct {
+	types.MetadataHolder
+}
+
+func (o *metadataCaptureOp) Init(params map[string]any) error { return nil }
+func (o *metadataCaptureOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
+	out.SetCommon("_captured_common_input", fmt.Sprintf("%v", o.CommonInput))
+	return nil
+}
+
 // --- register test operators ---
 
 func init() {
@@ -196,6 +208,7 @@ func init() {
 	registry.Register(types.OperatorSchema{Name: "error_op", Type: types.OpTypeTransform, Description: "Always errors."}, func() types.Operator { return &errorTestOp{} })
 	registry.Register(types.OperatorSchema{Name: "panic_op", Type: types.OpTypeTransform, Description: "Always panics."}, func() types.Operator { return &panicTestOp{} })
 	registry.Register(types.OperatorSchema{Name: "warning_op", Type: types.OpTypeTransform, Description: "Emits warning."}, func() types.Operator { return &warningTestOp{} })
+	registry.Register(types.OperatorSchema{Name: "metadata_capture", Type: types.OpTypeTransform, Description: "Captures metadata."}, func() types.Operator { return &metadataCaptureOp{} })
 }
 
 // --- helper ---
@@ -419,6 +432,58 @@ func TestEngineSkipControlFlow(t *testing.T) {
 	// _if_1=true -> branch_op skipped
 	if result.Common["branch_ran"] != nil {
 		t.Error("branch_op should have been skipped")
+	}
+}
+
+func TestEngineSkipFieldNotInMetadata(t *testing.T) {
+	// Verify that the skip (control-flow) field is filtered out of
+	// the operator's MetadataHolder.CommonInput at engine build time.
+	cfg := makeConfig(
+		map[string]any{
+			"ctrl": map[string]any{
+				"type_name": "set_field",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{"_if_1"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+				"for_branch_control": true,
+				"field":              "_if_1",
+				"value":              false,
+			},
+			"branch_op": map[string]any{
+				"type_name": "metadata_capture",
+				"$metadata": map[string]any{
+					"common_input": []string{"_if_1", "user_id"}, "common_output": []string{"_captured_common_input"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+				"skip": "_if_1",
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"ctrl", "branch_op"}}},
+		map[string]any{
+			"common_input":  []string{"user_id"},
+			"common_output": []string{"_captured_common_input"},
+		},
+	)
+
+	engine, err := pine.NewEngine(mustJSON(t, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.Execute(context.Background(), &pine.Request{
+		Common: map[string]any{"user_id": "u123"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	captured, _ := result.Common["_captured_common_input"].(string)
+	if captured == "" {
+		t.Fatal("branch_op should have executed (skip=_if_1=false)")
+	}
+	// The captured CommonInput should contain only user_id, not _if_1
+	if captured != "[user_id]" {
+		t.Errorf("expected CommonInput=[user_id], got %s", captured)
 	}
 }
 

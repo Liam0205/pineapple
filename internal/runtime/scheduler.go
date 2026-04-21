@@ -101,11 +101,17 @@ func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) 
 				}
 			}
 
-			// Build input under lock
+			// Build input under lock.
+			// Filter out the skip (control-flow) field so operators
+			// see only business fields in their input snapshot.
+			commonInput := cop.Config.Meta.CommonInput
+			if cop.Config.Skip != "" {
+				commonInput = filterOutField(commonInput, cop.Config.Skip)
+			}
 			mu.Lock()
 			input := dataframe.BuildInput(
 				frame,
-				cop.Config.Meta.CommonInput,
+				commonInput,
 				cop.Config.Meta.ItemInput,
 				cop.Config.CommonDefaults,
 				cop.Config.ItemDefaults,
@@ -282,9 +288,15 @@ func snapshotOutput(out *types.OperatorOutput) map[string]any {
 		}
 		snap["removed_items"] = removed
 	}
-	if io := out.GetItemOrder(); io != nil {
-		snap["item_order"] = io
-	}
-
 	return snap
+}
+
+func filterOutField(ss []string, exclude string) []string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if s != exclude {
+			out = append(out, s)
+		}
+	}
+	return out
 }
