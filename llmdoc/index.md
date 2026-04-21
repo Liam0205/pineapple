@@ -18,6 +18,8 @@
 ## guides/
 
 - `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步。
+- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint/test/coverage/fuzz/release-gate 架构与接入约定。
+- `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则。
 
 ## reference/
 
