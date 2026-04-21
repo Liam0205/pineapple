@@ -36,7 +36,7 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **编译期校验** — Python 编译器在部署前检测死代码、字段缺失、写后未读等问题，将错误拦截在开发阶段。
 
-**Lua 嵌入扩展** — 内置 Lua 算子支持轻量级的自定义计算和条件分支，无需新增 Go 代码即可实现灵活逻辑。
+**Lua 嵌入扩展** — 内置 Lua 算子支持轻量级的自定义计算和条件分支，无需新增 Go 代码即可实现灵活逻辑。简单逻辑下 Lua 仅比 Go 原生慢约 1.3x，详见 [Lua vs Go 性能对比](design_doc/13_lua_vs_go_benchmark.md)。
 
 **白盒可观测** — 引擎内部始终记录算子级别的执行 trace（耗时、跳过状态）。请求方通过 `common._return_trace = true` 控制是否在响应中返回 trace；默认不返回。trace 仅包含实际执行或跳过的算子，DAG 中止时未开始执行的算子不会出现。配合算子 `debug` 参数可获取输入/输出快照，逐算子深入排查。
 
@@ -645,6 +645,7 @@ pineapple/
   - [文档自动生成](design_doc/10_docgen.md)
   - [动态资源管理](design_doc/11_resource_manager.md)
   - [发布与第三方扩展](design_doc/12_distribution.md)
+  - [Lua vs Go 性能对比](design_doc/13_lua_vs_go_benchmark.md)
 
 - **[算子参考文档](doc/operators/README.md)** — 所有内置算子的详细说明、参数、用法示例
 
