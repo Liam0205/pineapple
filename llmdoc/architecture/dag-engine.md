@@ -234,6 +234,7 @@
 - 等待中的 goroutine 在取消时解除阻塞并提前停止
 - panic 路径包裹为 `PanicError`
 - 算子返回的失败成为 `ExecutionError` 或通过引擎的类型化错误模型传播
+- `Run` 返回前过滤掉未执行节点的零值 trace 条目（`Name == ""`），因此返回的 trace 仅包含实际执行或跳过的算子
 
 Warning 与致命错误分开。算子可通过 `OperatorOutput.SetWarning` 发出 warning，执行继续。
 
