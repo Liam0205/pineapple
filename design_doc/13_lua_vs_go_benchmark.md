@@ -63,7 +63,47 @@ Lua 相对 Go 的额外开销来自三个层面：
 ## 复现
 
 ```bash
+# 端到端（含引擎框架开销）
 go test -run='^$' -bench=BenchmarkLuaVsGo -benchmem -count=3 ./benchmarks/
+
+# 隔离（纯算子 Execute，无引擎开销）
+go test -run='^$' -bench=BenchmarkIsolated -benchmem -count=3 ./benchmarks/
 ```
 
-Benchmark 代码位于 `benchmarks/bench_lua_vs_go_ops.go` 和 `benchmarks/bench_lua_vs_go_test.go`。
+Benchmark 代码位于 `benchmarks/bench_lua_vs_go_ops.go`、`benchmarks/bench_lua_vs_go_test.go` 和 `benchmarks/bench_isolated_test.go`。
+
+## 附录：隔离 benchmark 结果
+
+直接调用算子 `Execute`，不经过 JSON 解析、DAG 调度和 DataFrame `BuildInput` 投影。去除引擎框架开销后，Lua/Go 的实际计算差距更加明显。
+
+### 隔离结果（100 items）
+
+| 档次 | Lua ns/op | Go ns/op | Lua/Go 比 | Lua allocs | Go allocs |
+|------|-----------|----------|-----------|------------|-----------|
+| L1 identity | 18,644 | 9,122 | 2.0x | 454 | 212 |
+| L2 arithmetic | 21,534 | 10,037 | 2.1x | 462 | 312 |
+| L3 branching | 23,910 | 9,705 | 2.5x | 459 | 312 |
+| L4 multi-field | 39,254 | 12,384 | 3.2x | 627 | 310 |
+| L5 iterative | 39,221 | 9,642 | 4.1x | 686 | 312 |
+
+### 隔离结果（1000 items）
+
+| 档次 | Lua ns/op | Go ns/op | Lua/Go 比 | Lua allocs | Go allocs |
+|------|-----------|----------|-----------|------------|-----------|
+| L1 identity | 199,242 | 103,104 | 1.9x | 4,066 | 2,023 |
+| L2 arithmetic | 214,497 | 125,800 | 1.7x | 4,129 | 3,023 |
+| L3 branching | 219,424 | 121,311 | 1.8x | 4,098 | 3,023 |
+| L4 multi-field | 350,180 | 131,714 | 2.7x | 5,755 | 3,008 |
+| L5 iterative | 410,358 | 116,328 | 3.5x | 6,378 | 3,023 |
+
+### 端到端 vs 隔离对比
+
+| 档次 | 端到端 Lua/Go (1000) | 隔离 Lua/Go (1000) | 引擎开销稀释 |
+|------|---------------------|-------------------|------------|
+| L1 identity | 1.2x | 1.9x | 显著 |
+| L2 arithmetic | 1.3x | 1.7x | 显著 |
+| L3 branching | 1.3x | 1.8x | 显著 |
+| L4 multi-field | 1.5x | 2.7x | 中等 |
+| L5 iterative | 2.1x | 3.5x | 中等 |
+
+端到端测试中引擎框架（recall_static + DataFrame 构建 + DAG 调度）占总耗时 50-70%，显著稀释了 Lua VM 的纯计算差距。隔离测试揭示了更真实的算子级性能差异。
