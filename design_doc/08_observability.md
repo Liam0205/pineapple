@@ -137,6 +137,39 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
 
 ## 后续再做
 
-- **DAG 可视化**：图形化展示 DAG 结构，由粗到细的业务流程展示。
 - **实时监控面板**：算子级别的 CPU 消耗、耗时分布等系统指标。
 - **全链路特征追踪**：跨服务的数据血缘追踪。
+
+## 已实现
+
+### DAG 可视化
+
+通过 `Engine.RenderDAG(format)` 方法或 `GET /dag?format=dot|mermaid` HTTP 端点获取 DAG 结构的可视化表示。
+
+支持两种输出格式：
+
+- **DOT (Graphviz)**：标准图描述语言，可通过 `dot -Tsvg` 渲染为 SVG/PNG。
+- **Mermaid**：可直接嵌入 Markdown / GitHub README，无需额外工具即可预览。
+
+节点按算子类型着色，标签包含算子名和类型分类。
+
+#### 编程 API
+
+```go
+engine, _ := pine.NewEngine(jsonConfig)
+dot, _ := engine.RenderDAG("dot")       // Graphviz DOT
+mmd, _ := engine.RenderDAG("mermaid")   // Mermaid flowchart
+```
+
+#### HTTP 端点
+
+```bash
+# DOT 格式（默认）
+curl http://localhost:8080/dag
+
+# Mermaid 格式
+curl http://localhost:8080/dag?format=mermaid
+
+# 渲染为 SVG（需要本地安装 graphviz）
+curl -s http://localhost:8080/dag | dot -Tsvg -o dag.svg
+```

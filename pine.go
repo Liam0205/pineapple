@@ -151,6 +151,19 @@ func (e *Engine) Stats() map[string]runtime.OpStatsSnapshot {
 	return e.stats.Snapshot()
 }
 
+// RenderDAG renders the compiled DAG in the specified format.
+// Supported formats: "dot" (Graphviz DOT), "mermaid" (Mermaid flowchart).
+func (e *Engine) RenderDAG(format string) (string, error) {
+	switch format {
+	case "dot":
+		return dag.RenderDOT(e.plan.Graph), nil
+	case "mermaid":
+		return dag.RenderMermaid(e.plan.Graph), nil
+	default:
+		return "", &ValidationError{Message: fmt.Sprintf("unsupported DAG format %q (use \"dot\" or \"mermaid\")", format)}
+	}
+}
+
 func filterOutField(ss []string, exclude string) []string {
 	out := make([]string, 0, len(ss))
 	for _, s := range ss {

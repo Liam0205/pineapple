@@ -86,6 +86,7 @@ func Run(cfg Config) error {
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/execute", handleExecute)
 	mux.HandleFunc("/stats", handleStats)
+	mux.HandleFunc("/dag", handleDAG)
 
 	srv := &http.Server{Addr: cfg.Addr, Handler: mux}
 
@@ -239,4 +240,36 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, engine.Stats())
+}
+
+func handleDAG(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	engine := enginePtr.Load()
+	if engine == nil {
+		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
+		return
+	}
+
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "dot"
+	}
+
+	output, err := engine.RenderDAG(format)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	switch format {
+	case "dot":
+		w.Header().Set("Content-Type", "text/vnd.graphviz; charset=utf-8")
+	default:
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
+	_, _ = w.Write([]byte(output))
 }
