@@ -6,6 +6,25 @@ on:
       - "v*"
 
 jobs:
+  go-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v7
+
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - run: ruff check apple/
+
   go-test:
     runs-on: ubuntu-latest
     steps:
@@ -41,7 +60,7 @@ jobs:
         run: git diff --exit-code
 
   build:
-    needs: [go-test, python-test, codegen-check]
+    needs: [go-lint, python-lint, go-test, python-test, codegen-check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

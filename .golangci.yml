@@ -1,12 +1,21 @@
+version: "2"
 linters:
-  enable:
-    - govet
-    - errcheck
-    - staticcheck
-    - unused
-    - gosimple
-    - ineffassign
-
-issues:
-  exclude-dirs:
-    - vendor
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
