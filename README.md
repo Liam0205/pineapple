@@ -275,6 +275,33 @@ go test ./operators/transform/...
 
 # 全量测试
 go test ./...
+
+# 覆盖率报告
+go test -coverprofile=coverage.out -covermode=atomic ./...
+go tool cover -func=coverage.out
+
+# Python 测试（含覆盖率）
+python3 -m pytest apple/tests/ -v --cov=apple --cov-report=term
+```
+
+### Lint
+
+```bash
+# Go
+golangci-lint run ./...
+
+# Python
+ruff check apple/
+```
+
+### Fuzz 测试
+
+```bash
+# JSON 配置解析
+go test -fuzz=FuzzLoad -fuzztime=30s ./internal/config/
+
+# DAG 构建
+go test -fuzz=FuzzBuild -fuzztime=30s ./internal/dag/
 ```
 
 ### 动态资源管理

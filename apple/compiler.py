@@ -14,8 +14,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from apple.base import OpCall
 from apple._version import __version__
+from apple.base import OpCall
 from apple.validator import (
     ValidationError,
     detect_dead_code,

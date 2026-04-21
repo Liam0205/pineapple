@@ -119,21 +119,6 @@ func (o *warningOp) Execute(_ context.Context, _ *types.OperatorInput, out *type
 	return nil
 }
 
-// trackOp records execution order.
-type trackOp struct {
-	name  string
-	order *[]string
-	mu    *sync.Mutex
-}
-
-func (o *trackOp) Init(params map[string]any) error { return nil }
-func (o *trackOp) Execute(_ context.Context, _ *types.OperatorInput, _ *types.OperatorOutput) error {
-	o.mu.Lock()
-	*o.order = append(*o.order, o.name)
-	o.mu.Unlock()
-	return nil
-}
-
 // sleepOp sleeps for a duration to help test parallelism.
 type sleepOp struct {
 	d       time.Duration

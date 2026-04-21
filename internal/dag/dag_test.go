@@ -922,3 +922,15 @@ func TestRowDependency_MultipleRowDepOps(t *testing.T) {
 		t.Error("size_a and size_b should be independent")
 	}
 }
+
+func FuzzBuild(f *testing.F) {
+	f.Add("op_a", "op_b", "x", "y")
+
+	f.Fuzz(func(_ *testing.T, nameA, nameB, fieldA, fieldB string) {
+		ops := map[string]config.OperatorConfig{
+			nameA: transformOp([]string{fieldA}, []string{fieldB}, nil, nil),
+			nameB: transformOp([]string{fieldB}, nil, nil, nil),
+		}
+		Build([]string{nameA, nameB}, ops) //nolint:errcheck
+	})
+}

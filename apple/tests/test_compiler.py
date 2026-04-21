@@ -1,13 +1,13 @@
 """Tests for the compiler: JSON output format, operator naming, control flow lowering."""
-import json
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from apple.flow import Flow, SubFlow
 from apple.compiler import compile_flow
+from apple.flow import Flow, SubFlow
 
 
 class TestControlFlowLowering:
@@ -203,7 +203,7 @@ class TestOperatorNaming:
 
     def test_hash_collision_appends_suffix(self):
         """When two auto-named ops produce the same hash, compiler appends _N."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
 
         class FakeMD5:
             def __init__(self):
@@ -270,7 +270,10 @@ class TestDefaultsAndDebug:
         assert op["common_defaults"] == {"age": 25}
 
     def test_item_defaults_in_json(self):
-        flow = Flow(name="item_def", common_input=["age"], item_input=["price"], item_output=["result"])
+        flow = Flow(
+            name="item_def", common_input=["age"],
+            item_input=["price"], item_output=["result"],
+        )
         flow._add_op("transform_by_lua",
                       common_input=["age"],
                       item_input=["price"],

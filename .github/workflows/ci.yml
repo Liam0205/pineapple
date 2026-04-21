@@ -5,6 +5,25 @@ on:
   pull_request:
 
 jobs:
+  go-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v7
+
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - run: ruff check apple/
+
   go-test:
     runs-on: ubuntu-latest
     steps:
@@ -12,7 +31,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./...
+      - run: go test -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Upload Go coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go-coverage
+          path: coverage.out
+          retention-days: 30
 
   python-test:
     runs-on: ubuntu-latest
@@ -24,8 +50,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install pytest
-      - run: python -m pytest apple/tests/ -v
+      - run: pip install pytest pytest-cov
+      - run: python -m pytest apple/tests/ -v --cov=apple --cov-report=term --cov-report=xml:coverage.xml
+      - name: Upload Python coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-coverage
+          path: coverage.xml
+          retention-days: 30
 
   codegen-check:
     runs-on: ubuntu-latest
@@ -38,6 +71,19 @@ jobs:
         run: go run ./cmd/pineapple-codegen -output apple_generated -doc-dir doc/operators -operators-dir operators
       - name: Check no diff
         run: git diff --exit-code
+
+  fuzz:
+    runs-on: ubuntu-latest
+    needs: go-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fuzz config.Load
+        run: go test -fuzz=FuzzLoad -fuzztime=30s ./internal/config/
+      - name: Fuzz dag.Build
+        run: go test -fuzz=FuzzBuild -fuzztime=30s ./internal/dag/
 
   benchmark:
     runs-on: ubuntu-latest

@@ -379,7 +379,7 @@ func BenchmarkSmallPipeline_10_Allocs(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		engine.Execute(context.Background(), req)
+		_, _ = engine.Execute(context.Background(), req)
 	}
 }
 
@@ -389,7 +389,7 @@ func BenchmarkLargePipeline_1000_Allocs(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		engine.Execute(context.Background(), req)
+		_, _ = engine.Execute(context.Background(), req)
 	}
 }
 
@@ -571,7 +571,7 @@ func BenchmarkLuaItemOp_100_Allocs(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		engine.Execute(context.Background(), req)
+		_, _ = engine.Execute(context.Background(), req)
 	}
 }
 
@@ -594,7 +594,7 @@ func BenchmarkThroughput(b *testing.B) {
 				go func() {
 					defer wg.Done()
 					for i := 0; i < per; i++ {
-						engine.Execute(context.Background(), req)
+						_, _ = engine.Execute(context.Background(), req)
 					}
 				}()
 			}

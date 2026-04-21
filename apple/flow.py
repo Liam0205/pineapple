@@ -19,15 +19,13 @@ Usage:
 from __future__ import annotations
 
 import inspect
-import sys
 from typing import Any
 
-from apple.base import BaseOp, OpCall
+from apple.base import OpCall
 from apple.compiler import compile_flow, compile_to_json
 from apple.control import (
     ControlBlock,
     ControlBranch,
-    extract_fields,
     make_control_op,
 )
 from apple.resource import BaseResource, ResourceDecl

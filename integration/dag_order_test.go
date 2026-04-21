@@ -1370,7 +1370,7 @@ func BenchmarkDAGSchedulingOverhead_5ops(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		resetExecLog()
-		engine.Execute(context.Background(), req)
+		_, _ = engine.Execute(context.Background(), req)
 	}
 }
 
@@ -1398,6 +1398,6 @@ func BenchmarkDAGSchedulingOverhead_10ops(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		resetExecLog()
-		engine.Execute(context.Background(), req)
+		_, _ = engine.Execute(context.Background(), req)
 	}
 }

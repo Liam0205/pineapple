@@ -19,3 +19,12 @@ exclude = ["apple_generated/**", "apple/tests/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["apple/tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["apple_generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+

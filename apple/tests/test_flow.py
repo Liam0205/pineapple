@@ -1,15 +1,13 @@
 """Tests for Flow and SubFlow composition."""
 import json
-import pytest
-import sys
 import os
+import sys
 
 # Ensure apple package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from apple.flow import Flow, SubFlow
-from apple.validator import ValidationError
 from apple._version import __version__
+from apple.flow import Flow, SubFlow
 
 
 class TestBasicFlow:

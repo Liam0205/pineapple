@@ -235,3 +235,17 @@ func TestExpandNoMainMultipleGroups(t *testing.T) {
 		t.Error("expected error when no 'main' and multiple groups")
 	}
 }
+
+func FuzzLoad(f *testing.F) {
+	seed, err := os.ReadFile(testdataPath("minimal_valid.json"))
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(seed)
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`{"pipeline_config":{}}`))
+
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		Load(data) //nolint:errcheck
+	})
+}

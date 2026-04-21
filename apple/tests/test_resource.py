@@ -1,13 +1,14 @@
 """Tests for resource declaration DSL and unified config compilation."""
 import json
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from apple.flow import Flow
 from apple.compiler import compile_flow
+from apple.flow import Flow
 from apple.resource import BaseResource
 from apple.validator import ValidationError
 
