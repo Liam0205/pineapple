@@ -349,9 +349,20 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 资源和 HTTP 服务位于引擎旁而非 DAG 核心内部。
 
 - `pkg/resource/` 管理命名资源，支持后台刷新和原子读取。
-- `pkg/server/server.go` 加载引擎、启动资源、注入请求上下文、服务 `/health`、`/execute` 和 `/stats`。
+- `pkg/server/server.go` 加载引擎、启动资源、注入请求上下文、服务 `/health`、`/execute`、`/stats` 和 `/dag`。
 
 此分离很重要：DAG 执行仅依赖请求上下文和编译后的 plan，不依赖服务器特定逻辑。
+
+## DAG 可视化
+
+`internal/dag/visualize.go` 提供两种格式的 DAG 图渲染：
+
+- `RenderDOT(g *Graph) string` — Graphviz DOT 格式
+- `RenderMermaid(g *Graph) string` — Mermaid flowchart 格式
+
+节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名和类型分类。边来自 `Node.Succs`。
+
+公共 API 通过 `Engine.RenderDAG(format string) (string, error)` 暴露，format 支持 `"dot"` 和 `"mermaid"`。HTTP 端点 `GET /dag?format=dot|mermaid`（默认 `dot`）。
 
 ## 需要保持的重要不变量
 
@@ -369,6 +380,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 - 引擎编译和请求生命周期：`pine.go`
 - 配置解析和序列展开：`internal/config/load.go`、`internal/config/types.go`
 - DAG 推导：`internal/dag/dag.go`
+- DAG 可视化：`internal/dag/visualize.go`
 - 调度器和 trace 捕获：`internal/runtime/scheduler.go`
 - 统计：`internal/runtime/stats.go`
 - Frame 行为：`internal/dataframe/dataframe.go`
