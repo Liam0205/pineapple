@@ -1,0 +1,31 @@
+{
+  "_PINEAPPLE_VERSION": "0.3.3",
+  "pipeline_config": {
+    "operators": {
+      "recall": {
+        "type_name": "recall_resource",
+        "recall": true,
+        "resource_name": "candidates",
+        "$metadata": {
+          "item_output": ["item_id", "item_score"]
+        }
+      }
+    },
+    "pipeline_map": {
+      "_main": {
+        "pipeline": ["recall"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["_main"]
+    }
+  },
+  "flow_contract": {
+    "common_input": [],
+    "item_input": [],
+    "common_output": [],
+    "item_output": ["item_id", "item_score"]
+  }
+}

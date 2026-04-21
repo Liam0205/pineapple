@@ -181,6 +181,43 @@ class ObserveLogOp(BaseOp):
             name=name or "",
         )
 
+class RecallResourceOp(BaseOp):
+    """Operator: recall_resource"""
+    _name = "recall_resource"
+    _params_schema = {
+        "resource_name": {"type": "string", "required": True},
+    }
+
+    def __call__(
+        self,
+        *,
+        resource_name: str = ...,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "RecallResourceOp":
+        return self._apply(
+            params={
+                "resource_name": resource_name,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            recall=True,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
 class RecallStaticOp(BaseOp):
     """Operator: recall_static"""
     _name = "recall_static"
@@ -521,6 +558,51 @@ class TransformRedisSetOp(BaseOp):
                 "redis_db": redis_db,
                 "redis_password": redis_password,
                 "ttl": ttl,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformResourceLookupOp(BaseOp):
+    """Operator: transform_resource_lookup"""
+    _name = "transform_resource_lookup"
+    _params_schema = {
+        "default_value": {"type": "any", "required": False},
+        "lookup_key": {"type": "string", "required": True},
+        "output_field": {"type": "string", "required": True},
+        "resource_name": {"type": "string", "required": True},
+    }
+
+    def __call__(
+        self,
+        *,
+        default_value: Any = None,
+        lookup_key: str = ...,
+        output_field: str = ...,
+        resource_name: str = ...,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformResourceLookupOp":
+        return self._apply(
+            params={
+                "default_value": default_value,
+                "lookup_key": lookup_key,
+                "output_field": output_field,
+                "resource_name": resource_name,
             },
             common_input=common_input,
             common_output=common_output,

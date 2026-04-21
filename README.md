@@ -618,12 +618,12 @@ pineapple/
 │   ├── runtime/            #   调度器、trace、stats
 │   └── types/              #   核心类型定义
 ├── operators/              # 内置算子实现
-│   ├── transform/          #   transform_dispatch, transform_normalize
+│   ├── transform/          #   transform_dispatch, transform_normalize, transform_resource_lookup
 │   ├── filter/             #   filter_condition, filter_truncate
 │   ├── lua/                #   transform_by_lua (Lua 嵌入)
 │   ├── merge/              #   merge_dedup
 │   ├── observe/            #   observe_log
-│   ├── recall/             #   recall_static
+│   ├── recall/             #   recall_static, recall_resource
 │   └── reorder/            #   reorder_sort
 ├── integration/            # 集成测试
 ├── benchmarks/             # 性能基准测试

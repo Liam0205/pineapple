@@ -72,3 +72,66 @@ func TestResourceE2E(t *testing.T) {
 		t.Errorf("resource_value = %v, want %q", got, "hello_from_resource")
 	}
 }
+
+func TestRecallResourceE2E(t *testing.T) {
+	cfg := loadConfig(t, "../testdata/e2e_recall_resource.json")
+	engine, err := pine.NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidates := []map[string]any{
+		{"item_id": "x", "item_score": 0.95},
+		{"item_id": "y", "item_score": 0.80},
+	}
+	ctx := resource.WithResources(context.Background(), resource.NewStatic(map[string]any{
+		"candidates": candidates,
+	}))
+	result, err := engine.Execute(ctx, &pine.Request{Common: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Items) != 2 {
+		t.Fatalf("got %d items, want 2", len(result.Items))
+	}
+	if result.Items[0]["item_id"] != "x" {
+		t.Errorf("items[0].item_id = %v, want x", result.Items[0]["item_id"])
+	}
+	if result.Items[1]["item_score"] != 0.80 {
+		t.Errorf("items[1].item_score = %v, want 0.80", result.Items[1]["item_score"])
+	}
+}
+
+func TestResourceLookupE2E(t *testing.T) {
+	cfg := loadConfig(t, "../testdata/e2e_resource_lookup.json")
+	engine, err := pine.NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	features := map[string]any{
+		"a": 100.0,
+		"b": 200.0,
+	}
+	ctx := resource.WithResources(context.Background(), resource.NewStatic(map[string]any{
+		"features": features,
+	}))
+	result, err := engine.Execute(ctx, &pine.Request{Common: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Items) != 3 {
+		t.Fatalf("got %d items, want 3", len(result.Items))
+	}
+	if result.Items[0]["item_feature"] != 100.0 {
+		t.Errorf("items[0].item_feature = %v, want 100.0", result.Items[0]["item_feature"])
+	}
+	if result.Items[1]["item_feature"] != 200.0 {
+		t.Errorf("items[1].item_feature = %v, want 200.0", result.Items[1]["item_feature"])
+	}
+	if result.Items[2]["item_feature"] != -1.0 {
+		t.Errorf("items[2].item_feature = %v, want -1.0 (default)", result.Items[2]["item_feature"])
+	}
+}

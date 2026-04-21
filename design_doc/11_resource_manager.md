@@ -313,6 +313,42 @@ type Config struct {
 5. `ValidateResourceDeps(configData, resources)` — 校验
 6. 启动 HTTP server
 
+## 内置资源消费算子
+
+Pineapple 提供两个内置算子直接消费资源，覆盖最常见的两种使用模式：
+
+### recall_resource
+
+从资源中召回候选集。资源值应为 `[]map[string]any`（item 列表）。
+
+```python
+flow.recall_resource(resource_name="candidates")
+```
+
+适用场景：从预加载的数据库表、候选列表等资源中获取 items。
+
+### transform_resource_lookup
+
+从资源中查找值并写入 item 字段。资源值应为 `map[string]any`（lookup table）。
+
+```python
+flow.transform_resource_lookup(
+    resource_name="features",
+    lookup_key="item_id",
+    output_field="item_feature",
+    default_value=-1.0,
+)
+```
+
+适用场景：用预加载的特征表、索引表丰富 item 数据。
+
+### 资源类型约定
+
+| 算子 | 资源值类型 | 说明 |
+|------|-----------|------|
+| `recall_resource` | `[]map[string]any` 或 `[]any` | 每个元素是一个 item map |
+| `transform_resource_lookup` | `map[string]any` | 键为查找值，值为目标值 |
+
 ## 设计要点
 
 ### 1. 首次加载同步，后续异步

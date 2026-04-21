@@ -27,6 +27,7 @@
 
 | Operator | Description |
 |----------|-------------|
+| [recall_resource](recall_resource.md) | Recalls items from a named resource. |
 | [recall_static](recall_static.md) | Emits a configurable static set of items for testing and validation. |
 
 ## Reorder
@@ -46,5 +47,6 @@
 | [transform_normalize](transform_normalize.md) | Normalizes a numeric item field using min-max scaling to [0, 1]. |
 | [transform_redis_get](transform_redis_get.md) | Generic Redis read operator. Reads a value by key and outputs the result and a cache-hit flag. |
 | [transform_redis_set](transform_redis_set.md) | Generic Redis write operator. Writes a value by key with optional TTL. |
+| [transform_resource_lookup](transform_resource_lookup.md) | Enriches items by looking up values from a named resource. |
 | [transform_size](transform_size.md) | Outputs the current item count to a common field. |
 
