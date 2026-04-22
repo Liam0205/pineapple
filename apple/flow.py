@@ -225,6 +225,7 @@ class Flow(_FlowBase):
         common_output: list[str] | None = None,
         item_output: list[str] | None = None,
         sub_flows: list[SubFlow] | None = None,
+        storage_mode: str | None = None,
     ):
         super().__init__(name)
         self._common_input = common_input or []
@@ -233,6 +234,7 @@ class Flow(_FlowBase):
         self._item_output = item_output
         self._sub_flows = sub_flows or []
         self._resources: list[ResourceDecl] = []
+        self._storage_mode = storage_mode
 
     def resource(self, name: str, res: BaseResource) -> Flow:
         """Declare a resource this flow depends on."""

@@ -185,6 +185,10 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         "flow_contract": flow_contract,
     }
 
+    # 9a. Add storage_mode if specified
+    if hasattr(flow, '_storage_mode') and flow._storage_mode:
+        result["storage_mode"] = flow._storage_mode
+
     # 10. Add resource_config if resources declared
     if hasattr(flow, '_resources') and flow._resources:
         result["resource_config"] = {
