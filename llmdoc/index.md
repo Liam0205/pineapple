@@ -46,3 +46,4 @@
 - `llmdoc/memory/reflections/fine-grained-frame-concurrency.md` — Frame 并发自治复盘，记录调度器全局锁下沉到 Frame 内部、双锁→单锁回退决策、cache line 膨胀教训。
 - `llmdoc/memory/reflections/remote-pineapple-operator.md` — transform_by_remote_pineapple 算子实现复盘，记录同包 helper 重名、工作流遗漏、测试 API 误用教训。
 - `llmdoc/memory/reflections/data-parallel-framework.md` — 算子级数据并行框架复盘，记录 Transform-only 设计收敛、common_output 禁止决策、上下文管理教训。
+- `llmdoc/memory/reflections/apple-dsl-data-parallel-validation.md` — Apple DSL 侧 data_parallel 编译期校验复盘，记录保留字段提取、校验接入、哈希命名漂移教训。

@@ -52,6 +52,7 @@ Apple 支持两种声明算子的方式。
 - 无静态类型要求
 - 算子名直接取自调用的属性名
 - 元数据 kwargs 和业务参数在运行时分离
+- `_add_op` 会提取引擎保留字段；`recall` 虽可传入但会被忽略并改由 `type_name` 前缀推导，`data_parallel` 则会被当作引擎级元数据保留在 `OpCall` 上，而不会混入业务 `params`
 
 这是基线 API，也解释了为何 wheel 无需 `apple_generated/` 即可运行。
 
@@ -77,7 +78,7 @@ Apple 支持两种声明算子的方式。
 - 默认值
 - 控制流字段如 `skip` 和 `for_branch_control`
 - merge 祖先（`sources`）
-- `row_dependency`
+- 引擎级 flags（`row_dependency`、`recall`、`data_parallel: int = 0`）
 - `debug`
 - `code_info`
 - 可选的显式 `name`
@@ -160,16 +161,17 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 这创建了后续所有阶段使用的有序命名序列。
 
-### 步骤 3：运行四项校验
+### 步骤 3：运行五项校验
 
 校验采用 fail-fast，按特定顺序运行。
 
 1. `validate_no_underscore_output`
 2. `validate_field_coverage`
 3. `validate_write_without_read`
-4. `detect_dead_code`
+4. `validate_data_parallel`
+5. `detect_dead_code`
 
-顺序重要，因为每个后续规则假设算子序列和字段集已足够合理。
+顺序重要，因为每个后续规则假设算子序列和字段集已足够合理。`validate_data_parallel` 刻意放在写后未读之后、死代码检测之前：前者先确认字段声明本身合理，后者再基于已通过约束的算子集做消费性分析。
 
 ### 步骤 4：构建 operators dict
 
@@ -183,6 +185,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - `skip`
 - `for_branch_control`
 - `row_dependency`
+- `data_parallel`（仅当 `> 1` 时输出）
 - `item_defaults`
 - `common_defaults`
 - `debug`
@@ -291,6 +294,17 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 
 编译器在发现死算子时抛出 `ValidationError`。
 
+### 5. 数据并行约束
+
+`validate_data_parallel` 在 Apple 编译期对 `data_parallel` 做 fail-fast 校验，这一规则与 Go 引擎 `pine.go` 中的 `validateDataParallel` 保持镜像一致。
+
+当 `data_parallel > 1` 时：
+
+- `type_name` 必须以 `transform_` 开头，也就是仅允许 Transform 类算子启用数据并行
+- `common_output` 必须为空，避免多个并发 worker 竞争写入 common 域
+
+该规则的目标不是替代引擎校验，而是把原本会在 Go 侧加载配置时失败的错误前移到 Apple compile time，尽早暴露 DSL 声明与引擎约束不匹配的问题。
+
 ## 关键不变量：校验顺序必须与执行顺序对齐
 
 校验正确性取决于编译器使用的算子顺序与运行时使用的顺序假设一致。
@@ -384,6 +398,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 4. **下划线前缀字段保留。** 用户输出不应与编译器/运行时内部冲突。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
+7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
 
 ## 检索指针
 
