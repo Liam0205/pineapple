@@ -1,6 +1,6 @@
 {
-  "_PINEAPPLE_VERSION": "0.3.10",
-  "_PINEAPPLE_CREATE_TIME": "2026-04-22T07:03:26Z",
+  "_PINEAPPLE_VERSION": "0.3.11",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-22T09:34:24Z",
   "pipeline_config": {
     "operators": {
       "recall_static_5A2024": {

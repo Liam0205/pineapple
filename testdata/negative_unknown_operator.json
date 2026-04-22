@@ -1,5 +1,5 @@
 {
-  "_PINEAPPLE_VERSION": "0.3.10",
+  "_PINEAPPLE_VERSION": "0.3.11",
   "pipeline_config": {
     "operators": {
       "step_one": {

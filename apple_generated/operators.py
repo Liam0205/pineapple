@@ -366,6 +366,66 @@ class TransformByLuaOp(BaseOp):
             name=name or "",
         )
 
+class TransformByRemotePineappleOp(BaseOp):
+    """Operator: transform_by_remote_pineapple"""
+    _name = "transform_by_remote_pineapple"
+    _params_schema = {
+        "common_request": {"type": "any", "required": False},
+        "common_response": {"type": "any", "required": False},
+        "endpoint": {"type": "string", "required": False, "default": "/execute"},
+        "fail_on_error": {"type": "bool", "required": False, "default": True},
+        "host": {"type": "string", "required": True},
+        "item_request": {"type": "any", "required": False},
+        "item_response": {"type": "any", "required": False},
+        "port": {"type": "int64", "required": True},
+        "timeout": {"type": "float64", "required": False, "default": 5},
+    }
+
+    def __call__(
+        self,
+        *,
+        common_request: Any = None,
+        common_response: Any = None,
+        endpoint: str = "",
+        fail_on_error: bool = False,
+        host: str = ...,
+        item_request: Any = None,
+        item_response: Any = None,
+        port: int = ...,
+        timeout: float = 0.0,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformByRemotePineappleOp":
+        return self._apply(
+            params={
+                "common_request": common_request,
+                "common_response": common_response,
+                "endpoint": endpoint,
+                "fail_on_error": fail_on_error,
+                "host": host,
+                "item_request": item_request,
+                "item_response": item_response,
+                "port": port,
+                "timeout": timeout,
+            },
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            row_dependency=row_dependency,
+            debug=debug,
+            name=name or "",
+        )
+
 class TransformCopyOp(BaseOp):
     """Operator: transform_copy"""
     _name = "transform_copy"

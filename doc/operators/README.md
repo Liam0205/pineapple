@@ -42,6 +42,7 @@
 | Operator | Description |
 |----------|-------------|
 | [transform_by_lua](transform_by_lua.md) | Executes a Lua script for per-item or per-common computation. |
+| [transform_by_remote_pineapple](transform_by_remote_pineapple.md) | Calls a downstream Pineapple service and maps response fields back to the local frame. |
 | [transform_copy](transform_copy.md) | Copies field values between common and item dimensions. |
 | [transform_dispatch](transform_dispatch.md) | Copies a common-side field value to every item as an item-side field. |
 | [transform_normalize](transform_normalize.md) | Normalizes a numeric item field using min-max scaling to [0, 1]. |
