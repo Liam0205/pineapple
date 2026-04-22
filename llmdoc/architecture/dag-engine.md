@@ -351,6 +351,8 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 - `pkg/resource/` 管理命名资源，支持后台刷新和原子读取。
 - `pkg/server/server.go` 加载引擎、启动资源、注入请求上下文、服务 `/health`、`/execute`、`/stats` 和 `/dag`。
 
+配置热加载同时覆盖 Engine 和 ResourceManager。`enginePtr` 和 `resources` 均为 `atomic.Pointer`，`watchConfig` 检测文件变更后调用 `reloadConfig`，创建新 Manager → Start → 原子替换 → Stop 旧 Manager。失败时保持旧配置不变。
+
 此分离很重要：DAG 执行仅依赖请求上下文和编译后的 plan，不依赖服务器特定逻辑。
 
 ## DAG 可视化

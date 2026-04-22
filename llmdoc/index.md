@@ -37,3 +37,4 @@
 - `llmdoc/memory/reflections/bench-lua-vs-go-performance.md` — Lua vs Go 原生算子 benchmark 复盘，记录端到端测试下 VM 开销被引擎框架稀释的发现，以及预估偏差反思。
 - `llmdoc/memory/reflections/isolated-bench-and-resource-ops.md` — 隔离 benchmark 与资源消费算子复盘，记录引擎框架稀释效应量化、BuildOperator 暴露、inventory 幻觉教训。
 - `llmdoc/memory/reflections/dag-visualization.md` — DAG 可视化功能复盘，记录模块放置、OperatorType 编译时填充依赖、文档同步经验。
+- `llmdoc/memory/reflections/resource-config-hot-reload.md` — 资源配置热加载复盘，记录原子替换 Manager 策略、跨包测试 helper 导出教训、所有权区分简化。
