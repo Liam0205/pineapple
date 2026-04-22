@@ -53,6 +53,10 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 		if schema.Type == types.OpTypeRecall {
 			opCfg.Recall = true
 		}
+		// Normalize and validate data_parallel config
+		if err := validateDataParallel(name, &opCfg, schema.Type); err != nil {
+			return nil, err
+		}
 		cfg.PipelineConfig.Operators[name] = opCfg
 		// If the operator needs metadata, provide it.
 		// Filter out the skip (control-flow) field so operators see only
@@ -173,4 +177,28 @@ func filterOutField(ss []string, exclude string) []string {
 		}
 	}
 	return out
+}
+
+func validateDataParallel(opName string, opCfg *config.OperatorConfig, opType types.OperatorType) error {
+	if opCfg.DataParallel == 0 {
+		opCfg.DataParallel = 1
+	}
+	if opCfg.DataParallel < 0 {
+		return &ValidationError{
+			Message: fmt.Sprintf("operator %q: data_parallel must be >= 1, got %d", opName, opCfg.DataParallel),
+		}
+	}
+	if opCfg.DataParallel > 1 {
+		if opType != types.OpTypeTransform {
+			return &ValidationError{
+				Message: fmt.Sprintf("operator %q: data_parallel=%d is only supported for Transform operators, got %s", opName, opCfg.DataParallel, opType),
+			}
+		}
+		if len(opCfg.Meta.CommonOutput) > 0 {
+			return &ValidationError{
+				Message: fmt.Sprintf("operator %q: data_parallel=%d requires empty $metadata.common_output for Transform operators", opName, opCfg.DataParallel),
+			}
+		}
+	}
+	return nil
 }

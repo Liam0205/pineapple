@@ -90,6 +90,10 @@ flow.transform_by_lua(
 
 关于 Lua 算子的详细设计（全局变量语义、function_for_common vs function_for_item、缺失值处理等），见 [02 流程抽象 — Lua 算子](02_flow_abstraction.md#lua-算子)。
 
+#### 数据并行
+
+Transform 是唯一支持 `data_parallel` 的算子类型。启用后引擎自动将 items 切分为 N 片并行执行、合并输出，对算子完全透明。启用条件：`$metadata.common_output` 必须为空。详见 [02 流程抽象 — 算子级数据并行](02_flow_abstraction.md#算子级数据并行)。
+
 #### Remote Pineapple 算子
 
 `transform_by_remote_pineapple` 调用下游 Pineapple 服务的 `/execute` 端点，将本地 frame 字段映射为下游请求字段、将下游响应字段映射回本地输出字段。适用于跨服务特征获取场景。
@@ -258,14 +262,14 @@ DSL 顺序中在 Barrier 之后的所有算子才能开始
 
 ## DAG 构建规则汇总
 
-| 类型 | 依赖来源 | 对后续算子的影响 |
-|------|---------|----------------|
-| Recall | RAW 依赖于产出其输入字段的 Transform | 下游 reader 依赖 Recall 产出字段（RAW） |
-| Transform | 字段级 RAW/WAW/WAR | 字段级 RAW/WAW/WAR |
-| Filter | Barrier: 等待所有之前的算子 | Barrier: 之后的算子等待它 |
-| Merge | Barrier + `sources` 显式边 | Barrier |
-| Reorder | Barrier | Barrier |
-| Observe | RAW 依赖输入字段 | 不阻塞任何下游 |
+| 类型 | 依赖来源 | 对后续算子的影响 | data_parallel |
+|------|---------|----------------|---------------|
+| Recall | RAW 依赖于产出其输入字段的 Transform | 下游 reader 依赖 Recall 产出字段（RAW） | 禁止 |
+| Transform | 字段级 RAW/WAW/WAR | 字段级 RAW/WAW/WAR | 支持（需空 common_output） |
+| Filter | Barrier: 等待所有之前的算子 | Barrier: 之后的算子等待它 | 禁止 |
+| Merge | Barrier + `sources` 显式边 | Barrier | 禁止 |
+| Reorder | Barrier | Barrier | 禁止 |
+| Observe | RAW 依赖输入字段 | 不阻塞任何下游 | 禁止 |
 
 所有边推导完成后，引擎执行传递性归约，移除被更长路径隐含的冗余边。最终执行图保留保持可达性的最小边集。
 

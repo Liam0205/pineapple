@@ -58,6 +58,7 @@ type OperatorConfig struct {
 	CommonDefaults   map[string]any `json:"common_defaults,omitempty"`
 	ItemDefaults     map[string]any `json:"item_defaults,omitempty"`
 	ForBranchControl bool           `json:"for_branch_control,omitempty"`
+	DataParallel     int            `json:"data_parallel,omitempty"`
 
 	// OperatorType is populated at engine build time from the registry schema.
 	// Not serialized in JSON.

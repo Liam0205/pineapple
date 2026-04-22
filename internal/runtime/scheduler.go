@@ -118,21 +118,27 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 				inputSnapshot = snapshotInput(input)
 			}
 
-			// Execute operator with panic recovery
-			output := types.NewOperatorOutput()
+			// Execute operator (single or data-parallel)
+			var output *types.OperatorOutput
 			var execErr error
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						execErr = &types.PanicError{
-							Operator: cop.Name,
-							Value:    r,
-							Stack:    string(debug.Stack()),
+
+			if cop.Config.DataParallel > 1 {
+				output, execErr = parallelExecute(ctx, cop, input)
+			} else {
+				output = types.NewOperatorOutput()
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							execErr = &types.PanicError{
+								Operator: cop.Name,
+								Value:    r,
+								Stack:    string(debug.Stack()),
+							}
 						}
-					}
+					}()
+					execErr = cop.Instance.Execute(ctx, input, output)
 				}()
-				execErr = cop.Instance.Execute(ctx, input, output)
-			}()
+			}
 
 			// Validate output against operator type constraints
 			if execErr == nil {

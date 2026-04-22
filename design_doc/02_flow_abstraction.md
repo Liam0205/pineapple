@@ -283,6 +283,64 @@ func (s *Scheduler) Run(ctx context.Context, dag *DAG) error {
 - **close 广播**：`close(done[op.Name])` 可唤醒所有等待该 channel 的后继，天然支持一对多依赖。
 - **可观测性**：每个算子有持久 goroutine，stack trace 中可直接定位到"算子 X 在等算子 Y"，便于调试。
 
+## 算子级数据并行
+
+许多 Transform 算子的 per-item 计算是独立的，可以通过数据并行加速。引擎提供统一的 `data_parallel` 配置，自动切分 items、并行执行、合并输出，对算子完全透明。
+
+### 配置
+
+```python
+flow.transform_xxx(
+    item_input=["raw_score"],
+    item_output=["norm_score"],
+    data_parallel=3,  # 将 items 切成 3 片并行执行
+)
+```
+
+`data_parallel` 是引擎保留参数，不传递给算子 `Init`。值为 0 或 1 时等同于不启用。
+
+### 执行模型
+
+```
+                    ┌─ shard 0: Execute(common, items[0..k])  → output_0
+BuildInput → split ─┼─ shard 1: Execute(common, items[k..m])  → output_1  → merge → ValidateOutput → ApplyOutput
+                    └─ shard 2: Execute(common, items[m..n])  → output_2
+```
+
+- 每个 shard 共享同一份 common（引用），获得 items 的一个子集
+- 算子看到的 item index 是 shard-local 的（从 0 开始）
+- merge 时把 local index 偏移回 frame 绝对 index
+- 余数分配给前几片（如 10 items / 3 shards = 4, 3, 3）
+- items 为空时退化为单 shard 执行
+- shard 数大于 item 数时自动收缩
+
+### 支持范围
+
+**只有 Transform 类型支持 `data_parallel`。** 其他类型一律禁止。
+
+| 算子类型 | data_parallel | 原因 |
+|---------|--------------|------|
+| Transform | 支持（禁止 common_output） | per-item SetItem 天然可分片 |
+| Recall | 禁止 | 大多数 Recall 不依赖 item 输入，分片会重复召回 N 次 |
+| Observe | 禁止 | 只读，并行只是重复副作用，没有收益 |
+| Filter | 禁止 | Barrier，需全局视图 |
+| Merge | 禁止 | Barrier，需全局视图 |
+| Reorder | 禁止 | Barrier，需全局视图 |
+
+### common_output 禁止
+
+启用数据并行时，`$metadata.common_output` 必须为空。原因：common 写入在多个 shard 间没有安全的 merge 语义——不同 shard 可能写出不同的值，引擎无法决定哪个胜出。真正需要数据并行的场景（per-item 密集计算）天然只写 item 字段。如果未来出现合理的 common 并行写入需求，再讨论 map-reduce 方案。
+
+### 错误处理
+
+- 任一 shard 执行失败 → 取消其余 shard，返回首个错误
+- shard 内的 panic 被恢复为 `PanicError`
+- warning 按 shard 顺序取第一个非 nil
+
+### 对 DAG 的影响
+
+数据并行不改变 DAG 推导逻辑。`data_parallel` 是纯运行时配置，不影响字段依赖、Barrier 语义或传递性归约。
+
 ## 分层解耦
 
 ```

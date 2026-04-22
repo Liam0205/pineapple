@@ -20,6 +20,7 @@ var reservedKeys = map[string]struct{}{
 	"common_defaults":    {},
 	"item_defaults":      {},
 	"for_branch_control": {},
+	"data_parallel":      {},
 }
 
 // IsReservedKey returns true if the key is engine-reserved.

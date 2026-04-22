@@ -114,6 +114,9 @@ func (out *OperatorOutput) SetWarning(err error) {
 
 // --- Accessors for engine-internal use ---
 
+func (in *OperatorInput) RawCommon() map[string]any  { return in.common }
+func (in *OperatorInput) RawItems() []map[string]any  { return in.items }
+
 func (out *OperatorOutput) GetCommonWrites() map[string]any       { return out.commonWrites }
 func (out *OperatorOutput) GetItemWrites() map[int]map[string]any  { return out.itemWrites }
 func (out *OperatorOutput) GetAddedItems() []map[string]any        { return out.addedItems }

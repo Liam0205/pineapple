@@ -749,6 +749,62 @@ func TestNewEngineInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestDataParallelValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		typeName  string
+		dp        int
+		commonOut []string
+		wantErr   bool
+	}{
+		{"Transform dp=3 no common_output", "noop", 3, nil, false},
+		{"Transform dp=1 with common_output", "set_field", 1, []string{"x"}, false},
+		{"Transform dp=3 with common_output", "noop", 3, []string{"x"}, true},
+		{"Recall dp=2", "recall_fixed", 2, nil, true},
+		{"Filter dp=2", "filter_offline", 2, nil, true},
+		{"Merge dp=2", "merge_dedup", 2, nil, true},
+		{"Reorder dp=2", "sort_desc", 2, nil, true},
+		{"dp=0 normalizes to 1", "noop", 0, nil, false},
+		{"dp=-1 rejected", "noop", -1, nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opCfg := map[string]any{
+				"type_name": tt.typeName,
+				"$metadata": map[string]any{
+					"common_input":  []string{},
+					"common_output": tt.commonOut,
+					"item_input":    []string{},
+					"item_output":   []string{},
+				},
+			}
+			if tt.dp != 0 {
+				opCfg["data_parallel"] = tt.dp
+			}
+			if tt.typeName == "set_field" {
+				opCfg["field"] = "x"
+				opCfg["value"] = 1.0
+			}
+			if tt.typeName == "merge_dedup" {
+				opCfg["sources"] = []string{}
+			}
+			cfg := makeConfig(
+				map[string]any{"op": opCfg},
+				map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+				map[string]any{"common_input": []string{}},
+			)
+			_, err := pine.NewEngine(mustJSON(t, cfg))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestNewEngineUnknownOperator(t *testing.T) {
 	cfg := makeConfig(
 		map[string]any{

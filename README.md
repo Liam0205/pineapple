@@ -525,6 +525,7 @@ flow.recall_feature_index(
 | `common_defaults` | 请求级字段默认值 |
 | `sources` | 合并算子的数据来源 |
 | `debug` | 启用此算子的调试快照 |
+| `data_parallel` | 数据并行分片数（仅 Transform，需空 common_output） |
 
 > Recall 身份由算子名前缀 (`recall_`) 自动推导，无需手动声明。
 
