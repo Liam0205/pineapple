@@ -3,12 +3,16 @@ package dataframe
 import (
 	"fmt"
 	"reflect"
+	"sync"
 
 	"github.com/Liam0205/pineapple/internal/types"
 )
 
 // RowFrame is a request-local row-store DataFrame.
+// It is concurrency-safe: concurrent reads (BuildInput, Common, Item) are allowed,
+// while mutations (ApplyOutput, SetCommon) are exclusive.
 type RowFrame struct {
+	mu     sync.RWMutex
 	common map[string]any
 	items  []map[string]any
 }
@@ -30,18 +34,28 @@ func newRowFrame(common map[string]any, items []map[string]any) *RowFrame {
 }
 
 func (f *RowFrame) Common(field string) any {
-	return f.common[field]
+	f.mu.RLock()
+	v := f.common[field]
+	f.mu.RUnlock()
+	return v
 }
 
 func (f *RowFrame) SetCommon(field string, value any) {
+	f.mu.Lock()
 	f.common[field] = value
+	f.mu.Unlock()
 }
 
 func (f *RowFrame) ItemCount() int {
-	return len(f.items)
+	f.mu.RLock()
+	n := len(f.items)
+	f.mu.RUnlock()
+	return n
 }
 
 func (f *RowFrame) Item(index int, field string) any {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	if index < 0 || index >= len(f.items) {
 		return nil
 	}
@@ -54,6 +68,9 @@ func (f *RowFrame) BuildInput(
 	commonDefaults map[string]any,
 	itemDefaults map[string]any,
 ) *types.OperatorInput {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	cs := make(map[string]any, len(commonFields))
 	for _, field := range commonFields {
 		v := f.common[field]
@@ -84,6 +101,9 @@ func (f *RowFrame) BuildInput(
 }
 
 func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	// 1. Common writes
 	for field, value := range out.GetCommonWrites() {
 		if err := validateValue(field, value); err != nil {
@@ -151,6 +171,9 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 }
 
 func (f *RowFrame) ToResult(commonOut, itemOut []string) *types.Result {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	common := projectMap(f.common, commonOut)
 	items := make([]map[string]any, len(f.items))
 	for i, item := range f.items {

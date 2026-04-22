@@ -2,12 +2,16 @@ package dataframe
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/Liam0205/pineapple/internal/types"
 )
 
 // ColumnFrame is a request-local column-store DataFrame.
+// It is concurrency-safe via a single RWMutex: read operations take RLock,
+// write operations take Lock.
 type ColumnFrame struct {
+	mu       sync.RWMutex
 	common   map[string]any
 	columns  map[string][]any
 	rowCount int
@@ -38,18 +42,28 @@ func newColumnFrame(common map[string]any, items []map[string]any) *ColumnFrame 
 }
 
 func (f *ColumnFrame) Common(field string) any {
-	return f.common[field]
+	f.mu.RLock()
+	v := f.common[field]
+	f.mu.RUnlock()
+	return v
 }
 
 func (f *ColumnFrame) SetCommon(field string, value any) {
+	f.mu.Lock()
 	f.common[field] = value
+	f.mu.Unlock()
 }
 
 func (f *ColumnFrame) ItemCount() int {
-	return f.rowCount
+	f.mu.RLock()
+	n := f.rowCount
+	f.mu.RUnlock()
+	return n
 }
 
 func (f *ColumnFrame) Item(index int, field string) any {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	if index < 0 || index >= f.rowCount {
 		return nil
 	}
@@ -66,6 +80,7 @@ func (f *ColumnFrame) BuildInput(
 	commonDefaults map[string]any,
 	itemDefaults map[string]any,
 ) *types.OperatorInput {
+	f.mu.RLock()
 	cs := make(map[string]any, len(commonFields))
 	for _, field := range commonFields {
 		v := f.common[field]
@@ -94,11 +109,15 @@ func (f *ColumnFrame) BuildInput(
 		}
 		its[i] = row
 	}
+	f.mu.RUnlock()
 
 	return types.NewOperatorInput(cs, its)
 }
 
 func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	// 1. Common writes
 	for field, value := range out.GetCommonWrites() {
 		if err := validateValue(field, value); err != nil {
@@ -125,9 +144,8 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		}
 	}
 
-	// 3. Removals — compact all columns
-	removed := out.GetRemovedItems()
-	if len(removed) > 0 {
+	// 3. Removals
+	if removed := out.GetRemovedItems(); len(removed) > 0 {
 		newCount := f.rowCount - len(removed)
 		if newCount < 0 {
 			newCount = 0
@@ -141,13 +159,10 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 			}
 			f.columns[field] = newCol
 		}
-		f.rowCount = len(f.columns[firstKey(f.columns)])
-		if len(f.columns) == 0 {
-			f.rowCount = newCount
-		}
+		f.rowCount = newCount
 	}
 
-	// 4. Reorder — permute all columns
+	// 4. Reorder
 	if order := out.GetItemOrder(); order != nil {
 		if len(order) != f.rowCount {
 			return fmt.Errorf("SetItemOrder length %d does not match item count %d", len(order), f.rowCount)
@@ -164,7 +179,7 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		}
 	}
 
-	// 5. Additions — extend all columns
+	// 5. Additions
 	for _, added := range out.GetAddedItems() {
 		if recall {
 			added["_source"] = opName
@@ -175,12 +190,10 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 			}
 			col, ok := f.columns[k]
 			if !ok {
-				// New field: backfill existing rows with nil
 				col = make([]any, f.rowCount, f.rowCount+1)
 			}
 			f.columns[k] = append(col, v)
 		}
-		// Fields not in this added item get nil
 		for field, col := range f.columns {
 			if _, ok := added[field]; !ok {
 				f.columns[field] = append(col, nil)
@@ -193,6 +206,7 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 }
 
 func (f *ColumnFrame) ToResult(commonOut, itemOut []string) *types.Result {
+	f.mu.RLock()
 	common := projectMap(f.common, commonOut)
 	items := make([]map[string]any, f.rowCount)
 	for i := 0; i < f.rowCount; i++ {
@@ -204,12 +218,7 @@ func (f *ColumnFrame) ToResult(commonOut, itemOut []string) *types.Result {
 		}
 		items[i] = row
 	}
-	return &types.Result{Common: common, Items: items}
-}
+	f.mu.RUnlock()
 
-func firstKey(m map[string][]any) string {
-	for k := range m {
-		return k
-	}
-	return ""
+	return &types.Result{Common: common, Items: items}
 }

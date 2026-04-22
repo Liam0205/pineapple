@@ -49,12 +49,12 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 	defer cancel()
 
 	var (
-		mu        sync.Mutex // protects frame access and shared slices
-		warnings  []Warning
-		traces    = make([]types.OpTrace, n) // pre-allocated, indexed by node
-		fatalErr  error
-		fatalOnce sync.Once
-		wg        sync.WaitGroup
+		warningsMu sync.Mutex // protects warnings slice only
+		warnings   []Warning
+		traces     = make([]types.OpTrace, n) // pre-allocated, indexed by node
+		fatalErr   error
+		fatalOnce  sync.Once
+		wg         sync.WaitGroup
 	)
 
 	for i := 0; i < n; i++ {
@@ -84,9 +84,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 
 			// Evaluate skip
 			if cop.Config.Skip != "" {
-				mu.Lock()
 				skipVal := frame.Common(cop.Config.Skip)
-				mu.Unlock()
 				if skipVal == true {
 					traces[idx] = types.OpTrace{
 						Name:      cop.Name,
@@ -101,14 +99,11 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 				}
 			}
 
-			// Build input under lock.
-			// Filter out the skip (control-flow) field so operators
-			// see only business fields in their input snapshot.
+			// Build input — frame methods are concurrency-safe.
 			commonInput := cop.Config.Meta.CommonInput
 			if cop.Config.Skip != "" {
 				commonInput = filterOutField(commonInput, cop.Config.Skip)
 			}
-			mu.Lock()
 			input := dataframe.BuildInput(
 				frame,
 				commonInput,
@@ -116,7 +111,6 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 				cop.Config.CommonDefaults,
 				cop.Config.ItemDefaults,
 			)
-			mu.Unlock()
 
 			// Capture input snapshot for debug operators
 			var inputSnapshot map[string]any
@@ -176,9 +170,9 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 
 			// Collect warning
 			if w := output.GetWarning(); w != nil {
-				mu.Lock()
+				warningsMu.Lock()
 				warnings = append(warnings, Warning{Operator: cop.Name, Err: w})
-				mu.Unlock()
+				warningsMu.Unlock()
 			}
 
 			// Capture output snapshot for debug operators
@@ -197,10 +191,8 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 					cop.Name, duration, inputJSON, outputJSON)
 			}
 
-			// Apply output under lock
-			mu.Lock()
+			// Apply output — frame methods are concurrency-safe.
 			applyErr := dataframe.ApplyOutput(frame, output, cop.Name, cop.Config.Recall)
-			mu.Unlock()
 
 			if applyErr != nil {
 				fatalOnce.Do(func() {

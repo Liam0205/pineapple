@@ -74,6 +74,7 @@ Common 表:
 
 ```go
 type RowFrame struct {
+    mu     sync.RWMutex
     common map[string]any
     items  []map[string]any
 }
@@ -81,11 +82,13 @@ type RowFrame struct {
 
 - 实现简单，结构变更操作（removals、reorder）高效
 - 缺点：大量小对象分配，GC 压力较大
+- Go map 不支持并发读写（即使不同 key），因此只能做读写分离（RWMutex），不支持字段级无锁
 
 **列存实现 `ColumnFrame`：**
 
 ```go
 type ColumnFrame struct {
+    mu       sync.RWMutex
     common   map[string]any
     columns  map[string][]any
     rowCount int
@@ -94,6 +97,7 @@ type ColumnFrame struct {
 
 - 构造和字段写入时分配数量极少（`[]any` 列式布局）
 - 结构变更操作需遍历所有列，开销随列数线性增长
+- 与 RowFrame 一样，通过单个 `sync.RWMutex` 保证并发安全（读操作 RLock，写操作 Lock）
 
 > **设计选择**：列存使用 `[]any` 而非 typed columns。理由：当前系统全程使用 `any`，typed columns 需要类型推断/声明机制，复杂度高。`[]any` 相比 `[]map[string]any` 已大幅减少 GC 压力。如后续 profiling 证明必要，可引入 typed columns。
 

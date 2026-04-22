@@ -13,7 +13,8 @@ const (
 )
 
 // Frame is the interface for request-local DataFrames.
-// Not concurrency-safe — the runtime scheduler guards access with a mutex.
+// Implementations are concurrency-safe via a single sync.RWMutex — the runtime
+// scheduler does not hold external locks around frame access.
 type Frame interface {
 	Common(field string) any
 	SetCommon(field string, value any)

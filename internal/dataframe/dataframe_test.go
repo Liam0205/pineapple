@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/Liam0205/pineapple/internal/types"
@@ -468,4 +469,195 @@ func TestApplyOutputAddItemTypeValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- Concurrency tests ---
+
+func TestColumnFrameConcurrentBuildInput(t *testing.T) {
+	items := make([]map[string]any, 100)
+	for i := range items {
+		items[i] = map[string]any{"a": i, "b": i * 10}
+	}
+	f := NewFrame(StorageModeColumn, map[string]any{"x": 1}, items)
+
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			in := f.BuildInput([]string{"x"}, []string{"a", "b"}, nil, nil)
+			if in.ItemCount() != 100 {
+				t.Errorf("expected 100 items, got %d", in.ItemCount())
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestColumnFrameConcurrentDisjointFieldWrites(t *testing.T) {
+	items := make([]map[string]any, 50)
+	for i := range items {
+		items[i] = map[string]any{"a": 0, "b": 0}
+	}
+	f := NewFrame(StorageModeColumn, map[string]any{}, items)
+
+	var wg sync.WaitGroup
+	// Goroutine 1 writes field "a"
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		out := types.NewOperatorOutput()
+		for i := 0; i < 50; i++ {
+			out.SetItem(i, "a", 100+i)
+		}
+		if err := f.ApplyOutput(out, "op_a", false); err != nil {
+			t.Errorf("op_a: %v", err)
+		}
+	}()
+	// Goroutine 2 writes field "b"
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		out := types.NewOperatorOutput()
+		for i := 0; i < 50; i++ {
+			out.SetItem(i, "b", 200+i)
+		}
+		if err := f.ApplyOutput(out, "op_b", false); err != nil {
+			t.Errorf("op_b: %v", err)
+		}
+	}()
+	wg.Wait()
+
+	for i := 0; i < 50; i++ {
+		if f.Item(i, "a") != 100+i {
+			t.Errorf("item %d field a: got %v, want %d", i, f.Item(i, "a"), 100+i)
+		}
+		if f.Item(i, "b") != 200+i {
+			t.Errorf("item %d field b: got %v, want %d", i, f.Item(i, "b"), 200+i)
+		}
+	}
+}
+
+func TestColumnFrameConcurrentCommonAndItemAccess(t *testing.T) {
+	items := make([]map[string]any, 20)
+	for i := range items {
+		items[i] = map[string]any{"v": i}
+	}
+	f := NewFrame(StorageModeColumn, map[string]any{"c": 0}, items)
+
+	var wg sync.WaitGroup
+	// Write common field
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		out := types.NewOperatorOutput()
+		out.SetCommon("c", 42)
+		if err := f.ApplyOutput(out, "op_common", false); err != nil {
+			t.Errorf("common write: %v", err)
+		}
+	}()
+	// Read item fields concurrently
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = f.BuildInput(nil, []string{"v"}, nil, nil)
+	}()
+	wg.Wait()
+}
+
+func TestColumnFrameLazyColumnCreation(t *testing.T) {
+	items := make([]map[string]any, 10)
+	for i := range items {
+		items[i] = map[string]any{"x": i}
+	}
+	f := NewFrame(StorageModeColumn, map[string]any{}, items)
+
+	var wg sync.WaitGroup
+	// Two goroutines create different new columns
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		out := types.NewOperatorOutput()
+		for i := 0; i < 10; i++ {
+			out.SetItem(i, "new_a", i*2)
+		}
+		if err := f.ApplyOutput(out, "op_a", false); err != nil {
+			t.Errorf("new_a: %v", err)
+		}
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		out := types.NewOperatorOutput()
+		for i := 0; i < 10; i++ {
+			out.SetItem(i, "new_b", i*3)
+		}
+		if err := f.ApplyOutput(out, "op_b", false); err != nil {
+			t.Errorf("new_b: %v", err)
+		}
+	}()
+	wg.Wait()
+
+	for i := 0; i < 10; i++ {
+		if f.Item(i, "new_a") != i*2 {
+			t.Errorf("item %d new_a: got %v, want %d", i, f.Item(i, "new_a"), i*2)
+		}
+		if f.Item(i, "new_b") != i*3 {
+			t.Errorf("item %d new_b: got %v, want %d", i, f.Item(i, "new_b"), i*3)
+		}
+	}
+}
+
+func TestColumnFrameStructuralBlocksReaders(t *testing.T) {
+	items := make([]map[string]any, 20)
+	for i := range items {
+		items[i] = map[string]any{"id": i}
+	}
+	f := NewFrame(StorageModeColumn, map[string]any{}, items)
+
+	var wg sync.WaitGroup
+	// Structural: add items
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		out := types.NewOperatorOutput()
+		for i := 0; i < 10; i++ {
+			out.AddItem(map[string]any{"id": 100 + i})
+		}
+		if err := f.ApplyOutput(out, "recall", true); err != nil {
+			t.Errorf("additions: %v", err)
+		}
+	}()
+	// Reader
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = f.BuildInput(nil, []string{"id"}, nil, nil)
+	}()
+	wg.Wait()
+
+	if f.ItemCount() != 30 {
+		t.Errorf("expected 30 items after additions, got %d", f.ItemCount())
+	}
+}
+
+func TestRowFrameConcurrentBuildInput(t *testing.T) {
+	items := make([]map[string]any, 100)
+	for i := range items {
+		items[i] = map[string]any{"a": i, "b": i * 10}
+	}
+	f := NewFrame(StorageModeRow, map[string]any{"x": 1}, items)
+
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			in := f.BuildInput([]string{"x"}, []string{"a", "b"}, nil, nil)
+			if in.ItemCount() != 100 {
+				t.Errorf("expected 100 items, got %d", in.ItemCount())
+			}
+		}()
+	}
+	wg.Wait()
 }
