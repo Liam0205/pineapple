@@ -362,7 +362,9 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 - `RenderDOT(g *Graph) string` — Graphviz DOT 格式
 - `RenderMermaid(g *Graph) string` — Mermaid flowchart 格式
 
-节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名和类型分类。边来自 `Node.Succs`。
+节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名和类型分类。布局方向为自上而下（DOT `rankdir=TB`、Mermaid `graph TB`）。
+
+渲染边经过传递性归约（`reducedEdges`）：对每条边 u→v，用 BFS 检查是否存在不经该直接边的替代路径；若存在则该边冗余，不绘制。这保证可视化输出是保持可达性的最小边集，大幅提升人类可读性。内部 DAG 完整边集（`Node.Succs`）不变，调度器仍使用完整依赖。
 
 公共 API 通过 `Engine.RenderDAG(format string) (string, error)` 暴露，format 支持 `"dot"` 和 `"mermaid"`。HTTP 端点 `GET /dag?format=dot|mermaid`（默认 `dot`）。
 
