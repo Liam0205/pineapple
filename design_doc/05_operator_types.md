@@ -90,6 +90,29 @@ flow.transform_by_lua(
 
 关于 Lua 算子的详细设计（全局变量语义、function_for_common vs function_for_item、缺失值处理等），见 [02 流程抽象 — Lua 算子](02_flow_abstraction.md#lua-算子)。
 
+#### Remote Pineapple 算子
+
+`transform_by_remote_pineapple` 调用下游 Pineapple 服务的 `/execute` 端点，将本地 frame 字段映射为下游请求字段、将下游响应字段映射回本地输出字段。适用于跨服务特征获取场景。
+
+```python
+flow.transform_by_remote_pineapple(
+    common_input=["user_age"],
+    common_output=["user_score"],
+    item_input=["item_id"],
+    item_output=["item_feature"],
+    host="feature-service",
+    port=8080,
+    common_request=["age"],
+    common_response=["score"],
+    item_request=["id"],
+    item_response=["feature"],
+    timeout=5.0,
+    fail_on_error=True,
+)
+```
+
+字段映射模型：`common_request[i]` 与 `common_input[i]` 按位置对应，`item_request[i]` 与 `item_input[i]` 按位置对应，响应侧同理。当 `common_request` 等映射参数未提供时，直接使用 metadata 字段名（无映射）。`fail_on_error=false` 时下游错误降级为 warning。
+
 ### Filter
 
 按照某种规则删除 item。执行后 DataFrame 的 item 行数减少。
@@ -255,6 +278,7 @@ DSL 顺序中在 Barrier 之后的所有算子才能开始
 | `feature_dispatch` | `transform_dispatch` | Transform |
 | `feature_normalize` | `transform_normalize` | Transform |
 | `lua` | `transform_by_lua` | Transform |
+| — | `transform_by_remote_pineapple` | Transform (新增) |
 | `recall_static` | `recall_static` | Recall (不变) |
 | `filter_condition` | `filter_condition` | Filter (不变) |
 | `filter_truncate` | `filter_truncate` | Filter (不变) |

@@ -643,7 +643,7 @@ pineapple/
 │   ├── runtime/            #   调度器、trace、stats
 │   └── types/              #   核心类型定义
 ├── operators/              # 内置算子实现
-│   ├── transform/          #   transform_dispatch, transform_normalize, transform_resource_lookup
+│   ├── transform/          #   transform_dispatch, transform_normalize, transform_resource_lookup, transform_by_remote_pineapple
 │   ├── filter/             #   filter_condition, filter_truncate
 │   ├── lua/                #   transform_by_lua (Lua 嵌入)
 │   ├── merge/              #   merge_dedup
