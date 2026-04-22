@@ -257,8 +257,8 @@ func wrapResourceConfig(inner string) string {
 }
 
 func TestRegisterAndLoadFromRootConfig(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	Register(testSchema("test_type"), func(params map[string]any) (Fetcher, error) {
 		prefix, _ := params["prefix"].(string)
@@ -294,8 +294,8 @@ func TestRegisterAndLoadFromRootConfig(t *testing.T) {
 }
 
 func TestLoadFromRootConfigUnknownType(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	m := NewManager()
 	config := wrapResourceConfig(`{
@@ -312,8 +312,8 @@ func TestLoadFromRootConfigUnknownType(t *testing.T) {
 }
 
 func TestLoadFromRootConfigFactoryError(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	Register(testSchema("fail_type"), func(params map[string]any) (Fetcher, error) {
 		return nil, fmt.Errorf("missing required param")
@@ -342,8 +342,8 @@ func TestLoadFromRootConfigInvalidJSON(t *testing.T) {
 }
 
 func TestLoadFromRootConfigDefaultInterval(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	Register(testSchema("simple"), func(params map[string]any) (Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
@@ -387,8 +387,8 @@ func TestLoadFromRootConfigNoResources(t *testing.T) {
 }
 
 func TestDuplicateRegisterResourcePanics(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	factory := func(params map[string]any) (Fetcher, error) { return nil, nil }
 	Register(testSchema("dup_type"), factory)
@@ -402,8 +402,8 @@ func TestDuplicateRegisterResourcePanics(t *testing.T) {
 }
 
 func TestAll(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	factory := func(params map[string]any) (Fetcher, error) { return nil, nil }
 	Register(types.ResourceSchema{
@@ -436,8 +436,8 @@ func TestAll(t *testing.T) {
 }
 
 func TestAllEmpty(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	schemas := All()
 	if len(schemas) != 0 {
@@ -472,8 +472,8 @@ func TestNamesEmpty(t *testing.T) {
 }
 
 func TestLoadFromRootConfigWithManualRegister(t *testing.T) {
-	resetRegistry()
-	defer resetRegistry()
+	ResetRegistry()
+	defer ResetRegistry()
 
 	Register(testSchema("cfg_type"), func(params map[string]any) (Fetcher, error) {
 		return func(ctx context.Context) (any, error) {

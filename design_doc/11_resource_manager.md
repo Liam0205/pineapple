@@ -381,3 +381,39 @@ ctx := resource.WithResources(ctx, mock)
 ### 6. 优雅关闭
 
 `Stop()` 取消所有刷新 goroutine 的 context，等待退出。确保壳子关闭时不泄漏 goroutine。
+
+### 7. 配置热加载
+
+当统一 JSON 配置文件变更时，`pkg/server` 的 watchConfig 同时重载 Engine 和 ResourceManager。
+
+重载策略：原子替换整个 Manager，与 Engine 重载模式一致。
+
+```
+配置文件变更
+  ↓
+创建新 Manager
+  ↓
+LoadFromRootConfig(data)
+  ↓
+Start() — 同步拉取所有资源
+  ↓
+ValidateResourceDeps — 校验新 engine 与新资源的一致性
+  ↓
+atomic.Pointer.Swap — 原子替换
+  ↓
+oldRM.Stop() — 停止旧 Manager 的后台刷新
+```
+
+并发安全保证：
+
+- `resources` 使用 `atomic.Pointer[resource.Manager]`，与 `enginePtr` 对称
+- `handleExecute` 在请求开始时捕获 Manager 指针为局部变量，整个请求使用同一份快照
+- 旧 Manager 的 `atomic.Value` 数据在 `Stop()` 后仍可读，in-flight 请求不受影响
+- Go GC 保证旧对象在所有引用释放前不被回收
+
+失败回滚：
+
+- 若新 Manager 的 `Start()` 或 `ValidateResourceDeps` 失败，新 Manager 被 Stop，旧 Engine 和旧 Manager 保持不变
+- 日志记录失败原因，服务继续使用旧配置
+
+限制：通过 `Config.Resources` 传入的手动 `Register()` 资源在重载后不会保留。声明式资源应通过 `RegisterResource` + JSON 配置管理。

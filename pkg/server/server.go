@@ -28,7 +28,7 @@ type Config struct {
 
 var (
 	enginePtr atomic.Pointer[pine.Engine]
-	resources *resource.Manager
+	resources atomic.Pointer[resource.Manager]
 )
 
 // Run starts the Pine HTTP server with the given configuration.
@@ -57,24 +57,26 @@ func Run(cfg Config) error {
 	// Initialize ResourceManager.
 	// If the caller supplied a pre-registered manager, use it;
 	// otherwise create an empty one.
+	var rm *resource.Manager
 	if cfg.Resources != nil {
-		resources = cfg.Resources
+		rm = cfg.Resources
 	} else {
-		resources = resource.NewManager()
+		rm = resource.NewManager()
 	}
 
 	// Load resource config from unified JSON.
-	if err := resources.LoadFromRootConfig(configData); err != nil {
+	if err := rm.LoadFromRootConfig(configData); err != nil {
 		log.Fatalf("failed to load resource config: %v", err)
 	}
 
-	if err := resources.Start(context.Background()); err != nil {
+	if err := rm.Start(context.Background()); err != nil {
 		log.Fatalf("failed to start resource manager: %v", err)
 	}
-	defer resources.Stop()
+	resources.Store(rm)
+	defer resources.Load().Stop()
 
 	// Validate resource dependencies against pipeline config.
-	if err := resource.ValidateResourceDeps(configData, resources); err != nil {
+	if err := resource.ValidateResourceDeps(configData, rm); err != nil {
 		log.Fatalf("resource dependency check failed: %v", err)
 	}
 
@@ -108,16 +110,35 @@ func Run(cfg Config) error {
 	return nil
 }
 
-func loadEngine(path string) error {
+func reloadConfig(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
+
 	engine, err := pine.NewEngine(data)
 	if err != nil {
 		return err
 	}
+
+	newRM := resource.NewManager()
+	if err := newRM.LoadFromRootConfig(data); err != nil {
+		return err
+	}
+	if err := newRM.Start(context.Background()); err != nil {
+		return err
+	}
+
+	if err := resource.ValidateResourceDeps(data, newRM); err != nil {
+		newRM.Stop()
+		return err
+	}
+
 	enginePtr.Store(engine)
+	oldRM := resources.Swap(newRM)
+	if oldRM != nil {
+		oldRM.Stop()
+	}
 	return nil
 }
 
@@ -131,7 +152,7 @@ func watchConfig(path string) {
 		}
 		if info.ModTime().After(lastMod) {
 			lastMod = info.ModTime()
-			if err := loadEngine(path); err != nil {
+			if err := reloadConfig(path); err != nil {
 				log.Printf("config reload failed: %v", err)
 			} else {
 				log.Printf("config reloaded from %s", path)
@@ -190,7 +211,7 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inject resources into context so operators can access them.
-	ctx := resource.WithResources(r.Context(), resources)
+	ctx := resource.WithResources(r.Context(), resources.Load())
 	result, err := engine.Execute(ctx, pineReq)
 
 	resp := executeResponse{}

@@ -59,8 +59,8 @@ func lookupFactory(typeName string) FetcherFactory {
 	return e.factory
 }
 
-// resetRegistry clears the global registry. For testing only.
-func resetRegistry() {
+// ResetRegistry clears the global registry. For testing only.
+func ResetRegistry() {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	registry = make(map[string]registryEntry)
