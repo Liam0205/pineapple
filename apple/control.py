@@ -87,4 +87,5 @@ def make_control_op(
         common_output=[branch.ctrl_field],
         for_branch_control=True,
         code_info=f"[{branch.kind}] {condition or ''}",
+        name=f"{branch.kind}_{branch.ctrl_index}",
     )

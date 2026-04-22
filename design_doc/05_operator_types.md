@@ -200,7 +200,7 @@ DSL 顺序中在 Barrier 之后的所有算子才能开始
 
 控制流（if/else 分支）**不是独立的算子类型**，而是 Python DSL 层面的编译期抽象。
 
-`if_()` / `elseif_()` / `else_()` / `end_if_()` 在编译时被降级为 `transform_by_lua` 算子（带 `for_branch_control: true` 标记）+ `skip` 机制。编译器根据条件生成控制算子，输出隐藏的控制属性；分支内算子通过 `skip` 引用控制属性。Go 引擎无需特殊处理控制流。
+`if_()` / `elseif_()` / `else_()` / `end_if_()` 在编译时被降级为 `transform_by_lua` 算子（带 `for_branch_control: true` 标记）+ `skip` 机制。编译器根据条件生成控制算子，输出隐藏的控制属性；分支内算子通过 `skip` 引用控制属性。Go 引擎无需特殊处理控制流。控制算子使用显式命名（如 `if_1`、`elseif_2`、`else_3`），使其在 DAG 可视化中可直观辨识为条件分支。
 
 > **备注**: Control 作为编译期语法糖处理，不计划提升为独立算子类型。当前 skip 机制已满足需求，引擎层面无需感知控制流语义。
 

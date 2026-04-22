@@ -245,7 +245,7 @@ flow.if_("item_count > 0") \
 ```
 
 编译为：
-1. 生成控制算子 `_ctrl_1`，输出 `_if_1`。
+1. 生成控制算子 `if_1`（显式命名，底层 `type_name` 仍为 `transform_by_lua`），输出 `_if_1`。
 2. 条件为 true 时 `_if_1 = false`（不跳过分支），条件为 false 时 `_if_1 = true`（跳过分支）。
 3. 分支内算子设置 `"skip": "_if_1"`。
 
@@ -263,19 +263,19 @@ flow.if_("cond_A") \
 
 编译为链式控制属性：
 
-1. **`if_("cond_A")`** → 控制算子 `_ctrl_1`
+1. **`if_("cond_A")`** → 控制算子 `if_1`
    - 输入：`cond_A` 引用的 common 字段
    - 输出：`_if_1`
    - 逻辑：`cond_A` 为 true → `_if_1 = false`；否则 `_if_1 = true`
    - 分支内算子：`"skip": "_if_1"`
 
-2. **`elseif_("cond_B")`** → 控制算子 `_ctrl_2`
+2. **`elseif_("cond_B")`** → 控制算子 `elseif_2`
    - 输入：`_if_1` + `cond_B` 引用的 common 字段
    - 输出：`_elif_2`
    - 逻辑：当 `_if_1 == true`（前面分支未命中）**且** `cond_B` 为 true → `_elif_2 = false`；否则 `_elif_2 = true`
    - 分支内算子：`"skip": "_elif_2"`
 
-3. **`else_()`** → 控制算子 `_ctrl_3`
+3. **`else_()`** → 控制算子 `else_3`
    - 输入：`_if_1, _elif_2`
    - 输出：`_else_3`
    - 逻辑：当所有前置控制属性均为 true（所有前面分支均未命中）→ `_else_3 = false`；否则 `_else_3 = true`
@@ -287,15 +287,15 @@ flow.if_("cond_A") \
 
 ```json
 {
-  "_ctrl_1_A1B2C3": {
-    "type_name": "lua",
+  "if_1": {
+    "type_name": "transform_by_lua",
     "$metadata": {
       "common_input": ["item_count"],
       "common_output": ["_if_1"],
       "item_input": [],
       "item_output": []
     },
-    "$code_info": "[if] pipeline.py:10: .if_(\"item_count > 0\")",
+    "$code_info": "[if] item_count > 0",
     "function_for_common": "evaluate",
     "lua_script": "function evaluate() if (item_count > 0) then return false else return true end end",
     "for_branch_control": true
@@ -312,15 +312,15 @@ flow.if_("cond_A") \
     "skip": "_if_1"
   },
 
-  "_ctrl_2_G7H8I9": {
-    "type_name": "lua",
+  "elseif_2": {
+    "type_name": "transform_by_lua",
     "$metadata": {
       "common_input": ["_if_1", "fallback_enabled"],
       "common_output": ["_elif_2"],
       "item_input": [],
       "item_output": []
     },
-    "$code_info": "[elseif] pipeline.py:14: .elseif_(\"fallback_enabled ~= nil\")",
+    "$code_info": "[elseif] fallback_enabled ~= nil",
     "function_for_common": "evaluate",
     "lua_script": "function evaluate() if (_if_1 == true) and (fallback_enabled ~= nil) then return false else return true end end",
     "for_branch_control": true
@@ -337,15 +337,15 @@ flow.if_("cond_A") \
     "skip": "_elif_2"
   },
 
-  "_ctrl_3_M4N5O6": {
-    "type_name": "lua",
+  "else_3": {
+    "type_name": "transform_by_lua",
     "$metadata": {
       "common_input": ["_if_1", "_elif_2"],
       "common_output": ["_else_3"],
       "item_input": [],
       "item_output": []
     },
-    "$code_info": "[else] pipeline.py:18: .else_()",
+    "$code_info": "[else] ",
     "function_for_common": "evaluate",
     "lua_script": "function evaluate() if (_if_1 == true) and (_elif_2 == true) then return false else return true end end",
     "for_branch_control": true

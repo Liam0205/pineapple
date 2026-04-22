@@ -41,3 +41,4 @@
 - `llmdoc/memory/reflections/dag-viz-transitive-reduction-and-layout.md` — DAG 可视化传递性归约与纵向布局复盘，记录渲染层归约策略、内部图保留完整边集的设计选择。
 - `llmdoc/memory/reflections/column-store-dataframe.md` — 列存 DataFrame 实现复盘，记录 Frame 接口抽象、`[]any` 设计选择、benchmark 数据与适用场景分析。
 - `llmdoc/memory/reflections/apple-dsl-storage-mode.md` — Apple DSL storage_mode 支持复盘，记录根级配置扩展模式与文档同步教训。
+- `llmdoc/memory/reflections/control-op-explicit-naming.md` — 控制算子显式命名复盘，记录从 `transform_by_lua_HASH` 到 `if_1`/`else_N` 的改进动机与实现。

@@ -103,7 +103,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 ### 降级策略
 
-`apple/control.py` 通过 `make_control_op` 将每个分支转为一个 `transform_by_lua` 算子。
+`apple/control.py` 通过 `make_control_op` 将每个分支转为一个 `transform_by_lua` 算子。控制算子使用显式命名 `{kind}_{ctrl_index}`（如 `if_1`、`elseif_2`、`else_3`），使其在 DAG 可视化中可直观辨识为条件分支，而非淹没在 `transform_by_lua_XXXXXX` 的自动命名中。`type_name` 仍为 `transform_by_lua`，Go 引擎调度不受影响。
 
 每个分支写入一个编译器生成的 common 字段，如：
 
