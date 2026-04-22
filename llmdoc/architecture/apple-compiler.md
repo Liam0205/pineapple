@@ -32,7 +32,7 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 
 `apple/flow.py` 定义两个主要的面向用户的构建器：
 
-- `Flow` — 带输入/输出契约和资源的顶层声明
+- `Flow` — 带输入/输出契约、资源和可选 `storage_mode` 的顶层声明
 - `SubFlow` — 无独立契约的可复用算子片段
 
 两者继承 `_FlowBase`，持有算子列表和控制流记账。
@@ -223,6 +223,7 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 
 - `_PINEAPPLE_VERSION`（来自 `apple/_version.py`）
 - `_PINEAPPLE_CREATE_TIME`（UTC ISO 时间戳）
+- 可选 `storage_mode`（当 `Flow` 构造时指定了 `storage_mode` 参数）
 - 可选 `resource_config`
 
 ### 步骤 10：序列化为 JSON
