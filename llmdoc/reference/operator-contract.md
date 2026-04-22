@@ -113,6 +113,7 @@
 - `common_defaults`
 - `item_defaults`
 - `for_branch_control`
+- `data_parallel`
 
 不要定义依赖这些名称的业务参数。
 
@@ -179,6 +180,8 @@
 | Merge | 合并/去重行集 | `SetItem`、`RemoveItem` |
 | Reorder | 改变 item 顺序 | `SetItemOrder` |
 | Observe | 只读副作用 | 无 |
+
+`data_parallel` 仅支持 Transform。启用时，`$metadata.common_output` 必须为空；其他算子类型在编译期拒绝该配置。
 
 需记住的附加语义：
 

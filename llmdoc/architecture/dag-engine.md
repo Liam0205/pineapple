@@ -201,11 +201,13 @@
 1. 等待所有前驱 done channel 或 context 取消。
 2. 检查 skip 条件（如有）。
 3. 从共享 DataFrame 构建输入快照（Frame 方法自行加锁）。
-4. 运行 `Execute`。
+4. 运行 `Execute`。当 `DataParallel > 1` 时，调度器改为委托 `internal/runtime/parallel.go` 中的 `parallelExecute`：按 item 将输入切成 N 份，启动 N 个带独立 panic recovery 的 goroutine 执行，再在返回调度器前合并输出。
 5. 根据算子类型契约校验输出。
 6. 将输出应用回 frame（Frame 方法自行加锁）。
 7. 记录 trace 和 stats。
 8. 关闭自身 done channel，使依赖者可以继续。
+
+`data_parallel` 仅是单节点运行时优化：它不改变 DAG 构建、依赖推导或图结构，调度器拿到的仍是同一张执行图。
 
 调度器仅用一把小 `warningsMu` 保护 warnings 切片。`traces[idx]` 每个 goroutine 写自己的索引，无需锁。`fatalErr` 由 `sync.Once` 保护。
 
@@ -401,6 +403,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 - DAG 推导：`internal/dag/dag.go`
 - DAG 可视化：`internal/dag/visualize.go`
 - 调度器和 trace 捕获：`internal/runtime/scheduler.go`
+- Data-parallel split/merge/execute：`internal/runtime/parallel.go`
 - 统计：`internal/runtime/stats.go`
 - Frame 接口和工厂：`internal/dataframe/frame.go`
 - 行存实现：`internal/dataframe/row_frame.go`
