@@ -85,6 +85,8 @@ class _FlowBase:
             elif k == "recall":
                 # Accept but ignore — recall is now type-driven from prefix
                 pass
+            elif k == "data_parallel":
+                meta[k] = v
             else:
                 params[k] = v
 
@@ -103,6 +105,7 @@ class _FlowBase:
             recall=is_recall,
             sources=meta.get("sources"),
             debug=meta.get("debug", False),
+            data_parallel=meta.get("data_parallel", 0),
             code_info=code_info,
             name=meta.get("name", ""),
         )

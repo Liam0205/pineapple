@@ -262,3 +262,54 @@ class TestUnderscorePrefix:
                      function_for_common="f", function_for_item="") \
             .end_if_()
         flow.compile()  # should not raise
+
+
+class TestDataParallel:
+    def test_transform_data_parallel_ok(self):
+        """Transform with no common_output and data_parallel > 1 should pass."""
+        flow = Flow(name="ok", common_input=["x"], item_input=["a"], item_output=["b"])
+        flow._add_op("transform_by_lua", common_input=["x"],
+                      item_input=["a"], item_output=["b"],
+                      lua_script="function f() return a end",
+                      function_for_item="f", function_for_common="",
+                      data_parallel=4)
+        flow.compile()  # should not raise
+
+    def test_non_transform_data_parallel_rejected(self):
+        """Non-transform operator with data_parallel > 1 must be rejected."""
+        flow = Flow(name="bad", item_output=["item_id"])
+        flow._add_op("recall_static", item_output=["item_id"],
+                      items=[{"item_id": "a"}], data_parallel=2)
+        with pytest.raises(ValidationError, match="only supported for Transform"):
+            flow.compile()
+
+    def test_data_parallel_with_common_output_rejected(self):
+        """Transform with common_output and data_parallel > 1 must be rejected."""
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        flow._add_op("transform_by_lua", common_input=["x"],
+                      common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="",
+                      data_parallel=2)
+        with pytest.raises(ValidationError, match="requires empty common_output"):
+            flow.compile()
+
+    def test_data_parallel_one_ok(self):
+        """data_parallel=1 should not trigger validation."""
+        flow = Flow(name="ok", common_input=["x"], common_output=["y"])
+        flow._add_op("transform_by_lua", common_input=["x"],
+                      common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="",
+                      data_parallel=1)
+        flow.compile()  # should not raise
+
+    def test_data_parallel_zero_ok(self):
+        """data_parallel=0 (default) should not trigger validation."""
+        flow = Flow(name="ok", common_input=["x"], common_output=["y"])
+        flow._add_op("transform_by_lua", common_input=["x"],
+                      common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="",
+                      data_parallel=0)
+        flow.compile()  # should not raise

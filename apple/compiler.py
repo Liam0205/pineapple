@@ -19,6 +19,7 @@ from apple.base import OpCall
 from apple.validator import (
     ValidationError,
     detect_dead_code,
+    validate_data_parallel,
     validate_field_coverage,
     validate_no_underscore_output,
     validate_write_without_read,
@@ -89,6 +90,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         flow._common_input or [],
         flow._item_input or [],
     )
+    validate_data_parallel(named_ops)
     dead = detect_dead_code(
         named_ops,
         flow._common_output,
@@ -132,6 +134,8 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             entry["common_defaults"] = op.common_defaults
         if op.debug:
             entry["debug"] = True
+        if op.data_parallel > 1:
+            entry["data_parallel"] = op.data_parallel
         # Business params
         for k, v in op.params.items():
             entry[k] = v

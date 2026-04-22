@@ -136,6 +136,28 @@ def validate_write_without_read(
         written_by_ops_item.update(op.item_output)
 
 
+def validate_data_parallel(ops: list[tuple[str, OpCall]]) -> None:
+    """Check data_parallel constraints at compile time.
+
+    When data_parallel > 1:
+    1. The operator must be a Transform (type_name starts with "transform_").
+    2. common_output must be empty.
+    """
+    for name, op in ops:
+        if op.data_parallel > 1:
+            if not op.type_name.startswith("transform_"):
+                raise ValidationError(
+                    f"operator {name!r}: data_parallel={op.data_parallel} "
+                    f"is only supported for Transform operators, "
+                    f"got type_name={op.type_name!r}"
+                )
+            if op.common_output:
+                raise ValidationError(
+                    f"operator {name!r}: data_parallel={op.data_parallel} "
+                    f"requires empty common_output for Transform operators"
+                )
+
+
 def detect_dead_code(
     ops: list[tuple[str, OpCall]],
     flow_common_output: list[str] | None,

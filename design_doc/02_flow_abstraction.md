@@ -341,6 +341,13 @@ BuildInput → split ─┼─ shard 1: Execute(common, items[k..m])  → output
 
 数据并行不改变 DAG 推导逻辑。`data_parallel` 是纯运行时配置，不影响字段依赖、Barrier 语义或传递性归约。
 
+### 编译期校验
+
+`data_parallel` 的两条约束在两层同时守门：
+
+1. **Apple/Python DSL 编译期**：`compile_flow` 调用 `validate_data_parallel`，在生成 JSON 之前检查类型前缀和 `common_output`。错误在用户运行 Python 脚本时即刻暴露。
+2. **Go 引擎加载期**：`NewEngine` 中的 `validateDataParallel` 对同一约束做运行时二次校验，拦截手写 JSON 或其他来源绕过 DSL 的配置。
+
 ## 分层解耦
 
 ```

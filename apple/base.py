@@ -28,6 +28,7 @@ class OpCall:
     skip: str | None = None
     for_branch_control: bool = False
     row_dependency: bool = False
+    data_parallel: int = 0
     debug: bool = False
     # Debug info
     code_info: str = ""
