@@ -38,7 +38,7 @@ type Warning struct {
 // Run executes the DAG plan against a request-local frame.
 // Returns collected warnings, per-operator trace, and the first fatal error (if any).
 // If stats is non-nil, per-operator execution statistics are accumulated.
-func Run(ctx context.Context, plan *Plan, frame *dataframe.Frame, stats *Stats) ([]Warning, []types.OpTrace, error) {
+func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) ([]Warning, []types.OpTrace, error) {
 	n := len(plan.Graph.Nodes)
 	done := make([]chan struct{}, n)
 	for i := 0; i < n; i++ {

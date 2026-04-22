@@ -44,6 +44,8 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **配置热加载** — 服务运行时监控配置文件变更，自动无停机重载引擎和资源配置，业务迭代立即生效。
 
+**行存/列存可切换** — DataFrame 支持行存（`RowFrame`）和列存（`ColumnFrame`）两种存储模式，通过 JSON 配置的 `"storage_mode": "row"|"column"` 选择。列存在大规模 item 场景下减少 GC 压力和对象分配。
+
 **文档自动生成** — 算子和资源的 Type、Description、参数描述在注册时强制填写，codegen 自动生成 Python 类型绑定和 Markdown 文档，保证代码与文档永远同步。
 
 **Schema 即约束** — `Register()` 强制校验算子元信息完整性，缺少 Type、Description 或参数描述则启动时直接 panic，从源头杜绝文档缺失。

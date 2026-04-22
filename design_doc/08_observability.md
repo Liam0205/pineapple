@@ -135,10 +135,10 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
 | `item_defaults` | 否 | `{}` | item 字段的缺失值默认值 |
 | `debug` | 否 | `False` | 是否打印调试日志 |
 
-## 后续再做
+## 暂不计划
 
 - **实时监控面板**：算子级别的 CPU 消耗、耗时分布等系统指标。
-- **全链路特征追踪**：跨服务的数据血缘追踪。
+- **全链路特征追踪**：跨服务的数据血缘追踪。超出单引擎范畴，需分布式 tracing 基础设施支撑。
 
 ## 已实现
 

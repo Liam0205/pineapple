@@ -66,49 +66,40 @@ Common 表:
 
 此约束由 Apple 编译器在 `compile_flow()` 阶段强制校验。
 
-### 存储实现：行存与列存可切换
+### 存储实现：行存与列存可切换（已实现）
 
-提供统一的 DataFrame 接口，底层支持行存和列存两种实现，业务可通过 benchmark 选择。
+提供统一的 `Frame` 接口，底层支持行存和列存两种实现。通过 JSON 配置的 `storage_mode` 字段选择（`"row"` 或 `"column"`，默认 `"row"`）。
 
-**行存实现（MVP 优先）：**
+**行存实现 `RowFrame`：**
 
 ```go
-// 每个 item 是一个 map
-type RowStore struct {
+type RowFrame struct {
     common map[string]any
     items  []map[string]any
 }
 ```
 
-- 实现简单，快速验证整体架构
-- 缺点：大量小对象分配，GC 压力大，cache 不友好
+- 实现简单，结构变更操作（removals、reorder）高效
+- 缺点：大量小对象分配，GC 压力较大
 
-**列存实现（性能优化）：**
+**列存实现 `ColumnFrame`：**
 
 ```go
-type ColumnStore struct {
-    common  map[string]any      // 单行，直接用 map
-    columns map[string]Column   // item 侧按列存储
+type ColumnFrame struct {
+    common   map[string]any
+    columns  map[string][]any
     rowCount int
-}
-
-type Column struct {
-    dtype       DataType   // Int64, Float64, String, SliceInt64, SliceFloat64, SliceString, MapStringInt64, ...
-    int64s      []int64
-    float64s    []float64
-    strings     []string
-    sliceInt64s [][]int64
-    // ... 其他类型
-    nulls       []bool     // 标记哪些行是 nil
 }
 ```
 
-- 列操作高效，cache 友好，与 Lua 列模式天然对齐
-- 实现复杂度较高
+- 构造和字段写入时分配数量极少（`[]any` 列式布局）
+- 结构变更操作需遍历所有列，开销随列数线性增长
+
+> **设计选择**：列存使用 `[]any` 而非 typed columns。理由：当前系统全程使用 `any`，typed columns 需要类型推断/声明机制，复杂度高。`[]any` 相比 `[]map[string]any` 已大幅减少 GC 压力。如后续 profiling 证明必要，可引入 typed columns。
 
 **切换策略：**
 
-接口层抽象统一，底层行存/列存可替换，不影响上层算子代码。最终由业务自行跑 benchmark 决定采用哪一种。
+`Frame` 接口统一抽象，上层算子代码不感知底层存储格式。引擎在编译时读取 `storage_mode` 配置，每次请求创建对应类型的 Frame。
 
 ## 缺失值处理
 

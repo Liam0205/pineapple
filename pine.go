@@ -19,8 +19,9 @@ type Result = types.Result
 // Engine is an immutable, concurrency-safe execution engine.
 // Create with NewEngine; call Execute for each request.
 type Engine struct {
-	plan  *runtime.Plan
-	stats *runtime.Stats
+	plan        *runtime.Plan
+	stats       *runtime.Stats
+	storageMode dataframe.StorageMode
 }
 
 // NewEngine parses a JSON config, validates it, builds the DAG, and returns
@@ -92,7 +93,7 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 		Contract:  cfg.FlowContract,
 	}
 
-	return &Engine{plan: plan, stats: runtime.NewStats()}, nil
+	return &Engine{plan: plan, stats: runtime.NewStats(), storageMode: dataframe.StorageMode(cfg.StorageMode)}, nil
 }
 
 // Execute runs the pipeline for a single request.
@@ -127,7 +128,7 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 	}
 
 	// Build request-local frame
-	frame := dataframe.New(req.Common, req.Items)
+	frame := dataframe.NewFrame(e.storageMode, req.Common, req.Items)
 
 	// Execute DAG
 	warnings, traces, err := runtime.Run(ctx, e.plan, frame, e.stats)

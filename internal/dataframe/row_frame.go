@@ -7,15 +7,13 @@ import (
 	"github.com/Liam0205/pineapple/internal/types"
 )
 
-// Frame is a request-local row-store DataFrame.
-// Not concurrency-safe — the runtime scheduler guards access with a mutex.
-type Frame struct {
+// RowFrame is a request-local row-store DataFrame.
+type RowFrame struct {
 	common map[string]any
 	items  []map[string]any
 }
 
-// New creates a Frame by shallow-copying the request data.
-func New(common map[string]any, items []map[string]any) *Frame {
+func newRowFrame(common map[string]any, items []map[string]any) *RowFrame {
 	c := make(map[string]any, len(common))
 	for k, v := range common {
 		c[k] = v
@@ -28,43 +26,34 @@ func New(common map[string]any, items []map[string]any) *Frame {
 		}
 		its[i] = row
 	}
-	return &Frame{common: c, items: its}
+	return &RowFrame{common: c, items: its}
 }
 
-// Common returns a common-side field value.
-func (f *Frame) Common(field string) any {
+func (f *RowFrame) Common(field string) any {
 	return f.common[field]
 }
 
-// SetCommon writes a common-side field.
-func (f *Frame) SetCommon(field string, value any) {
+func (f *RowFrame) SetCommon(field string, value any) {
 	f.common[field] = value
 }
 
-// ItemCount returns the number of items.
-func (f *Frame) ItemCount() int {
+func (f *RowFrame) ItemCount() int {
 	return len(f.items)
 }
 
-// Item returns a field value for the item at index.
-func (f *Frame) Item(index int, field string) any {
+func (f *RowFrame) Item(index int, field string) any {
 	if index < 0 || index >= len(f.items) {
 		return nil
 	}
 	return f.items[index][field]
 }
 
-// BuildInput constructs an OperatorInput snapshot from the current frame state.
-// commonFields/itemFields are the $metadata declared fields.
-// commonDefaults/itemDefaults provide fallback values for nil/missing fields.
-func BuildInput(
-	f *Frame,
+func (f *RowFrame) BuildInput(
 	commonFields []string,
 	itemFields []string,
 	commonDefaults map[string]any,
 	itemDefaults map[string]any,
 ) *types.OperatorInput {
-	// Build common snapshot with defaults
 	cs := make(map[string]any, len(commonFields))
 	for _, field := range commonFields {
 		v := f.common[field]
@@ -76,7 +65,6 @@ func BuildInput(
 		cs[field] = v
 	}
 
-	// Build item snapshots with defaults
 	its := make([]map[string]any, len(f.items))
 	for i, item := range f.items {
 		row := make(map[string]any, len(itemFields))
@@ -95,10 +83,7 @@ func BuildInput(
 	return types.NewOperatorInput(cs, its)
 }
 
-// ApplyOutput applies an operator's output to the frame.
-// Order: common writes -> item field writes -> removals -> reorder -> additions.
-// If recall is true, added items get an injected "_source" field.
-func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool) error {
+func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error {
 	// 1. Common writes
 	for field, value := range out.GetCommonWrites() {
 		if err := validateValue(field, value); err != nil {
@@ -120,7 +105,7 @@ func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool
 		}
 	}
 
-	// 3. Removals — build surviving items list
+	// 3. Removals
 	removed := out.GetRemovedItems()
 	if len(removed) > 0 {
 		surviving := make([]map[string]any, 0, len(f.items)-len(removed))
@@ -132,7 +117,7 @@ func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool
 		f.items = surviving
 	}
 
-	// 4. Reorder surviving items
+	// 4. Reorder
 	if order := out.GetItemOrder(); order != nil {
 		if len(order) != len(f.items) {
 			return fmt.Errorf("SetItemOrder length %d does not match item count %d", len(order), len(f.items))
@@ -165,9 +150,7 @@ func ApplyOutput(f *Frame, out *types.OperatorOutput, opName string, recall bool
 	return nil
 }
 
-// ToResult extracts the final state into a Result, projecting only the
-// fields declared in commonOut/itemOut. Empty slices produce empty maps.
-func ToResult(f *Frame, commonOut, itemOut []string) *types.Result {
+func (f *RowFrame) ToResult(commonOut, itemOut []string) *types.Result {
 	common := projectMap(f.common, commonOut)
 	items := make([]map[string]any, len(f.items))
 	for i, item := range f.items {
@@ -176,7 +159,6 @@ func ToResult(f *Frame, commonOut, itemOut []string) *types.Result {
 	return &types.Result{Common: common, Items: items}
 }
 
-// projectMap returns a shallow copy of src containing only the keys in fields.
 func projectMap(src map[string]any, fields []string) map[string]any {
 	out := make(map[string]any, len(fields))
 	for _, k := range fields {
@@ -187,9 +169,6 @@ func projectMap(src map[string]any, fields []string) map[string]any {
 	return out
 }
 
-// validateValue checks that a value is a Pine-supported type.
-// Supported: nil, bool, int64, float64, string, []any, map[string]any.
-// Other integer and float types are also accepted (widened at runtime).
 func validateValue(field string, value any) error {
 	if value == nil {
 		return nil
@@ -202,7 +181,6 @@ func validateValue(field string, value any) error {
 	case []any, map[string]any:
 		return nil
 	}
-	// Check for slices and maps with reflection as a fallback
 	rv := reflect.ValueOf(value)
 	switch rv.Kind() {
 	case reflect.Slice, reflect.Map:
