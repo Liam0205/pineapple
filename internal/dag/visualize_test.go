@@ -113,3 +113,74 @@ func TestRenderMermaid(t *testing.T) {
 
 	t.Logf("Mermaid output:\n%s", mmd)
 }
+
+func TestTransitiveReduction(t *testing.T) {
+	// Build a graph where barrier creates redundant transitive edges.
+	// recall_a(writes X) → filter_b(barrier) → transform_c(reads X)
+	// Without reduction: recall_a→filter_b, recall_a→transform_c, filter_b→transform_c
+	// With reduction:    recall_a→filter_b, filter_b→transform_c
+	sequence := []string{"recall_a", "filter_b", "transform_c"}
+	operators := map[string]config.OperatorConfig{
+		"recall_a": {
+			TypeName:     "recall_static",
+			OperatorType: string(types.OpTypeRecall),
+			Recall:       true,
+			Meta:         config.Metadata{ItemOutput: []string{"x"}},
+		},
+		"filter_b": {
+			TypeName:     "filter_condition",
+			OperatorType: string(types.OpTypeFilter),
+			Meta:         config.Metadata{ItemInput: []string{"x"}},
+		},
+		"transform_c": {
+			TypeName:     "noop",
+			OperatorType: string(types.OpTypeTransform),
+			Meta:         config.Metadata{ItemInput: []string{"x"}},
+		},
+	}
+
+	g, err := Build(sequence, operators)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// Full graph should have the transitive edge recall_a→transform_c
+	hasDirectEdge := false
+	for _, s := range g.Nodes[0].Succs {
+		if s == 2 {
+			hasDirectEdge = true
+		}
+	}
+	if !hasDirectEdge {
+		t.Fatal("expected full graph to have direct edge recall_a→transform_c")
+	}
+
+	// Reduced edges should NOT have recall_a→transform_c
+	edges := reducedEdges(g)
+	for _, e := range edges {
+		if e[0] == 0 && e[1] == 2 {
+			t.Error("transitive reduction should remove recall_a→transform_c (implied by recall_a→filter_b→transform_c)")
+		}
+	}
+
+	// Should have exactly 2 edges: recall_a→filter_b, filter_b→transform_c
+	if len(edges) != 2 {
+		t.Errorf("expected 2 reduced edges, got %d: %v", len(edges), edges)
+	}
+
+	// Verify the DOT output doesn't have the redundant edge
+	dot := RenderDOT(g)
+	if strings.Contains(dot, `"recall_a" -> "transform_c"`) {
+		t.Error("DOT output should not contain redundant edge recall_a→transform_c")
+	}
+	if !strings.Contains(dot, `"recall_a" -> "filter_b"`) {
+		t.Error("DOT output should contain edge recall_a→filter_b")
+	}
+	if !strings.Contains(dot, `"filter_b" -> "transform_c"`) {
+		t.Error("DOT output should contain edge filter_b→transform_c")
+	}
+
+	t.Logf("Full graph edges from recall_a: %v", g.Nodes[0].Succs)
+	t.Logf("Reduced edges: %v", edges)
+	t.Logf("DOT output:\n%s", dot)
+}
