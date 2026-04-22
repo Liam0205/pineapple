@@ -88,7 +88,7 @@ func reachableWithout(adj [][]int, n, src, dst int) bool {
 func RenderDOT(g *Graph) string {
 	var b strings.Builder
 	b.WriteString("digraph pipeline {\n")
-	b.WriteString("    rankdir=LR;\n")
+	b.WriteString("    rankdir=TB;\n")
 	b.WriteString("    node [shape=box, style=filled, fontname=\"Helvetica\"];\n\n")
 
 	for _, node := range g.Nodes {
@@ -115,7 +115,7 @@ func RenderDOT(g *Graph) string {
 // Edges are transitively reduced for readability.
 func RenderMermaid(g *Graph) string {
 	var b strings.Builder
-	b.WriteString("graph LR\n")
+	b.WriteString("graph TB\n")
 
 	for _, node := range g.Nodes {
 		opType := types.OperatorType(node.Config.OperatorType)

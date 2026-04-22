@@ -88,8 +88,8 @@ func TestRenderMermaid(t *testing.T) {
 	mmd := RenderMermaid(g)
 
 	// Must start with graph LR
-	if !strings.HasPrefix(mmd, "graph LR\n") {
-		t.Error("missing graph LR header")
+	if !strings.HasPrefix(mmd, "graph TB\n") {
+		t.Error("missing graph TB header")
 	}
 
 	// All nodes present
