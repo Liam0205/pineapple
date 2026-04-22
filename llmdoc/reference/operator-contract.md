@@ -224,6 +224,7 @@
 - merge：`operators/merge/dedup.go`
 - reorder：`operators/reorder/sort.go`
 - observe：`operators/observe/log.go`
+- 跨服务 transform：`operators/transform/remote_pineapple.go`
 - debug-aware transform：`operators/lua/lua.go`
 
 ## 元数据契约注释与生成文档
