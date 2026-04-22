@@ -40,19 +40,21 @@ func TestRemotePineapple_BasicFieldMapping(t *testing.T) {
 				{"feature": "feat_b"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	defer cleanup()
 
 	op := &RemotePineappleOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"host":            host,
 		"port":            port,
 		"common_request":  []any{"age"},
 		"item_request":    []any{"id"},
 		"common_response": []any{"score"},
 		"item_response":   []any{"feature"},
-	})
+	}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	op.SetMetadata(
 		[]string{"user_age"},
 		[]string{"user_score"},
@@ -87,7 +89,7 @@ func TestRemotePineapple_BasicFieldMapping(t *testing.T) {
 func TestRemotePineapple_NoMapping(t *testing.T) {
 	host, port, cleanup := startTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var req remoteRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		// Without mapping, field names pass through directly
 		if req.Common["user_age"] == nil {
@@ -98,15 +100,17 @@ func TestRemotePineapple_NoMapping(t *testing.T) {
 			Common: map[string]any{"user_score": 0.8},
 			Items:  []map[string]any{{"item_feature": "x"}},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	defer cleanup()
 
 	op := &RemotePineappleOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"host": host,
 		"port": port,
-	})
+	}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	op.SetMetadata(
 		[]string{"user_age"},
 		[]string{"user_score"},
@@ -133,16 +137,18 @@ func TestRemotePineapple_NoMapping(t *testing.T) {
 func TestRemotePineapple_DownstreamError_Fatal(t *testing.T) {
 	host, port, cleanup := startTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		resp := remoteResponse{Error: "pipeline failed"}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	defer cleanup()
 
 	op := &RemotePineappleOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
 		"fail_on_error": true,
-	})
+	}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	op.SetMetadata(nil, []string{"out"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{}, nil)
@@ -157,16 +163,18 @@ func TestRemotePineapple_DownstreamError_Fatal(t *testing.T) {
 func TestRemotePineapple_DownstreamError_Warning(t *testing.T) {
 	host, port, cleanup := startTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		resp := remoteResponse{Error: "pipeline failed"}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	defer cleanup()
 
 	op := &RemotePineappleOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
 		"fail_on_error": false,
-	})
+	}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	op.SetMetadata(nil, []string{"out"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{}, nil)
@@ -188,11 +196,13 @@ func TestRemotePineapple_HTTP500_Fatal(t *testing.T) {
 	defer cleanup()
 
 	op := &RemotePineappleOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
 		"fail_on_error": true,
-	})
+	}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	op.SetMetadata(nil, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{}, nil)
@@ -207,17 +217,19 @@ func TestRemotePineapple_HTTP500_Fatal(t *testing.T) {
 func TestRemotePineapple_Timeout(t *testing.T) {
 	host, port, cleanup := startTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second)
-		json.NewEncoder(w).Encode(remoteResponse{})
+		_ = json.NewEncoder(w).Encode(remoteResponse{})
 	})
 	defer cleanup()
 
 	op := &RemotePineappleOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
 		"timeout":       0.1,
 		"fail_on_error": true,
-	})
+	}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
 	op.SetMetadata(nil, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{}, nil)
