@@ -790,7 +790,9 @@ func TestRowDependency_WaitsForRecalls(t *testing.T) {
 
 func TestRowDependency_WaitsForRecallsAfterBarrier(t *testing.T) {
 	// recall_a, recall_b -> filter (barrier) -> recall_c -> size (row_dep)
-	// size should depend on filter (barrier, also lastMutWriter of _row_set_) AND recall_c.
+	// size should depend on recall_c (_row_set_ RAW) and transitively on filter.
+	// After transitive reduction, the direct filter->size edge is removed
+	// (implied by filter->recall_c->size).
 	seq := []string{"recall_a", "recall_b", "filter", "recall_c", "size"}
 	ops := map[string]config.OperatorConfig{
 		"recall_a": recallOp(nil, []string{"item_id"}),
@@ -804,20 +806,18 @@ func TestRowDependency_WaitsForRecallsAfterBarrier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// size depends on filter (barrier is lastMutWriter of _row_set_)
-	if !hasPred(g, "size", "filter") {
-		t.Error("expected row-dep edge filter -> size")
-	}
 	// size depends on recall_c (post-barrier additive writer of _row_set_)
 	if !hasPred(g, "size", "recall_c") {
 		t.Error("expected row-dep edge recall_c -> size")
 	}
-	// size should NOT directly depend on pre-barrier recalls (barrier reset the tracker)
-	// Note: barrier edges already make recall_a/b -> filter -> size transitive,
-	// but the _row_set_ tracker should not create direct recall_a -> size edges.
-	// Since filter is a barrier that forces all pre-filter ops to complete,
-	// size already transitively depends on recall_a/b via filter.
-	// The key point: _row_set_ tracker was reset by the barrier.
+	// filter -> size may be reduced (implied by filter -> recall_c -> size),
+	// but size must still be reachable from filter.
+	closure := transitiveClosure(g)
+	filterIdx := g.NameToIndex["filter"]
+	sizeIdx := g.NameToIndex["size"]
+	if !closure[filterIdx][sizeIdx] {
+		t.Error("size should be reachable from filter")
+	}
 }
 
 func TestRowDependency_DoesNotBlockDownstream(t *testing.T) {
@@ -920,6 +920,190 @@ func TestRowDependency_MultipleRowDepOps(t *testing.T) {
 	// Independent of each other (different common output fields, both just read _row_set_)
 	if hasPred(g, "size_b", "size_a") || hasPred(g, "size_a", "size_b") {
 		t.Error("size_a and size_b should be independent")
+	}
+}
+
+// --- Transitive reduction ---
+
+// transitiveClosure computes the reachability matrix for a graph.
+func transitiveClosure(g *Graph) [][]bool {
+	n := len(g.Nodes)
+	reach := make([][]bool, n)
+	for i := range reach {
+		reach[i] = make([]bool, n)
+	}
+	for i, node := range g.Nodes {
+		visited := make([]bool, n)
+		visited[i] = true
+		queue := []int{i}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			for _, s := range g.Nodes[cur].Succs {
+				if !visited[s] {
+					visited[s] = true
+					reach[i][s] = true
+					queue = append(queue, s)
+				}
+			}
+		}
+		_ = node
+	}
+	return reach
+}
+
+func totalEdges(g *Graph) int {
+	count := 0
+	for _, n := range g.Nodes {
+		count += len(n.Succs)
+	}
+	return count
+}
+
+func TestReducePreservesReachability(t *testing.T) {
+	// Manually build a graph: A->B, B->C, A->C (redundant)
+	g := &Graph{
+		NameToIndex: map[string]int{"A": 0, "B": 1, "C": 2},
+		Nodes: []*Node{
+			{Name: "A", Index: 0, Succs: []int{1, 2}, Preds: nil},
+			{Name: "B", Index: 1, Succs: []int{2}, Preds: []int{0}},
+			{Name: "C", Index: 2, Succs: nil, Preds: []int{0, 1}},
+		},
+	}
+
+	closureBefore := transitiveClosure(g)
+
+	reduce(g)
+
+	closureAfter := transitiveClosure(g)
+
+	// Reachability must be identical
+	for i := range closureBefore {
+		for j := range closureBefore[i] {
+			if closureBefore[i][j] != closureAfter[i][j] {
+				t.Errorf("reachability changed: [%d][%d] was %v, now %v",
+					i, j, closureBefore[i][j], closureAfter[i][j])
+			}
+		}
+	}
+
+	// A->C should be removed (redundant via A->B->C)
+	for _, s := range g.Nodes[0].Succs {
+		if s == 2 {
+			t.Error("expected redundant edge A->C to be removed")
+		}
+	}
+
+	// Edge count should decrease: 3 -> 2
+	if e := totalEdges(g); e != 2 {
+		t.Errorf("expected 2 edges after reduction, got %d", e)
+	}
+}
+
+func TestReduceDiamondGraph(t *testing.T) {
+	// Diamond: A->{B,C}, B->D, C->D, plus redundant A->D
+	g := &Graph{
+		NameToIndex: map[string]int{"A": 0, "B": 1, "C": 2, "D": 3},
+		Nodes: []*Node{
+			{Name: "A", Index: 0, Succs: []int{1, 2, 3}, Preds: nil},
+			{Name: "B", Index: 1, Succs: []int{3}, Preds: []int{0}},
+			{Name: "C", Index: 2, Succs: []int{3}, Preds: []int{0}},
+			{Name: "D", Index: 3, Succs: nil, Preds: []int{0, 1, 2}},
+		},
+	}
+
+	closureBefore := transitiveClosure(g)
+	edgesBefore := totalEdges(g)
+
+	reduce(g)
+
+	closureAfter := transitiveClosure(g)
+
+	for i := range closureBefore {
+		for j := range closureBefore[i] {
+			if closureBefore[i][j] != closureAfter[i][j] {
+				t.Errorf("reachability changed: [%d][%d] was %v, now %v",
+					i, j, closureBefore[i][j], closureAfter[i][j])
+			}
+		}
+	}
+
+	edgesAfter := totalEdges(g)
+	if edgesAfter >= edgesBefore {
+		t.Errorf("expected fewer edges: before=%d, after=%d", edgesBefore, edgesAfter)
+	}
+
+	// A->D should be removed (reachable via A->B->D and A->C->D)
+	for _, s := range g.Nodes[0].Succs {
+		if s == 3 {
+			t.Error("expected redundant edge A->D to be removed")
+		}
+	}
+}
+
+func TestReduceWithBarrierPipeline(t *testing.T) {
+	// Build a real pipeline with barrier and verify reduction happens
+	seq := []string{"recall_a", "recall_b", "transform_c", "filter", "transform_d", "transform_e"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":    recallOp(nil, []string{"item_id"}),
+		"recall_b":    recallOp(nil, []string{"item_id"}),
+		"transform_c": transformOp(nil, nil, []string{"item_id"}, []string{"score"}),
+		"filter":      filterOp([]string{"score"}, nil),
+		"transform_d": transformOp(nil, nil, []string{"score"}, []string{"rank"}),
+		"transform_e": transformOp(nil, nil, []string{"rank"}, []string{"final"}),
+	}
+
+	g, err := Build(seq, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify reachability: filter should be reachable from recall_a, recall_b, transform_c
+	closureMatrix := transitiveClosure(g)
+	filterIdx := g.NameToIndex["filter"]
+	for _, name := range []string{"recall_a", "recall_b", "transform_c"} {
+		idx := g.NameToIndex[name]
+		if !closureMatrix[idx][filterIdx] {
+			t.Errorf("filter should be reachable from %s", name)
+		}
+	}
+
+	// transform_e should be reachable from all prior nodes
+	eIdx := g.NameToIndex["transform_e"]
+	for _, name := range []string{"recall_a", "recall_b", "transform_c", "filter", "transform_d"} {
+		idx := g.NameToIndex[name]
+		if !closureMatrix[idx][eIdx] {
+			t.Errorf("transform_e should be reachable from %s", name)
+		}
+	}
+
+	// Verify topological sort still works
+	order, err := TopologicalSort(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(order) != len(seq) {
+		t.Errorf("expected %d nodes in topological order, got %d", len(seq), len(order))
+	}
+}
+
+func TestReduceNoop(t *testing.T) {
+	// Linear chain: no redundant edges, reduce should be a no-op
+	g := &Graph{
+		NameToIndex: map[string]int{"A": 0, "B": 1, "C": 2},
+		Nodes: []*Node{
+			{Name: "A", Index: 0, Succs: []int{1}, Preds: nil},
+			{Name: "B", Index: 1, Succs: []int{2}, Preds: []int{0}},
+			{Name: "C", Index: 2, Succs: nil, Preds: []int{1}},
+		},
+	}
+
+	edgesBefore := totalEdges(g)
+	reduce(g)
+	edgesAfter := totalEdges(g)
+
+	if edgesBefore != edgesAfter {
+		t.Errorf("linear chain should not lose edges: before=%d, after=%d", edgesBefore, edgesAfter)
 	}
 }
 

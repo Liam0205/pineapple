@@ -74,6 +74,9 @@ func Build(sequence []string, operators map[string]config.OperatorConfig) (*Grap
 		}
 	}
 
+	// Phase 4: Transitive reduction — remove edges implied by longer paths.
+	reduce(g)
+
 	// Validate: no cycles
 	if _, err := TopologicalSort(g); err != nil {
 		return nil, err
@@ -301,4 +304,75 @@ func TopologicalSort(g *Graph) ([]int, error) {
 		return nil, &types.ConfigError{Message: "DAG contains a cycle"}
 	}
 	return order, nil
+}
+
+// reduce replaces the graph's edge set with its transitive reduction —
+// the minimal edge set that preserves the same reachability relation.
+func reduce(g *Graph) {
+	kept := reducedEdges(g)
+
+	for _, node := range g.Nodes {
+		node.Preds = node.Preds[:0]
+		node.Succs = node.Succs[:0]
+	}
+
+	for _, e := range kept {
+		g.Nodes[e[0]].Succs = append(g.Nodes[e[0]].Succs, e[1])
+		g.Nodes[e[1]].Preds = append(g.Nodes[e[1]].Preds, e[0])
+	}
+}
+
+// reducedEdges returns the transitive reduction of the DAG — the minimal
+// edge set that preserves the same reachability relation. For each edge
+// u→v, if v is reachable from u via another path, the edge is redundant.
+func reducedEdges(g *Graph) [][2]int {
+	n := len(g.Nodes)
+
+	adj := make([][]int, n)
+	for i, node := range g.Nodes {
+		adj[i] = node.Succs
+	}
+
+	var edges [][2]int
+	for u := 0; u < n; u++ {
+		for _, v := range adj[u] {
+			if !reachableWithout(adj, n, u, v) {
+				edges = append(edges, [2]int{u, v})
+			}
+		}
+	}
+	return edges
+}
+
+// reachableWithout checks if dst is reachable from src via BFS,
+// excluding the direct edge src→dst.
+func reachableWithout(adj [][]int, n, src, dst int) bool {
+	visited := make([]bool, n)
+	visited[src] = true
+	queue := make([]int, 0, n)
+
+	for _, next := range adj[src] {
+		if next == dst {
+			continue
+		}
+		if !visited[next] {
+			visited[next] = true
+			queue = append(queue, next)
+		}
+	}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur == dst {
+			return true
+		}
+		for _, next := range adj[cur] {
+			if !visited[next] {
+				visited[next] = true
+				queue = append(queue, next)
+			}
+		}
+	}
+	return false
 }

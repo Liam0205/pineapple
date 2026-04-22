@@ -25,66 +25,7 @@ var mermaidClasses = map[types.OperatorType][2]string{
 	types.OpTypeObserve:   {"#F5F5F5", "#9E9E9E"},
 }
 
-// reducedEdges returns the transitive reduction of the DAG — the minimal
-// edge set that preserves the same reachability relation. For each edge
-// u→v, if v is reachable from u via another path, the edge is redundant.
-func reducedEdges(g *Graph) [][2]int {
-	n := len(g.Nodes)
-
-	// Build adjacency list (excluding self-loops, which addEdge already prevents).
-	adj := make([][]int, n)
-	for i, node := range g.Nodes {
-		adj[i] = node.Succs
-	}
-
-	// For each edge u→v, check if v is reachable from u without the direct edge.
-	// We do BFS from u, skipping the direct u→v edge.
-	var edges [][2]int
-	for u := 0; u < n; u++ {
-		for _, v := range adj[u] {
-			if !reachableWithout(adj, n, u, v) {
-				edges = append(edges, [2]int{u, v})
-			}
-		}
-	}
-	return edges
-}
-
-// reachableWithout checks if dst is reachable from src via BFS,
-// excluding the direct edge src→dst.
-func reachableWithout(adj [][]int, n, src, dst int) bool {
-	visited := make([]bool, n)
-	visited[src] = true
-	queue := make([]int, 0, n)
-
-	for _, next := range adj[src] {
-		if next == dst {
-			continue // skip the direct edge
-		}
-		if !visited[next] {
-			visited[next] = true
-			queue = append(queue, next)
-		}
-	}
-
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		if cur == dst {
-			return true
-		}
-		for _, next := range adj[cur] {
-			if !visited[next] {
-				visited[next] = true
-				queue = append(queue, next)
-			}
-		}
-	}
-	return false
-}
-
 // RenderDOT renders the DAG as a Graphviz DOT string.
-// Edges are transitively reduced for readability.
 func RenderDOT(g *Graph) string {
 	var b strings.Builder
 	b.WriteString("digraph pipeline {\n")
@@ -103,8 +44,10 @@ func RenderDOT(g *Graph) string {
 
 	b.WriteString("\n")
 
-	for _, edge := range reducedEdges(g) {
-		fmt.Fprintf(&b, "    %q -> %q;\n", g.Nodes[edge[0]].Name, g.Nodes[edge[1]].Name)
+	for _, node := range g.Nodes {
+		for _, succ := range node.Succs {
+			fmt.Fprintf(&b, "    %q -> %q;\n", node.Name, g.Nodes[succ].Name)
+		}
 	}
 
 	b.WriteString("}\n")
@@ -112,7 +55,6 @@ func RenderDOT(g *Graph) string {
 }
 
 // RenderMermaid renders the DAG as a Mermaid flowchart string.
-// Edges are transitively reduced for readability.
 func RenderMermaid(g *Graph) string {
 	var b strings.Builder
 	b.WriteString("graph TB\n")
@@ -127,10 +69,12 @@ func RenderMermaid(g *Graph) string {
 
 	b.WriteString("\n")
 
-	for _, edge := range reducedEdges(g) {
-		fromID := sanitizeMermaidID(g.Nodes[edge[0]].Name)
-		toID := sanitizeMermaidID(g.Nodes[edge[1]].Name)
-		fmt.Fprintf(&b, "    %s --> %s\n", fromID, toID)
+	for _, node := range g.Nodes {
+		fromID := sanitizeMermaidID(node.Name)
+		for _, succ := range node.Succs {
+			toID := sanitizeMermaidID(g.Nodes[succ].Name)
+			fmt.Fprintf(&b, "    %s --> %s\n", fromID, toID)
+		}
 	}
 
 	b.WriteString("\n")

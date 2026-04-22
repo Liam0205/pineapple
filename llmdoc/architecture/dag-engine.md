@@ -44,6 +44,7 @@
    - 推导屏障边。
    - 推导数据冒险边。
    - 添加显式 `sources` 边。
+   - 传递性归约：移除被更长路径隐含的冗余边，保留保持可达性的最小边集。
    - 运行拓扑排序校验。
 
 输出是不可变的 `runtime.Plan`，包含图、编译后算子和 flow contract。
@@ -73,7 +74,7 @@
 
 声明顺序很重要，因为冒险追踪器按序列遍历算子并从该顺序推导因果关系。
 
-## 三阶段构建算法
+## 四阶段构建算法
 
 ### 阶段 1：屏障边
 
@@ -157,7 +158,9 @@
 
 ### 最终校验
 
-所有边添加完毕后，`TopologicalSort` 校验图是否无环。环表示由屏障、冒险或显式 source 边暗示的不可能排序。
+传递性归约完成后，`TopologicalSort` 校验图是否无环。环表示由屏障、冒险或显式 source 边暗示的不可能排序。
+
+归约保证可达性不变：若原图中 u 可达 v，归约后仍可达。调度器的执行顺序约束完全由可达性（`done[pred]` channel 的 happens-before 语义）决定，因此归约不改变执行语义。
 
 ## 行依赖模型
 
@@ -375,7 +378,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 
 节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名和类型分类。布局方向为自上而下（DOT `rankdir=TB`、Mermaid `graph TB`）。
 
-渲染边经过传递性归约（`reducedEdges`）：对每条边 u→v，用 BFS 检查是否存在不经该直接边的替代路径；若存在则该边冗余，不绘制。这保证可视化输出是保持可达性的最小边集，大幅提升人类可读性。内部 DAG 完整边集（`Node.Succs`）不变，调度器仍使用完整依赖。
+由于 `Build()` 阶段已对执行图执行传递性归约，`Node.Succs` 本身就是保持可达性的最小边集。渲染函数直接遍历 `Node.Succs` 画边，无需额外归约。
 
 公共 API 通过 `Engine.RenderDAG(format string) (string, error)` 暴露，format 支持 `"dot"` 和 `"mermaid"`。HTTP 端点 `GET /dag?format=dot|mermaid`（默认 `dot`）。
 
@@ -389,6 +392,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 6. **DataFrame apply 顺序固定。** Common 写入、item 写入、移除、重排序、添加。
 7. **算子实例是共享的。** `Init()` 只发生一次；`Execute()` 必须并发安全。
 8. **Frame 实现自行保证并发安全。** 调度器不持有 frame 锁。RowFrame 和 ColumnFrame 均通过内部单个 `sync.RWMutex` 实现读写分离。
+9. **执行图经过传递性归约。** `Build()` 阶段移除被更长路径隐含的冗余边。`Node.Preds`/`Node.Succs` 是保持可达性的最小边集，调度器和可视化共用同一边集。
 
 ## 检索指针
 
