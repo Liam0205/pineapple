@@ -384,3 +384,69 @@ func TestRunDataParallelZeroItems(t *testing.T) {
 		t.Errorf("expected 0 items, got %d", frame.ItemCount())
 	}
 }
+
+func TestDataParallelEquivalence(t *testing.T) {
+	const itemCount = 100
+
+	items := make([]map[string]any, itemCount)
+	for i := range items {
+		items[i] = map[string]any{"val": float64(i)}
+	}
+
+	baseCop := &CompiledOperator{
+		Name:     "double",
+		Instance: &doubleItemOp{readField: "val", writeField: "doubled"},
+		Config: config.OperatorConfig{
+			TypeName:     "transform",
+			OperatorType: "Transform",
+			DataParallel: 1,
+			Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+		},
+	}
+
+	plan1 := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{"double": baseCop})
+	frame1 := dataframe.New(map[string]any{}, items)
+	warnings1, _, err := Run(context.Background(), plan1, frame1, nil)
+	if err != nil {
+		t.Fatalf("baseline (dp=1): %v", err)
+	}
+
+	for _, shards := range []int{2, 3, 4, 7} {
+		t.Run(fmt.Sprintf("shards=%d", shards), func(t *testing.T) {
+			dpItems := make([]map[string]any, itemCount)
+			for i := range dpItems {
+				dpItems[i] = map[string]any{"val": float64(i)}
+			}
+
+			dpCop := &CompiledOperator{
+				Name:     "double",
+				Instance: &doubleItemOp{readField: "val", writeField: "doubled"},
+				Config: config.OperatorConfig{
+					TypeName:     "transform",
+					OperatorType: "Transform",
+					DataParallel: shards,
+					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+				},
+			}
+
+			plan := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{"double": dpCop})
+			frame := dataframe.New(map[string]any{}, dpItems)
+			warnings, _, err := Run(context.Background(), plan, frame, nil)
+			if err != nil {
+				t.Fatalf("dp=%d: %v", shards, err)
+			}
+
+			if len(warnings) != len(warnings1) {
+				t.Errorf("warning count: dp=%d got %d, baseline got %d", shards, len(warnings), len(warnings1))
+			}
+
+			for i := 0; i < itemCount; i++ {
+				got := frame.Item(i, "doubled")
+				want := frame1.Item(i, "doubled")
+				if got != want {
+					t.Errorf("item %d: dp=%d got %v, baseline got %v", i, shards, got, want)
+				}
+			}
+		})
+	}
+}
