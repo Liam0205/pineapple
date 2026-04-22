@@ -115,7 +115,9 @@ flow.transform_by_remote_pineapple(
 )
 ```
 
-字段映射模型：`common_request[i]` 与 `common_input[i]` 按位置对应，`item_request[i]` 与 `item_input[i]` 按位置对应，响应侧同理。当 `common_request` 等映射参数未提供时，直接使用 metadata 字段名（无映射）。`fail_on_error=false` 时下游错误降级为 warning。
+字段映射模型：`common_request[i]` 与 `common_input[i]` 按位置对应，`item_request[i]` 与 `item_input[i]` 按位置对应，响应侧同理。当 `common_request` 等映射参数未提供时，直接使用 metadata 字段名（无映射）。
+
+**`fail_on_error=false` 降级行为**：下游错误降级为 warning，算子返回成功（`nil` error），但**不写入任何输出字段**——`common_output` 和 `item_output` 声明的字段均不会被写入 DataFrame。具体影响取决于字段的先前状态：若字段之前不存在，下游算子读到 `nil`；若字段已存在（由更早的算子写入），保留旧值不变。下游算子可通过 `item_defaults` / `common_defaults` 为这些字段配置兜底默认值，当字段值为 `nil` 时自动填充。
 
 ### Filter
 
