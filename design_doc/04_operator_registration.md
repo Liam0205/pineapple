@@ -147,25 +147,26 @@ Go 侧的算子 schema 是**唯一的事实来源**。Apple 侧的 Python 代码
 from apple.base import BaseOp
 
 class FilterConditionOp(BaseOp):
-    """Operator: filter_condition (Type: Filter)"""
+    """Operator: filter_condition"""
     _name = "filter_condition"
-    _type = "Filter"
     _params_schema = {
-        "field": {"type": "string", "required": True},
         "value": {"type": "any", "required": True},
     }
 
     def __call__(
         self,
         *,
-        field: str,
-        value: Any,
+        value: Any = ...,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
         item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        row_dependency: bool = False,
         debug: bool = False,
         name: str | None = None,
-    ):
-        # Recall 类型自动注入 recall=True
-        # Filter/Reorder/Merge/Observe 不需要 recall 参数
+    ) -> "FilterConditionOp":
         ...
 ```
 

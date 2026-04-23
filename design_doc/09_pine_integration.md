@@ -53,6 +53,12 @@ type Result struct {
 
     // 处理后的 item 列表（已排序、过滤）。
     Items []map[string]any
+
+    // 算子产生的可恢复警告（如 fail_on_error=false 降级）。
+    Warnings []error
+
+    // 算子级执行 trace（名称、开始时间、耗时、是否 skip、可选快照）。
+    Trace []OpTrace
 }
 ```
 

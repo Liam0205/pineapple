@@ -14,7 +14,7 @@
 
 #### Trace 返回控制
 
-引擎内部始终记录每个算子的 trace（名称、耗时、是否 skip）。但 HTTP 响应中默认不返回 trace，以减少传输体积。
+引擎内部始终记录每个算子的 trace（名称、开始时间、耗时、是否 skip）。但 HTTP 响应中默认不返回 trace，以减少传输体积。
 
 请求方通过 common 字段 `_return_trace` 控制：
 
@@ -49,7 +49,7 @@
 开启后，该算子在运行时打印调试日志（输入数据、输出数据、耗时等详细信息）。
 
 ```python
-flow.enrich_by_lua(
+flow.transform_by_lua(
     common_input=["user_age"],
     item_input=["item_price"],
     function_for_item="adjust_price",
@@ -67,8 +67,8 @@ JSON 配置中体现为：
 
 ```json
 {
-  "enrich_by_lua_D4E5F6": {
-    "type_name": "lua",
+  "transform_by_lua_D4E5F6": {
+    "type_name": "transform_by_lua",
     "$metadata": {
       "common_input": ["user_age"],
       "item_input": ["item_price"],
