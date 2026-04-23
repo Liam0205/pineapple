@@ -161,7 +161,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 这创建了后续所有阶段使用的有序命名序列。
 
-### 步骤 3：运行五项校验
+### 步骤 3：运行六项校验
 
 校验采用 fail-fast，按特定顺序运行。
 
@@ -169,9 +169,10 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 2. `validate_field_coverage`
 3. `validate_write_without_read`
 4. `validate_data_parallel`
-5. `detect_dead_code`
+5. `validate_param_metadata_consistency`
+6. `detect_dead_code`
 
-顺序重要，因为每个后续规则假设算子序列和字段集已足够合理。`validate_data_parallel` 刻意放在写后未读之后、死代码检测之前：前者先确认字段声明本身合理，后者再基于已通过约束的算子集做消费性分析。
+顺序重要，因为每个后续规则假设算子序列和字段集已足够合理。`validate_data_parallel` 刻意放在写后未读之后、参数-元数据一致性之前：前者先确认字段声明本身合理，后者再基于已通过约束的算子集做消费性分析。
 
 ### 步骤 4：构建 operators dict
 
@@ -304,6 +305,19 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 - `common_output` 必须为空，避免多个并发 worker 竞争写入 common 域
 
 该规则的目标不是替代引擎校验，而是把原本会在 Go 侧加载配置时失败的错误前移到 Apple compile time，尽早暴露 DSL 声明与引擎约束不匹配的问题。
+
+### 6. 参数-元数据一致性
+
+`validate_param_metadata_consistency` 使用规则表 `_PARAM_METADATA_RULES` 校验业务参数与元数据声明的一致性。
+
+当前规则：
+
+- `transform_resource_lookup` 的 `lookup_key` 必须出现在 `item_input` 中
+- `transform_resource_lookup` 的 `output_field` 必须出现在 `item_output` 中
+
+规则表是可扩展的——未来如果有其他算子也存在「业务参数隐含元数据要求」的情况，只需往 `_PARAM_METADATA_RULES` 中添加条目。
+
+此规则防止业务参数与元数据声明不匹配导致运行时静默错误：DAG builder 和 `BuildInput` 只追踪 `$metadata`，如果 `lookup_key` 不在 `item_input` 中，运行时不会为该算子构造对应字段，lookup 变成 silent no-op。
 
 ## 关键不变量：校验顺序必须与执行顺序对齐
 
