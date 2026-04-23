@@ -31,14 +31,14 @@
 
 工具：`golangci-lint`，配置位于 `.golangci.yml`。
 
-errcheck 高频盲区——以下区域容易遗漏 error return value 检查：
+提交前必须对以下高风险区域的改动在本地运行 `golangci-lint run ./相关包`，重点检查 errcheck，不能依赖远端 CI 帮你捕获遗漏的 error return value：
 
 - HTTP handler（`pkg/server/`）
 - Benchmark（`benchmarks/`）
 - Integration test helper（`integration/`）
 - Test helper 函数
 
-不能因为是测试或示例代码就放宽 errcheck。
+测试代码与生产代码遵循同一套 linter 规则，没有“测试代码可以不检查 error”的例外。
 
 ## Python lint
 

@@ -55,6 +55,7 @@
 每完成一项变更立即验证：
 
 - 运行相关测试（`pytest`、`go test`）
+- 提交前必须运行对应语言的 lint，并确认 0 issues：Go 项目运行 `golangci-lint run ./...`，Python 项目运行 `ruff check`
 - 确认无回归后再进入下一项
 - 如果涉及 codegen，修复后立即重生成并检查产物
 

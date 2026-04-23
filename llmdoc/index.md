@@ -51,3 +51,4 @@
 - `llmdoc/memory/reflections/apple-dsl-data-parallel-validation.md` — Apple DSL 侧 data_parallel 编译期校验复盘，记录保留字段提取、校验接入、哈希命名漂移教训。
 - `llmdoc/memory/reflections/test-coverage-server-transform.md` — `pkg/server` 与 `operators/transform` 测试覆盖率补齐复盘，记录 handler 直测、原子指针注入、miniredis 模式与不测边界。
 - `llmdoc/memory/reflections/review-driven-resource-lookup-fixes.md` — 评审驱动的 resource_lookup 修复复盘，记录 JSON 边界类型枚举、codegen 语义验证、跨层 E2E 与隐含 metadata 契约检查的缺口。
+- `llmdoc/memory/reflections/recurring-errcheck-ci-failure.md` — errcheck CI 失败复现复盘，记录已有警告未生效根因与标准工作流强化方案。
