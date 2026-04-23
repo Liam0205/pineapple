@@ -141,6 +141,32 @@
 
 大多数算子仅需运行时 trace 捕获，但 Lua 是同时嵌入 metadata 和 debug holder 的示例。
 
+`DebugHolder.OperatorName()` 会返回引擎注入的算子实例名。它不仅用于 debug log，也可被后续 `MetricsAware` 注入阶段复用，例如把 operator 名作为外部 metric label 值。
+
+### `StatsProvider`
+
+若算子实现 `StatsProvider`，引擎会在 `Engine.OperatorCustomStats()` 中收集该算子的自定义原子统计，并由 `pkg/server/server.go` 挂载到 `/stats` 响应中的 `operator_detail` 字段。
+
+该接口适合暴露零配置排障所需的进程内累计计数，例如 Lua state pool 的 borrow / return / create / active 计数。
+
+### `MetricsAware`
+
+若算子实现 `MetricsAware`，引擎会在 `Init()`、`SetMetadata(...)`、`SetDebugInfo(...)` 之后调用 `SetMetricsProvider(provider)`。
+
+稳定注入顺序为：
+
+1. `MetadataAware`
+2. `DebugAware`
+3. `MetricsAware`
+
+这使得像 Lua 算子这样的实现可以在 `SetMetricsProvider` 内安全读取 `DebugHolder.OperatorName()`，把 operator 名绑定为 label 值。
+
+设计边界：
+
+- `MetricsAware` 面向外部指标系统，不替代 `/stats`
+- provider 可能是 `metrics.Nop()`，实现必须把 no-op provider 视为正常路径
+- Pineapple core 不依赖具体 Prometheus SDK；算子只依赖 `pkg/metrics` 抽象
+
 ## 输入/输出 API 契约
 
 ### 从 `OperatorInput` 读取
@@ -216,8 +242,10 @@
 2. `init()` 函数调用 `pine.Register(...)`
 3. 结构体嵌入 `pine.MetadataHolder`（当需要元数据时）
 4. 可选嵌入 `pine.DebugHolder`（当需要调试信息时）
-5. `Init()` 用于参数解析和一次性初始化
-6. `Execute()` 用于请求时逻辑
+5. 可选实现 `pine.StatsProvider`（当需要把进程内累计统计暴露到 `/stats` 时）
+6. 可选实现 `pine.MetricsAware`（当需要向外部 provider 记录指标时）
+7. `Init()` 用于参数解析和一次性初始化
+8. `Execute()` 用于请求时逻辑
 
 代表性示例：
 
@@ -229,6 +257,7 @@
 - observe：`operators/observe/log.go`
 - 跨服务 transform：`operators/transform/remote_pineapple.go`
 - debug-aware transform：`operators/lua/lua.go`
+- stats + metrics aware transform：`operators/lua/lua.go`、`operators/lua/pool.go`
 
 ## 元数据契约注释与生成文档
 

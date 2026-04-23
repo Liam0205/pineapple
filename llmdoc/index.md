@@ -12,7 +12,7 @@
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理。
 
 ## guides/
@@ -23,7 +23,8 @@
 
 ## reference/
 
-- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug 钩子、类型/输出限制、保留 JSON 键、命名规范。
+- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范。
+- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：`pkg/metrics` Provider 契约、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应、Prometheus 适配边界。
 
 ## memory/
 
