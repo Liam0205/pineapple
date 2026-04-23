@@ -43,6 +43,18 @@
 - CI `codegen-check` 自动校验 `git diff --exit-code`
 - 若涉及类型映射（`pythonType()`），确认 codegen 映射已覆盖新类型
 
+### 跨层语义类
+
+问题表现：Python DSL、JSON 契约、Go 初始化或运行时之间出现静默语义漂移，最终结果错误但通常不会 crash。
+
+测试策略：
+
+- 这类问题往往对单层测试不可见，必须沿 Python -> JSON -> Go -> result 做端到端追踪
+- 优先补至少一个非 happy path E2E，用于覆盖数字 ID、`nil`、未传可选参数等边界值
+- 检查 Go 端是否静默丢弃类型断言失败，检查 codegen 是否错误序列化本应省略的可选参数
+- 若业务参数值本身引用 metadata 字段名，补编译期一致性校验
+- 详细检查方法见 `llmdoc/guides/cross-layer-validation.md`
+
 ### 资源 / 上下文链路
 
 问题表现：资源声明、注入或上下文传递链路异常。
