@@ -549,6 +549,7 @@ config = flow.compile_dict()
 - **控制流完整性** — `if_` 必须有对应的 `end_if_`
 - **空分支检测** — 控制块的每个分支下必须有至少一个业务算子，空分支（如 `if_("cond").end_if_()`）会报错
 - **数据并行约束** — `data_parallel > 1` 时必须是 Transform 算子且 `common_output` 为空
+- **参数-元数据一致性** — `transform_resource_lookup` 的 `lookup_key` 必须出现在 `item_input`，`output_field` 必须出现在 `item_output`，防止业务参数与元数据声明不匹配导致运行时静默错误
 - **控制算子可辨识命名** — 条件分支编译后的控制算子使用 `if_1`、`elseif_2`、`else_3` 等显式名称，在 DAG 可视化中可直观辨识
 
 ## API 参考
