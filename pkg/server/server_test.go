@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -358,5 +361,219 @@ func TestWatchConfigIntegration(t *testing.T) {
 	// reloadConfig should succeed when called directly (simulating watchConfig behavior)
 	if err := reloadConfig(path); err != nil {
 		t.Fatalf("manual reload failed: %v", err)
+	}
+}
+
+// --- HTTP handler tests ---
+
+func setupEngine(t *testing.T) {
+	t.Helper()
+	cfg := minimalConfig(t, nil)
+	engine, err := pine.NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enginePtr.Store(engine)
+	rm := resource.NewManager()
+	resources.Store(rm)
+	t.Cleanup(func() {
+		enginePtr.Store(nil)
+		resources.Store(nil)
+	})
+}
+
+func TestHandleHealth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handleHealth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	if !strings.Contains(w.Body.String(), `"status":"ok"`) {
+		t.Errorf("body = %q, want status ok", w.Body.String())
+	}
+}
+
+func TestHandleExecute_Success(t *testing.T) {
+	setupEngine(t)
+
+	body := `{"common":{"x":42},"items":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	handleExecute(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var resp executeResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error != "" {
+		t.Errorf("unexpected error: %s", resp.Error)
+	}
+}
+
+func TestHandleExecute_WithTrace(t *testing.T) {
+	setupEngine(t)
+
+	body := `{"common":{"x":42,"_return_trace":true},"items":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	handleExecute(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var resp executeResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Trace) == 0 {
+		t.Error("expected trace entries when _return_trace=true")
+	}
+}
+
+func TestHandleExecute_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/execute", nil)
+	w := httptest.NewRecorder()
+	handleExecute(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleExecute_EngineNotLoaded(t *testing.T) {
+	enginePtr.Store(nil)
+
+	body := `{"common":{"x":1}}`
+	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	handleExecute(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+}
+
+func TestHandleExecute_BadJSON(t *testing.T) {
+	setupEngine(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader("{invalid"))
+	w := httptest.NewRecorder()
+	handleExecute(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleStats_Success(t *testing.T) {
+	setupEngine(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	w := httptest.NewRecorder()
+	handleStats(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var stats map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+}
+
+func TestHandleStats_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/stats", nil)
+	w := httptest.NewRecorder()
+	handleStats(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleStats_EngineNotLoaded(t *testing.T) {
+	enginePtr.Store(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	w := httptest.NewRecorder()
+	handleStats(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+}
+
+func TestHandleDAG_Dot(t *testing.T) {
+	setupEngine(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dag", nil)
+	w := httptest.NewRecorder()
+	handleDAG(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "graphviz") {
+		t.Errorf("Content-Type = %q, want graphviz", ct)
+	}
+	if !strings.Contains(w.Body.String(), "digraph") {
+		t.Error("expected DOT output containing 'digraph'")
+	}
+}
+
+func TestHandleDAG_Mermaid(t *testing.T) {
+	setupEngine(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dag?format=mermaid", nil)
+	w := httptest.NewRecorder()
+	handleDAG(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "graph TB") {
+		t.Error("expected Mermaid output containing 'graph TB'")
+	}
+}
+
+func TestHandleDAG_MethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/dag", nil)
+	w := httptest.NewRecorder()
+	handleDAG(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestHandleDAG_EngineNotLoaded(t *testing.T) {
+	enginePtr.Store(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/dag", nil)
+	w := httptest.NewRecorder()
+	handleDAG(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+}
+
+func TestHandleDAG_BadFormat(t *testing.T) {
+	setupEngine(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dag?format=xyz", nil)
+	w := httptest.NewRecorder()
+	handleDAG(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }

@@ -47,3 +47,4 @@
 - `llmdoc/memory/reflections/remote-pineapple-operator.md` — transform_by_remote_pineapple 算子实现复盘，记录同包 helper 重名、工作流遗漏、测试 API 误用教训。
 - `llmdoc/memory/reflections/data-parallel-framework.md` — 算子级数据并行框架复盘，记录 Transform-only 设计收敛、common_output 禁止决策、上下文管理教训。
 - `llmdoc/memory/reflections/apple-dsl-data-parallel-validation.md` — Apple DSL 侧 data_parallel 编译期校验复盘，记录保留字段提取、校验接入、哈希命名漂移教训。
+- `llmdoc/memory/reflections/test-coverage-server-transform.md` — `pkg/server` 与 `operators/transform` 测试覆盖率补齐复盘，记录 handler 直测、原子指针注入、miniredis 模式与不测边界。

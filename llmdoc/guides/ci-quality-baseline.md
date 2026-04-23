@@ -53,6 +53,19 @@ errcheck 高频盲区——以下区域容易遗漏 error return value 检查：
 
 当前无硬性覆盖率阈值。覆盖率报告用于趋势观察，不作为门禁。
 
+补覆盖时优先覆盖“可稳定断言的行为边界”，例如：
+
+- HTTP handler：使用 `httptest.NewRequest` + `httptest.NewRecorder` 直接调用 handler，验证状态码、响应体与参数分支，而不是优先启动真实 server。
+- 算子单测：优先覆盖 `Init`/`Execute` 主路径、默认值、降级路径和错误路径，而不是只补 happy path。
+- 带外部依赖的算子：优先使用内存替身以保留真实客户端交互但避免环境依赖；例如 Redis 测试使用 `github.com/alicebob/miniredis/v2`，不要求本地或 CI 提供外部 Redis。
+
+以下路径通常不适合作为常规单测的优先目标，应在 coverage 评估时单独判断：
+
+- 含 `log.Fatal`、`os.Exit` 等进程级退出逻辑的入口
+- 含无限循环、文件监听、长期后台 goroutine 的 watcher/daemon 路径
+
+这类逻辑若必须验证，优先拆出可独立断言的纯逻辑部分，再由少量集成测试覆盖整体接线。
+
 ## Fuzz
 
 入口选择原则：优先覆盖高扇出输入边界。

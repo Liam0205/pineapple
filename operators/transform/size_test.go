@@ -39,3 +39,10 @@ func TestSizeOpExecuteEmpty(t *testing.T) {
 		t.Errorf("item_count = %v, want 0", cw["item_count"])
 	}
 }
+
+func TestSizeOpInit(t *testing.T) {
+	op := &SizeOp{}
+	if err := op.Init(map[string]any{}); err != nil {
+		t.Errorf("Init should succeed, got %v", err)
+	}
+}

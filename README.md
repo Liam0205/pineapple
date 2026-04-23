@@ -288,6 +288,8 @@ go tool cover -func=coverage.out
 python3 -m pytest apple/tests/ -v --cov=apple --cov-report=term
 ```
 
+Redis 算子测试使用 [miniredis](https://github.com/alicebob/miniredis) 提供内存级 Redis 服务，无需外部 Redis 实例。HTTP handler 测试使用标准库 `net/http/httptest`。
+
 ### Lint
 
 ```bash
