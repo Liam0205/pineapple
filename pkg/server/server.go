@@ -16,6 +16,7 @@ import (
 	"time"
 
 	pine "github.com/Liam0205/pineapple"
+	"github.com/Liam0205/pineapple/pkg/metrics"
 	"github.com/Liam0205/pineapple/pkg/resource"
 )
 
@@ -24,11 +25,27 @@ type Config struct {
 	ConfigPath string            // Path to unified JSON config file (pipeline + resources)
 	Addr       string            // Listen address (e.g. ":8080")
 	Resources  *resource.Manager // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
+	Metrics    metrics.Provider  // Optional: metrics provider (nil → no-op)
 }
 
 var (
 	enginePtr atomic.Pointer[pine.Engine]
 	resources atomic.Pointer[resource.Manager]
+
+	// server-level atomic counters (powers /stats)
+	reloadCount          atomic.Int64
+	reloadErrorCount     atomic.Int64
+	lastReloadDurationNs atomic.Int64
+
+	// external metrics (set once at Run, nil-safe)
+	srvMetrics struct {
+		reloadTotal    metrics.Counter
+		reloadErrors   metrics.Counter
+		reloadDuration metrics.Histogram
+	}
+
+	// metricsProvider is stored so reloadConfig can pass it to NewEngine.
+	metricsProvider metrics.Provider
 )
 
 // Run starts the Pine HTTP server with the given configuration.
@@ -42,12 +59,34 @@ func Run(cfg Config) error {
 		cfg.Addr = ":8080"
 	}
 
+	// Initialize metrics provider
+	mp := cfg.Metrics
+	if mp == nil {
+		mp = metrics.Nop()
+	}
+	metricsProvider = mp
+	srvMetrics.reloadTotal = mp.NewCounter(metrics.MetricOpts{
+		Name: "pine_config_reload_total",
+		Help: "Total successful config reloads.",
+	})
+	srvMetrics.reloadErrors = mp.NewCounter(metrics.MetricOpts{
+		Name: "pine_config_reload_errors_total",
+		Help: "Total failed config reloads.",
+	})
+	srvMetrics.reloadDuration = mp.NewHistogram(metrics.HistogramOpts{
+		MetricOpts: metrics.MetricOpts{
+			Name: "pine_config_reload_duration_seconds",
+			Help: "Config reload duration in seconds.",
+		},
+		Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0},
+	})
+
 	// Load initial config
 	configData, err := os.ReadFile(cfg.ConfigPath)
 	if err != nil {
 		log.Fatalf("failed to read config: %v", err)
 	}
-	engine, err := pine.NewEngine(configData)
+	engine, err := pine.NewEngine(configData, pine.WithMetrics(mp))
 	if err != nil {
 		log.Fatalf("failed to load engine: %v", err)
 	}
@@ -116,7 +155,7 @@ func reloadConfig(path string) error {
 		return err
 	}
 
-	engine, err := pine.NewEngine(data)
+	engine, err := pine.NewEngine(data, pine.WithMetrics(metricsProvider))
 	if err != nil {
 		return err
 	}
@@ -152,9 +191,17 @@ func watchConfig(path string) {
 		}
 		if info.ModTime().After(lastMod) {
 			lastMod = info.ModTime()
+			start := time.Now()
 			if err := reloadConfig(path); err != nil {
+				reloadErrorCount.Add(1)
+				srvMetrics.reloadErrors.Inc()
 				log.Printf("config reload failed: %v", err)
 			} else {
+				dur := time.Since(start)
+				reloadCount.Add(1)
+				lastReloadDurationNs.Store(dur.Nanoseconds())
+				srvMetrics.reloadTotal.Inc()
+				srvMetrics.reloadDuration.Observe(metrics.DurationSeconds(dur))
 				log.Printf("config reloaded from %s", path)
 			}
 		}
@@ -260,7 +307,23 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, engine.Stats())
+	resp := map[string]any{
+		"operators": engine.Stats(),
+		"scheduler": engine.SchedulerStats(),
+		"server":    serverStats(),
+	}
+	if custom := engine.OperatorCustomStats(); custom != nil {
+		resp["operator_detail"] = custom
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func serverStats() map[string]int64 {
+	return map[string]int64{
+		"reload_count":           reloadCount.Load(),
+		"reload_error_count":     reloadErrorCount.Load(),
+		"last_reload_duration_ns": lastReloadDurationNs.Load(),
+	}
 }
 
 func handleDAG(w http.ResponseWriter, r *http.Request) {

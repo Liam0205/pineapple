@@ -25,6 +25,7 @@ import (
 	"fmt"
 
 	pine "github.com/Liam0205/pineapple"
+	"github.com/Liam0205/pineapple/pkg/metrics"
 	glua "github.com/yuin/gopher-lua"
 )
 
@@ -215,4 +216,28 @@ func luaToGo(v glua.LValue) any {
 	default:
 		return v.String()
 	}
+}
+
+// OperatorStats implements pine.StatsProvider.
+func (o *LuaOp) OperatorStats() map[string]int64 {
+	return o.pool.statsSnapshot()
+}
+
+// SetMetricsProvider implements pine.MetricsAware.
+func (o *LuaOp) SetMetricsProvider(p metrics.Provider) {
+	name := o.OperatorName()
+	o.pool.setMetrics(
+		p.NewCounter(metrics.MetricOpts{
+			Name: "pine_lua_pool_borrow_total", Help: "Total Lua state borrows.", LabelNames: []string{"operator"},
+		}).With(name),
+		p.NewCounter(metrics.MetricOpts{
+			Name: "pine_lua_pool_return_total", Help: "Total Lua state returns.", LabelNames: []string{"operator"},
+		}).With(name),
+		p.NewCounter(metrics.MetricOpts{
+			Name: "pine_lua_pool_create_total", Help: "Total Lua states created.", LabelNames: []string{"operator"},
+		}).With(name),
+		p.NewGauge(metrics.MetricOpts{
+			Name: "pine_lua_pool_active", Help: "Lua states currently borrowed.", LabelNames: []string{"operator"},
+		}).With(name),
+	)
 }

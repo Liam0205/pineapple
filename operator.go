@@ -48,3 +48,11 @@ type DebugHolder = types.DebugHolder
 
 // ResourceSchema describes a resource type for registration and codegen.
 type ResourceSchema = types.ResourceSchema
+
+// StatsProvider is an optional interface for operators that expose
+// custom runtime statistics to the /stats endpoint.
+type StatsProvider = types.StatsProvider
+
+// MetricsAware is an optional interface for operators that record
+// metrics to an external provider (e.g., Prometheus).
+type MetricsAware = types.MetricsAware

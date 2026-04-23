@@ -116,7 +116,7 @@ func TestStatsIntegrationWithRun(t *testing.T) {
 	// Run twice
 	for i := 0; i < 2; i++ {
 		frame := dataframe.New(map[string]any{}, nil)
-		_, _, err := Run(context.Background(), plan, frame, s)
+		_, _, err := Run(context.Background(), plan, frame, s, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

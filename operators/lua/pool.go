@@ -2,7 +2,9 @@ package lua
 
 import (
 	"sync"
+	"sync/atomic"
 
+	"github.com/Liam0205/pineapple/pkg/metrics"
 	glua "github.com/yuin/gopher-lua"
 )
 
@@ -12,6 +14,18 @@ type statePool struct {
 	pool     sync.Pool
 	script   string
 	baseline map[string]struct{} // _G keys present after script load
+
+	// always-on atomic counters (powers /stats)
+	borrowCount int64
+	returnCount int64
+	createCount int64
+	activeCount int64
+
+	// external metrics (nil-safe, powers Prometheus)
+	mBorrow metrics.Counter
+	mReturn metrics.Counter
+	mCreate metrics.Counter
+	mActive metrics.Gauge
 }
 
 // newStatePool creates a pool that lazily creates Lua states with the given script loaded.
@@ -25,12 +39,17 @@ func newStatePool(script string) (*statePool, error) {
 	}
 	sp.baseline = snapshotGlobals(L)
 	sp.pool.Put(L)
+	atomic.AddInt64(&sp.createCount, 1)
 
 	sp.pool.New = func() any {
 		s, err := sp.newState()
 		if err != nil {
 			// Script was validated at init; this should not happen.
 			panic("lua statePool: failed to create state: " + err.Error())
+		}
+		atomic.AddInt64(&sp.createCount, 1)
+		if sp.mCreate != nil {
+			sp.mCreate.Inc()
 		}
 		return s
 	}
@@ -49,6 +68,14 @@ func (sp *statePool) newState() (*glua.LState, error) {
 
 // Borrow returns a Lua state from the pool, ready for use.
 func (sp *statePool) Borrow() *glua.LState {
+	atomic.AddInt64(&sp.borrowCount, 1)
+	atomic.AddInt64(&sp.activeCount, 1)
+	if sp.mBorrow != nil {
+		sp.mBorrow.Inc()
+	}
+	if sp.mActive != nil {
+		sp.mActive.Add(1)
+	}
 	return sp.pool.Get().(*glua.LState)
 }
 
@@ -56,6 +83,14 @@ func (sp *statePool) Borrow() *glua.LState {
 func (sp *statePool) Return(L *glua.LState) {
 	clearNonBaseline(L, sp.baseline)
 	sp.pool.Put(L)
+	atomic.AddInt64(&sp.returnCount, 1)
+	atomic.AddInt64(&sp.activeCount, -1)
+	if sp.mReturn != nil {
+		sp.mReturn.Inc()
+	}
+	if sp.mActive != nil {
+		sp.mActive.Add(-1)
+	}
 }
 
 // snapshotGlobals captures the set of global variable names after script load.
@@ -92,4 +127,20 @@ func clearNonBaseline(L *glua.LState, baseline map[string]struct{}) {
 	for _, k := range toRemove {
 		L.SetGlobal(k, glua.LNil)
 	}
+}
+
+func (sp *statePool) statsSnapshot() map[string]int64 {
+	return map[string]int64{
+		"borrow_count": atomic.LoadInt64(&sp.borrowCount),
+		"return_count": atomic.LoadInt64(&sp.returnCount),
+		"create_count": atomic.LoadInt64(&sp.createCount),
+		"active_count": atomic.LoadInt64(&sp.activeCount),
+	}
+}
+
+func (sp *statePool) setMetrics(borrow, ret, create metrics.Counter, active metrics.Gauge) {
+	sp.mBorrow = borrow
+	sp.mReturn = ret
+	sp.mCreate = create
+	sp.mActive = active
 }

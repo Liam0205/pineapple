@@ -7,12 +7,14 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Liam0205/pineapple/internal/config"
 	"github.com/Liam0205/pineapple/internal/dag"
 	"github.com/Liam0205/pineapple/internal/dataframe"
 	"github.com/Liam0205/pineapple/internal/types"
+	"github.com/Liam0205/pineapple/pkg/metrics"
 )
 
 // CompiledOperator holds a built operator instance and its metadata.
@@ -38,7 +40,8 @@ type Warning struct {
 // Run executes the DAG plan against a request-local frame.
 // Returns collected warnings, per-operator trace, and the first fatal error (if any).
 // If stats is non-nil, per-operator execution statistics are accumulated.
-func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) ([]Warning, []types.OpTrace, error) {
+// If em is non-nil, metrics are recorded to the external provider.
+func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, em *EngineMetrics) ([]Warning, []types.OpTrace, error) {
 	n := len(plan.Graph.Nodes)
 	done := make([]chan struct{}, n)
 	for i := 0; i < n; i++ {
@@ -48,6 +51,13 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	if stats != nil {
+		stats.RecordRun()
+	}
+	if em != nil {
+		em.SchedulerRuns.Inc()
+	}
+
 	var (
 		warningsMu sync.Mutex // protects warnings slice only
 		warnings   []Warning
@@ -55,6 +65,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 		fatalErr   error
 		fatalOnce  sync.Once
 		wg         sync.WaitGroup
+		activeOps  int64 // local concurrency counter
 	)
 
 	for i := 0; i < n; i++ {
@@ -95,6 +106,9 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 					if stats != nil {
 						stats.RecordSkip(cop.Name)
 					}
+					if em != nil {
+						em.OpSkipTotal.With(cop.Name).Inc()
+					}
 					return
 				}
 			}
@@ -119,6 +133,13 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 			}
 
 			// Execute operator (single or data-parallel)
+			current := atomic.AddInt64(&activeOps, 1)
+			if stats != nil {
+				stats.RecordConcurrency(current)
+			}
+			if em != nil {
+				em.ActiveOps.Add(1)
+			}
 			var output *types.OperatorOutput
 			var execErr error
 
@@ -149,6 +170,10 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 			}
 
 			duration := time.Since(startTime)
+			atomic.AddInt64(&activeOps, -1)
+			if em != nil {
+				em.ActiveOps.Add(-1)
+			}
 
 			// Handle fatal error
 			if execErr != nil {
@@ -159,6 +184,10 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 				}
 				if stats != nil {
 					stats.RecordError(cop.Name, duration)
+				}
+				if em != nil {
+					em.OpErrorTotal.With(cop.Name).Inc()
+					em.OpExecDuration.With(cop.Name).Observe(metrics.DurationSeconds(duration))
 				}
 				fatalOnce.Do(func() {
 					if _, ok := execErr.(*types.PanicError); ok {
@@ -221,6 +250,10 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats) (
 			}
 			if stats != nil {
 				stats.RecordExec(cop.Name, duration)
+			}
+			if em != nil {
+				em.OpExecTotal.With(cop.Name).Inc()
+				em.OpExecDuration.With(cop.Name).Observe(metrics.DurationSeconds(duration))
 			}
 		}(i)
 	}

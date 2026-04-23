@@ -38,7 +38,7 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **Lua 嵌入扩展** — 内置 Lua 算子支持轻量级的自定义计算和条件分支，无需新增 Go 代码即可实现灵活逻辑。简单逻辑下 Lua 仅比 Go 原生慢约 1.3x，详见 [Lua vs Go 性能对比](design_doc/13_lua_vs_go_benchmark.md)。
 
-**白盒可观测** — 引擎内部始终记录算子级别的执行 trace（耗时、跳过状态）。请求方通过 `common._return_trace = true` 控制是否在响应中返回 trace；默认不返回。trace 仅包含实际执行或跳过的算子，DAG 中止时未开始执行的算子不会出现。配合算子 `debug` 参数可获取输入/输出快照，逐算子深入排查。
+**白盒可观测** — 引擎内部始终记录算子级别的执行 trace（耗时、跳过状态）。请求方通过 `common._return_trace = true` 控制是否在响应中返回 trace；默认不返回。trace 仅包含实际执行或跳过的算子，DAG 中止时未开始执行的算子不会出现。配合算子 `debug` 参数可获取输入/输出快照，逐算子深入排查。通过可插拔的 `pkg/metrics.Provider` 接口支持 Prometheus 等外部监控系统接入，内置 `/stats` 端点提供零配置基线。
 
 **动态资源管理** — `pkg/resource` 提供后台定时刷新的内存资源管理器，无锁读、刷新失败保留旧值。资源通过 `ResourceSchema` 注册，codegen 自动生成 Python 类型类，DSL 声明后编译到统一 JSON 配置。
 
@@ -591,7 +591,21 @@ config = flow.compile_dict()
 
 ### `GET /stats`
 
-引擎运行统计（请求计数、算子执行次数和耗时分布等）。
+引擎运行统计。返回复合 JSON 结构，包含四个维度：
+
+```json
+{
+  "operators": {"<operator_name>": {"exec_count": 100, "skip_count": 0, ...}},
+  "scheduler": {"run_count": 100, "peak_concurrency": 4},
+  "server": {"reload_count": 3, "reload_error_count": 0, "last_reload_duration_ns": 5234000},
+  "operator_detail": {"<operator_name>": {"borrow_count": 100, ...}}
+}
+```
+
+- `operators`：per-operator 累计统计
+- `scheduler`：调度器级统计（运行次数、峰值并发）
+- `server`：配置热重载统计
+- `operator_detail`：实现 `StatsProvider` 接口的算子自定义统计（如 Lua pool 指标）
 
 ### `GET /dag`
 
@@ -632,6 +646,7 @@ pineapple/
 │   ├── pineapple-server/   # HTTP 服务入口
 │   └── pineapple-codegen/  # 代码 & 文档生成工具
 ├── pkg/
+│   ├── metrics/            # 可插拔指标接口 (Counter/Gauge/Histogram + Nop)
 │   ├── resource/           # 动态资源管理 (ResourceManager)
 │   ├── server/             # 可复用 HTTP 服务库
 │   └── codegen/            # 可复用代码生成库
@@ -677,6 +692,32 @@ pineapple/
   - [Lua vs Go 性能对比](design_doc/13_lua_vs_go_benchmark.md)
 
 - **[算子参考文档](doc/operators/README.md)** — 所有内置算子的详细说明、参数、用法示例
+
+## 可观测性
+
+### 内置统计
+
+`GET /stats` 端点始终可用，基于 atomic 计数器，零外部依赖。覆盖调度器执行、算子耗时、Lua pool 使用、配置热重载四个维度。
+
+### Prometheus 接入
+
+Pineapple 通过 `pkg/metrics.Provider` 接口支持外部指标导出，核心库不依赖 `prometheus/client_golang`。接入方在自己的项目中实现 Provider（约 80 行），通过 `pine.WithMetrics()` 或 `server.Config.Metrics` 注入即可。
+
+```go
+// 在 server wrapper 中注入 Prometheus provider
+mp := promadapter.New(prometheus.DefaultRegisterer)
+server.Run(server.Config{
+    ConfigPath: *configPath,
+    Addr:       *addr,
+    Metrics:    mp,
+})
+```
+
+详见 [可观测性设计文档](design_doc/08_observability.md)。
+
+### 自定义算子指标
+
+算子可选实现 `StatsProvider` 接口暴露自定义统计到 `/stats` 的 `operator_detail` 字段，或实现 `MetricsAware` 接口向 Provider 注册自定义 Prometheus 指标。
 
 ## 第三方扩展
 

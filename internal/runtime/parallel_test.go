@@ -309,7 +309,7 @@ func TestRunDataParallelTransform(t *testing.T) {
 		"double": cop,
 	})
 	frame := dataframe.New(map[string]any{}, items)
-	_, traces, err := Run(context.Background(), plan, frame, nil)
+	_, traces, err := Run(context.Background(), plan, frame, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestRunDataParallelWarning(t *testing.T) {
 		"warn_op": cop,
 	})
 	frame := dataframe.New(map[string]any{}, items)
-	warnings, _, err := Run(context.Background(), plan, frame, nil)
+	warnings, _, err := Run(context.Background(), plan, frame, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestRunDataParallelZeroItems(t *testing.T) {
 		"noop": cop,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, _, err := Run(context.Background(), plan, frame, nil)
+	_, _, err := Run(context.Background(), plan, frame, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func TestDataParallelEquivalence(t *testing.T) {
 
 	plan1 := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{"double": baseCop})
 	frame1 := dataframe.New(map[string]any{}, items)
-	warnings1, _, err := Run(context.Background(), plan1, frame1, nil)
+	warnings1, _, err := Run(context.Background(), plan1, frame1, nil, nil)
 	if err != nil {
 		t.Fatalf("baseline (dp=1): %v", err)
 	}
@@ -431,7 +431,7 @@ func TestDataParallelEquivalence(t *testing.T) {
 
 			plan := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{"double": dpCop})
 			frame := dataframe.New(map[string]any{}, dpItems)
-			warnings, _, err := Run(context.Background(), plan, frame, nil)
+			warnings, _, err := Run(context.Background(), plan, frame, nil, nil)
 			if err != nil {
 				t.Fatalf("dp=%d: %v", shards, err)
 			}

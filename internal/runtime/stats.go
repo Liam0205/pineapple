@@ -21,6 +21,9 @@ type OpStats struct {
 type Stats struct {
 	mu    sync.RWMutex
 	ops   map[string]*OpStats
+	// scheduler-level
+	runCount        int64
+	peakConcurrency int64
 }
 
 // NewStats creates a new Stats accumulator.
@@ -93,6 +96,24 @@ func (s *Stats) RecordError(name string, duration time.Duration) {
 	}
 }
 
+// RecordRun records a scheduler run (one per Engine.Execute call).
+func (s *Stats) RecordRun() {
+	atomic.AddInt64(&s.runCount, 1)
+}
+
+// RecordConcurrency updates peak concurrency if n exceeds the current peak.
+func (s *Stats) RecordConcurrency(n int64) {
+	for {
+		cur := atomic.LoadInt64(&s.peakConcurrency)
+		if n <= cur {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&s.peakConcurrency, cur, n) {
+			break
+		}
+	}
+}
+
 // Snapshot returns a point-in-time copy of all operator statistics.
 type OpStatsSnapshot struct {
 	ExecCount      int64   `json:"exec_count"`
@@ -126,4 +147,18 @@ func (s *Stats) Snapshot() map[string]OpStatsSnapshot {
 		}
 	}
 	return result
+}
+
+// SchedulerStatsSnapshot is a point-in-time copy of scheduler-level statistics.
+type SchedulerStatsSnapshot struct {
+	RunCount        int64 `json:"run_count"`
+	PeakConcurrency int64 `json:"peak_concurrency"`
+}
+
+// SchedulerSnapshot returns a point-in-time copy of scheduler statistics.
+func (s *Stats) SchedulerSnapshot() SchedulerStatsSnapshot {
+	return SchedulerStatsSnapshot{
+		RunCount:        atomic.LoadInt64(&s.runCount),
+		PeakConcurrency: atomic.LoadInt64(&s.peakConcurrency),
+	}
 }

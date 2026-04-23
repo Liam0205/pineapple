@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/Liam0205/pineapple/pkg/metrics"
 )
 
 // OperatorType represents the semantic type of an operator.
@@ -181,6 +183,11 @@ type DebugAware interface {
 	SetDebugInfo(operatorName string, debug bool)
 }
 
+// OperatorName returns the operator name injected by SetDebugInfo.
+func (d *DebugHolder) OperatorName() string {
+	return d.operatorName
+}
+
 // DebugHolder stores the debug flag and operator name, and provides
 // IsDebug / DebugLog helpers. Embed it in an operator struct to satisfy
 // DebugAware automatically:
@@ -238,4 +245,18 @@ type ResourceSchema struct {
 	Description     string               // One-line summary.
 	DefaultInterval int                  // Default refresh interval in seconds; 0 → 10min.
 	Params          map[string]ParamSpec // Reuses operator ParamSpec.
+}
+
+// StatsProvider is an optional interface for operators that expose
+// custom runtime statistics to the /stats endpoint.
+type StatsProvider interface {
+	OperatorStats() map[string]int64
+}
+
+// MetricsAware is an optional interface for operators that record
+// metrics to an external provider (e.g., Prometheus). The engine calls
+// SetMetricsProvider after DebugAware injection for operators that
+// implement this interface.
+type MetricsAware interface {
+	SetMetricsProvider(p metrics.Provider)
 }

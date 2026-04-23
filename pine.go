@@ -10,6 +10,7 @@ import (
 	"github.com/Liam0205/pineapple/internal/registry"
 	"github.com/Liam0205/pineapple/internal/runtime"
 	"github.com/Liam0205/pineapple/internal/types"
+	"github.com/Liam0205/pineapple/pkg/metrics"
 )
 
 // Re-export Request and Result from internal/types.
@@ -19,14 +20,36 @@ type Result = types.Result
 // Engine is an immutable, concurrency-safe execution engine.
 // Create with NewEngine; call Execute for each request.
 type Engine struct {
-	plan        *runtime.Plan
-	stats       *runtime.Stats
-	storageMode dataframe.StorageMode
+	plan          *runtime.Plan
+	stats         *runtime.Stats
+	engineMetrics *runtime.EngineMetrics
+	storageMode   dataframe.StorageMode
+}
+
+// Option configures optional Engine behaviour.
+type Option func(*engineOptions)
+
+type engineOptions struct {
+	metricsProvider metrics.Provider
+}
+
+// WithMetrics configures the Engine to record metrics through the given
+// Provider. When omitted, a no-op provider is used (zero overhead).
+func WithMetrics(p metrics.Provider) Option {
+	return func(o *engineOptions) { o.metricsProvider = p }
 }
 
 // NewEngine parses a JSON config, validates it, builds the DAG, and returns
 // an immutable Engine ready for concurrent Execute calls.
-func NewEngine(jsonConfig []byte) (*Engine, error) {
+func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
+	var eo engineOptions
+	for _, o := range opts {
+		o(&eo)
+	}
+	mp := eo.metricsProvider
+	if mp == nil {
+		mp = metrics.Nop()
+	}
 	// 1. Parse config
 	cfg, err := config.Load(jsonConfig)
 	if err != nil {
@@ -78,6 +101,10 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 		if da, ok := op.(types.DebugAware); ok {
 			da.SetDebugInfo(name, opCfg.Debug)
 		}
+		// If the operator records external metrics, inject the provider
+		if ma, ok := op.(types.MetricsAware); ok {
+			ma.SetMetricsProvider(mp)
+		}
 		compiledOps[i] = &runtime.CompiledOperator{
 			Name:     name,
 			Instance: op,
@@ -97,7 +124,8 @@ func NewEngine(jsonConfig []byte) (*Engine, error) {
 		Contract:  cfg.FlowContract,
 	}
 
-	return &Engine{plan: plan, stats: runtime.NewStats(), storageMode: dataframe.StorageMode(cfg.StorageMode)}, nil
+	em := runtime.NewEngineMetrics(mp)
+	return &Engine{plan: plan, stats: runtime.NewStats(), engineMetrics: em, storageMode: dataframe.StorageMode(cfg.StorageMode)}, nil
 }
 
 // Execute runs the pipeline for a single request.
@@ -135,7 +163,7 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 	frame := dataframe.NewFrame(e.storageMode, req.Common, req.Items)
 
 	// Execute DAG
-	warnings, traces, err := runtime.Run(ctx, e.plan, frame, e.stats)
+	warnings, traces, err := runtime.Run(ctx, e.plan, frame, e.stats, e.engineMetrics)
 
 	// Build result — project to declared output fields
 	result := dataframe.ToResult(frame, e.plan.Contract.CommonOutput, e.plan.Contract.ItemOutput)
@@ -154,6 +182,28 @@ func (e *Engine) Execute(ctx context.Context, req *Request) (*Result, error) {
 // accumulated since this Engine was created.
 func (e *Engine) Stats() map[string]runtime.OpStatsSnapshot {
 	return e.stats.Snapshot()
+}
+
+// SchedulerStats returns a point-in-time snapshot of scheduler-level statistics.
+func (e *Engine) SchedulerStats() runtime.SchedulerStatsSnapshot {
+	return e.stats.SchedulerSnapshot()
+}
+
+// OperatorCustomStats collects custom statistics from operators that implement
+// StatsProvider. Returns nil when no operator reports custom stats.
+func (e *Engine) OperatorCustomStats() map[string]map[string]int64 {
+	result := make(map[string]map[string]int64)
+	for _, cop := range e.plan.Operators {
+		if sp, ok := cop.Instance.(types.StatsProvider); ok {
+			if s := sp.OperatorStats(); len(s) > 0 {
+				result[cop.Name] = s
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // RenderDAG renders the compiled DAG in the specified format.

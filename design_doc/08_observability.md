@@ -137,10 +137,135 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
 
 ## 暂不计划
 
-- **实时监控面板**：算子级别的 CPU 消耗、耗时分布等系统指标。
 - **全链路特征追踪**：跨服务的数据血缘追踪。超出单引擎范畴，需分布式 tracing 基础设施支撑。
 
 ## 已实现
+
+### 运行时指标体系
+
+引擎通过 `pkg/metrics` 提供可插拔的指标接口（Counter / Gauge / Histogram），默认使用零开销的 Nop 实现。用户通过 `pine.WithMetrics(provider)` 注入自定义 Provider（如 Prometheus 适配器），即可将指标导出到外部监控系统。
+
+同时，引擎内部保留 atomic 计数器作为独立的内置观测路径，通过 `/stats` JSON 端点始终可用，不依赖任何外部系统。
+
+#### 指标覆盖范围
+
+**调度器级**
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `pine_scheduler_runs_total` | Counter | DAG 调度执行总次数 |
+| `pine_operator_active` | Gauge | 当前正在执行的算子数 |
+| `pine_operator_exec_total` | Counter(operator) | 算子成功执行次数 |
+| `pine_operator_exec_duration_seconds` | Histogram(operator) | 算子执行耗时分布 |
+| `pine_operator_skip_total` | Counter(operator) | 算子跳过次数 |
+| `pine_operator_error_total` | Counter(operator) | 算子失败次数 |
+
+**Lua pool 级**
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `pine_lua_pool_borrow_total` | Counter(operator) | Lua state 借出总次数 |
+| `pine_lua_pool_return_total` | Counter(operator) | Lua state 归还总次数 |
+| `pine_lua_pool_create_total` | Counter(operator) | Lua state 创建总次数 |
+| `pine_lua_pool_active` | Gauge(operator) | 当前借出的 Lua state 数 |
+
+**配置热重载级**
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `pine_config_reload_total` | Counter | 配置重载成功次数 |
+| `pine_config_reload_errors_total` | Counter | 配置重载失败次数 |
+| `pine_config_reload_duration_seconds` | Histogram | 配置重载耗时分布 |
+
+#### Metrics Provider 接口
+
+```go
+import "github.com/Liam0205/pineapple/pkg/metrics"
+
+type Provider interface {
+    NewCounter(opts MetricOpts) Counter
+    NewGauge(opts MetricOpts) Gauge
+    NewHistogram(opts HistogramOpts) Histogram
+}
+```
+
+接口设计对齐 Prometheus mental model：`With(labelValues...)` 按位置传值、`MetricOpts.LabelNames` 声明标签名、`Histogram.Observe(float64)` 配合 `metrics.DurationSeconds` 转换。
+
+Pineapple 核心库不依赖 `prometheus/client_golang`。Prometheus 适配器由用户在自己的项目中实现，约 80 行代码即可完成。
+
+#### `/stats` 端点
+
+`GET /stats` 返回复合结构：
+
+```json
+{
+  "operators": {
+    "recall_static_A1B2C3": {"exec_count": 100, "skip_count": 0, ...},
+    "transform_by_lua_D4E5F6": {"exec_count": 100, ...}
+  },
+  "scheduler": {"run_count": 100, "peak_concurrency": 4},
+  "server": {"reload_count": 3, "reload_error_count": 0, "last_reload_duration_ns": 5234000},
+  "operator_detail": {
+    "transform_by_lua_D4E5F6": {"borrow_count": 100, "return_count": 100, "create_count": 8, "active_count": 0}
+  }
+}
+```
+
+- `operators`：per-operator 累计统计（exec/skip/error/duration）
+- `scheduler`：调度器级统计（运行次数、峰值并发）
+- `server`：配置热重载统计
+- `operator_detail`：实现 `StatsProvider` 接口的算子的自定义统计（如 Lua pool）
+
+#### Prometheus 接入示例
+
+第三方项目实现 `metrics.Provider` 接口，约 80 行：
+
+```go
+package promadapter
+
+import (
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/Liam0205/pineapple/pkg/metrics"
+)
+
+type provider struct{ r prometheus.Registerer }
+
+func New(r prometheus.Registerer) metrics.Provider { return &provider{r: r} }
+
+func (p *provider) NewCounter(opts metrics.MetricOpts) metrics.Counter {
+    c := prometheus.NewCounterVec(prometheus.CounterOpts{
+        Name: opts.Name, Help: opts.Help,
+    }, opts.LabelNames)
+    p.r.MustRegister(c)
+    return &counter{vec: c}
+}
+
+// NewGauge, NewHistogram 类似...
+
+type counter struct {
+    vec *prometheus.CounterVec
+    c   prometheus.Counter
+}
+
+func (c *counter) With(lvs ...string) metrics.Counter {
+    return &counter{c: c.vec.WithLabelValues(lvs...)}
+}
+
+func (c *counter) Inc() {
+    if c.c != nil { c.c.Inc() }
+}
+```
+
+在 server wrapper 中注入：
+
+```go
+mp := promadapter.New(prometheus.DefaultRegisterer)
+server.Run(server.Config{
+    ConfigPath: *configPath,
+    Addr:       *addr,
+    Metrics:    mp,
+})
+```
 
 ### DAG 可视化
 
