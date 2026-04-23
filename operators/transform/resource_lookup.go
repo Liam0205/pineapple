@@ -19,6 +19,7 @@ package transform
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	pine "github.com/Liam0205/pineapple"
 	"github.com/Liam0205/pineapple/pkg/resource"
@@ -75,7 +76,26 @@ func (o *ResourceLookupOp) Execute(ctx context.Context, in *pine.OperatorInput, 
 	}
 
 	for i := 0; i < in.ItemCount(); i++ {
-		key, _ := in.Item(i, o.lookupKey).(string)
+		raw := in.Item(i, o.lookupKey)
+		if raw == nil {
+			if o.hasDefault {
+				out.SetItem(i, o.outputField, o.defaultValue)
+			}
+			continue
+		}
+		var key string
+		switch v := raw.(type) {
+		case string:
+			key = v
+		case float64:
+			if v == float64(int64(v)) {
+				key = strconv.FormatInt(int64(v), 10)
+			} else {
+				key = strconv.FormatFloat(v, 'f', -1, 64)
+			}
+		default:
+			key = fmt.Sprintf("%v", raw)
+		}
 		if val, found := table[key]; found {
 			out.SetItem(i, o.outputField, val)
 		} else if o.hasDefault {

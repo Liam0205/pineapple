@@ -313,3 +313,43 @@ class TestDataParallel:
                       function_for_common="f", function_for_item="",
                       data_parallel=0)
         flow.compile()  # should not raise
+
+
+class TestParamMetadataConsistency:
+    def _make_resource(self, name: str = "res"):
+        from apple.resource import BaseResource
+        r = BaseResource(interval=600)
+        r.resource_type = name
+        return r
+
+    def test_resource_lookup_missing_lookup_key_in_item_input(self):
+        flow = Flow(name="bad", item_input=["item_id"], item_output=["feat"])
+        flow.resource("res", self._make_resource())
+        flow._add_op("transform_resource_lookup",
+                      item_input=[],
+                      item_output=["feat"],
+                      resource_name="res", lookup_key="item_id",
+                      output_field="feat")
+        with pytest.raises(ValidationError, match="lookup_key.*item_input"):
+            flow.compile()
+
+    def test_resource_lookup_missing_output_field_in_item_output(self):
+        flow = Flow(name="bad", item_input=["item_id"], item_output=["feat"])
+        flow.resource("res", self._make_resource())
+        flow._add_op("transform_resource_lookup",
+                      item_input=["item_id"],
+                      item_output=[],
+                      resource_name="res", lookup_key="item_id",
+                      output_field="feat")
+        with pytest.raises(ValidationError, match="output_field.*item_output"):
+            flow.compile()
+
+    def test_resource_lookup_correct_metadata_ok(self):
+        flow = Flow(name="ok", item_input=["item_id"], item_output=["feat"])
+        flow.resource("res", self._make_resource())
+        flow._add_op("transform_resource_lookup",
+                      item_input=["item_id"],
+                      item_output=["feat"],
+                      resource_name="res", lookup_key="item_id",
+                      output_field="feat")
+        flow.compile()  # should not raise

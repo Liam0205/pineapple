@@ -205,3 +205,32 @@ def detect_dead_code(
             dead.append(name)
 
     return dead
+
+
+_PARAM_METADATA_RULES: dict[str, list[tuple[str, str]]] = {
+    "transform_resource_lookup": [
+        ("lookup_key", "item_input"),
+        ("output_field", "item_output"),
+    ],
+}
+
+
+def validate_param_metadata_consistency(
+    ops: list[tuple[str, OpCall]],
+) -> None:
+    """Check that business params implying metadata fields are consistent.
+
+    For example, transform_resource_lookup's lookup_key must appear in
+    item_input, and output_field must appear in item_output.
+    """
+    for name, op in ops:
+        rules = _PARAM_METADATA_RULES.get(op.type_name)
+        if not rules:
+            continue
+        for param_name, metadata_attr in rules:
+            value = op.params.get(param_name)
+            if value and value not in getattr(op, metadata_attr, []):
+                raise ValidationError(
+                    f"operator {name!r}: param {param_name!r}={value!r} "
+                    f"must appear in {metadata_attr}"
+                )

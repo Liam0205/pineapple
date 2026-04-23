@@ -25,10 +25,11 @@ class FilterConditionOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterConditionOp":
+        _params = {
+            "value": value,
+        }
         return self._apply(
-            params={
-                "value": value,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -59,9 +60,10 @@ class FilterPaginateOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterPaginateOp":
+        _params = {
+        }
         return self._apply(
-            params={
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -94,10 +96,11 @@ class FilterTruncateOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterTruncateOp":
+        _params = {
+            "top_n": top_n,
+        }
         return self._apply(
-            params={
-                "top_n": top_n,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -130,10 +133,11 @@ class MergeDedupOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "MergeDedupOp":
+        _params = {
+            "strategy": strategy,
+        }
         return self._apply(
-            params={
-                "strategy": strategy,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -166,10 +170,11 @@ class ObserveLogOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "ObserveLogOp":
+        _params = {
+            "log_prefix": log_prefix,
+        }
         return self._apply(
-            params={
-                "log_prefix": log_prefix,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -202,10 +207,11 @@ class RecallResourceOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "RecallResourceOp":
+        _params = {
+            "resource_name": resource_name,
+        }
         return self._apply(
-            params={
-                "resource_name": resource_name,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -239,10 +245,11 @@ class RecallStaticOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "RecallStaticOp":
+        _params = {
+            "items": items,
+        }
         return self._apply(
-            params={
-                "items": items,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -274,9 +281,10 @@ class ReorderShuffleBySaltOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "ReorderShuffleBySaltOp":
+        _params = {
+        }
         return self._apply(
-            params={
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -309,10 +317,11 @@ class ReorderSortOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "ReorderSortOp":
+        _params = {
+            "order": order,
+        }
         return self._apply(
-            params={
-                "order": order,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -349,12 +358,13 @@ class TransformByLuaOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformByLuaOp":
+        _params = {
+            "function_for_common": function_for_common,
+            "function_for_item": function_for_item,
+            "lua_script": lua_script,
+        }
         return self._apply(
-            params={
-                "function_for_common": function_for_common,
-                "function_for_item": function_for_item,
-                "lua_script": lua_script,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -403,18 +413,23 @@ class TransformByRemotePineappleOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformByRemotePineappleOp":
+        _params = {
+            "endpoint": endpoint,
+            "fail_on_error": fail_on_error,
+            "host": host,
+            "port": port,
+            "timeout": timeout,
+        }
+        if common_request is not None:
+            _params["common_request"] = common_request
+        if common_response is not None:
+            _params["common_response"] = common_response
+        if item_request is not None:
+            _params["item_request"] = item_request
+        if item_response is not None:
+            _params["item_response"] = item_response
         return self._apply(
-            params={
-                "common_request": common_request,
-                "common_response": common_response,
-                "endpoint": endpoint,
-                "fail_on_error": fail_on_error,
-                "host": host,
-                "item_request": item_request,
-                "item_response": item_response,
-                "port": port,
-                "timeout": timeout,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -447,10 +462,11 @@ class TransformCopyOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformCopyOp":
+        _params = {
+            "direction": direction,
+        }
         return self._apply(
-            params={
-                "direction": direction,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -481,9 +497,10 @@ class TransformDispatchOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformDispatchOp":
+        _params = {
+        }
         return self._apply(
-            params={
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -516,10 +533,11 @@ class TransformNormalizeOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformNormalizeOp":
+        _params = {
+            "method": method,
+        }
         return self._apply(
-            params={
-                "method": method,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -560,14 +578,15 @@ class TransformRedisGetOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformRedisGetOp":
+        _params = {
+            "data_type": data_type,
+            "key_prefix": key_prefix,
+            "redis_addr": redis_addr,
+            "redis_db": redis_db,
+            "redis_password": redis_password,
+        }
         return self._apply(
-            params={
-                "data_type": data_type,
-                "key_prefix": key_prefix,
-                "redis_addr": redis_addr,
-                "redis_db": redis_db,
-                "redis_password": redis_password,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -610,15 +629,16 @@ class TransformRedisSetOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformRedisSetOp":
+        _params = {
+            "data_type": data_type,
+            "key_prefix": key_prefix,
+            "redis_addr": redis_addr,
+            "redis_db": redis_db,
+            "redis_password": redis_password,
+            "ttl": ttl,
+        }
         return self._apply(
-            params={
-                "data_type": data_type,
-                "key_prefix": key_prefix,
-                "redis_addr": redis_addr,
-                "redis_db": redis_db,
-                "redis_password": redis_password,
-                "ttl": ttl,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -657,13 +677,15 @@ class TransformResourceLookupOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformResourceLookupOp":
+        _params = {
+            "lookup_key": lookup_key,
+            "output_field": output_field,
+            "resource_name": resource_name,
+        }
+        if default_value is not None:
+            _params["default_value"] = default_value
         return self._apply(
-            params={
-                "default_value": default_value,
-                "lookup_key": lookup_key,
-                "output_field": output_field,
-                "resource_name": resource_name,
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
@@ -694,9 +716,10 @@ class TransformSizeOp(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformSizeOp":
+        _params = {
+        }
         return self._apply(
-            params={
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,

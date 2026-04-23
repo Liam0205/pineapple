@@ -73,6 +73,32 @@ func sortedParams(params map[string]types.ParamSpec) []string {
 	return names
 }
 
+// alwaysParams returns sorted names of params that are always included in
+// the params dict: required params, or optional params that have a Default.
+func alwaysParams(params map[string]types.ParamSpec) []string {
+	var names []string
+	for k, spec := range params {
+		if spec.Required || spec.Default != nil {
+			names = append(names, k)
+		}
+	}
+	sortStringsSlice(names)
+	return names
+}
+
+// conditionalParams returns sorted names of optional params with no Default.
+// These are only included in the params dict when the caller passes a non-None value.
+func conditionalParams(params map[string]types.ParamSpec) []string {
+	var names []string
+	for k, spec := range params {
+		if !spec.Required && spec.Default == nil {
+			names = append(names, k)
+		}
+	}
+	sortStringsSlice(names)
+	return names
+}
+
 func sortStringsSlice(s []string) {
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && s[j] < s[j-1]; j-- {
@@ -108,12 +134,14 @@ func isRecall(t types.OperatorType) bool {
 }
 
 var funcMap = template.FuncMap{
-	"pythonType":    pythonType,
-	"pythonDefault": pythonDefault,
-	"pythonLiteral": pythonLiteral,
-	"camelCase":     toCamelCase,
-	"sortedParams":  sortedParams,
-	"isRecall":      isRecall,
+	"pythonType":       pythonType,
+	"pythonDefault":    pythonDefault,
+	"pythonLiteral":    pythonLiteral,
+	"camelCase":        toCamelCase,
+	"sortedParams":     sortedParams,
+	"alwaysParams":     alwaysParams,
+	"conditionalParams": conditionalParams,
+	"isRecall":         isRecall,
 }
 
 const operatorClassTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
@@ -144,12 +172,17 @@ class {{camelCase $schema.Name}}Op(BaseOp):
         debug: bool = False,
         name: str | None = None,
     ) -> "{{camelCase $schema.Name}}Op":
+        _params = {
+        {{- range $k := alwaysParams $schema.Params}}
+            "{{$k}}": {{$k}},
+        {{- end}}
+        }
+        {{- range $k := conditionalParams $schema.Params}}
+        if {{$k}} is not None:
+            _params["{{$k}}"] = {{$k}}
+        {{- end}}
         return self._apply(
-            params={
-            {{- range $k := sortedParams $schema.Params}}
-                "{{$k}}": {{$k}},
-            {{- end}}
-            },
+            params=_params,
             common_input=common_input,
             common_output=common_output,
             item_input=item_input,
