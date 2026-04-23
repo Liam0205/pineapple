@@ -47,7 +47,9 @@ func TestRedisGetOp_InitDefaults(t *testing.T) {
 
 func TestRedisGetOp_NilClient(t *testing.T) {
 	op := &RedisGetOp{}
-	op.Init(map[string]any{"key_prefix": "k:"})
+	if err := op.Init(map[string]any{"key_prefix": "k:"}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
@@ -64,14 +66,18 @@ func TestRedisGetOp_NilClient(t *testing.T) {
 
 func TestRedisGetOp_String(t *testing.T) {
 	s := miniredis.RunT(t)
-	s.Set("prefix:u1", "hello")
+	if err := s.Set("prefix:u1", "hello"); err != nil {
+		t.Fatal(err)
+	}
 
 	op := &RedisGetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "string",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
@@ -92,11 +98,13 @@ func TestRedisGetOp_StringMiss(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisGetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "string",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "missing"}, nil)
@@ -112,14 +120,18 @@ func TestRedisGetOp_StringMiss(t *testing.T) {
 
 func TestRedisGetOp_Set(t *testing.T) {
 	s := miniredis.RunT(t)
-	s.SAdd("prefix:u1", "a", "b", "c")
+	if _, err := s.SAdd("prefix:u1", "a", "b", "c"); err != nil {
+		t.Fatal(err)
+	}
 
 	op := &RedisGetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "set",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
@@ -144,11 +156,13 @@ func TestRedisGetOp_SetEmpty(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisGetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "set",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "empty"}, nil)
@@ -164,14 +178,18 @@ func TestRedisGetOp_SetEmpty(t *testing.T) {
 
 func TestRedisGetOp_List(t *testing.T) {
 	s := miniredis.RunT(t)
-	s.RPush("prefix:u1", "x", "y")
+	if _, err := s.RPush("prefix:u1", "x", "y"); err != nil {
+		t.Fatal(err)
+	}
 
 	op := &RedisGetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "list",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
@@ -196,11 +214,13 @@ func TestRedisGetOp_UnsupportedType(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisGetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "hash",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)

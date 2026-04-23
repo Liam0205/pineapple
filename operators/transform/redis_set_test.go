@@ -37,10 +37,12 @@ func TestRedisSetOp_Init(t *testing.T) {
 
 func TestRedisSetOp_InitDefaults(t *testing.T) {
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": "localhost:6379",
 		"key_prefix": "p:",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if op.dataType != "string" {
 		t.Errorf("default dataType = %q, want string", op.dataType)
 	}
@@ -51,7 +53,9 @@ func TestRedisSetOp_InitDefaults(t *testing.T) {
 
 func TestRedisSetOp_NilClient(t *testing.T) {
 	op := &RedisSetOp{}
-	op.Init(map[string]any{"key_prefix": "k:"})
+	if err := op.Init(map[string]any{"key_prefix": "k:"}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "v"}, nil)
@@ -66,11 +70,13 @@ func TestRedisSetOp_String(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "string",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "hello"}, nil)
@@ -92,11 +98,13 @@ func TestRedisSetOp_StringBadType(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "string",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": 12345}, nil)
@@ -111,11 +119,13 @@ func TestRedisSetOp_Set(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "set",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "tags"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{
@@ -140,11 +150,13 @@ func TestRedisSetOp_List(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "list",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "items"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{
@@ -169,12 +181,14 @@ func TestRedisSetOp_WithTTL(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "string",
 		"ttl":        float64(300),
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "data"}, nil)
@@ -193,10 +207,12 @@ func TestRedisSetOp_TooFewFields(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
@@ -211,11 +227,13 @@ func TestRedisSetOp_UnsupportedType(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "hash",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "v"}, nil)
@@ -230,11 +248,13 @@ func TestRedisSetOp_SetEmptyMembers(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	op := &RedisSetOp{}
-	op.Init(map[string]any{
+	if err := op.Init(map[string]any{
 		"redis_addr": s.Addr(),
 		"key_prefix": "prefix:",
 		"data_type":  "set",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	op.SetMetadata([]string{"uid", "tags"}, nil, nil, nil)
 
 	in := pine.NewOperatorInput(map[string]any{
