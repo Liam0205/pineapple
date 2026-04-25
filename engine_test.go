@@ -201,6 +201,7 @@ func init() {
 		},
 	}, func() types.Operator { return &setFieldOp{} })
 	registry.Register(types.OperatorSchema{Name: "enrich_item", Type: types.OpTypeTransform, Description: "Enriches items."}, func() types.Operator { return &enrichItemOp{} })
+	registry.Register(types.OperatorSchema{Name: "transform_normalize", Type: types.OpTypeTransform, Description: "Whole-item-set normalization."}, func() types.Operator { return &noopTestOp{} })
 	registry.Register(types.OperatorSchema{Name: "recall_fixed", Type: types.OpTypeRecall, Description: "Fixed recall."}, func() types.Operator { return &recallFixedOp{} })
 	registry.Register(types.OperatorSchema{Name: "merge_dedup", Type: types.OpTypeMerge, Description: "Test dedup."}, func() types.Operator { return &mergeTestOp{} })
 	registry.Register(types.OperatorSchema{Name: "filter_offline", Type: types.OpTypeFilter, Description: "Filter offline."}, func() types.Operator { return &filterOfflineOp{} })
@@ -765,6 +766,7 @@ func TestDataParallelValidation(t *testing.T) {
 		{"Filter dp=2", "filter_offline", 2, nil, true},
 		{"Merge dp=2", "merge_dedup", 2, nil, true},
 		{"Reorder dp=2", "sort_desc", 2, nil, true},
+		{"Whole-item-set transform dp=2", "transform_normalize", 2, nil, true},
 		{"dp=0 normalizes to 1", "noop", 0, nil, false},
 		{"dp=-1 rejected", "noop", -1, nil, true},
 	}

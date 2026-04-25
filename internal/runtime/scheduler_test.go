@@ -79,6 +79,15 @@ func (o *filterTestOp) Execute(_ context.Context, in *types.OperatorInput, out *
 	return nil
 }
 
+// badRemoveOp emits an out-of-range removal to force ApplyOutput failure.
+type badRemoveOp struct{}
+
+func (o *badRemoveOp) Init(params map[string]any) error { return nil }
+func (o *badRemoveOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
+	out.RemoveItem(1)
+	return nil
+}
+
 // reorderOp reverses item order.
 type reorderTestOp struct{}
 
@@ -377,6 +386,34 @@ func TestRunFatalError(t *testing.T) {
 	}
 }
 
+func TestRunApplyOutputErrorRecordsErrorStats(t *testing.T) {
+	frame := dataframe.New(map[string]any{}, []map[string]any{{"remove": true}})
+	op := &CompiledOperator{
+		Name:     "bad_apply",
+		Instance: &badRemoveOp{},
+		Config: config.OperatorConfig{
+			TypeName: "filter",
+			Meta:     config.Metadata{ItemInput: []string{"remove"}},
+		},
+	}
+	plan := buildPlan(t, []string{"bad_apply"}, map[string]*CompiledOperator{
+		"bad_apply": op,
+	})
+
+	stats := NewStats()
+	_, _, err := Run(context.Background(), plan, frame, stats, nil)
+	if err == nil {
+		t.Fatal("expected apply output error")
+	}
+	snap := stats.Snapshot()["bad_apply"]
+	if snap.ErrorCount != 1 {
+		t.Errorf("error_count = %d, want 1", snap.ErrorCount)
+	}
+	if snap.ExecCount != 0 {
+		t.Errorf("exec_count = %d, want 0", snap.ExecCount)
+	}
+}
+
 func TestRunSkipFieldFilteredFromInput(t *testing.T) {
 	// ctrl_op writes _if_1=false, branch_op has skip=_if_1 and
 	// common_input=[_if_1, user_id]. The scheduler should filter _if_1
@@ -402,7 +439,7 @@ func TestRunSkipFieldFilteredFromInput(t *testing.T) {
 	}
 
 	plan := buildPlan(t, []string{"ctrl_op", "branch_op"}, map[string]*CompiledOperator{
-		"ctrl_op":  ctrlOp,
+		"ctrl_op":   ctrlOp,
 		"branch_op": branchOp,
 	})
 	frame := dataframe.New(map[string]any{"user_id": "u123"}, nil)

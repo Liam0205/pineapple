@@ -122,7 +122,7 @@ class MergeDedupOp(BaseOp):
     def __call__(
         self,
         *,
-        strategy: str = "",
+        strategy: str = "first",
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -153,7 +153,7 @@ class ObserveLogOp(BaseOp):
     """Operator: observe_log"""
     _name = "observe_log"
     _params_schema = {
-        "log_prefix": {"type": "string", "required": False},
+        "log_prefix": {"type": "string", "required": False, "default": ""},
     }
 
     def __call__(
@@ -306,7 +306,7 @@ class ReorderSortOp(BaseOp):
     def __call__(
         self,
         *,
-        order: str = "",
+        order: str = "desc",
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -337,8 +337,8 @@ class TransformByLuaOp(BaseOp):
     """Operator: transform_by_lua"""
     _name = "transform_by_lua"
     _params_schema = {
-        "function_for_common": {"type": "string", "required": False},
-        "function_for_item": {"type": "string", "required": False},
+        "function_for_common": {"type": "string", "required": False, "default": ""},
+        "function_for_item": {"type": "string", "required": False, "default": ""},
         "lua_script": {"type": "string", "required": True},
     }
 
@@ -396,13 +396,13 @@ class TransformByRemotePineappleOp(BaseOp):
         *,
         common_request: Any = None,
         common_response: Any = None,
-        endpoint: str = "",
-        fail_on_error: bool = False,
+        endpoint: str = "/execute",
+        fail_on_error: bool = True,
         host: str = ...,
         item_request: Any = None,
         item_response: Any = None,
         port: int = ...,
-        timeout: float = 0.0,
+        timeout: float = 5,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -522,7 +522,7 @@ class TransformNormalizeOp(BaseOp):
     def __call__(
         self,
         *,
-        method: str = "",
+        method: str = "min_max",
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -556,14 +556,14 @@ class TransformRedisGetOp(BaseOp):
         "data_type": {"type": "string", "required": False, "default": "string"},
         "key_prefix": {"type": "string", "required": True},
         "redis_addr": {"type": "string", "required": True},
-        "redis_db": {"type": "int", "required": False},
-        "redis_password": {"type": "string", "required": False},
+        "redis_db": {"type": "int", "required": False, "default": 0},
+        "redis_password": {"type": "string", "required": False, "default": ""},
     }
 
     def __call__(
         self,
         *,
-        data_type: str = "",
+        data_type: str = "string",
         key_prefix: str = ...,
         redis_addr: str = ...,
         redis_db: int = 0,
@@ -605,15 +605,15 @@ class TransformRedisSetOp(BaseOp):
         "data_type": {"type": "string", "required": False, "default": "string"},
         "key_prefix": {"type": "string", "required": True},
         "redis_addr": {"type": "string", "required": True},
-        "redis_db": {"type": "int", "required": False},
-        "redis_password": {"type": "string", "required": False},
-        "ttl": {"type": "int", "required": False},
+        "redis_db": {"type": "int", "required": False, "default": 0},
+        "redis_password": {"type": "string", "required": False, "default": ""},
+        "ttl": {"type": "int", "required": False, "default": 0},
     }
 
     def __call__(
         self,
         *,
-        data_type: str = "",
+        data_type: str = "string",
         key_prefix: str = ...,
         redis_addr: str = ...,
         redis_db: int = 0,

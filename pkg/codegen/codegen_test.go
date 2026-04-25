@@ -113,8 +113,9 @@ func TestTemplateRendering(t *testing.T) {
 			Type:        types.OpTypeTransform,
 			Description: "A test operator.",
 			Params: map[string]types.ParamSpec{
-				"name":  {Type: "string", Required: true, Description: "The name."},
-				"count": {Type: "int64", Required: false, Default: int64(10), Description: "Item count."},
+				"enabled": {Type: "bool", Required: false, Default: false, Description: "Feature flag."},
+				"name":    {Type: "string", Required: true, Description: "The name."},
+				"count":   {Type: "int64", Required: false, Default: int64(10), Description: "Item count."},
 			},
 		},
 	}
@@ -136,8 +137,10 @@ func TestTemplateRendering(t *testing.T) {
 		`_name = "test_op"`,
 		`"name": {"type": "string", "required": True}`,
 		`"count": {"type": "int64", "required": False, "default": 10}`,
+		`"enabled": {"type": "bool", "required": False, "default": False}`,
 		`name: str = ...`,
-		`count: int = 0`,
+		`count: int = 10`,
+		`enabled: bool = False`,
 		`-> "TestOpOp"`,
 	}
 	for _, check := range checks {

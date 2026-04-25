@@ -282,7 +282,7 @@
 
 此外，`pkg/codegen/template.go` 中的 `pythonType()` 会把 Schema 参数定义里的 `Type` 字段映射为 Python 类型注解。当前支持的映射为：`"string"` → `str`、`"int"` / `"int64"` → `int`、`"float64"` → `float`、`"bool"` → `bool`；未识别的类型会回退为 `Any`。新增算子参数类型时，需要同时确认 codegen 映射已覆盖，否则生成的 Python helper 会退化为宽泛类型。
 
-Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `conditionalParams`）：required 或有 Default 的参数总是写入 `_params` dict；optional 且无 Default 的参数（如 `default_value`）仅在 `is not None` 时条件写入。这避免了 Python `None` 被序列化为 JSON `null` 导致 Go 侧误判参数存在。
+Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `conditionalParams`）：required 或有 Default 的参数总是写入 `_params` dict；optional 且无 Default 的参数（如 `default_value`）仅在 `is not None` 时条件写入。生成 helper 的 Python 默认参数必须使用 Schema 的 `Default` 值；不要用类型零值覆盖 Go 注册表默认语义。这避免了 Python `None` 被序列化为 JSON `null` 导致 Go 侧误判参数存在，也避免 `order=""`、`timeout=0.0` 等值覆盖 Schema 默认值。
 
 ## 元数据契约期望
 
