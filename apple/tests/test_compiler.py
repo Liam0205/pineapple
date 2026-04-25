@@ -337,3 +337,36 @@ class TestCodeInfo:
         op = list(cfg["pipeline_config"]["operators"].values())[0]
         assert "$code_info" in op
         assert ".transform_by_lua(...)" in op["$code_info"]
+
+
+class TestLogPrefix:
+    def test_log_prefix_in_json(self):
+        flow = Flow(
+            name="lp_test",
+            common_input=["x"],
+            common_output=["y"],
+            log_prefix="[svc] ",
+        )
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["x"],
+            common_output=["y"],
+            lua_script="function f() return x end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        assert cfg["log_prefix"] == "[svc] "
+
+    def test_no_log_prefix_omitted(self):
+        flow = Flow(name="no_lp", common_input=["x"], common_output=["y"])
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["x"],
+            common_output=["y"],
+            lua_script="function f() return x end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        assert "log_prefix" not in cfg

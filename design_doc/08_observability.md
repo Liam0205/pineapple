@@ -278,6 +278,34 @@ server.Run(server.Config{
 
 节点按算子类型着色，标签包含算子名和类型分类。
 
+### 全局日志前缀
+
+引擎支持为所有日志（包括第三方算子通过 `log.Printf` 打印的日志）统一添加前缀。底层通过 `log.SetPrefix()` 设置标准库全局 logger 前缀，确保无遗漏。
+
+#### 配置方式
+
+**Apple DSL 声明**：
+
+```python
+flow = Flow(
+    name="example",
+    common_input=["user_id"],
+    log_prefix="[my-service] ",
+)
+```
+
+编译后 JSON 根级生成 `"log_prefix": "[my-service] "`。
+
+**Go Option 覆盖**：
+
+```go
+engine, err := pine.NewEngine(jsonConfig, pine.WithLogPrefix("[svc] "))
+```
+
+优先级：`WithLogPrefix` Option > JSON `log_prefix` 字段 > 无前缀。
+
+`log_prefix` 是进程级全局状态，不存储在 Engine 实例上。
+
 #### 编程 API
 
 ```go

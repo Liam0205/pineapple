@@ -46,6 +46,8 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **行存/列存可切换** — DataFrame 支持行存（`RowFrame`）和列存（`ColumnFrame`）两种存储模式，通过 JSON 配置的 `"storage_mode": "row"|"column"` 选择。列存在大规模 item 场景下减少 GC 压力和对象分配。两种实现均通过内部 `sync.RWMutex` 保证并发安全，调度器无需持有外部锁。
 
+**全局日志前缀** — 通过 Apple DSL 的 `Flow(log_prefix="[svc] ")` 或 Go 侧的 `pine.WithLogPrefix("[svc] ")` 为所有日志（包括第三方算子）统一添加前缀。Go Option 优先于 JSON 配置。底层使用 `log.SetPrefix()` 覆盖标准库全局 logger，确保无遗漏。
+
 **文档自动生成** — 算子和资源的 Type、Description、参数描述在注册时强制填写，codegen 自动生成 Python 类型绑定和 Markdown 文档，保证代码与文档永远同步。
 
 **Schema 即约束** — `Register()` 强制校验算子元信息完整性，缺少 Type、Description 或参数描述则启动时直接 panic，从源头杜绝文档缺失。

@@ -195,6 +195,10 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     if hasattr(flow, '_storage_mode') and flow._storage_mode:
         result["storage_mode"] = flow._storage_mode
 
+    # 9b. Add log_prefix if specified
+    if hasattr(flow, '_log_prefix') and flow._log_prefix:
+        result["log_prefix"] = flow._log_prefix
+
     # 10. Add resource_config if resources declared
     if hasattr(flow, '_resources') and flow._resources:
         result["resource_config"] = {

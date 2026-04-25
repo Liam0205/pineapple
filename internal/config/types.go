@@ -5,6 +5,7 @@ type RootConfig struct {
 	PineappleVersion    string                `json:"_PINEAPPLE_VERSION"`
 	PineappleCreateTime string                `json:"_PINEAPPLE_CREATE_TIME"`
 	StorageMode         string                `json:"storage_mode,omitempty"`
+	LogPrefix           string                `json:"log_prefix,omitempty"`
 	PipelineConfig      PipelineConfig        `json:"pipeline_config"`
 	PipelineGroup       map[string]SubFlowRef `json:"pipeline_group"`
 	FlowContract        FlowContract          `json:"flow_contract"`

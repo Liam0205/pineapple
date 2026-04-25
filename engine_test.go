@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"testing"
 
@@ -802,6 +803,56 @@ func TestDataParallelValidation(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestLogPrefixFromJSON(t *testing.T) {
+	defer log.SetPrefix("")
+	cfg := makeConfig(
+		map[string]any{
+			"op": map[string]any{
+				"type_name": "noop",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+		map[string]any{"common_input": []string{}},
+	)
+	cfg["log_prefix"] = "[test] "
+	_, err := pine.NewEngine(mustJSON(t, cfg))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := log.Prefix(); got != "[test] " {
+		t.Errorf("log.Prefix() = %q, want %q", got, "[test] ")
+	}
+}
+
+func TestLogPrefixOptionOverridesJSON(t *testing.T) {
+	defer log.SetPrefix("")
+	cfg := makeConfig(
+		map[string]any{
+			"op": map[string]any{
+				"type_name": "noop",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+		map[string]any{"common_input": []string{}},
+	)
+	cfg["log_prefix"] = "[json] "
+	_, err := pine.NewEngine(mustJSON(t, cfg), pine.WithLogPrefix("[opt] "))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := log.Prefix(); got != "[opt] " {
+		t.Errorf("log.Prefix() = %q, want %q", got, "[opt] ")
 	}
 }
 

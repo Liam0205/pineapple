@@ -3,6 +3,7 @@ package pine
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/Liam0205/pineapple/internal/config"
 	"github.com/Liam0205/pineapple/internal/dag"
@@ -31,12 +32,20 @@ type Option func(*engineOptions)
 
 type engineOptions struct {
 	metricsProvider metrics.Provider
+	logPrefix       string
 }
 
 // WithMetrics configures the Engine to record metrics through the given
 // Provider. When omitted, a no-op provider is used (zero overhead).
 func WithMetrics(p metrics.Provider) Option {
 	return func(o *engineOptions) { o.metricsProvider = p }
+}
+
+// WithLogPrefix sets the global log prefix for all log output, including
+// third-party operator logs. When omitted, the JSON config's log_prefix
+// field is used; when both are set, this Option takes precedence.
+func WithLogPrefix(prefix string) Option {
+	return func(o *engineOptions) { o.logPrefix = prefix }
 }
 
 // NewEngine parses a JSON config, validates it, builds the DAG, and returns
@@ -54,6 +63,15 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	cfg, err := config.Load(jsonConfig)
 	if err != nil {
 		return nil, err
+	}
+
+	// 1b. Apply log prefix (Option > JSON config)
+	logPrefix := eo.logPrefix
+	if logPrefix == "" {
+		logPrefix = cfg.LogPrefix
+	}
+	if logPrefix != "" {
+		log.SetPrefix(logPrefix)
 	}
 
 	// 2. Expand operator sequence
