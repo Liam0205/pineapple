@@ -72,6 +72,7 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	}
 	if logPrefix != "" {
 		log.SetPrefix(logPrefix)
+		log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	}
 
 	// 2. Expand operator sequence

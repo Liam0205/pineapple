@@ -807,7 +807,9 @@ func TestDataParallelValidation(t *testing.T) {
 }
 
 func TestLogPrefixFromJSON(t *testing.T) {
-	defer log.SetPrefix("")
+	origPrefix := log.Prefix()
+	origFlags := log.Flags()
+	defer func() { log.SetPrefix(origPrefix); log.SetFlags(origFlags) }()
 	cfg := makeConfig(
 		map[string]any{
 			"op": map[string]any{
@@ -829,10 +831,16 @@ func TestLogPrefixFromJSON(t *testing.T) {
 	if got := log.Prefix(); got != "[test] " {
 		t.Errorf("log.Prefix() = %q, want %q", got, "[test] ")
 	}
+	wantFlags := log.Ldate | log.Ltime | log.Lshortfile
+	if got := log.Flags(); got != wantFlags {
+		t.Errorf("log.Flags() = %d, want %d", got, wantFlags)
+	}
 }
 
 func TestLogPrefixOptionOverridesJSON(t *testing.T) {
-	defer log.SetPrefix("")
+	origPrefix := log.Prefix()
+	origFlags := log.Flags()
+	defer func() { log.SetPrefix(origPrefix); log.SetFlags(origFlags) }()
 	cfg := makeConfig(
 		map[string]any{
 			"op": map[string]any{
