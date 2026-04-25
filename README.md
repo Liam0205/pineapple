@@ -306,10 +306,16 @@ ruff check apple/
 
 ```bash
 # JSON 配置解析
-go test -fuzz=FuzzLoad -fuzztime=30s ./internal/config/
+go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -parallel=4 ./internal/config/
 
 # DAG 构建
-go test -fuzz=FuzzBuild -fuzztime=30s ./internal/dag/
+go test -run=^$ -fuzz=FuzzBuild -fuzztime=30s -parallel=4 ./internal/dag/
+
+# DataFrame 行存/列存语义一致性
+go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -parallel=4 ./internal/dataframe/
+
+# data_parallel 与单 shard 语义一致性
+go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -parallel=4 ./internal/runtime/
 ```
 
 ### 动态资源管理

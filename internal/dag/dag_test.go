@@ -1,6 +1,7 @@
 package dag
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/Liam0205/pineapple/internal/config"
@@ -289,7 +290,7 @@ func TestRecallCommonInputStillTracked(t *testing.T) {
 	// op_a writes user_embedding, recall reads user_embedding
 	seq := []string{"op_a", "recall_a"}
 	ops := map[string]config.OperatorConfig{
-		"op_a":    transformOp(nil, []string{"user_embedding"}, nil, nil),
+		"op_a":     transformOp(nil, []string{"user_embedding"}, nil, nil),
 		"recall_a": recallOp([]string{"user_embedding"}, []string{"item_id"}),
 	}
 
@@ -1108,13 +1109,170 @@ func TestReduceNoop(t *testing.T) {
 }
 
 func FuzzBuild(f *testing.F) {
-	f.Add("op_a", "op_b", "x", "y")
+	f.Add([]byte{2, 0, 1, 2, 3, 4, 5})
+	f.Add([]byte{4, 1, 2, 3, 4, 5, 6, 7, 8})
 
-	f.Fuzz(func(_ *testing.T, nameA, nameB, fieldA, fieldB string) {
-		ops := map[string]config.OperatorConfig{
-			nameA: transformOp([]string{fieldA}, []string{fieldB}, nil, nil),
-			nameB: transformOp([]string{fieldB}, nil, nil, nil),
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 256 {
+			t.Skip("DAG fuzz input exceeds CI budget")
 		}
-		Build([]string{nameA, nameB}, ops) //nolint:errcheck
+		seq, ops := fuzzDAGConfig(data)
+		g, err := Build(seq, ops)
+		if err != nil {
+			return
+		}
+		assertFuzzGraphInvariants(t, seq, g)
 	})
+}
+
+func fuzzDAGConfig(data []byte) ([]string, map[string]config.OperatorConfig) {
+	next := func(defaultValue byte) byte {
+		if len(data) == 0 {
+			return defaultValue
+		}
+		b := data[0]
+		data = data[1:]
+		return b
+	}
+	field := func(b byte) string {
+		return fmt.Sprintf("f%d", int(b)%8)
+	}
+	fields := func(max int) []string {
+		count := int(next(0)) % (max + 1)
+		out := make([]string, 0, count)
+		seen := make(map[string]struct{}, count)
+		for attempts := 0; len(out) < count && attempts < count+8; attempts++ {
+			name := field(next(byte(attempts)))
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, name)
+		}
+		for candidate := 0; len(out) < count && candidate < 8; candidate++ {
+			name := field(byte(candidate))
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, name)
+		}
+		return out
+	}
+
+	n := int(next(2))%8 + 1
+	seq := make([]string, n)
+	ops := make(map[string]config.OperatorConfig, n)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("op_%d", i)
+		seq[i] = name
+		switch next(0) % 6 {
+		case 0:
+			ops[name] = transformOp(fields(2), fields(2), fields(2), fields(2))
+		case 1:
+			ops[name] = recallOp(fields(2), fields(3))
+		case 2:
+			ops[name] = filterOp(fields(3), fields(1))
+		case 3:
+			sources := make([]string, 0)
+			if i > 0 {
+				sourceCount := int(next(0)) % (i + 1)
+				seen := make(map[string]struct{}, sourceCount)
+				for attempts := 0; len(sources) < sourceCount && attempts < sourceCount+i+1; attempts++ {
+					src := seq[int(next(0))%i]
+					if _, ok := seen[src]; ok {
+						continue
+					}
+					seen[src] = struct{}{}
+					sources = append(sources, src)
+				}
+				for candidate := 0; len(sources) < sourceCount && candidate < i; candidate++ {
+					src := seq[candidate]
+					if _, ok := seen[src]; ok {
+						continue
+					}
+					seen[src] = struct{}{}
+					sources = append(sources, src)
+				}
+			}
+			ops[name] = mergeOp(sources, fields(2))
+		case 4:
+			ops[name] = reorderOp(fields(3))
+		default:
+			ops[name] = observeOp(fields(2), fields(2))
+		}
+		if next(0)%5 == 0 {
+			op := ops[name]
+			op.RowDependency = true
+			ops[name] = op
+		}
+	}
+	return seq, ops
+}
+
+func assertFuzzGraphInvariants(t *testing.T, seq []string, g *Graph) {
+	t.Helper()
+	if len(g.Nodes) != len(seq) {
+		t.Fatalf("node count = %d, want %d", len(g.Nodes), len(seq))
+	}
+	for i, name := range seq {
+		node := g.Nodes[i]
+		if node.Index != i {
+			t.Fatalf("node %d index = %d", i, node.Index)
+		}
+		if node.Name != name {
+			t.Fatalf("node %d name = %q, want %q", i, node.Name, name)
+		}
+		if got, ok := g.NameToIndex[name]; !ok || got != i {
+			t.Fatalf("NameToIndex[%q] = %d, %v; want %d, true", name, got, ok, i)
+		}
+	}
+	for i, node := range g.Nodes {
+		for _, pred := range node.Preds {
+			if pred < 0 || pred >= len(g.Nodes) {
+				t.Fatalf("node %d has out-of-range pred %d", i, pred)
+			}
+			if pred == i {
+				t.Fatalf("node %d has self pred", i)
+			}
+			if !containsIndex(g.Nodes[pred].Succs, i) {
+				t.Fatalf("node %d pred %d missing reverse succ", i, pred)
+			}
+		}
+		for _, succ := range node.Succs {
+			if succ < 0 || succ >= len(g.Nodes) {
+				t.Fatalf("node %d has out-of-range succ %d", i, succ)
+			}
+			if succ == i {
+				t.Fatalf("node %d has self succ", i)
+			}
+			if !containsIndex(g.Nodes[succ].Preds, i) {
+				t.Fatalf("node %d succ %d missing reverse pred", i, succ)
+			}
+		}
+	}
+	order, err := TopologicalSort(g)
+	if err != nil {
+		t.Fatalf("TopologicalSort: %v", err)
+	}
+	position := make([]int, len(order))
+	for pos, idx := range order {
+		position[idx] = pos
+	}
+	for _, node := range g.Nodes {
+		for _, succ := range node.Succs {
+			if position[node.Index] >= position[succ] {
+				t.Fatalf("edge %d -> %d violates topological order %v", node.Index, succ, order)
+			}
+		}
+	}
+}
+
+func containsIndex(xs []int, target int) bool {
+	for _, x := range xs {
+		if x == target {
+			return true
+		}
+	}
+	return false
 }

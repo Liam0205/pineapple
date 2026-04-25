@@ -450,3 +450,81 @@ func TestDataParallelEquivalence(t *testing.T) {
 		})
 	}
 }
+
+func FuzzDataParallelEquivalence(f *testing.F) {
+	f.Add(10, 3, 0)
+	f.Add(0, 8, 42)
+	f.Add(63, 16, -7)
+
+	f.Fuzz(func(t *testing.T, rawItemCount, rawShards, seed int) {
+		itemCount := boundedAbs(rawItemCount, 128)
+		shards := boundedAbs(rawShards, 32) + 1
+
+		items := make([]map[string]any, itemCount)
+		for i := range items {
+			items[i] = map[string]any{"val": float64(seed + i*17)}
+		}
+
+		baseFrame := dataframe.New(map[string]any{}, cloneRuntimeItems(items))
+		basePlan := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{
+			"double": {
+				Name:     "double",
+				Instance: &doubleItemOp{readField: "val", writeField: "doubled"},
+				Config: config.OperatorConfig{
+					TypeName:     "transform",
+					OperatorType: "Transform",
+					DataParallel: 1,
+					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+				},
+			},
+		})
+		if _, _, err := Run(context.Background(), basePlan, baseFrame, nil, nil); err != nil {
+			t.Fatalf("baseline: %v", err)
+		}
+
+		dpFrame := dataframe.New(map[string]any{}, cloneRuntimeItems(items))
+		dpPlan := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{
+			"double": {
+				Name:     "double",
+				Instance: &doubleItemOp{readField: "val", writeField: "doubled"},
+				Config: config.OperatorConfig{
+					TypeName:     "transform",
+					OperatorType: "Transform",
+					DataParallel: shards,
+					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+				},
+			},
+		})
+		if _, _, err := Run(context.Background(), dpPlan, dpFrame, nil, nil); err != nil {
+			t.Fatalf("data_parallel=%d: %v", shards, err)
+		}
+
+		for i := 0; i < itemCount; i++ {
+			if got, want := dpFrame.Item(i, "doubled"), baseFrame.Item(i, "doubled"); got != want {
+				t.Fatalf("item %d: data_parallel=%d got %v, want %v", i, shards, got, want)
+			}
+		}
+	})
+}
+
+func boundedAbs(v, limit int) int {
+	if v < 0 {
+		v = ^v
+	}
+	if limit <= 0 {
+		return 0
+	}
+	return v % limit
+}
+
+func cloneRuntimeItems(in []map[string]any) []map[string]any {
+	out := make([]map[string]any, len(in))
+	for i, item := range in {
+		row := make(map[string]any, len(item))
+		for k, v := range item {
+			row[k] = v
+		}
+		out[i] = row
+	}
+	return out
+}
