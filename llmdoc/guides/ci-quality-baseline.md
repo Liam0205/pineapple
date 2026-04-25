@@ -23,9 +23,11 @@
 | python-test | Python 测试 + 覆盖率 | 无 |
 | codegen-check | 重生成 + git diff 校验 | 无 |
 | fuzz | Go native fuzz 短时运行 | go-test |
-| benchmark | Go benchmark + artifact | go-test |
+| benchmark | Go benchmark + job summary + artifact | go-test |
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
+
+Benchmark job 将 `go test -bench` 输出写入 `benchmark.txt`，同时追加到 `$GITHUB_STEP_SUMMARY` 供 PR/CI 页面直接查看；artifact 作为可下载原始结果保留。
 
 ## Go lint
 
