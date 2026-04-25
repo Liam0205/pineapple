@@ -262,6 +262,20 @@ func TestApplyOutputReorderOutOfRange(t *testing.T) {
 	}
 }
 
+func TestApplyOutputReorderOutOfRangeWithoutItemFields(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, nil, []map[string]any{{}, {}})
+			out := types.NewOperatorOutput()
+			out.SetItemOrder([]int{0, -1})
+
+			if err := ApplyOutput(f, out, "op", false); err == nil {
+				t.Error("expected error for out-of-range reorder index")
+			}
+		})
+	}
+}
+
 func TestApplyOutputAddItems(t *testing.T) {
 	for _, tm := range testModes {
 		t.Run(tm.name, func(t *testing.T) {
@@ -414,6 +428,32 @@ func TestToResultProjection(t *testing.T) {
 			}
 			if len(full.Items[0]) != 0 {
 				t.Errorf("full item len = %d, want 0", len(full.Items[0]))
+			}
+		})
+	}
+}
+
+func TestToResultOmitsMissingSparseItemFields(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode,
+				nil,
+				[]map[string]any{
+					{"a": nil},
+					{"b": 2},
+				},
+			)
+
+			result := ToResult(f, nil, []string{"a", "b"})
+
+			if _, ok := result.Items[0]["a"]; !ok {
+				t.Error("item 0 should retain explicitly present nil field a")
+			}
+			if _, ok := result.Items[0]["b"]; ok {
+				t.Error("item 0 should omit missing field b")
+			}
+			if _, ok := result.Items[1]["a"]; ok {
+				t.Error("item 1 should omit missing field a")
 			}
 		})
 	}

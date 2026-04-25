@@ -14,6 +14,7 @@ type ColumnFrame struct {
 	mu       sync.RWMutex
 	common   map[string]any
 	columns  map[string][]any
+	present  map[string][]bool
 	rowCount int
 }
 
@@ -25,6 +26,7 @@ func newColumnFrame(common map[string]any, items []map[string]any) *ColumnFrame 
 
 	n := len(items)
 	cols := make(map[string][]any)
+	presence := make(map[string][]bool)
 
 	// Scan all items to collect field union and build columns.
 	for i, item := range items {
@@ -33,12 +35,14 @@ func newColumnFrame(common map[string]any, items []map[string]any) *ColumnFrame 
 			if !ok {
 				col = make([]any, n)
 				cols[k] = col
+				presence[k] = make([]bool, n)
 			}
 			col[i] = v
+			presence[k][i] = true
 		}
 	}
 
-	return &ColumnFrame{common: c, columns: cols, rowCount: n}
+	return &ColumnFrame{common: c, columns: cols, present: presence, rowCount: n}
 }
 
 func (f *ColumnFrame) Common(field string) any {
@@ -139,8 +143,10 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 			if !ok {
 				col = make([]any, f.rowCount)
 				f.columns[field] = col
+				f.present[field] = make([]bool, f.rowCount)
 			}
 			col[idx] = value
+			f.present[field][idx] = true
 		}
 	}
 
@@ -154,12 +160,15 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		newCount := f.rowCount - len(removed)
 		for field, col := range f.columns {
 			newCol := make([]any, 0, newCount)
+			newPresent := make([]bool, 0, newCount)
 			for i, v := range col {
 				if _, rm := removed[i]; !rm {
 					newCol = append(newCol, v)
+					newPresent = append(newPresent, f.present[field][i])
 				}
 			}
 			f.columns[field] = newCol
+			f.present[field] = newPresent
 		}
 		f.rowCount = newCount
 	}
@@ -169,37 +178,45 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		if len(order) != f.rowCount {
 			return fmt.Errorf("SetItemOrder length %d does not match item count %d", len(order), f.rowCount)
 		}
+		for _, origIdx := range order {
+			if origIdx < 0 || origIdx >= f.rowCount {
+				return fmt.Errorf("SetItemOrder index %d out of range [0, %d)", origIdx, f.rowCount)
+			}
+		}
 		for field, col := range f.columns {
 			newCol := make([]any, len(order))
+			newPresent := make([]bool, len(order))
 			for newIdx, origIdx := range order {
-				if origIdx < 0 || origIdx >= f.rowCount {
-					return fmt.Errorf("SetItemOrder index %d out of range [0, %d)", origIdx, f.rowCount)
-				}
 				newCol[newIdx] = col[origIdx]
+				newPresent[newIdx] = f.present[field][origIdx]
 			}
 			f.columns[field] = newCol
+			f.present[field] = newPresent
 		}
 	}
 
 	// 5. Additions
 	for _, added := range out.GetAddedItems() {
-		if recall {
-			added["_source"] = opName
-		}
+		row := make(map[string]any, len(added)+1)
 		for k, v := range added {
+			row[k] = v
+		}
+		if recall {
+			row["_source"] = opName
+		}
+		for k, v := range row {
 			if err := validateValue(k, v); err != nil {
 				return fmt.Errorf("added item write: %w", err)
 			}
-			col, ok := f.columns[k]
-			if !ok {
-				col = make([]any, f.rowCount, f.rowCount+1)
+			if _, ok := f.columns[k]; !ok {
+				f.columns[k] = make([]any, f.rowCount, f.rowCount+1)
+				f.present[k] = make([]bool, f.rowCount, f.rowCount+1)
 			}
-			f.columns[k] = append(col, v)
 		}
 		for field, col := range f.columns {
-			if _, ok := added[field]; !ok {
-				f.columns[field] = append(col, nil)
-			}
+			value, ok := row[field]
+			f.columns[field] = append(col, value)
+			f.present[field] = append(f.present[field], ok)
 		}
 		f.rowCount++
 	}
@@ -214,7 +231,7 @@ func (f *ColumnFrame) ToResult(commonOut, itemOut []string) *types.Result {
 	for i := 0; i < f.rowCount; i++ {
 		row := make(map[string]any, len(itemOut))
 		for _, field := range itemOut {
-			if col, ok := f.columns[field]; ok {
+			if col, ok := f.columns[field]; ok && f.present[field][i] {
 				row[field] = col[i]
 			}
 		}
