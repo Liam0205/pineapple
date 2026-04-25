@@ -32,7 +32,7 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 
 `apple/flow.py` 定义两个主要的面向用户的构建器：
 
-- `Flow` — 带输入/输出契约、资源和可选 `storage_mode` 的顶层声明
+- `Flow` — 带输入/输出契约、资源和可选 `storage_mode` / `log_prefix` 的顶层声明
 - `SubFlow` — 无独立契约的可复用算子片段
 
 两者继承 `_FlowBase`，持有算子列表和控制流记账。
@@ -227,7 +227,8 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 
 - `_PINEAPPLE_VERSION`（来自 `apple/_version.py`）
 - `_PINEAPPLE_CREATE_TIME`（UTC ISO 时间戳）
-- 可选 `storage_mode`（当 `Flow` 构造时指定了 `storage_mode` 参数）
+- `storage_mode`（当 `Flow` 构造时指定了 `storage_mode` 参数）
+- `log_prefix`（当 `Flow` 构造时指定了 `log_prefix` 参数）
 - 可选 `resource_config`
 
 ### 步骤 10：序列化为 JSON
@@ -413,6 +414,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
+8. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode` 与 `log_prefix` 都遵循这一模式。
 
 ## 检索指针
 

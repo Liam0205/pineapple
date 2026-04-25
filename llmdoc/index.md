@@ -12,8 +12,8 @@
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
-- `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`）与双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
+- `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`）。
 
 ## guides/
 
@@ -52,3 +52,4 @@
 - `llmdoc/memory/reflections/test-coverage-server-transform.md` — `pkg/server` 与 `operators/transform` 测试覆盖率补齐复盘，记录 handler 直测、原子指针注入、miniredis 模式与不测边界。
 - `llmdoc/memory/reflections/review-driven-resource-lookup-fixes.md` — 评审驱动的 resource_lookup 修复复盘，记录 JSON 边界类型枚举、codegen 语义验证、跨层 E2E 与隐含 metadata 契约检查的缺口。
 - `llmdoc/memory/reflections/recurring-errcheck-ci-failure.md` — errcheck CI 失败复现复盘，记录已有警告未生效根因与标准工作流强化方案。
+- `llmdoc/memory/reflections/global-log-prefix.md` — 全局日志前缀功能复盘，记录 root-level `log_prefix` 扩展路径、标准库全局 logger 约束，以及首版遗漏 `Lshortfile` 的教训。

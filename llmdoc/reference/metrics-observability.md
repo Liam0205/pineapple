@@ -65,12 +65,16 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 引擎构建支持 option 注入，当前稳定项为：
 
 - `pine.WithMetrics(provider)`
+- `pine.WithLogPrefix(prefix)`
 
 行为约束：
 
 - 未提供 provider 时自动回退到 `metrics.Nop()`
 - `Engine` 在构建期预创建 `EngineMetrics`
 - 同一 provider 会被传给所有实现 `MetricsAware` 的算子实例
+- 日志前缀可来自 JSON 根级 `log_prefix` 或 `pine.WithLogPrefix(...)`
+- 当两者同时存在时，`pine.WithLogPrefix(...)` 优先
+- 最终通过标准库 `log.SetPrefix()` 应用前缀，并调用 `log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)`，因此会影响引擎日志和复用标准库 logger 的算子日志，输出包含 `file:line`
 
 ### 可选接口注入顺序
 
@@ -222,9 +226,8 @@ Pineapple 仓库内不提供 Prometheus 具体实现。推荐模式是：
 本文档描述的可插拔 metrics / observability 模型自 Pineapple `0.5.0` 起稳定存在。涉及的公开入口包括：
 
 - `pine.WithMetrics`
+- `pine.WithLogPrefix`
 - `server.Config.Metrics`
-- `pine.StatsProvider`
-- `pine.MetricsAware`
 - `/stats` 的 `scheduler` 与 `operator_detail` 组合语义
 
 ## 检索指针

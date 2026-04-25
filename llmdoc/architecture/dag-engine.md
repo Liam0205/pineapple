@@ -19,15 +19,28 @@
 
 `pine.go` 构建一次 `Engine` 后跨请求复用。引擎本身在构建后不可变，对并发 `Execute()` 调用是安全的。
 
-### Engine options 与可插拔观测
+### Engine options 与根级运行时配置
 
 `pine.NewEngine(jsonConfig, opts...)` 现在接受可选的引擎级 option。当前稳定 option 为：
 
 - `pine.WithMetrics(provider)` — 为引擎和支持的算子注入 `pkg/metrics.Provider`
+- `pine.WithLogPrefix(prefix)` — 为进程级标准库 logger 设置全局日志前缀，并启用带 `file:line` 的标准日志 flags
 
 若调用方未提供 provider，引擎会回退到 `metrics.Nop()`；该默认实现丢弃全部观测，保留零配置 `/stats` 能力，同时避免 Pineapple 核心直接依赖任意具体监控后端。
 
-该设计明确区分两条观测通道：
+日志前缀的来源有两层：
+
+- JSON 根级 `log_prefix`
+- Go option `pine.WithLogPrefix(...)`
+
+优先级固定为 Go option 高于 JSON 配置。`NewEngine` 在解析完 `internal/config.RootConfig` 后调用标准库 `log.SetPrefix()` 应用最终值，并同时调用 `log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)`，因此日志输出会包含 `file:line`，且该前缀与 flags 会一起影响引擎日志以及复用标准库 logger 的第三方算子日志。
+
+该设计明确区分两类运行时注入：
+
+- 观测 provider 注入：面向 `pkg/metrics` 的可插拔外部指标
+- 日志前缀注入：面向标准库全局 logger 的进程级日志格式控制
+
+同时，Pineapple 的观测通道仍保持分离：
 
 - 原子统计：始终开启，驱动 `Engine.Stats()`、`Engine.SchedulerStats()` 和服务器 `/stats`
 - Provider metrics：按需开启，供应用侧接入 Prometheus 等外部监控系统
@@ -431,6 +444,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 
 运行时依赖 `internal/config/types.go` 中的若干配置级字段：
 
+- `log_prefix` — 根级全局日志前缀，供 `NewEngine` 调用 `log.SetPrefix()`，并配套设置 `log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)` 以启用 `file:line` 输出
 - `$metadata` — 声明的 common/item 输入和输出
 - `skip` — 控制流守卫字段
 - `recall` — 从 DSL/codegen 约定保留的声明提示
