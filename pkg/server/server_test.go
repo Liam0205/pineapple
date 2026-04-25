@@ -1138,3 +1138,68 @@ func getOK(client *http.Client, url string) error {
 	}
 	return nil
 }
+
+func TestMiddlewareApplied(t *testing.T) {
+	setupEngine(t)
+
+	var order []string
+	makeMiddleware := func(tag string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				order = append(order, tag+"-before")
+				next.ServeHTTP(w, r)
+				order = append(order, tag+"-after")
+			})
+		}
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handleHealth)
+
+	middlewares := []func(http.Handler) http.Handler{
+		makeMiddleware("outer"),
+		makeMiddleware("inner"),
+	}
+	var handler http.Handler = mux
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		handler = middlewares[i](handler)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	expected := []string{"outer-before", "inner-before", "inner-after", "outer-after"}
+	if len(order) != len(expected) {
+		t.Fatalf("middleware call order = %v, want %v", order, expected)
+	}
+	for i, v := range expected {
+		if order[i] != v {
+			t.Errorf("order[%d] = %q, want %q", i, order[i], v)
+		}
+	}
+}
+
+func TestNoMiddlewareNoop(t *testing.T) {
+	setupEngine(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handleHealth)
+
+	var middlewares []func(http.Handler) http.Handler
+	var handler http.Handler = mux
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		handler = middlewares[i](handler)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}

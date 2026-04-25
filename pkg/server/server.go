@@ -22,10 +22,11 @@ import (
 
 // Config holds the server startup settings.
 type Config struct {
-	ConfigPath string            // Path to unified JSON config file (pipeline + resources)
-	Addr       string            // Listen address (e.g. ":8080")
-	Resources  *resource.Manager // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
-	Metrics    metrics.Provider  // Optional: metrics provider (nil → no-op)
+	ConfigPath  string                           // Path to unified JSON config file (pipeline + resources)
+	Addr        string                           // Listen address (e.g. ":8080")
+	Resources   *resource.Manager                // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
+	Metrics     metrics.Provider                 // Optional: metrics provider (nil → no-op)
+	Middlewares []func(http.Handler) http.Handler // Optional: HTTP middlewares applied outer-to-inner
 }
 
 var (
@@ -129,7 +130,13 @@ func Run(cfg Config) error {
 	mux.HandleFunc("/stats", handleStats)
 	mux.HandleFunc("/dag", handleDAG)
 
-	srv := &http.Server{Addr: cfg.Addr, Handler: mux}
+	// Apply middlewares (outer-to-inner: first middleware sees request first)
+	var handler http.Handler = mux
+	for i := len(cfg.Middlewares) - 1; i >= 0; i-- {
+		handler = cfg.Middlewares[i](handler)
+	}
+
+	srv := &http.Server{Addr: cfg.Addr, Handler: handler}
 
 	// Graceful shutdown
 	go func() {

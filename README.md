@@ -44,6 +44,8 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **配置热加载** — 服务运行时监控配置文件变更，自动无停机重载引擎和资源配置，业务迭代立即生效。
 
+**HTTP Middleware** — `server.Config.Middlewares` 接受标准 `func(http.Handler) http.Handler` 切片，按切片顺序从外到内包装。用于注入访问日志、认证、限流等横切逻辑，同时保留 config hot-reload 和 graceful shutdown 等内置能力。
+
 **行存/列存可切换** — DataFrame 支持行存（`RowFrame`）和列存（`ColumnFrame`）两种存储模式，通过 JSON 配置的 `"storage_mode": "row"|"column"` 选择。列存在大规模 item 场景下减少 GC 压力和对象分配。两种实现均通过内部 `sync.RWMutex` 保证并发安全，调度器无需持有外部锁。
 
 **全局日志前缀** — 通过 Apple DSL 的 `Flow(log_prefix="[svc] ")` 或 Go 侧的 `pine.WithLogPrefix("[svc] ")` 为所有日志（包括第三方算子）统一添加前缀。Go Option 优先于 JSON 配置。底层使用 `log.SetPrefix()` 覆盖标准库全局 logger，确保无遗漏。

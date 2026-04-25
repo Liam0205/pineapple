@@ -115,6 +115,18 @@ func main() {
 }
 ```
 
+`server.Config.Middlewares` 接受 `[]func(http.Handler) http.Handler`，按切片顺序从外到内包装。用于注入访问日志、认证等横切逻辑：
+
+```go
+server.Run(server.Config{
+    ConfigPath: *configPath,
+    Addr:       *addr,
+    Middlewares: []func(http.Handler) http.Handler{
+        accessLogMiddleware,
+    },
+})
+```
+
 ### Codegen wrapper
 
 ```go
