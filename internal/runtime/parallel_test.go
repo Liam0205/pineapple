@@ -508,13 +508,51 @@ func FuzzDataParallelEquivalence(f *testing.F) {
 }
 
 func boundedAbs(v, limit int) int {
-	if v < 0 {
-		v = ^v
-	}
 	if limit <= 0 {
 		return 0
 	}
+	if v < 0 {
+		maxInt := int(^uint(0) >> 1)
+		if v == -maxInt-1 {
+			return (maxInt%limit + 1) % limit
+		}
+		v = -v
+	}
 	return v % limit
+}
+
+func TestBoundedAbs(t *testing.T) {
+	tests := []struct {
+		name  string
+		value int
+		limit int
+		want  int
+	}{
+		{name: "positive", value: 35, limit: 16, want: 3},
+		{name: "negative", value: -35, limit: 16, want: 3},
+		{name: "minus_one", value: -1, limit: 16, want: 1},
+		{name: "zero_limit", value: -35, limit: 0, want: 0},
+	}
+	maxInt := int(^uint(0) >> 1)
+	tests = append(tests, struct {
+		name  string
+		value int
+		limit int
+		want  int
+	}{
+		name:  "min_int",
+		value: -maxInt - 1,
+		limit: 17,
+		want:  (maxInt%17 + 1) % 17,
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := boundedAbs(tt.value, tt.limit); got != tt.want {
+				t.Fatalf("boundedAbs(%d, %d) = %d, want %d", tt.value, tt.limit, got, tt.want)
+			}
+		})
+	}
 }
 
 func cloneRuntimeItems(in []map[string]any) []map[string]any {

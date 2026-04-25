@@ -663,7 +663,7 @@ func TestHTTPServerConcurrentExecuteStatsAndDAG(t *testing.T) {
 	requests := workers * 8
 
 	var wg sync.WaitGroup
-	errs := make(chan error, requests+workers)
+	errs := make(chan error, requests+2*workers)
 	for i := 0; i < requests; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -766,7 +766,8 @@ func TestServerHighConcurrencyStress(t *testing.T) {
 	}()
 
 	var wg sync.WaitGroup
-	errs := make(chan error, workers*iterations)
+	statsChecks := (iterations + 15) / 16
+	errs := make(chan error, workers*(iterations+statsChecks))
 	for worker := 0; worker < workers; worker++ {
 		wg.Add(1)
 		go func(worker int) {
