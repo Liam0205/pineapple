@@ -318,6 +318,19 @@ go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -parallel=
 go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -parallel=4 ./internal/runtime/
 ```
 
+### 并发压力测试
+
+```bash
+# 默认测试包含轻量 HTTP 并发覆盖；高压测试需显式开启
+PINEAPPLE_STRESS=1 GOMAXPROCS=$(nproc) go test -race -run TestServerHighConcurrencyStress -count=1 -timeout=10m ./pkg/server/
+
+# HTTP 吞吐 benchmark：可调复杂 DAG 的深度、宽度、fan-in、算子 CPU 强度、items、workers、reload
+GOMAXPROCS=$(nproc) go test -run=^$ -bench=BenchmarkHTTPServerComplexDAGThroughput -benchmem -benchtime=5s ./pkg/server \
+  -args -pineapple.bench.depth=8 -pineapple.bench.width=32 -pineapple.bench.fanin=4 \
+  -pineapple.bench.work=100000 -pineapple.bench.items=0 -pineapple.bench.workers=256 \
+  -pineapple.bench.reload=true
+```
+
 ### 动态资源管理
 
 资源（特征索引、AB 配置等需要定时刷新的数据）与算子对称，走 **Go Schema → codegen Python 类 → DSL 声明 → 编译到统一 JSON** 的全流程。
