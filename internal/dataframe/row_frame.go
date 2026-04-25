@@ -128,6 +128,11 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 	// 3. Removals
 	removed := out.GetRemovedItems()
 	if len(removed) > 0 {
+		for idx := range removed {
+			if idx < 0 || idx >= len(f.items) {
+				return fmt.Errorf("RemoveItem index %d out of range [0, %d)", idx, len(f.items))
+			}
+		}
 		surviving := make([]map[string]any, 0, len(f.items)-len(removed))
 		for i, item := range f.items {
 			if _, rm := removed[i]; !rm {

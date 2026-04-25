@@ -304,6 +304,7 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 
 - `type_name` 必须以 `transform_` 开头，也就是仅允许 Transform 类算子启用数据并行
 - `common_output` 必须为空，避免多个并发 worker 竞争写入 common 域
+- 算子不能在 `_DATA_PARALLEL_UNSAFE_TRANSFORMS` 中；该集合用于拒绝依赖完整 item 集合语义的 Transform，例如 `transform_normalize`
 
 该规则的目标不是替代引擎校验，而是把原本会在 Go 侧加载配置时失败的错误前移到 Apple compile time，尽早暴露 DSL 声明与引擎约束不匹配的问题。
 

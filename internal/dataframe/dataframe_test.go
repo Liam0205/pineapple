@@ -193,6 +193,23 @@ func TestApplyOutputRemoveItems(t *testing.T) {
 	}
 }
 
+func TestApplyOutputRemoveItemOutOfRange(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, nil, []map[string]any{{"id": int64(1)}})
+			out := types.NewOperatorOutput()
+			out.RemoveItem(2)
+
+			if err := ApplyOutput(f, out, "op", false); err == nil {
+				t.Error("expected error for out-of-range RemoveItem")
+			}
+			if f.ItemCount() != 1 {
+				t.Errorf("ItemCount changed after failed removal: got %d, want 1", f.ItemCount())
+			}
+		})
+	}
+}
+
 func TestApplyOutputReorder(t *testing.T) {
 	for _, tm := range testModes {
 		t.Run(tm.name, func(t *testing.T) {

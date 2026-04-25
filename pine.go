@@ -268,6 +268,20 @@ func validateDataParallel(opName string, opCfg *config.OperatorConfig, opType ty
 				Message: fmt.Sprintf("operator %q: data_parallel=%d requires empty $metadata.common_output for Transform operators", opName, opCfg.DataParallel),
 			}
 		}
+		if !isDataParallelSafeTransform(opCfg.TypeName) {
+			return &ValidationError{
+				Message: fmt.Sprintf("operator %q: data_parallel=%d is not supported for operator type %q because it requires whole-item-set semantics", opName, opCfg.DataParallel, opCfg.TypeName),
+			}
+		}
 	}
 	return nil
+}
+
+func isDataParallelSafeTransform(typeName string) bool {
+	switch typeName {
+	case "transform_normalize":
+		return false
+	default:
+		return true
+	}
 }

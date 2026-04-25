@@ -156,6 +156,17 @@ def validate_data_parallel(ops: list[tuple[str, OpCall]]) -> None:
                     f"operator {name!r}: data_parallel={op.data_parallel} "
                     f"requires empty common_output for Transform operators"
                 )
+            if op.type_name in _DATA_PARALLEL_UNSAFE_TRANSFORMS:
+                raise ValidationError(
+                    f"operator {name!r}: data_parallel={op.data_parallel} "
+                    f"is not supported for operator {op.type_name!r} because "
+                    "it requires whole-item-set semantics"
+                )
+
+
+_DATA_PARALLEL_UNSAFE_TRANSFORMS: set[str] = {
+    "transform_normalize",
+}
 
 
 def detect_dead_code(

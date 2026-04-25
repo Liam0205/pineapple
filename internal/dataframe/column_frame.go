@@ -146,10 +146,12 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 
 	// 3. Removals
 	if removed := out.GetRemovedItems(); len(removed) > 0 {
-		newCount := f.rowCount - len(removed)
-		if newCount < 0 {
-			newCount = 0
+		for idx := range removed {
+			if idx < 0 || idx >= f.rowCount {
+				return fmt.Errorf("RemoveItem index %d out of range [0, %d)", idx, f.rowCount)
+			}
 		}
+		newCount := f.rowCount - len(removed)
 		for field, col := range f.columns {
 			newCol := make([]any, 0, newCount)
 			for i, v := range col {

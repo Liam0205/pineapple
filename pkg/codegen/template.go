@@ -39,6 +39,17 @@ func pythonDefault(goType string) string {
 	}
 }
 
+func pythonParamDefault(spec types.ParamSpec) string {
+	if spec.Default != nil {
+		return pythonLiteral(spec.Default)
+	}
+	return pythonDefault(spec.Type)
+}
+
+func hasDefault(v any) bool {
+	return v != nil
+}
+
 // pythonLiteral converts a Go value to a Python literal string.
 func pythonLiteral(v any) string {
 	if v == nil {
@@ -134,14 +145,16 @@ func isRecall(t types.OperatorType) bool {
 }
 
 var funcMap = template.FuncMap{
-	"pythonType":       pythonType,
-	"pythonDefault":    pythonDefault,
-	"pythonLiteral":    pythonLiteral,
-	"camelCase":        toCamelCase,
-	"sortedParams":     sortedParams,
-	"alwaysParams":     alwaysParams,
-	"conditionalParams": conditionalParams,
-	"isRecall":         isRecall,
+	"pythonType":         pythonType,
+	"pythonDefault":      pythonDefault,
+	"pythonParamDefault": pythonParamDefault,
+	"pythonLiteral":      pythonLiteral,
+	"hasDefault":         hasDefault,
+	"camelCase":          toCamelCase,
+	"sortedParams":       sortedParams,
+	"alwaysParams":       alwaysParams,
+	"conditionalParams":  conditionalParams,
+	"isRecall":           isRecall,
 }
 
 const operatorClassTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
@@ -154,14 +167,14 @@ class {{camelCase $schema.Name}}Op(BaseOp):
     """Operator: {{$schema.Name}}"""
     _name = "{{$schema.Name}}"
     _params_schema = { {{- range $k := sortedParams $schema.Params}}{{with $v := index $schema.Params $k}}
-        "{{$k}}": {"type": "{{$v.Type}}", "required": {{if $v.Required}}True{{else}}False{{end}}{{if $v.Default}}, "default": {{pythonLiteral $v.Default}}{{end}}},
+        "{{$k}}": {"type": "{{$v.Type}}", "required": {{if $v.Required}}True{{else}}False{{end}}{{if hasDefault $v.Default}}, "default": {{pythonLiteral $v.Default}}{{end}}},
     {{- end}}{{end}}
     }
 
     def __call__(
         self,
         *,{{range $k := sortedParams $schema.Params}}{{with $v := index $schema.Params $k}}
-        {{$k}}: {{pythonType $v.Type}} = {{if $v.Required}}...{{else}}{{pythonDefault $v.Type}}{{end}},{{end}}{{end}}
+        {{$k}}: {{pythonType $v.Type}} = {{if $v.Required}}...{{else}}{{pythonParamDefault $v}}{{end}},{{end}}{{end}}
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -296,14 +309,14 @@ class {{camelCase $schema.Name}}Resource(BaseResource):
     _name = "{{$schema.Name}}"
     _default_interval = {{$schema.DefaultInterval}}
     _params_schema = { {{- range $k := sortedParams $schema.Params}}{{with $v := index $schema.Params $k}}
-        "{{$k}}": {"type": "{{$v.Type}}", "required": {{if $v.Required}}True{{else}}False{{end}}{{if $v.Default}}, "default": {{pythonLiteral $v.Default}}{{end}}},
+        "{{$k}}": {"type": "{{$v.Type}}", "required": {{if $v.Required}}True{{else}}False{{end}}{{if hasDefault $v.Default}}, "default": {{pythonLiteral $v.Default}}{{end}}},
     {{- end}}{{end}}
     }
 
     def __init__(
         self,
         *,{{range $k := sortedParams $schema.Params}}{{with $v := index $schema.Params $k}}
-        {{$k}}: {{pythonType $v.Type}} = {{if $v.Required}}...{{else}}{{pythonDefault $v.Type}}{{end}},{{end}}{{end}}
+        {{$k}}: {{pythonType $v.Type}} = {{if $v.Required}}...{{else}}{{pythonParamDefault $v}}{{end}},{{end}}{{end}}
         interval: int = {{$schema.DefaultInterval}},
     ):
         super().__init__(

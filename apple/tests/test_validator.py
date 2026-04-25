@@ -294,6 +294,14 @@ class TestDataParallel:
         with pytest.raises(ValidationError, match="requires empty common_output"):
             flow.compile()
 
+    def test_data_parallel_whole_item_set_transform_rejected(self):
+        """Whole-item-set transforms must not be silently sharded."""
+        flow = Flow(name="bad", item_input=["score"], item_output=["norm"])
+        flow._add_op("transform_normalize", item_input=["score"],
+                      item_output=["norm"], data_parallel=2)
+        with pytest.raises(ValidationError, match="whole-item-set semantics"):
+            flow.compile()
+
     def test_data_parallel_one_ok(self):
         """data_parallel=1 should not trigger validation."""
         flow = Flow(name="ok", common_input=["x"], common_output=["y"])

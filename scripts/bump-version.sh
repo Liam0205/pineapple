@@ -40,11 +40,11 @@ echo
 
 # --- 1. version.go ---
 echo "[1/6] Updating version.go"
-sed -i '' "s/const Version = \".*\"/const Version = \"${NEW_VERSION}\"/" version.go
+perl -0pi -e "s/const Version = \".*\"/const Version = \"${NEW_VERSION}\"/" version.go
 
 # --- 2. apple/_version.py ---
 echo "[2/6] Updating apple/_version.py"
-sed -i '' "s/__version__ = \".*\"/__version__ = \"${NEW_VERSION}\"/" apple/_version.py
+perl -0pi -e "s/__version__ = \".*\"/__version__ = \"${NEW_VERSION}\"/" apple/_version.py
 
 # --- 3. JSON fixtures ---
 echo "[3/6] Updating _PINEAPPLE_VERSION in JSON fixtures"
@@ -52,7 +52,7 @@ json_files=()
 for f in pipeline.json testdata/*.json; do
   [[ -f "$f" ]] || continue
   if grep -q '"_PINEAPPLE_VERSION"' "$f"; then
-    sed -i '' "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"
+    perl -0pi -e "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"
     json_files+=("$f")
   fi
 done

@@ -230,6 +230,21 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 			applyErr := dataframe.ApplyOutput(frame, output, cop.Name, cop.Config.Recall)
 
 			if applyErr != nil {
+				traces[idx] = types.OpTrace{
+					Name:           cop.Name,
+					StartTime:      startTime,
+					Duration:       duration,
+					Skipped:        false,
+					InputSnapshot:  inputSnapshot,
+					OutputSnapshot: outputSnapshot,
+				}
+				if stats != nil {
+					stats.RecordError(cop.Name, duration)
+				}
+				if em != nil {
+					em.OpErrorTotal.With(cop.Name).Inc()
+					em.OpExecDuration.With(cop.Name).Observe(metrics.DurationSeconds(duration))
+				}
 				fatalOnce.Do(func() {
 					fatalErr = &types.ExecutionError{
 						Operator: cop.Name,
@@ -237,6 +252,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 					}
 					cancel()
 				})
+				return
 			}
 
 			// Record trace
