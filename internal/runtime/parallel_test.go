@@ -450,3 +450,119 @@ func TestDataParallelEquivalence(t *testing.T) {
 		})
 	}
 }
+
+func FuzzDataParallelEquivalence(f *testing.F) {
+	f.Add(10, 3, 0)
+	f.Add(0, 8, 42)
+	f.Add(63, 16, -7)
+
+	f.Fuzz(func(t *testing.T, rawItemCount, rawShards, seed int) {
+		itemCount := boundedAbs(rawItemCount, 128)
+		shards := boundedAbs(rawShards, 32) + 1
+
+		items := make([]map[string]any, itemCount)
+		for i := range items {
+			items[i] = map[string]any{"val": float64(seed + i*17)}
+		}
+
+		baseFrame := dataframe.New(map[string]any{}, cloneRuntimeItems(items))
+		basePlan := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{
+			"double": {
+				Name:     "double",
+				Instance: &doubleItemOp{readField: "val", writeField: "doubled"},
+				Config: config.OperatorConfig{
+					TypeName:     "transform",
+					OperatorType: "Transform",
+					DataParallel: 1,
+					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+				},
+			},
+		})
+		if _, _, err := Run(context.Background(), basePlan, baseFrame, nil, nil); err != nil {
+			t.Fatalf("baseline: %v", err)
+		}
+
+		dpFrame := dataframe.New(map[string]any{}, cloneRuntimeItems(items))
+		dpPlan := buildPlan(t, []string{"double"}, map[string]*CompiledOperator{
+			"double": {
+				Name:     "double",
+				Instance: &doubleItemOp{readField: "val", writeField: "doubled"},
+				Config: config.OperatorConfig{
+					TypeName:     "transform",
+					OperatorType: "Transform",
+					DataParallel: shards,
+					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+				},
+			},
+		})
+		if _, _, err := Run(context.Background(), dpPlan, dpFrame, nil, nil); err != nil {
+			t.Fatalf("data_parallel=%d: %v", shards, err)
+		}
+
+		for i := 0; i < itemCount; i++ {
+			if got, want := dpFrame.Item(i, "doubled"), baseFrame.Item(i, "doubled"); got != want {
+				t.Fatalf("item %d: data_parallel=%d got %v, want %v", i, shards, got, want)
+			}
+		}
+	})
+}
+
+func boundedAbs(v, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	if v < 0 {
+		maxInt := int(^uint(0) >> 1)
+		if v == -maxInt-1 {
+			return (maxInt%limit + 1) % limit
+		}
+		v = -v
+	}
+	return v % limit
+}
+
+func TestBoundedAbs(t *testing.T) {
+	tests := []struct {
+		name  string
+		value int
+		limit int
+		want  int
+	}{
+		{name: "positive", value: 35, limit: 16, want: 3},
+		{name: "negative", value: -35, limit: 16, want: 3},
+		{name: "minus_one", value: -1, limit: 16, want: 1},
+		{name: "zero_limit", value: -35, limit: 0, want: 0},
+	}
+	maxInt := int(^uint(0) >> 1)
+	tests = append(tests, struct {
+		name  string
+		value int
+		limit int
+		want  int
+	}{
+		name:  "min_int",
+		value: -maxInt - 1,
+		limit: 17,
+		want:  (maxInt%17 + 1) % 17,
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := boundedAbs(tt.value, tt.limit); got != tt.want {
+				t.Fatalf("boundedAbs(%d, %d) = %d, want %d", tt.value, tt.limit, got, tt.want)
+			}
+		})
+	}
+}
+
+func cloneRuntimeItems(in []map[string]any) []map[string]any {
+	out := make([]map[string]any, len(in))
+	for i, item := range in {
+		row := make(map[string]any, len(item))
+		for k, v := range item {
+			row[k] = v
+		}
+		out[i] = row
+	}
+	return out
+}

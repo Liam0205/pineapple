@@ -8,17 +8,17 @@ jobs:
   go-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v9
 
   python-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - run: pip install ruff
@@ -27,13 +27,13 @@ jobs:
   go-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - run: go test -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload Go coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: go-coverage
@@ -43,17 +43,17 @@ jobs:
   python-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - run: pip install pytest pytest-cov
       - run: python -m pytest apple/tests/ -v --cov=apple --cov-report=term --cov-report=xml:coverage.xml
       - name: Upload Python coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: python-coverage
@@ -63,8 +63,8 @@ jobs:
   codegen-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Run codegen
@@ -76,29 +76,51 @@ jobs:
     runs-on: ubuntu-latest
     needs: go-test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Fuzz config.Load
-        run: go test -fuzz=FuzzLoad -fuzztime=30s ./internal/config/
+        run: go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -parallel=4 ./internal/config/
       - name: Fuzz dag.Build
-        run: go test -fuzz=FuzzBuild -fuzztime=30s ./internal/dag/
+        run: go test -run=^$ -fuzz=FuzzBuild -fuzztime=30s -parallel=4 ./internal/dag/
+      - name: Fuzz DataFrame ApplyOutput
+        run: go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -parallel=4 ./internal/dataframe/
+      - name: Fuzz data_parallel equivalence
+        run: go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -parallel=4 ./internal/runtime/
 
   benchmark:
     runs-on: ubuntu-latest
     needs: go-test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Run benchmarks
-        run: go test -bench=. -benchmem -count=1 -run=^$ ./benchmarks/ ./integration/
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -bench=. -benchmem -count=1 -run=^$ ./benchmarks/ ./integration/ | tee benchmark.txt
+      - name: Write benchmark summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Benchmark results"
+            echo
+            echo '```text'
+            if [ -s benchmark.txt ]; then
+              cat benchmark.txt
+            else
+              echo "Benchmark output was not generated."
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: benchmark-results
-          path: "*.test"
+          path: benchmark.txt
           retention-days: 30

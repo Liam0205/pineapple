@@ -306,10 +306,29 @@ ruff check apple/
 
 ```bash
 # JSON 配置解析
-go test -fuzz=FuzzLoad -fuzztime=30s ./internal/config/
+go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -parallel=4 ./internal/config/
 
 # DAG 构建
-go test -fuzz=FuzzBuild -fuzztime=30s ./internal/dag/
+go test -run=^$ -fuzz=FuzzBuild -fuzztime=30s -parallel=4 ./internal/dag/
+
+# DataFrame 行存/列存语义一致性
+go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -parallel=4 ./internal/dataframe/
+
+# data_parallel 与单 shard 语义一致性
+go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -parallel=4 ./internal/runtime/
+```
+
+### 并发压力测试
+
+```bash
+# 默认测试包含轻量 HTTP 并发覆盖；高压测试需显式开启
+PINEAPPLE_STRESS=1 GOMAXPROCS=$(nproc) go test -race -run TestServerHighConcurrencyStress -count=1 -timeout=10m ./pkg/server/
+
+# HTTP 吞吐 benchmark：可调复杂 DAG 的深度、宽度、fan-in、算子 CPU 强度、items、workers、reload
+GOMAXPROCS=$(nproc) go test -run=^$ -bench=BenchmarkHTTPServerComplexDAGThroughput -benchmem -benchtime=5s ./pkg/server \
+  -args -pineapple.bench.depth=8 -pineapple.bench.width=32 -pineapple.bench.fanin=4 \
+  -pineapple.bench.work=100000 -pineapple.bench.items=0 -pineapple.bench.workers=256 \
+  -pineapple.bench.reload=true
 ```
 
 ### 动态资源管理

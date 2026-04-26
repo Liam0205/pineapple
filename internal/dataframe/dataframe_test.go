@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"reflect"
 	"sync"
 	"testing"
 
@@ -262,6 +263,20 @@ func TestApplyOutputReorderOutOfRange(t *testing.T) {
 	}
 }
 
+func TestApplyOutputReorderOutOfRangeWithoutItemFields(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, nil, []map[string]any{{}, {}})
+			out := types.NewOperatorOutput()
+			out.SetItemOrder([]int{0, -1})
+
+			if err := ApplyOutput(f, out, "op", false); err == nil {
+				t.Error("expected error for out-of-range reorder index")
+			}
+		})
+	}
+}
+
 func TestApplyOutputAddItems(t *testing.T) {
 	for _, tm := range testModes {
 		t.Run(tm.name, func(t *testing.T) {
@@ -414,6 +429,32 @@ func TestToResultProjection(t *testing.T) {
 			}
 			if len(full.Items[0]) != 0 {
 				t.Errorf("full item len = %d, want 0", len(full.Items[0]))
+			}
+		})
+	}
+}
+
+func TestToResultOmitsMissingSparseItemFields(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode,
+				nil,
+				[]map[string]any{
+					{"a": nil},
+					{"b": 2},
+				},
+			)
+
+			result := ToResult(f, nil, []string{"a", "b"})
+
+			if _, ok := result.Items[0]["a"]; !ok {
+				t.Error("item 0 should retain explicitly present nil field a")
+			}
+			if _, ok := result.Items[0]["b"]; ok {
+				t.Error("item 0 should omit missing field b")
+			}
+			if _, ok := result.Items[1]["a"]; ok {
+				t.Error("item 1 should omit missing field a")
 			}
 		})
 	}
@@ -677,4 +718,150 @@ func TestRowFrameConcurrentBuildInput(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func FuzzApplyOutputStorageEquivalence(f *testing.F) {
+	f.Add([]byte{3, 1, 2, 3, 4, 5, 6, 7, 8})
+	f.Add([]byte{1, 0, 4, 1, 0, 2, 9, 2, 1})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 4096 {
+			t.Skip("DataFrame fuzz input exceeds CI budget")
+		}
+		common, items, recall := fuzzFrameState(data)
+		row := NewFrame(StorageModeRow, cloneMap(common), cloneItems(items))
+		column := NewFrame(StorageModeColumn, cloneMap(common), cloneItems(items))
+
+		rowErr := ApplyOutput(row, fuzzOperatorOutput(data), "fuzz_op", recall)
+		columnErr := ApplyOutput(column, fuzzOperatorOutput(data), "fuzz_op", recall)
+		if (rowErr == nil) != (columnErr == nil) {
+			t.Fatalf("row err = %v, column err = %v", rowErr, columnErr)
+		}
+		if rowErr != nil {
+			return
+		}
+
+		rowResult := ToResult(row, fuzzCommonProjection, fuzzItemProjection)
+		columnResult := ToResult(column, fuzzCommonProjection, fuzzItemProjection)
+		if !reflect.DeepEqual(rowResult.Common, columnResult.Common) {
+			t.Fatalf("common mismatch: row=%v column=%v", rowResult.Common, columnResult.Common)
+		}
+		if !reflect.DeepEqual(rowResult.Items, columnResult.Items) {
+			t.Fatalf("items mismatch: row=%v column=%v", rowResult.Items, columnResult.Items)
+		}
+	})
+}
+
+var (
+	fuzzCommonProjection = []string{"c0", "c1", "c2", "c3"}
+	fuzzItemProjection   = []string{"i0", "i1", "i2", "i3", "added", "_source"}
+)
+
+func fuzzFrameState(data []byte) (map[string]any, []map[string]any, bool) {
+	cursor := fuzzCursor{data: data}
+	common := make(map[string]any, len(fuzzCommonProjection))
+	for i, field := range fuzzCommonProjection {
+		if cursor.next(0)%2 == 0 {
+			common[field] = fuzzValue(cursor.next(byte(i)))
+		}
+	}
+	itemCount := int(cursor.next(3) % 12)
+	items := make([]map[string]any, itemCount)
+	for i := range items {
+		row := make(map[string]any, len(fuzzItemProjection))
+		for j, field := range fuzzItemProjection[:4] {
+			if cursor.next(0)%2 == 0 {
+				row[field] = fuzzValue(cursor.next(byte(i + j)))
+			}
+		}
+		items[i] = row
+	}
+	return common, items, cursor.next(0)%2 == 0
+}
+
+func fuzzOperatorOutput(data []byte) *types.OperatorOutput {
+	cursor := fuzzCursor{data: data}
+	out := types.NewOperatorOutput()
+	ops := int(cursor.next(4)%16) + 1
+	for i := 0; i < ops; i++ {
+		switch cursor.next(0) % 5 {
+		case 0:
+			field := fuzzCommonProjection[int(cursor.next(0))%len(fuzzCommonProjection)]
+			out.SetCommon(field, fuzzValue(cursor.next(0)))
+		case 1:
+			idx := fuzzIndex(cursor.next(0))
+			field := fuzzItemProjection[int(cursor.next(0))%4]
+			out.SetItem(idx, field, fuzzValue(cursor.next(0)))
+		case 2:
+			out.AddItem(map[string]any{
+				"added": fuzzValue(cursor.next(0)),
+				"i0":    fuzzValue(cursor.next(1)),
+			})
+		case 3:
+			out.RemoveItem(fuzzIndex(cursor.next(0)))
+		case 4:
+			n := int(cursor.next(0) % 12)
+			order := make([]int, n)
+			for j := range order {
+				order[j] = fuzzIndex(cursor.next(byte(j)))
+			}
+			out.SetItemOrder(order)
+		}
+	}
+	return out
+}
+
+type fuzzCursor struct {
+	data []byte
+	pos  int
+}
+
+func (c *fuzzCursor) next(defaultValue byte) byte {
+	if c.pos >= len(c.data) {
+		return defaultValue
+	}
+	b := c.data[c.pos]
+	c.pos++
+	return b
+}
+
+func fuzzValue(b byte) any {
+	switch b % 6 {
+	case 0:
+		return nil
+	case 1:
+		return int64(b)
+	case 2:
+		return float64(b) / 3.0
+	case 3:
+		return b%2 == 0
+	case 4:
+		return string([]byte{'v', '0' + b%10})
+	default:
+		return []any{int64(b)}
+	}
+}
+
+func fuzzIndex(b byte) int {
+	idx := int(b % 16)
+	if b%7 == 0 {
+		return -idx - 1
+	}
+	return idx
+}
+
+func cloneMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneItems(in []map[string]any) []map[string]any {
+	out := make([]map[string]any, len(in))
+	for i, item := range in {
+		out[i] = cloneMap(item)
+	}
+	return out
 }

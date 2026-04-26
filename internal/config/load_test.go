@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/Liam0205/pineapple/internal/registry"
 )
 
 func testdataPath(name string) string {
@@ -244,8 +246,44 @@ func FuzzLoad(f *testing.F) {
 	f.Add(seed)
 	f.Add([]byte(`{}`))
 	f.Add([]byte(`{"pipeline_config":{}}`))
+	for _, name := range []string{
+		"e2e_apple_dsl.json",
+		"e2e_full_pipeline.json",
+		"e2e_lua_pipeline.json",
+		"e2e_recall_resource.json",
+		"e2e_resource_lookup.json",
+		"e2e_resource_pipeline.json",
+		"recall_merge.json",
+		"skip_branch.json",
+	} {
+		data, err := os.ReadFile(testdataPath(name))
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(data)
+	}
 
-	f.Fuzz(func(_ *testing.T, data []byte) {
-		Load(data) //nolint:errcheck
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 64*1024 {
+			t.Skip("config fuzz input exceeds CI budget")
+		}
+		cfg, err := Load(data)
+		if err != nil {
+			return
+		}
+		for opName, op := range cfg.PipelineConfig.Operators {
+			for key := range op.RawParams {
+				if registry.IsReservedKey(key) {
+					t.Fatalf("operator %q RawParams contains reserved key %q", opName, key)
+				}
+			}
+		}
+		if sequence, err := ExpandOperatorSequence(cfg); err == nil {
+			for _, opName := range sequence {
+				if _, ok := cfg.PipelineConfig.Operators[opName]; !ok {
+					t.Fatalf("expanded sequence references missing operator %q", opName)
+				}
+			}
+		}
 	})
 }
