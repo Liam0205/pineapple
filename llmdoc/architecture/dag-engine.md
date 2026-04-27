@@ -468,10 +468,12 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 资源和 HTTP 服务位于引擎旁而非 DAG 核心内部。
 
 - `pkg/resource/` 管理命名资源，支持后台刷新和原子读取。
-- `pkg/server/server.go` 加载引擎、启动资源、注入请求上下文、服务 `/health`、`/execute`、`/stats` 和 `/dag`。
+- `pkg/server/server.go` 加载引擎、启动资源、注入请求上下文、服务 `/health`、`/execute`、`/stats` 和 `/dag`，并在保留 config hot-reload 与 graceful shutdown 的前提下允许业务侧通过 `server.Config.Middlewares` 包装整个 HTTP handler 链。
 - `pkg/server.Config.Metrics` 把同一个 `pkg/metrics.Provider` 同时传给 server reload 观测和 `pine.NewEngine(..., pine.WithMetrics(provider))`，形成统一的外部指标出口。
 
 配置热加载同时覆盖 Engine 和 ResourceManager。`enginePtr` 和 `resources` 均为 `atomic.Pointer`，`watchConfig` 检测文件变更后调用 `reloadConfig`，创建新 Manager → Start → 原子替换 → Stop 旧 Manager。失败时保持旧配置不变。
+
+HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Middlewares []func(http.Handler) http.Handler` 在启动 `ListenAndServe` 前按切片顺序从外到内包装整个 handler 链。也就是说，`Middlewares[0]` 最先看到请求、最后看到响应；`nil` 或空切片时行为与旧版一致。该注入点位于 server 边界层，不参与 Engine 编译、DAG 推导或配置热加载逻辑，因此业务侧可叠加访问日志、认证、限流等横切能力，而不必自行重写 Pineapple 的 reload / shutdown 框架。
 
 此分离很重要：DAG 执行仅依赖请求上下文和编译后的 plan，不依赖服务器特定逻辑。
 

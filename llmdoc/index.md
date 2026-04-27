@@ -8,11 +8,11 @@
 
 ## overview/
 
-- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Python DSL + Go 运行时拆分的设计决策。
+- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Python DSL + Go 运行时拆分的设计决策；其中包括可复用 HTTP server 的职责边界与 middleware 注入位置。
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`）与双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`）、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`）。
 
 ## guides/
@@ -25,7 +25,7 @@
 ## reference/
 
 - `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范。
-- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：`pkg/metrics` Provider 契约、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应、Prometheus 适配边界。
+- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：`pkg/metrics` Provider 契约、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应、Prometheus 适配边界，以及 server middleware 与 observability 的职责分离。
 
 ## memory/
 

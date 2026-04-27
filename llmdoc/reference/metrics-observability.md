@@ -128,13 +128,15 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 
 ## 服务端观测
 
-`pkg/server/server.go` 支持通过 `server.Config.Metrics` 注入 provider。
+`pkg/server/server.go` 支持通过 `server.Config.Metrics` 注入 provider，也支持通过 `server.Config.Middlewares` 在 HTTP 边界层包装整个 handler 链。
 
 该 provider 会同时用于：
 
 - 初始 `pine.NewEngine(configData, pine.WithMetrics(provider))`
 - 后续 `reloadConfig(...)` 重建引擎时的 `pine.WithMetrics(provider)`
 - server 自身的 config reload 指标
+
+`Middlewares` 与 metrics 注入是正交能力：middleware 包装发生在内部路由注册完成之后、`ListenAndServe` 启动之前，对 `/health`、`/execute`、`/stats`、`/dag` 一并生效，但不改变 `/stats` 数据来源、reload 计数逻辑或引擎内的 metrics provider 传递。
 
 当前 server 级外部指标名：
 
