@@ -32,7 +32,7 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 
 `apple/flow.py` 定义两个主要的面向用户的构建器：
 
-- `Flow` — 带输入/输出契约、资源和可选 `storage_mode` / `log_prefix` 的顶层声明
+- `Flow` — 带输入/输出契约、资源和可选 `storage_mode` / `log_prefix` / `debug` 的顶层声明
 - `SubFlow` — 无独立契约的可复用算子片段
 
 两者继承 `_FlowBase`，持有算子列表和控制流记账。
@@ -229,6 +229,7 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 - `_PINEAPPLE_CREATE_TIME`（UTC ISO 时间戳）
 - `storage_mode`（当 `Flow` 构造时指定了 `storage_mode` 参数）
 - `log_prefix`（当 `Flow` 构造时指定了 `log_prefix` 参数）
+- `debug`（当 `Flow` 构造时指定了 `debug=True/False` 参数）
 - 可选 `resource_config`
 
 ### 步骤 10：序列化为 JSON
@@ -364,7 +365,17 @@ Apple 可附加：
 
 ### Debug
 
-`debug=True` 按算子输出，后续告知运行时在 trace 中捕获输入/输出快照。
+Apple 支持两层 debug 声明：
+
+- `OpCall.debug` / 逐算子 `debug=True`：在单个算子 JSON 对象上输出 `debug`
+- `Flow(debug=...)`：在步骤 9 作为根级 `debug` 字段写入 JSON
+
+两者职责不同：
+
+- 逐算子 `debug` 是细粒度配置，面向单个算子
+- 根级 `debug` 是 flow 级默认开关，沿 `Flow(...)` → 根级 JSON → `internal/config.RootConfig` → `pine.NewEngine()` 传递，并在 Go 侧展开为“所有算子都开启 debug”
+
+这使 `debug` 成为继 `storage_mode`、`log_prefix` 之后第三个遵循同一路径下沉的 root-level 配置字段。
 
 ### 行依赖
 
@@ -415,7 +426,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
-8. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode` 与 `log_prefix` 都遵循这一模式。
+8. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
 
 ## 检索指针
 
