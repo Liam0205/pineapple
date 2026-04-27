@@ -866,6 +866,113 @@ func TestLogPrefixOptionOverridesJSON(t *testing.T) {
 	}
 }
 
+func TestGlobalDebugFromJSON(t *testing.T) {
+	cfg := makeConfig(
+		map[string]any{
+			"op": map[string]any{
+				"type_name": "set_field",
+				"field":     "y",
+				"value":     42.0,
+				"$metadata": map[string]any{
+					"common_input": []string{"x"}, "common_output": []string{"y"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+		map[string]any{"common_input": []string{"x"}, "common_output": []string{"y"}},
+	)
+	cfg["debug"] = true
+	engine, err := pine.NewEngine(mustJSON(t, cfg))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result, err := engine.Execute(context.Background(), &pine.Request{
+		Common: map[string]any{"x": 1.0, "_return_trace": true},
+	})
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+	if len(result.Trace) == 0 {
+		t.Fatal("expected at least one trace entry")
+	}
+	if result.Trace[0].InputSnapshot == nil {
+		t.Error("expected InputSnapshot to be populated with global debug")
+	}
+	if result.Trace[0].OutputSnapshot == nil {
+		t.Error("expected OutputSnapshot to be populated with global debug")
+	}
+}
+
+func TestGlobalDebugWithDebugOption(t *testing.T) {
+	cfg := makeConfig(
+		map[string]any{
+			"op": map[string]any{
+				"type_name": "set_field",
+				"field":     "y",
+				"value":     42.0,
+				"$metadata": map[string]any{
+					"common_input": []string{"x"}, "common_output": []string{"y"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+		map[string]any{"common_input": []string{"x"}, "common_output": []string{"y"}},
+	)
+	engine, err := pine.NewEngine(mustJSON(t, cfg), pine.WithDebug(true))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result, err := engine.Execute(context.Background(), &pine.Request{
+		Common: map[string]any{"x": 1.0, "_return_trace": true},
+	})
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+	if len(result.Trace) == 0 {
+		t.Fatal("expected at least one trace entry")
+	}
+	if result.Trace[0].InputSnapshot == nil {
+		t.Error("expected InputSnapshot with WithDebug(true)")
+	}
+}
+
+func TestWithDebugFalseOverridesJSON(t *testing.T) {
+	cfg := makeConfig(
+		map[string]any{
+			"op": map[string]any{
+				"type_name": "set_field",
+				"field":     "y",
+				"value":     42.0,
+				"$metadata": map[string]any{
+					"common_input": []string{"x"}, "common_output": []string{"y"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+		map[string]any{"common_input": []string{"x"}, "common_output": []string{"y"}},
+	)
+	cfg["debug"] = true
+	engine, err := pine.NewEngine(mustJSON(t, cfg), pine.WithDebug(false))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result, err := engine.Execute(context.Background(), &pine.Request{
+		Common: map[string]any{"x": 1.0, "_return_trace": true},
+	})
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+	if len(result.Trace) == 0 {
+		t.Fatal("expected at least one trace entry")
+	}
+	if result.Trace[0].InputSnapshot != nil {
+		t.Error("expected no InputSnapshot when WithDebug(false) overrides JSON debug=true")
+	}
+}
+
 func TestNewEngineUnknownOperator(t *testing.T) {
 	cfg := makeConfig(
 		map[string]any{

@@ -33,6 +33,7 @@ type Option func(*engineOptions)
 type engineOptions struct {
 	metricsProvider metrics.Provider
 	logPrefix       string
+	debug           *bool
 }
 
 // WithMetrics configures the Engine to record metrics through the given
@@ -46,6 +47,13 @@ func WithMetrics(p metrics.Provider) Option {
 // field is used; when both are set, this Option takes precedence.
 func WithLogPrefix(prefix string) Option {
 	return func(o *engineOptions) { o.logPrefix = prefix }
+}
+
+// WithDebug enables debug snapshot collection for all operators.
+// When omitted, the JSON config's root-level debug field is used;
+// when both are set, this Option takes precedence.
+func WithDebug(debug bool) Option {
+	return func(o *engineOptions) { o.debug = &debug }
 }
 
 // NewEngine parses a JSON config, validates it, builds the DAG, and returns
@@ -75,6 +83,12 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	}
 
+	// 1c. Resolve global debug (Option > JSON config)
+	globalDebug := cfg.Debug
+	if eo.debug != nil {
+		globalDebug = *eo.debug
+	}
+
 	// 2. Expand operator sequence
 	sequence, err := config.ExpandOperatorSequence(cfg)
 	if err != nil {
@@ -85,6 +99,9 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	compiledOps := make([]*runtime.CompiledOperator, len(sequence))
 	for i, name := range sequence {
 		opCfg := cfg.PipelineConfig.Operators[name]
+		if globalDebug {
+			opCfg.Debug = true
+		}
 		op, schema, err := registry.BuildOperator(opCfg.TypeName, opCfg.RawParams)
 		if err != nil {
 			return nil, err

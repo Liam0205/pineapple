@@ -370,3 +370,36 @@ class TestLogPrefix:
         )
         cfg = compile_flow(flow)
         assert "log_prefix" not in cfg
+
+
+class TestGlobalDebug:
+    def test_debug_true_in_json(self):
+        flow = Flow(
+            name="dbg_test",
+            common_input=["x"],
+            common_output=["y"],
+            debug=True,
+        )
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["x"],
+            common_output=["y"],
+            lua_script="function f() return x end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        assert cfg["debug"] is True
+
+    def test_debug_false_omitted(self):
+        flow = Flow(name="no_dbg", common_input=["x"], common_output=["y"])
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["x"],
+            common_output=["y"],
+            lua_script="function f() return x end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        assert "debug" not in cfg

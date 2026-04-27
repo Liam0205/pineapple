@@ -38,7 +38,7 @@ Python DSL  ──(compile)──>  JSON 配置文件
 
 **Lua 嵌入扩展** — 内置 Lua 算子支持轻量级的自定义计算和条件分支，无需新增 Go 代码即可实现灵活逻辑。简单逻辑下 Lua 仅比 Go 原生慢约 1.3x，详见 [Lua vs Go 性能对比](design_doc/13_lua_vs_go_benchmark.md)。
 
-**白盒可观测** — 引擎内部始终记录算子级别的执行 trace（耗时、跳过状态）。请求方通过 `common._return_trace = true` 控制是否在响应中返回 trace；默认不返回。trace 仅包含实际执行或跳过的算子，DAG 中止时未开始执行的算子不会出现。配合算子 `debug` 参数可获取输入/输出快照，逐算子深入排查。通过可插拔的 `pkg/metrics.Provider` 接口支持 Prometheus 等外部监控系统接入，内置 `/stats` 端点提供零配置基线。
+**白盒可观测** — 引擎内部始终记录算子级别的执行 trace（耗时、跳过状态）。请求方通过 `common._return_trace = true` 控制是否在响应中返回 trace；默认不返回。trace 仅包含实际执行或跳过的算子，DAG 中止时未开始执行的算子不会出现。通过可插拔的 `pkg/metrics.Provider` 接口支持 Prometheus 等外部监控系统接入，内置 `/stats` 端点提供零配置基线。支持全局 debug 开关（`Flow(debug=True)` 或 `pine.WithDebug(true)`），开启后所有算子 trace 附带输入/输出快照，可直观追踪每步的 item 数量变化。也可对单个算子开启 `debug=True` 做定点排查。
 
 **动态资源管理** — `pkg/resource` 提供后台定时刷新的内存资源管理器，无锁读、刷新失败保留旧值。资源通过 `ResourceSchema` 注册，codegen 自动生成 Python 类型类，DSL 声明后编译到统一 JSON 配置。
 

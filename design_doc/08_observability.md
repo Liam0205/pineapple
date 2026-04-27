@@ -46,7 +46,25 @@
 
 所有算子都有一个可选的 `debug` 参数（默认 `False`），与 `common_input` / `item_input` / `common_output` / `item_output` 同级，属于通用参数。
 
-开启后，该算子在运行时打印调试日志（输入数据、输出数据、耗时等详细信息）。
+开启后，该算子在运行时打印调试日志（输入数据、输出数据、耗时等详细信息），并在 trace 中填充 `InputSnapshot` / `OutputSnapshot`。
+
+#### 全局 debug 开关
+
+除逐算子 debug 外，还可在 Flow 级别全局开启：
+
+```python
+flow = Flow("example", debug=True, ...)
+```
+
+编译到 JSON 根级 `"debug": true`。Go 侧也可通过 Option 覆盖：
+
+```go
+engine, _ := pine.NewEngine(data, pine.WithDebug(true))
+```
+
+优先级：`WithDebug` Option > JSON `debug` 字段 > 逐算子 `debug` 参数。全局 debug 开启时，等效于对所有算子设置 `debug=true`。
+
+注意：debug 采集会复制 DataFrame 快照，对性能有影响，生产环境默认应关闭。
 
 ```python
 flow.transform_by_lua(

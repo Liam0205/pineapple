@@ -199,6 +199,10 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     if hasattr(flow, '_log_prefix') and flow._log_prefix:
         result["log_prefix"] = flow._log_prefix
 
+    # 9c. Add debug if specified
+    if hasattr(flow, '_debug') and flow._debug:
+        result["debug"] = True
+
     # 10. Add resource_config if resources declared
     if hasattr(flow, '_resources') and flow._resources:
         result["resource_config"] = {
