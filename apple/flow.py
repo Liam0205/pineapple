@@ -261,6 +261,12 @@ class Flow(_FlowBase):
         for sf in (sub_flows or []):
             self.add_subflow(sf)
         self._resources: list[ResourceDecl] = []
+        _VALID_STORAGE_MODES = {"row", "column"}
+        if storage_mode is not None and storage_mode not in _VALID_STORAGE_MODES:
+            raise ValueError(
+                f"invalid storage_mode={storage_mode!r}, "
+                f"must be one of {sorted(_VALID_STORAGE_MODES)}"
+            )
         self._storage_mode = storage_mode
         self._log_prefix = log_prefix
         self._debug = debug

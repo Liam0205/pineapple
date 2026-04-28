@@ -64,6 +64,16 @@ class TestBasicFlow:
         assert len(names) == 2
         assert names[0] != names[1]  # unique
 
+    def test_invalid_storage_mode_rejected(self):
+        import pytest
+        with pytest.raises(ValueError, match="invalid storage_mode='raw'"):
+            Flow(name="bad", storage_mode="raw")
+
+    def test_valid_storage_modes_accepted(self):
+        Flow(name="ok_row", storage_mode="row")
+        Flow(name="ok_col", storage_mode="column")
+        Flow(name="ok_none")
+
 
 class TestSubFlow:
     def test_subflow_composition(self):
