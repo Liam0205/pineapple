@@ -105,7 +105,7 @@ class TestE2E:
             item_input=["item_score"],
             item_output=["item_score"],
         )
-        flow.if_("user_age > 18") \
+        flow.if_("{{user_age}} > 18") \
             .reorder_sort(
                 item_input=["item_score"],
                 field="item_score",

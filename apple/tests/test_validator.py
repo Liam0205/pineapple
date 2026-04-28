@@ -68,7 +68,7 @@ class TestWriteWithoutRead:
     def test_if_else_branches_write_same_field_ok(self):
         """Mutually exclusive if/else branches may write the same field."""
         flow = Flow(name="ok", common_input=["x"], common_output=["salt"])
-        flow.if_("x ~= nil") \
+        flow.if_("{{x}} ~= nil") \
             ._add_op("transform_by_lua",
                      common_input=["x"], common_output=["salt"],
                      lua_script="function f() return x end",
@@ -157,7 +157,7 @@ class TestControlFlowValidation:
     def test_elseif_without_if(self):
         flow = Flow(name="bad")
         with pytest.raises(ValueError, match="elseif_ without matching if_"):
-            flow.elseif_("x > 0")
+            flow.elseif_("{{x}} > 0")
 
     def test_else_without_if(self):
         flow = Flow(name="bad")
@@ -171,7 +171,7 @@ class TestControlFlowValidation:
 
     def test_unclosed_if_raises(self):
         flow = Flow(name="bad", common_input=["x"], common_output=["y"])
-        flow.if_("x ~= nil")
+        flow.if_("{{x}} ~= nil")
         flow._add_op("transform_by_lua",
                       common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
@@ -196,11 +196,11 @@ class TestControlFlowValidation:
     def test_empty_if_branch_raises(self):
         flow = Flow(name="bad", common_input=["x"], common_output=["y"])
         with pytest.raises(ValueError, match="empty if branch"):
-            flow.if_("x ~= nil").end_if_()
+            flow.if_("{{x}} ~= nil").end_if_()
 
     def test_empty_else_branch_raises(self):
         flow = Flow(name="bad", common_input=["x"], common_output=["y"])
-        flow.if_("x ~= nil")
+        flow.if_("{{x}} ~= nil")
         flow._add_op("transform_by_lua",
                       common_input=["x"], common_output=["y"],
                       lua_script="function f() return x end",
@@ -255,7 +255,7 @@ class TestUnderscorePrefix:
     def test_control_op_underscore_allowed(self):
         """if_/else_ control ops produce _if_* fields — these must be allowed."""
         flow = Flow(name="ok", common_input=["x"], common_output=["y"])
-        flow.if_("x ~= nil") \
+        flow.if_("{{x}} ~= nil") \
             ._add_op("transform_by_lua",
                      common_input=["x"], common_output=["y"],
                      lua_script="function f() return x end",

@@ -18,7 +18,7 @@ class TestControlFlowLowering:
             item_input=["item_score"],
             item_output=["item_rank"],
         )
-        flow.if_("item_count > 0") \
+        flow.if_("{{item_count}} > 0") \
             .reorder_sort(
                 item_input=["item_score"],
                 item_output=["item_rank"],
@@ -53,13 +53,13 @@ class TestControlFlowLowering:
             item_input=["item_score"],
             item_output=["item_rank", "item_fallback", "item_default"],
         )
-        flow.if_("mode == 1") \
+        flow.if_("{{mode}} == 1") \
             .reorder_sort(
                 item_input=["item_score"],
                 item_output=["item_rank"],
                 field="item_score", order="desc",
             ) \
-        .elseif_("mode == 2") \
+        .elseif_("{{mode}} == 2") \
             ._add_op("transform_by_lua",
                 item_input=["item_score"],
                 item_output=["item_fallback"],
@@ -96,11 +96,11 @@ class TestControlFlowLowering:
             item_input=["x"],
             item_output=["y", "z"],
         )
-        flow.if_("a > 0") \
+        flow.if_("{{a}} > 0") \
             ._add_op("transform_by_lua", item_input=["x"], item_output=["y"],
                       lua_script="function f() return x end",
                       function_for_item="f", function_for_common="") \
-            .if_("b > 0") \
+            .if_("{{b}} > 0") \
                 ._add_op("transform_by_lua", item_input=["x"], item_output=["z"],
                           lua_script="function g() return x * 2 end",
                           function_for_item="g", function_for_common="") \
@@ -111,6 +111,50 @@ class TestControlFlowLowering:
         ops = cfg["pipeline_config"]["operators"]
         # 2 control ops + 2 business ops = 4
         assert len(ops) == 4
+
+    def test_if_with_string_literal(self):
+        """String literals in if_ condition must not be treated as field names."""
+        flow = Flow(
+            name="str_lit",
+            common_input=["group_value"],
+            item_input=["x"],
+            item_output=["y"],
+        )
+        flow.if_('{{group_value}} == "treatment"') \
+            ._add_op("transform_by_lua", item_input=["x"], item_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_item="f", function_for_common="") \
+        .end_if_()
+
+        cfg = compile_flow(flow)
+        ops = cfg["pipeline_config"]["operators"]
+        assert len(ops) == 2
+
+        ctrl_op = [o for o in ops.values() if o.get("for_branch_control")][0]
+        assert "treatment" not in ctrl_op["$metadata"]["common_input"]
+        assert "group_value" in ctrl_op["$metadata"]["common_input"]
+
+
+class TestExtractFields:
+    def test_extracts_template_fields(self):
+        from apple.control import extract_fields
+        assert extract_fields("{{item_count}} > 0") == ["item_count"]
+
+    def test_ignores_bare_identifiers(self):
+        from apple.control import extract_fields
+        assert extract_fields("item_count > 0") == []
+
+    def test_string_literals_not_extracted(self):
+        from apple.control import extract_fields
+        assert extract_fields('{{group_value}} == "treatment"') == ["group_value"]
+
+    def test_multiple_fields(self):
+        from apple.control import extract_fields
+        assert extract_fields("{{a}} == 1 and {{b}} ~= nil") == ["a", "b"]
+
+    def test_deduplicates(self):
+        from apple.control import extract_fields
+        assert extract_fields("{{x}} > 0 and {{x}} < 10") == ["x"]
 
 
 class TestOperatorNaming:

@@ -29,21 +29,14 @@ class ControlBranch:
 
 
 def extract_fields(condition: str) -> list[str]:
-    """Extract field names referenced in a Lua condition.
+    """Extract field names from ``{{field}}`` template markers in a condition."""
+    fields = re.findall(r"\{\{(\w+)\}\}", condition)
+    return list(dict.fromkeys(fields))
 
-    Identifies identifiers that look like common field names (not Lua keywords
-    or literals). Simple heuristic: word tokens that aren't Lua reserved words.
-    """
-    lua_keywords = {
-        "and", "break", "do", "else", "elseif", "end", "false", "for",
-        "function", "goto", "if", "in", "local", "nil", "not", "or",
-        "repeat", "return", "then", "true", "until", "while",
-        "math", "string", "table", "io", "os", "type", "tostring",
-        "tonumber", "print", "pairs", "ipairs", "next", "select",
-        "unpack", "pcall", "xpcall", "error", "assert",
-    }
-    tokens = re.findall(r"[a-zA-Z_]\w*", condition)
-    return list(dict.fromkeys(t for t in tokens if t not in lua_keywords))
+
+def _strip_template(condition: str) -> str:
+    """Replace ``{{field}}`` markers with bare field names for Lua emission."""
+    return re.sub(r"\{\{(\w+)\}\}", r"\1", condition)
 
 
 def make_control_op(
@@ -64,12 +57,13 @@ def make_control_op(
             deduped.append(f)
     common_input = deduped
 
-    # Build Lua script
+    # Build Lua script (strip {{...}} markers for Lua emission)
+    lua_cond = _strip_template(condition) if condition else None
     if branch.kind == "if":
-        lua_body = f"if ({condition}) then return false else return true end"
+        lua_body = f"if ({lua_cond}) then return false else return true end"
     elif branch.kind == "elseif":
         prior_check = " and ".join(f"({f} == true)" for f in prior_ctrl_fields)
-        lua_body = f"if ({prior_check}) and ({condition}) then return false else return true end"
+        lua_body = f"if ({prior_check}) and ({lua_cond}) then return false else return true end"
     else:  # else
         prior_check = " and ".join(f"({f} == true)" for f in prior_ctrl_fields)
         lua_body = f"if ({prior_check}) then return false else return true end"
