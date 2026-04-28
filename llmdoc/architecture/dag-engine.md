@@ -63,10 +63,11 @@
    - 将引擎保留键与业务参数分离。
    - 校验最低配置结构。
 
-2. **展开算子序列**（`internal/config.ExpandOperatorSequence`）
+2. **展开算子序列**（`internal/config.ExpandOperatorSequenceWithSubFlows`）
    - 解析 `pipeline_group["main"]`。
    - 按 `pipeline_map` 顺序展开。
    - 生成用于校验和 DAG 构建的扁平算子序列。
+   - 同时生成 `opToSubFlow` 映射，记录每个算子属于哪个声明的 SubFlow。
 
 3. **构建算子实例**（`internal/registry.BuildOperator`）
    - 查找已注册的 Schema。
@@ -107,6 +108,8 @@
 ### 图模型
 
 图按 DSL 声明顺序存储算子。每个节点追踪前驱和后继索引。名称→索引查找支持显式 source 引用和 merge 边构建。
+
+每个 `Node` 还带有 `SubFlow` 字段，用来记录该算子来自哪个声明的 SubFlow。这个字段不参与调度、冒险分析或拓扑约束；它只作为稳定的可视化分组元数据，供 collapsed DAG 渲染使用。
 
 声明顺序很重要，因为冒险追踪器按序列遍历算子并从该顺序推导因果关系。
 
@@ -496,16 +499,41 @@ HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Mid
 
 ## DAG 可视化
 
-`internal/dag/visualize.go` 提供两种格式的 DAG 图渲染：
+`internal/dag/visualize.go` 现在提供四种渲染函数：
 
-- `RenderDOT(g *Graph) string` — Graphviz DOT 格式
-- `RenderMermaid(g *Graph) string` — Mermaid flowchart 格式
+- `RenderDOT(g *Graph) string` — 完整算子级 Graphviz DOT
+- `RenderMermaid(g *Graph) string` — 完整算子级 Mermaid flowchart
+- `RenderCollapsedDOT(g *Graph) string` — 按 SubFlow 聚合后的 DOT
+- `RenderCollapsedMermaid(g *Graph) string` — 按 SubFlow 聚合后的 Mermaid
 
-节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名和类型分类。布局方向为自上而下（DOT `rankdir=TB`、Mermaid `graph TB`）。
+完整视图仍按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名。布局方向为自上而下（DOT `rankdir=TB`、Mermaid `graph TB`）。
 
-由于 `Build()` 阶段已对执行图执行传递性归约，`Node.Succs` 本身就是保持可达性的最小边集。渲染函数直接遍历 `Node.Succs` 画边，无需额外归约。
+### SubFlow 折叠视图
 
-公共 API 通过 `Engine.RenderDAG(format string) (string, error)` 暴露，format 支持 `"dot"` 和 `"mermaid"`。HTTP 端点 `GET /dag?format=dot|mermaid`（默认 `dot`）。
+collapsed 渲染把所有 `Node.SubFlow` 相同且非空的节点聚合为一个汇总节点：
+
+- 聚合节点名称使用 SubFlow 名称
+- `SubFlow == ""` 的节点保持独立，不会被强制并入其他组
+- 同一 SubFlow 内部的边不会出现在折叠视图中
+- 只保留跨组边，并对重复的跨组边做去重
+
+因此 collapsed 视图表达的是 SubFlow 之间的依赖骨架，而不是组内的算子执行细节。
+
+### API 与 HTTP 暴露面
+
+公共 API 通过 `Engine.RenderDAG(format string, opts ...RenderOption) (string, error)` 暴露：
+
+- format 支持 `"dot"` 和 `"mermaid"`
+- `pine.WithCollapse(true)` 切换到 SubFlow 折叠渲染
+- 不传 `RenderOption` 时保持旧的完整算子级视图
+
+HTTP 端点为 `GET /dag`：
+
+- `format=dot|mermaid` 选择输出格式，默认 `dot`
+- `collapse=subflow` 启用按 SubFlow 折叠的视图
+- 未指定 `collapse` 时返回完整算子级 DAG
+
+由于 `Build()` 阶段已对执行图执行传递性归约，完整视图和 collapsed 视图都基于同一份最小边集。collapsed 渲染只是在这个最小边集上做分组、过滤组内边并去重跨组边，不重新推导执行依赖。
 
 ## 需要保持的重要不变量
 
@@ -521,6 +549,7 @@ HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Mid
 10. **观测走双通道。** `/stats` 依赖内建原子统计，外部指标依赖可插拔 provider；二者记录同一运行事实但面向不同消费场景。
 11. **注入顺序固定。** 对同时实现多个可选接口的算子，引擎按 MetadataAware → DebugAware → MetricsAware 顺序注入。依赖 operator name 做 metric label 的实现可依赖该顺序。
 12. **全局 debug 通过覆写逐算子配置生效。** 根级 `debug` 与 `pine.WithDebug(...)` 不引入独立执行分支，而是在 `NewEngine` 中统一改写每个算子的 `opCfg.Debug`；Go option 还必须保留“未设置”与“显式 false”两种状态区分。
+13. **SubFlow 只影响可视化分组，不影响执行语义。** `Node.SubFlow` 与 collapsed render 不能改变 DAG 的边、调度顺序或 hazard 推导；它们只是对既有执行图的聚合视图。
 
 ## 检索指针
 
@@ -528,6 +557,7 @@ HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Mid
 - 配置解析和序列展开：`internal/config/load.go`、`internal/config/types.go`
 - DAG 推导：`internal/dag/dag.go`
 - DAG 可视化：`internal/dag/visualize.go`
+- 引擎 DAG API 与 render options：`pine.go`
 - 调度器和 trace 捕获：`internal/runtime/scheduler.go`
 - Data-parallel split/merge/execute：`internal/runtime/parallel.go`
 - 统计：`internal/runtime/stats.go`
