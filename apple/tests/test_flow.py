@@ -155,6 +155,7 @@ class TestSubFlow:
 
     def test_subflow_cycle_detected(self):
         import pytest
+
         from apple.validator import ValidationError
         sf = SubFlow(name="self_ref")
         sf._sub_flows.append(sf)
