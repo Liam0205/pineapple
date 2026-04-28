@@ -63,13 +63,6 @@ func TestRenderDOT(t *testing.T) {
 		}
 	}
 
-	// Type labels present
-	for _, label := range []string{"[Recall]", "[Transform]", "[Filter]"} {
-		if !strings.Contains(dot, label) {
-			t.Errorf("missing type label %q", label)
-		}
-	}
-
 	// Edges: recall_a -> transform_c and recall_b -> transform_c (via item field RAW)
 	if !strings.Contains(dot, `"recall_a" -> "transform_c"`) {
 		t.Error("missing edge recall_a -> transform_c")

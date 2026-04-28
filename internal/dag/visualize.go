@@ -38,7 +38,7 @@ func RenderDOT(g *Graph) string {
 		if color == "" {
 			color = "#FFFFFF"
 		}
-		label := fmt.Sprintf("%s\\n[%s]", node.Name, opType)
+		label := node.Name
 		fmt.Fprintf(&b, "    %q [label=%q, fillcolor=%q];\n", node.Name, label, color)
 	}
 
@@ -63,7 +63,7 @@ func RenderMermaid(g *Graph) string {
 		opType := types.OperatorType(node.Config.OperatorType)
 		className := strings.ToLower(string(opType))
 		id := sanitizeMermaidID(node.Name)
-		label := fmt.Sprintf("%s<br/>[%s]", node.Name, opType)
+		label := node.Name
 		fmt.Fprintf(&b, "    %s[\"%s\"]:::%s\n", id, label, className)
 	}
 
