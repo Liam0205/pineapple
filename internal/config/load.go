@@ -94,6 +94,44 @@ func ExpandOperatorSequence(cfg *RootConfig) ([]string, error) {
 	return sequence, nil
 }
 
+// ExpandOperatorSequenceWithSubFlows behaves like ExpandOperatorSequence but
+// additionally returns opToSubFlow — a map from operator name to its owning
+// sub-flow name. Operators that belong to no named sub-flow map to "".
+func ExpandOperatorSequenceWithSubFlows(cfg *RootConfig) ([]string, map[string]string, error) {
+	group, ok := cfg.PipelineGroup["main"]
+	if !ok {
+		if len(cfg.PipelineGroup) == 1 {
+			for _, g := range cfg.PipelineGroup {
+				group = g
+			}
+		} else {
+			return nil, nil, &types.ConfigError{Message: "pipeline_group must contain a \"main\" entry or exactly one entry"}
+		}
+	}
+
+	var sequence []string
+	opToSubFlow := make(map[string]string)
+	for _, subFlowName := range group.Pipeline {
+		subFlow, ok := cfg.PipelineConfig.PipelineMap[subFlowName]
+		if !ok {
+			return nil, nil, &types.ConfigError{
+				Message: fmt.Sprintf("pipeline_group references undefined sub-flow %q", subFlowName),
+			}
+		}
+		for _, opName := range subFlow.Pipeline {
+			if _, ok := cfg.PipelineConfig.Operators[opName]; !ok {
+				return nil, nil, &types.ConfigError{
+					Message: fmt.Sprintf("sub-flow %q references undefined operator %q", subFlowName, opName),
+				}
+			}
+			sequence = append(sequence, opName)
+			opToSubFlow[opName] = subFlowName
+		}
+	}
+
+	return sequence, opToSubFlow, nil
+}
+
 // validate checks structural integrity of the config.
 func validate(cfg *RootConfig) error {
 	if len(cfg.PipelineConfig.Operators) == 0 {

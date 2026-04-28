@@ -89,8 +89,8 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		globalDebug = *eo.debug
 	}
 
-	// 2. Expand operator sequence
-	sequence, err := config.ExpandOperatorSequence(cfg)
+	// 2. Expand operator sequence (with SubFlow membership)
+	sequence, opToSubFlow, err := config.ExpandOperatorSequenceWithSubFlows(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	}
 
 	// 4. Build DAG
-	graph, err := dag.Build(sequence, cfg.PipelineConfig.Operators)
+	graph, err := dag.Build(sequence, cfg.PipelineConfig.Operators, opToSubFlow)
 	if err != nil {
 		return nil, err
 	}
@@ -242,9 +242,38 @@ func (e *Engine) OperatorCustomStats() map[string]map[string]int64 {
 	return result
 }
 
+// RenderOption configures optional DAG rendering behaviour.
+type RenderOption func(*renderOptions)
+
+type renderOptions struct {
+	collapse bool
+}
+
+// WithCollapse enables SubFlow-level collapse: all operators belonging to the
+// same SubFlow are aggregated into a single node in the rendered DAG.
+func WithCollapse(collapse bool) RenderOption {
+	return func(o *renderOptions) { o.collapse = collapse }
+}
+
 // RenderDAG renders the compiled DAG in the specified format.
 // Supported formats: "dot" (Graphviz DOT), "mermaid" (Mermaid flowchart).
-func (e *Engine) RenderDAG(format string) (string, error) {
+func (e *Engine) RenderDAG(format string, opts ...RenderOption) (string, error) {
+	var ro renderOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+
+	if ro.collapse {
+		switch format {
+		case "dot":
+			return dag.RenderCollapsedDOT(e.plan.Graph), nil
+		case "mermaid":
+			return dag.RenderCollapsedMermaid(e.plan.Graph), nil
+		default:
+			return "", &ValidationError{Message: fmt.Sprintf("unsupported DAG format %q (use \"dot\" or \"mermaid\")", format)}
+		}
+	}
+
 	switch format {
 	case "dot":
 		return dag.RenderDOT(e.plan.Graph), nil

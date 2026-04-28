@@ -1,6 +1,7 @@
 package dag
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func buildTestGraph(t *testing.T) *Graph {
 		},
 	}
 
-	g, err := Build(sequence, operators)
+	g, err := Build(sequence, operators, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestTransitiveReduction(t *testing.T) {
 		},
 	}
 
-	g, err := Build(sequence, operators)
+	g, err := Build(sequence, operators, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -168,4 +169,161 @@ func TestTransitiveReduction(t *testing.T) {
 
 	t.Logf("Edges from recall_a: %v", g.Nodes[0].Succs)
 	t.Logf("DOT output:\n%s", dot)
+}
+
+func buildTwoSubFlowGraph(t *testing.T) *Graph {
+	t.Helper()
+
+	sequence := []string{"recall_a", "recall_b", "transform_c", "filter_d", "reorder_e"}
+	operators := map[string]config.OperatorConfig{
+		"recall_a": {
+			TypeName:     "recall_static",
+			OperatorType: string(types.OpTypeRecall),
+			Recall:       true,
+			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
+		},
+		"recall_b": {
+			TypeName:     "recall_static",
+			OperatorType: string(types.OpTypeRecall),
+			Recall:       true,
+			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
+		},
+		"transform_c": {
+			TypeName:     "transform_copy",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				ItemInput:  []string{"score"},
+				ItemOutput: []string{"score_norm"},
+			},
+		},
+		"filter_d": {
+			TypeName:     "filter_condition",
+			OperatorType: string(types.OpTypeFilter),
+			Meta:         config.Metadata{ItemInput: []string{"score_norm"}},
+		},
+		"reorder_e": {
+			TypeName:     "reorder_sort",
+			OperatorType: string(types.OpTypeReorder),
+			Meta:         config.Metadata{ItemInput: []string{"score_norm"}},
+		},
+	}
+	opToSubFlow := map[string]string{
+		"recall_a":    "recall_stage",
+		"recall_b":    "recall_stage",
+		"transform_c": "recall_stage",
+		"filter_d":    "rank_stage",
+		"reorder_e":   "rank_stage",
+	}
+
+	g, err := Build(sequence, operators, opToSubFlow)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	return g
+}
+
+func TestRenderCollapsedDOT(t *testing.T) {
+	g := buildTwoSubFlowGraph(t)
+	dot := RenderCollapsedDOT(g)
+
+	if !strings.Contains(dot, "digraph pipeline {") {
+		t.Error("missing digraph header")
+	}
+
+	// Aggregate nodes for the two SubFlows
+	if !strings.Contains(dot, `"recall_stage"`) {
+		t.Error("missing aggregate node recall_stage")
+	}
+	if !strings.Contains(dot, `"rank_stage"`) {
+		t.Error("missing aggregate node rank_stage")
+	}
+
+	// Should have cross-SubFlow edge
+	if !strings.Contains(dot, "->") {
+		t.Error("missing cross-subflow edge")
+	}
+
+	// Individual operator names should NOT appear
+	for _, name := range []string{"recall_a", "recall_b", "transform_c", "filter_d", "reorder_e"} {
+		if strings.Contains(dot, fmt.Sprintf("label=%q", name)) {
+			t.Errorf("collapsed DOT should not contain individual node %q", name)
+		}
+	}
+
+	t.Logf("Collapsed DOT output:\n%s", dot)
+}
+
+func TestRenderCollapsedMermaid(t *testing.T) {
+	g := buildTwoSubFlowGraph(t)
+	mmd := RenderCollapsedMermaid(g)
+
+	if !strings.HasPrefix(mmd, "graph TB\n") {
+		t.Error("missing graph TB header")
+	}
+
+	// Aggregate nodes
+	if !strings.Contains(mmd, `"recall_stage"`) {
+		t.Error("missing aggregate node recall_stage")
+	}
+	if !strings.Contains(mmd, `"rank_stage"`) {
+		t.Error("missing aggregate node rank_stage")
+	}
+
+	// Class definitions
+	if !strings.Contains(mmd, "classDef subflow") {
+		t.Error("missing classDef subflow")
+	}
+
+	// Cross-SubFlow edge
+	if !strings.Contains(mmd, "-->") {
+		t.Error("missing cross-subflow edge")
+	}
+
+	t.Logf("Collapsed Mermaid output:\n%s", mmd)
+}
+
+func TestRenderCollapsedMixedSubFlows(t *testing.T) {
+	// One node without SubFlow, two in a SubFlow
+	sequence := []string{"standalone_a", "grouped_b", "grouped_c"}
+	operators := map[string]config.OperatorConfig{
+		"standalone_a": {
+			TypeName:     "recall_static",
+			OperatorType: string(types.OpTypeRecall),
+			Recall:       true,
+			Meta:         config.Metadata{ItemOutput: []string{"x"}},
+		},
+		"grouped_b": {
+			TypeName:     "filter_condition",
+			OperatorType: string(types.OpTypeFilter),
+			Meta:         config.Metadata{ItemInput: []string{"x"}},
+		},
+		"grouped_c": {
+			TypeName:     "reorder_sort",
+			OperatorType: string(types.OpTypeReorder),
+			Meta:         config.Metadata{ItemInput: []string{"x"}},
+		},
+	}
+	opToSubFlow := map[string]string{
+		"standalone_a": "",
+		"grouped_b":    "my_group",
+		"grouped_c":    "my_group",
+	}
+
+	g, err := Build(sequence, operators, opToSubFlow)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	dot := RenderCollapsedDOT(g)
+
+	// standalone_a should appear as its own node
+	if !strings.Contains(dot, `"standalone_a"`) {
+		t.Error("standalone node should keep its name")
+	}
+	// my_group should appear as aggregate
+	if !strings.Contains(dot, `"my_group"`) {
+		t.Error("missing aggregate node my_group")
+	}
+
+	t.Logf("Mixed collapsed DOT:\n%s", dot)
 }

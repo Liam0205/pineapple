@@ -238,6 +238,71 @@ func TestExpandNoMainMultipleGroups(t *testing.T) {
 	}
 }
 
+func TestExpandOperatorSequenceWithSubFlows(t *testing.T) {
+	cfg, err := Load(mustReadTestdata(t, "e2e_full_pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seq, mapping, err := ExpandOperatorSequenceWithSubFlows(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(seq) == 0 {
+		t.Fatal("sequence should not be empty")
+	}
+
+	// Every operator in the sequence must have a SubFlow mapping
+	for _, opName := range seq {
+		sf, ok := mapping[opName]
+		if !ok {
+			t.Errorf("operator %q missing from opToSubFlow map", opName)
+		}
+		if sf == "" {
+			t.Errorf("operator %q has empty SubFlow name", opName)
+		}
+	}
+
+	// e2e_full_pipeline.json has recall_stage and process_stage
+	subFlows := make(map[string]bool)
+	for _, sf := range mapping {
+		subFlows[sf] = true
+	}
+	if !subFlows["recall_stage"] {
+		t.Error("expected recall_stage in subflow mapping")
+	}
+	if !subFlows["process_stage"] {
+		t.Error("expected process_stage in subflow mapping")
+	}
+}
+
+func TestExpandWithSubFlowsMatchesOriginal(t *testing.T) {
+	cfg, err := Load(mustReadTestdata(t, "minimal_valid.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seqOld, err := ExpandOperatorSequence(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seqNew, _, err := ExpandOperatorSequenceWithSubFlows(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(seqOld) != len(seqNew) {
+		t.Fatalf("lengths differ: %d vs %d", len(seqOld), len(seqNew))
+	}
+	for i := range seqOld {
+		if seqOld[i] != seqNew[i] {
+			t.Errorf("index %d: %q vs %q", i, seqOld[i], seqNew[i])
+		}
+	}
+}
+
 func FuzzLoad(f *testing.F) {
 	seed, err := os.ReadFile(testdataPath("minimal_valid.json"))
 	if err != nil {

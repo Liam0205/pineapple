@@ -165,7 +165,7 @@ func buildPlan(t *testing.T, seq []string, cops map[string]*CompiledOperator) *P
 	for name, cop := range cops {
 		ops[name] = cop.Config
 	}
-	g, err := dag.Build(seq, ops)
+	g, err := dag.Build(seq, ops, nil)
 	if err != nil {
 		t.Fatalf("dag.Build: %v", err)
 	}

@@ -13,11 +13,12 @@ const rowSetSentinel = "_row_set_"
 
 // Node represents an operator in the DAG.
 type Node struct {
-	Name   string
-	Index  int
-	Config config.OperatorConfig
-	Preds  []int // predecessor node indexes
-	Succs  []int // successor node indexes
+	Name    string
+	Index   int
+	SubFlow string // SubFlow membership; empty if ungrouped
+	Config  config.OperatorConfig
+	Preds   []int // predecessor node indexes
+	Succs   []int // successor node indexes
 }
 
 // Graph is the compiled DAG.
@@ -32,7 +33,7 @@ type Graph struct {
 //   - Recall: additive writes (parallel with other Recalls), RAW from upstream Transforms
 //   - Filter/Merge/Reorder: barrier semantics (all prior ops finish before, all later ops wait)
 //   - Observe: read-only RAW dependencies, does not block downstream
-func Build(sequence []string, operators map[string]config.OperatorConfig) (*Graph, error) {
+func Build(sequence []string, operators map[string]config.OperatorConfig, opToSubFlow map[string]string) (*Graph, error) {
 	g := &Graph{
 		NameToIndex: make(map[string]int, len(sequence)),
 	}
@@ -44,9 +45,10 @@ func Build(sequence []string, operators map[string]config.OperatorConfig) (*Grap
 			return nil, &types.ConfigError{Message: fmt.Sprintf("operator %q not found", name)}
 		}
 		node := &Node{
-			Name:   name,
-			Index:  i,
-			Config: opCfg,
+			Name:    name,
+			Index:   i,
+			SubFlow: opToSubFlow[name],
+			Config:  opCfg,
 		}
 		g.Nodes = append(g.Nodes, node)
 		g.NameToIndex[name] = i

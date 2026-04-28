@@ -118,7 +118,7 @@ func TestRAWDependency(t *testing.T) {
 		"op_b": transformOp([]string{"common_foo"}, nil, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestRAWItemDependency(t *testing.T) {
 		"op_b": transformOp(nil, nil, []string{"item_score"}, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestWAWDependency(t *testing.T) {
 		"op_b": transformOp(nil, []string{"common_foo"}, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestWARDependency(t *testing.T) {
 		"op_b": transformOp(nil, []string{"foo"}, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestParallelIndependentOps(t *testing.T) {
 		"op_b": transformOp(nil, []string{"bar"}, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestRecallOpsParallel(t *testing.T) {
 		"recall_b": recallOp([]string{"user_id"}, []string{"item_id", "item_score"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestRecallToDownstreamRAW(t *testing.T) {
 		"op_b":     transformOp(nil, nil, []string{"item_price"}, []string{"item_score"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestMultiRecallToDownstreamRAW(t *testing.T) {
 		"op_c":     transformOp(nil, nil, []string{"item_id"}, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestRecallThenMutatingWriter(t *testing.T) {
 		"op_b":     transformOp(nil, nil, nil, []string{"item_id"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestRecallCommonInputStillTracked(t *testing.T) {
 		"recall_a": recallOp([]string{"user_embedding"}, []string{"item_id"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestMergeSourcesEdges(t *testing.T) {
 		"merge":    mergeOp([]string{"recall_a", "recall_b"}, []string{"item_id"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestReadModifyWriteChain(t *testing.T) {
 		"op_c": transformOp(nil, nil, []string{"score"}, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestDiamondDependency(t *testing.T) {
 		"op_d": transformOp([]string{"bar", "baz"}, nil, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestTopologicalSortLinear(t *testing.T) {
 		"c": transformOp([]string{"y"}, nil, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestBuildInvalidSourcesRef(t *testing.T) {
 	ops := map[string]config.OperatorConfig{
 		"merge": mergeOp([]string{"ghost"}, nil),
 	}
-	_, err := Build(seq, ops)
+	_, err := Build(seq, ops, nil)
 	if err == nil {
 		t.Error("expected error for invalid sources reference")
 	}
@@ -436,7 +436,7 @@ func TestSelfReadWriteNoSelfEdge(t *testing.T) {
 		"op_a": transformOp([]string{"foo"}, []string{"foo"}, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestFilterBarrierSemantics(t *testing.T) {
 		"transform_c": transformOp(nil, nil, []string{"score"}, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestReorderBarrierSemantics(t *testing.T) {
 		"transform_b": transformOp(nil, nil, []string{"score"}, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestMergeBarrierSemantics(t *testing.T) {
 		"transform_c": transformOp(nil, nil, []string{"item_id"}, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +532,7 @@ func TestMultipleBarriersChain(t *testing.T) {
 		"transform_c": transformOp(nil, nil, []string{"rank"}, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,7 +563,7 @@ func TestObserveNonBlocking(t *testing.T) {
 		"transform_b": transformOp(nil, nil, []string{"score"}, []string{"rank"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +588,7 @@ func TestObserveDoesNotCreateWAR(t *testing.T) {
 		"transform_b": transformOp(nil, []string{"foo"}, nil, nil),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +618,7 @@ func TestRecallDependsOnTransform_ParallelAfter(t *testing.T) {
 		"recall_b":  recallOp([]string{"user_vec"}, []string{"item_id", "item_score"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +648,7 @@ func TestRecallDependsOnDifferentTransforms(t *testing.T) {
 		"recall_b": recallOp([]string{"feature_y"}, []string{"item_id"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -694,7 +694,7 @@ func TestRecallIndependentParallelWithTransformRecallChain(t *testing.T) {
 		"recall_d":    recallOp([]string{"bbb"}, []string{"item_id"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -742,7 +742,7 @@ func TestRecallChainThenTransformReadsItems(t *testing.T) {
 		"transform_score": transformOp(nil, nil, []string{"item_score"}, []string{"item_adjusted"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +773,7 @@ func TestRowDependency_WaitsForRecalls(t *testing.T) {
 		"size":     rowDepOp([]string{"item_count"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -803,7 +803,7 @@ func TestRowDependency_WaitsForRecallsAfterBarrier(t *testing.T) {
 		"size":     rowDepOp([]string{"item_count"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,7 +833,7 @@ func TestRowDependency_DoesNotBlockDownstream(t *testing.T) {
 		"transform_b": transformOp(nil, nil, []string{"item_id"}, []string{"item_score"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -862,7 +862,7 @@ func TestRowDependency_WithBarrier(t *testing.T) {
 		"size":     rowDepOp([]string{"item_count"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +883,7 @@ func TestRowDependency_IndependentOfColumnOnlyTransform(t *testing.T) {
 		"size":        rowDepOp([]string{"item_count"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -907,7 +907,7 @@ func TestRowDependency_MultipleRowDepOps(t *testing.T) {
 		"size_b":   rowDepOp([]string{"item_total"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1054,7 +1054,7 @@ func TestReduceWithBarrierPipeline(t *testing.T) {
 		"transform_e": transformOp(nil, nil, []string{"rank"}, []string{"final"}),
 	}
 
-	g, err := Build(seq, ops)
+	g, err := Build(seq, ops, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1117,7 +1117,7 @@ func FuzzBuild(f *testing.F) {
 			t.Skip("DAG fuzz input exceeds CI budget")
 		}
 		seq, ops := fuzzDAGConfig(data)
-		g, err := Build(seq, ops)
+		g, err := Build(seq, ops, nil)
 		if err != nil {
 			return
 		}

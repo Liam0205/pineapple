@@ -296,6 +296,30 @@ server.Run(server.Config{
 
 节点按算子类型着色，标签包含算子名和类型分类。
 
+#### SubFlow 折叠渲染
+
+当 pipeline 包含多个 SubFlow 且算子数量较多时，完整 DAG 可能难以阅读。引擎支持将同一 SubFlow 内的算子折叠为单个聚合节点，只保留跨 SubFlow 的边（自动去重）。
+
+**API**：
+
+```go
+dot, _ := engine.RenderDAG("dot", pine.WithCollapse(true))
+mmd, _ := engine.RenderDAG("mermaid", pine.WithCollapse(true))
+```
+
+**HTTP**：
+
+```bash
+curl http://localhost:8080/dag?format=dot&collapse=subflow
+curl http://localhost:8080/dag?format=mermaid&collapse=subflow
+```
+
+折叠逻辑：
+- 按 `Node.SubFlow` 归组，每个 SubFlow 生成一个聚合节点（label = SubFlow 名）
+- 无 SubFlow 归属的节点（`SubFlow == ""`）保持独立
+- 跨 SubFlow 的边提升为聚合边，自动去重
+- 不传 `WithCollapse` 或 `collapse` 参数时行为完全不变
+
 ### 全局日志前缀
 
 引擎支持为所有日志（包括第三方算子通过 `log.Printf` 打印的日志）统一添加前缀。底层通过 `log.SetPrefix()` 设置标准库全局 logger 前缀，确保无遗漏。
@@ -330,6 +354,10 @@ engine, err := pine.NewEngine(jsonConfig, pine.WithLogPrefix("[svc] "))
 engine, _ := pine.NewEngine(jsonConfig)
 dot, _ := engine.RenderDAG("dot")       // Graphviz DOT
 mmd, _ := engine.RenderDAG("mermaid")   // Mermaid flowchart
+
+// SubFlow 折叠
+dotCollapsed, _ := engine.RenderDAG("dot", pine.WithCollapse(true))
+mmdCollapsed, _ := engine.RenderDAG("mermaid", pine.WithCollapse(true))
 ```
 
 #### HTTP 端点
@@ -343,4 +371,8 @@ curl http://localhost:8080/dag?format=mermaid
 
 # 渲染为 SVG（需要本地安装 graphviz）
 curl -s http://localhost:8080/dag | dot -Tsvg -o dag.svg
+
+# SubFlow 折叠
+curl http://localhost:8080/dag?format=dot&collapse=subflow
+curl http://localhost:8080/dag?format=mermaid&collapse=subflow
 ```

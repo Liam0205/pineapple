@@ -350,7 +350,12 @@ func handleDAG(w http.ResponseWriter, r *http.Request) {
 		format = "dot"
 	}
 
-	output, err := engine.RenderDAG(format)
+	var opts []pine.RenderOption
+	if r.URL.Query().Get("collapse") == "subflow" {
+		opts = append(opts, pine.WithCollapse(true))
+	}
+
+	output, err := engine.RenderDAG(format, opts...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

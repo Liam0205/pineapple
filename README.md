@@ -635,14 +635,15 @@ config = flow.compile_dict()
 
 ### `GET /dag`
 
-返回编译后的 DAG 结构可视化。通过 `format` 查询参数选择输出格式：
+返回编译后的 DAG 结构可视化。通过查询参数选择输出格式和渲染模式：
 
 | 参数 | 值 | 说明 |
 |------|----|------|
 | `format` | `dot`（默认） | Graphviz DOT 格式，可通过 `dot -Tsvg` 渲染 |
 | `format` | `mermaid` | Mermaid flowchart 格式，可嵌入 Markdown |
+| `collapse` | `subflow` | 将同一 SubFlow 内的算子折叠为单个聚合节点 |
 
-节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名和类型。
+节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名。
 
 ```bash
 # 获取 DOT 格式
@@ -653,6 +654,9 @@ curl -s http://localhost:8080/dag | dot -Tsvg -o dag.svg
 
 # 获取 Mermaid 格式
 curl http://localhost:8080/dag?format=mermaid
+
+# SubFlow 折叠渲染
+curl http://localhost:8080/dag?format=dot&collapse=subflow
 ```
 
 ## 项目结构
