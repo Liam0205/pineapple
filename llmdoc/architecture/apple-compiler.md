@@ -163,6 +163,14 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 全局算子顺序：供后续命名、校验和 Go 侧 DAG 基础序列使用
 - 层级结构账本：供后续发射 `pipeline_group.main.pipeline` 与 `pipeline_map`
 
+递归遍历时，编译器还会把当前层级路径注入每个 `OpCall.subflow_path`：
+
+- 顶层算子的 `subflow_path` 保持为空字符串
+- 嵌套算子使用 `/` 连接的稳定路径，例如 `recall/candidates`
+- 该字段只作为编译期诊断上下文，不会写入最终 JSON `operators` 配置
+
+因此后续 validator 可以在不改变运行时契约的前提下，把声明错误精确归因到某个嵌套 `SubFlow`。
+
 编译器会对遍历做两类结构保护：
 
 - 复用/环检测：同一个 `SubFlow` 对象若被重复引用，视为 `SubFlow cycle or reuse detected`
@@ -328,6 +336,24 @@ Apple 仍输出单个名为 `main` 的 group，但 `pipeline_group.main.pipeline
 - 它们的输出也不计入全局"已写"集
 
 这使互斥的 if/elseif/else 分支可以写入相同字段。
+
+### 校验报错定位格式
+
+`apple/validator.py` 通过 `_op_location(name, op)` 统一构造逐算子校验错误前缀。所有 per-operator `ValidationError` 都应复用这一路径，而不是各自拼接字符串。
+
+稳定格式分三层：
+
+- 基础头部始终是 `operator 'name'`
+- 若 `OpCall.subflow_path` 非空，则在头部追加 ` [path/to/subflow]`
+- 若 `OpCall.code_info` 可用，则继续追加换行的 `defined at: file:line ...`
+
+因此同一类字段/参数错误，在不同嵌套层级下会呈现为：
+
+- 顶层算子：`operator 'transform_xxx': ...`
+- 子流程算子：`operator 'transform_xxx' [recall/candidates]: ...`
+- 若带源码位置，还会在消息中出现 `defined at: path/to/file.py:123 ...`
+
+该定位信息只服务于 Apple compile-time 诊断，不参与 JSON 发射，也不会影响 Go 侧配置加载契约。它的目标是让深层 `SubFlow` 中的字段覆盖、写后未读、`data_parallel` 和参数-元数据一致性错误，都能直接指向“哪条子流程路径、哪一行声明代码”触发了问题。
 
 ### 4. 死代码检测
 
