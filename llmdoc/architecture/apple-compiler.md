@@ -46,6 +46,7 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 - 返回 `self`，可链式调用
 - 保留与算子声明一致的插入顺序
 - 拒绝名称中含 `/` 的 `SubFlow`，因为 `/` 已成为 JSON `pipeline_map` 的层级路径分隔符
+- 不允许在未闭合的 `if_` / `elseif_` / `else_` 分支内调用；分支内应直接声明算子，或把控制流定义在 `SubFlow` 自身内部
 
 由于 `_FlowBase.__getattr__` 会把未知属性调用当作算子声明，误写成不存在的 `add_sub_flow(...)` 仍会被动态分发误解为声明了名为 `add_sub_flow` 的算子；稳定可用的方法名是 `add_subflow(...)`。
 
@@ -75,6 +76,7 @@ Apple 支持两种声明算子的方式。
 - 从 Go 算子 Schema 生成
 - 带类型的 `__call__` 签名，包含参数和元数据 kwargs
 - 最终调用 `BaseOp._apply()` 追加 `OpCall`
+- 与动态分发一致，在控制分支内声明时会继承当前 branch 的 `skip` 字段，并把对应控制字段加入 `common_input`
 
 这些是开发时的类型化编写便利，不是独立的执行路径。
 

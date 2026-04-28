@@ -128,6 +128,11 @@ class _FlowBase:
 
     def add_subflow(self, sf: SubFlow) -> _FlowBase:
         """Add a nested SubFlow, preserving declaration order with ops."""
+        if self._ctrl_stack:
+            raise ValueError(
+                "add_subflow() inside control-flow branches is not supported; "
+                "add operators directly or define control flow inside the SubFlow"
+            )
         if "/" in sf._name:
             raise ValueError(
                 f"SubFlow name must not contain '/': {sf._name!r}"

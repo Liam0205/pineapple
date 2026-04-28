@@ -504,8 +504,8 @@ HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Mid
 
 - `RenderDOT(g *Graph) string` — 完整算子级 Graphviz DOT
 - `RenderMermaid(g *Graph) string` — 完整算子级 Mermaid flowchart
-- `RenderCollapsedDOT(g *Graph) string` — 按 SubFlow 聚合后的 DOT
-- `RenderCollapsedMermaid(g *Graph) string` — 按 SubFlow 聚合后的 Mermaid
+- `RenderCollapsedDOT(g *Graph, level int) string` — 按 SubFlow 层级聚合后的 DOT
+- `RenderCollapsedMermaid(g *Graph, level int) string` — 按 SubFlow 层级聚合后的 Mermaid
 
 完整视图仍按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名。布局方向为自上而下（DOT `rankdir=TB`、Mermaid `graph TB`）。
 

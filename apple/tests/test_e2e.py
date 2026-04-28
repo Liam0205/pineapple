@@ -209,23 +209,30 @@ class TestE2E:
             order="desc",
         )
 
-        # Write to testdata
+        # Write to testdata for the Go integration test, then restore the
+        # checked-in fixture so pytest does not dirty the worktree.
         json_str = flow.compile()
         config_path = os.path.join(
             os.path.dirname(__file__), "..", "..", "testdata", "e2e_apple_dsl.json"
         )
-        with open(config_path, "w") as f:
-            f.write(json_str)
+        with open(config_path, "rb") as f:
+            original_config = f.read()
+        try:
+            with open(config_path, "w") as f:
+                f.write(json_str)
 
-        # Run the Go test
-        result = subprocess.run(
-            ["go", "test", "./integration/", "-run", "TestAppleDSLe2e", "-v", "-count=1"],
-            capture_output=True,
-            text=True,
-            cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
-            timeout=60,
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print(result.stderr)
-        assert result.returncode == 0, f"Go test failed:\n{result.stdout}\n{result.stderr}"
+            # Run the Go test
+            result = subprocess.run(
+                ["go", "test", "./integration/", "-run", "TestAppleDSLe2e", "-v", "-count=1"],
+                capture_output=True,
+                text=True,
+                cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
+                timeout=60,
+            )
+            print(result.stdout)
+            if result.returncode != 0:
+                print(result.stderr)
+            assert result.returncode == 0, f"Go test failed:\n{result.stdout}\n{result.stderr}"
+        finally:
+            with open(config_path, "wb") as f:
+                f.write(original_config)

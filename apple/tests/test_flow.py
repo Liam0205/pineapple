@@ -163,6 +163,23 @@ class TestSubFlow:
         with pytest.raises(ValueError, match="must not contain '/'"):
             flow.add_subflow(sf)
 
+    def test_add_subflow_inside_control_branch_rejected(self):
+        import pytest
+        sf = SubFlow(name="ranking")
+        sf.reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        )
+        flow = Flow(
+            name="test",
+            common_input=["enabled"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        flow.if_("{{enabled}}")
+        with pytest.raises(ValueError, match="add_subflow.*control-flow"):
+            flow.add_subflow(sf)
+
     def test_subflow_cycle_detected(self):
         import pytest
 
@@ -202,6 +219,36 @@ class TestSubFlow:
         pmap = cfg["pipeline_config"]["pipeline_map"]
         assert "a" in pmap
         assert "b" in pmap
+
+
+class TestTypedOperators:
+    def test_baseop_apply_inside_control_branch_gets_skip(self):
+        from apple.base import BaseOp
+
+        flow = Flow(
+            name="typed_control",
+            common_input=["enabled"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        op = BaseOp(flow)
+        op._name = "reorder_sort"
+
+        flow.if_("{{enabled}}")
+        op._apply(
+            params={"field": "item_score", "order": "desc"},
+            item_input=["item_score"],
+        )
+        flow.end_if_()
+
+        cfg = flow.compile_dict()
+        sort_op = next(
+            op
+            for op in cfg["pipeline_config"]["operators"].values()
+            if op["type_name"] == "reorder_sort"
+        )
+        assert sort_op["skip"] == "_if_1"
+        assert sort_op["$metadata"]["common_input"][0] == "_if_1"
 
 
 class TestJsonOutput:

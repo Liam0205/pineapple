@@ -95,6 +95,15 @@ class BaseOp:
             code_info=code_info,
             name=name,
         )
+
+        if self._flow._ctrl_stack:
+            block = self._flow._ctrl_stack[-1]
+            if block.branches:
+                branch = block.branches[-1]
+                call.skip = branch.ctrl_field
+                if branch.ctrl_field not in call.common_input:
+                    call.common_input = [branch.ctrl_field] + call.common_input
+
         idx = len(self._flow._ops)
         self._flow._ops.append(call)
         self._flow._child_order.append(("op", idx))
