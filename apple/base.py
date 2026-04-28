@@ -32,6 +32,7 @@ class OpCall:
     debug: bool = False
     # Debug info
     code_info: str = ""
+    subflow_path: str = ""
     # Explicit name (overrides auto-generated name)
     name: str = ""
 

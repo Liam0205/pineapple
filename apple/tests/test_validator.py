@@ -361,3 +361,79 @@ class TestParamMetadataConsistency:
                       resource_name="res", lookup_key="item_id",
                       output_field="feat")
         flow.compile()  # should not raise
+
+
+class TestErrorLocationInfo:
+    def test_error_includes_subflow_path(self):
+        """Nested SubFlow op error should include the SubFlow path."""
+        from apple.flow import SubFlow
+        inner = SubFlow(name="candidates")
+        inner._add_op("transform_by_lua",
+                       common_input=["missing_field"],
+                       common_output=["out"],
+                       lua_script="function f() return 1 end",
+                       function_for_common="f", function_for_item="")
+
+        outer = SubFlow(name="recall")
+        outer.add_subflow(inner)
+
+        flow = Flow(name="test", common_input=[], common_output=["out"])
+        flow.add_subflow(outer)
+
+        with pytest.raises(ValidationError, match=r"\[recall/candidates\]"):
+            flow.compile()
+
+    def test_error_includes_code_info(self):
+        """Error message should include source location when available."""
+        from apple.flow import SubFlow
+        sf = SubFlow(name="stage")
+        sf.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+        sf._add_op("transform_by_lua",
+                    common_input=["nonexistent"],
+                    item_input=["item_score"],
+                    item_output=["result"],
+                    lua_script="function f() return 1 end",
+                    function_for_item="f", function_for_common="")
+
+        flow = Flow(name="test", common_input=[], item_output=["item_id", "result"])
+        flow.add_subflow(sf)
+
+        with pytest.raises(ValidationError, match="defined at:"):
+            flow.compile()
+
+    def test_top_level_op_error_no_bracket(self):
+        """Top-level op error should not include SubFlow brackets."""
+        flow = Flow(name="bad", common_input=[])
+        flow._add_op("transform_by_lua", common_input=["missing"],
+                      common_output=["out"],
+                      lua_script="function f() return 1 end",
+                      function_for_common="f", function_for_item="")
+        try:
+            flow.compile()
+            assert False, "should have raised"
+        except ValidationError as e:
+            msg = str(e)
+            assert "operator " in msg
+            assert "[" not in msg.split(":")[0]
+
+    def test_write_without_read_includes_path(self):
+        """Write-without-read in nested SubFlow should show SubFlow path."""
+        from apple.flow import SubFlow
+        sf = SubFlow(name="process")
+        sf._add_op("transform_by_lua",
+                    common_input=["x"], common_output=["y"],
+                    lua_script="function f() return x end",
+                    function_for_common="f", function_for_item="")
+        sf._add_op("transform_by_lua",
+                    common_output=["y"],
+                    lua_script="function g() return 42 end",
+                    function_for_common="g", function_for_item="")
+
+        flow = Flow(name="test", common_input=["x"])
+        flow.add_subflow(sf)
+
+        with pytest.raises(ValidationError, match=r"\[process\]"):
+            flow.compile()

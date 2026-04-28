@@ -591,6 +591,7 @@ config = flow.compile_dict()
 - **数据并行约束** — `data_parallel > 1` 时必须是 Transform 算子且 `common_output` 为空
 - **参数-元数据一致性** — `transform_resource_lookup` 的 `lookup_key` 必须出现在 `item_input`，`output_field` 必须出现在 `item_output`，防止业务参数与元数据声明不匹配导致运行时静默错误
 - **控制算子可辨识命名** — 条件分支编译后的控制算子使用 `if_1`、`elseif_2`、`else_3` 等显式名称，在 DAG 可视化中可直观辨识
+- **报错定位** — 校验错误自动附带算子所在的 SubFlow 路径和源码位置（文件名、行号），帮助快速定位嵌套 SubFlow 中的问题算子
 
 ## API 参考
 

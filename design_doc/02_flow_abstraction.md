@@ -37,6 +37,21 @@ flow = Flow(
 
 此外，Pine 引擎在执行完毕后依据 `common_output` 和 `item_output` 对结果做投影——只返回声明的字段，过滤掉中间计算产生的临时字段。未声明输出（列表为空）则不返回任何字段。
 
+### 校验报错定位
+
+Apple 编译期校验（字段覆盖、写未读检测、死代码检测等）在报错时自动附带算子的 SubFlow 路径和源码位置，帮助用户快速定位嵌套 SubFlow 中的问题算子。
+
+报错格式示例：
+
+```text
+operator 'transform_by_lua_A1B2C3' [recall/candidates]:
+  common_input field 'user_age' not provided by flow contract or upstream output
+  defined at: pipeline.py:42 in build(): .transform_by_lua(...)
+```
+
+- 第一行：算子名 + SubFlow 路径（顶层算子不显示路径）
+- `defined at`：用户 Python 代码的文件名和行号（由 `$code_info` 提供）
+
 ### Flow 组合
 
 大型流程可拆分为多个子 Flow 独立编写，最终组合成一个完整的 Pipeline。SubFlow 支持任意深度嵌套，同一 SubFlow 内允许 ops 与子 SubFlow 自由穿插。这是一种语法糖，方便对不同阶段分别编写和复用。

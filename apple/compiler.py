@@ -224,6 +224,7 @@ def _traverse(
     for kind, idx in node._child_order:
         if kind == "op":
             op = node._ops[idx]
+            op.subflow_path = path
             global_idx = len(all_ops)
             all_ops.append(op)
             entries.append(("op", global_idx))
