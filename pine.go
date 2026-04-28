@@ -246,13 +246,14 @@ func (e *Engine) OperatorCustomStats() map[string]map[string]int64 {
 type RenderOption func(*renderOptions)
 
 type renderOptions struct {
-	collapse bool
+	collapseLevel int
 }
 
-// WithCollapse enables SubFlow-level collapse: all operators belonging to the
-// same SubFlow are aggregated into a single node in the rendered DAG.
-func WithCollapse(collapse bool) RenderOption {
-	return func(o *renderOptions) { o.collapse = collapse }
+// WithCollapse sets the SubFlow collapse level for DAG rendering.
+// Level 0 means no collapse (full expansion). Level 1 groups by top-level
+// SubFlow. Level 2 shows up to 2 levels of nesting, etc.
+func WithCollapse(level int) RenderOption {
+	return func(o *renderOptions) { o.collapseLevel = level }
 }
 
 // RenderDAG renders the compiled DAG in the specified format.
@@ -263,12 +264,12 @@ func (e *Engine) RenderDAG(format string, opts ...RenderOption) (string, error) 
 		o(&ro)
 	}
 
-	if ro.collapse {
+	if ro.collapseLevel > 0 {
 		switch format {
 		case "dot":
-			return dag.RenderCollapsedDOT(e.plan.Graph), nil
+			return dag.RenderCollapsedDOT(e.plan.Graph, ro.collapseLevel), nil
 		case "mermaid":
-			return dag.RenderCollapsedMermaid(e.plan.Graph), nil
+			return dag.RenderCollapsedMermaid(e.plan.Graph, ro.collapseLevel), nil
 		default:
 			return "", &ValidationError{Message: fmt.Sprintf("unsupported DAG format %q (use \"dot\" or \"mermaid\")", format)}
 		}

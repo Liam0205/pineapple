@@ -1,6 +1,6 @@
 {
   "_PINEAPPLE_VERSION": "0.5.7",
-  "_PINEAPPLE_CREATE_TIME": "2026-04-28T09:26:29Z",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-28T10:10:41Z",
   "pipeline_config": {
     "operators": {
       "recall_static_3D8972": {
@@ -50,7 +50,7 @@
         "function_for_item": "f",
         "function_for_common": ""
       },
-      "reorder_sort_92B316": {
+      "reorder_sort_62770C": {
         "type_name": "reorder_sort",
         "$metadata": {
           "common_input": [],
@@ -60,25 +60,19 @@
           ],
           "item_output": []
         },
-        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:66 in op_caller(): .reorder_sort(...)",
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:68 in op_caller(): .reorder_sort(...)",
         "field": "item_final_price",
         "order": "desc"
       }
     },
-    "pipeline_map": {
-      "_main_apple_e2e": {
-        "pipeline": [
-          "recall_static_3D8972",
-          "transform_by_lua_EF4907",
-          "reorder_sort_92B316"
-        ]
-      }
-    }
+    "pipeline_map": {}
   },
   "pipeline_group": {
     "main": {
       "pipeline": [
-        "_main_apple_e2e"
+        "recall_static_3D8972",
+        "transform_by_lua_EF4907",
+        "reorder_sort_62770C"
       ]
     }
   },

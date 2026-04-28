@@ -39,36 +39,72 @@ flow = Flow(
 
 ### Flow 组合
 
-大型流程可拆分为多个子 Flow 独立编写，最终组合成一个完整的 Pipeline。这是一种语法糖，方便对不同阶段分别编写和复用。
+大型流程可拆分为多个子 Flow 独立编写，最终组合成一个完整的 Pipeline。SubFlow 支持任意深度嵌套，同一 SubFlow 内允许 ops 与子 SubFlow 自由穿插。这是一种语法糖，方便对不同阶段分别编写和复用。
 
 ```python
 # 各阶段独立编写
-parse_sample = (
-    SubFlow(name="parse_sample")
-    .op_a(...)
-    .op_b(...)
+candidates = (
+    SubFlow(name="candidates")
+    .recall_static(item_output=["item_id", "item_score"], items=[...])
+    .recall_rt(item_output=["item_id", "item_score"], items=[...])
 )
 
-extract_features = (
-    SubFlow(name="extract_features")
-    .op_c(...)
-    .op_d(...)
+recall = SubFlow(name="recall")
+recall.add_subflow(candidates)   # 嵌套子 SubFlow
+recall.merge_all(                 # 与子 SubFlow 穿插的算子
+    item_input=["item_id"],
+    item_output=["item_id"],
+)
+
+process = (
+    SubFlow(name="process")
+    .transform_norm(item_input=["item_score"], item_output=["norm_score"])
+    .filter_threshold(item_input=["norm_score"], threshold=0.5)
 )
 
 # 统合为完整 Pipeline
 pipeline = Flow(
     name="recommend_pipeline",
     common_input=["user_id", "query"],
-    item_output=["item_id", "item_score"],
-    sub_flows=[parse_sample, extract_features],
+    item_output=["item_id", "norm_score"],
+    sub_flows=[recall, process],
 )
 ```
+
+也可以用 `add_subflow()` 链式调用，在 Flow 上混合直接算子和 SubFlow：
+
+```python
+flow = Flow(name="mixed", item_output=["item_id", "item_score"])
+flow.recall_static(item_output=["item_id", "item_score"], items=[...])
+flow.add_subflow(process_stage)
+```
+
+**编译为 JSON：**
+
+SubFlow 嵌套编译为层级路径的 `pipeline_map`。路径用 `/` 分隔，如 `recall/candidates`：
+
+```json
+{
+  "pipeline_map": {
+    "recall/candidates": {"pipeline": ["recall_static_A1B2", "recall_rt_C3D4"]},
+    "recall": {"pipeline": ["recall/candidates", "merge_all_E5F6"]},
+    "process": {"pipeline": ["transform_norm_G7H8", "filter_threshold_I9J0"]}
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["recall", "process"]}
+  }
+}
+```
+
+`pipeline_group.main.pipeline` 直接包含顶层 SubFlow 引用和算子名（不再有 `_main_<flow>` 合成包装）。Go 引擎递归展开 `pipeline_map`：条目在 `operators` 中为叶子算子，在 `pipeline_map` 中为子 SubFlow，递归展开。
 
 **关键语义：**
 
 - **DAG 跨 flow 推导**: 组合后，所有子 flow 的算子被打平到同一个 DAG 中。子 flow 的边界在 DAG 构建时是透明的。例如 `parse_sample` 输出 `foo`，`extract_features` 输入 `foo`，引擎自动推导出依赖关系。
 - **子 flow 可复用**: 同一个子 flow 片段可被多个 pipeline 引用（如 batch 和 stream pipeline 共享 `parse_sample`）。
 - **输入输出契约在顶层 Flow 上**: 子 flow 不声明输入输出契约，契约只在最终组合的 Flow 上定义。
+- **嵌套深度不限**: SubFlow 可任意层级嵌套，编译时递归遍历并检测引用环。
+- **声明顺序保持**: ops 和子 SubFlow 的穿插顺序在编译后保持不变。
 
 ## 算子 (Operator)
 

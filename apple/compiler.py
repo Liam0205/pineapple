@@ -1,12 +1,11 @@
 """Compile a Flow into the Pine JSON config format.
 
 Steps:
-1. Flatten sub_flows into single operator sequence
-2. Lower control flow (if_/elseif_/else_/end_if_) to Lua operators + skip fields
-3. Auto-generate unique operator names: {type_name}_{hash6}
-4. Validate field coverage and write-without-read
-5. Dead-code detection (if output contract declared)
-6. Emit JSON with pipeline_config, pipeline_group, flow_contract
+1. Recursively traverse Flow/SubFlow tree, collecting all ops in global order
+2. Auto-generate unique operator names: {type_name}_{hash6}
+3. Validate field coverage and write-without-read
+4. Dead-code detection (if output contract declared)
+5. Emit JSON with pipeline_config, pipeline_group, flow_contract
 """
 from __future__ import annotations
 
@@ -29,41 +28,21 @@ from apple.validator import (
 
 def compile_flow(flow: Any) -> dict[str, Any]:
     """Compile a Flow object into a Pine JSON config dict."""
-    # 1. Flatten ops from flow + sub_flows
+    # 1. Check unclosed control blocks (recursive)
+    _check_unclosed_control(flow, flow._name)
+
+    # 2. Recursive structure traversal
     all_ops: list[OpCall] = []
-    sub_flow_boundaries: dict[str, list[int]] = {}  # name -> [start, end)
+    structures: dict[str, list[tuple[str, Any]]] = {}
+    visited: set[int] = set()
+    _traverse(flow, "", all_ops, structures, visited)
 
-    if flow._sub_flows:
-        for sf in flow._sub_flows:
-            start = len(all_ops)
-            all_ops.extend(sf._ops)
-            sub_flow_boundaries[sf._name] = [start, len(all_ops)]
-    if flow._ops:
-        start = len(all_ops)
-        all_ops.extend(flow._ops)
-        sub_flow_boundaries[f"_main_{flow._name}"] = [start, len(all_ops)]
-
-    # 1b. Check for unclosed control blocks
-    if flow._ctrl_stack:
-        raise ValidationError(
-            f"unclosed if_ block in flow {flow._name!r}: "
-            f"missing end_if_() for {len(flow._ctrl_stack)} block(s)"
-        )
-    if flow._sub_flows:
-        for sf in flow._sub_flows:
-            if sf._ctrl_stack:
-                raise ValidationError(
-                    f"unclosed if_ block in sub_flow {sf._name!r}: "
-                    f"missing end_if_() for {len(sf._ctrl_stack)} block(s)"
-                )
-
-    # 2. Generate unique names
+    # 3. Generate unique names
     named_ops: list[tuple[str, OpCall]] = []
     name_counts: dict[str, int] = {}
     for op in all_ops:
         name = op.unique_name()
         if op.name:
-            # Explicit name — must be unique
             if name in name_counts:
                 raise ValidationError(
                     f"duplicate explicit operator name: {name!r}"
@@ -75,7 +54,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             name_counts[name] = 0
         named_ops.append((name, op))
 
-    # 3. Validate
+    # 4. Validate
     validate_no_underscore_output(
         named_ops,
         flow._common_output,
@@ -103,7 +82,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             f"dead operators detected (output not consumed): {dead}"
         )
 
-    # 4. Build operators dict
+    # 5. Build operators dict
     operators: dict[str, Any] = {}
     for name, op in named_ops:
         entry: dict[str, Any] = {
@@ -120,10 +99,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         if op.recall:
             entry["recall"] = True
         if op.sources:
-            entry["sources"] = [
-                _resolve_source(op.sources, named_ops, s)
-                for s in op.sources
-            ]
+            entry["sources"] = list(op.sources)
         if op.skip:
             entry["skip"] = op.skip
         if op.for_branch_control:
@@ -138,26 +114,28 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             entry["debug"] = True
         if op.data_parallel > 1:
             entry["data_parallel"] = op.data_parallel
-        # Business params
         for k, v in op.params.items():
             entry[k] = v
         operators[name] = entry
 
-    # 5. Build pipeline_map
+    # 6. Build pipeline_map (SubFlow paths only)
     pipeline_map: dict[str, Any] = {}
-    for sf_name, (start, end) in sub_flow_boundaries.items():
-        pipeline_map[sf_name] = {
-            "pipeline": [named_ops[i][0] for i in range(start, end)]
+    for path, entries in structures.items():
+        if path == "":
+            continue
+        pipeline_map[path] = {
+            "pipeline": [_resolve_entry(e, named_ops) for e in entries]
         }
 
-    # 6. Build pipeline_group
+    # 7. Build pipeline_group (top-level entries)
+    top_entries = structures.get("", [])
     pipeline_group = {
         "main": {
-            "pipeline": list(pipeline_map.keys())
+            "pipeline": [_resolve_entry(e, named_ops) for e in top_entries]
         }
     }
 
-    # 7. Build flow_contract
+    # 8. Build flow_contract
     flow_contract: dict[str, Any] = {
         "common_input": flow._common_input or [],
         "item_input": flow._item_input or [],
@@ -171,13 +149,13 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     else:
         flow_contract["item_output"] = []
 
-    # 8. Validate resource references
+    # 9. Validate resource references
     declared_resources: set[str] = set()
     if hasattr(flow, '_resources'):
         declared_resources = {r.name for r in flow._resources}
     _validate_resource_refs(named_ops, declared_resources)
 
-    # 9. Build result
+    # 10. Build result
     result: dict[str, Any] = {
         "_PINEAPPLE_VERSION": __version__,
         "_PINEAPPLE_CREATE_TIME": datetime.now(timezone.utc).strftime(
@@ -191,19 +169,12 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         "flow_contract": flow_contract,
     }
 
-    # 9a. Add storage_mode if specified
     if hasattr(flow, '_storage_mode') and flow._storage_mode:
         result["storage_mode"] = flow._storage_mode
-
-    # 9b. Add log_prefix if specified
     if hasattr(flow, '_log_prefix') and flow._log_prefix:
         result["log_prefix"] = flow._log_prefix
-
-    # 9c. Add debug if specified
     if hasattr(flow, '_debug') and flow._debug:
         result["debug"] = True
-
-    # 10. Add resource_config if resources declared
     if hasattr(flow, '_resources') and flow._resources:
         result["resource_config"] = {
             r.name: {
@@ -215,6 +186,69 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         }
 
     return result
+
+
+def _check_unclosed_control(node: Any, display_name: str, visited: set[int] | None = None) -> None:
+    """Recursively check for unclosed control blocks in all nodes."""
+    if visited is None:
+        visited = set()
+    obj_id = id(node)
+    if obj_id in visited:
+        return
+    visited.add(obj_id)
+    if node._ctrl_stack:
+        raise ValidationError(
+            f"unclosed if_ block in {display_name!r}: "
+            f"missing end_if_() for {len(node._ctrl_stack)} block(s)"
+        )
+    for sf in node._sub_flows:
+        _check_unclosed_control(sf, sf._name, visited)
+
+
+def _traverse(
+    node: Any,
+    path: str,
+    all_ops: list[OpCall],
+    structures: dict[str, list[tuple[str, Any]]],
+    visited: set[int],
+) -> None:
+    """Recursively traverse _child_order, collecting ops and structure."""
+    obj_id = id(node)
+    if obj_id in visited:
+        raise ValidationError(
+            f"SubFlow cycle or reuse detected: {node._name!r}"
+        )
+    visited.add(obj_id)
+
+    entries: list[tuple[str, Any]] = []
+    for kind, idx in node._child_order:
+        if kind == "op":
+            op = node._ops[idx]
+            global_idx = len(all_ops)
+            all_ops.append(op)
+            entries.append(("op", global_idx))
+        else:
+            sf = node._sub_flows[idx]
+            sf_path = f"{path}/{sf._name}" if path else sf._name
+            if sf_path in structures:
+                raise ValidationError(
+                    f"duplicate SubFlow path: {sf_path!r}"
+                )
+            entries.append(("sf", sf_path))
+            _traverse(sf, sf_path, all_ops, structures, visited)
+
+    structures[path] = entries
+
+
+def _resolve_entry(
+    entry: tuple[str, Any],
+    named_ops: list[tuple[str, OpCall]],
+) -> str:
+    """Resolve a structure entry to its final pipeline string."""
+    kind, val = entry
+    if kind == "op":
+        return named_ops[val][0]
+    return val
 
 
 def _validate_resource_refs(
@@ -235,16 +269,3 @@ def _validate_resource_refs(
 def compile_to_json(flow: Any, indent: int = 2) -> str:
     """Compile a Flow and return the JSON string."""
     return json.dumps(compile_flow(flow), indent=indent, ensure_ascii=False)
-
-
-def _resolve_source(
-    source_refs: list[str],
-    named_ops: list[tuple[str, OpCall]],
-    source_type_hint: str,
-) -> str:
-    """Pass through the source operator name.
-
-    Source refs are already final operator names provided by the user
-    via the sources=[...] metadata kwarg in the DSL. No resolution needed.
-    """
-    return source_type_hint

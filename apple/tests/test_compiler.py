@@ -297,7 +297,10 @@ class TestPipelineMap:
         cfg = compile_flow(flow)
         group_pipelines = cfg["pipeline_group"]["main"]["pipeline"]
         pmap_keys = list(cfg["pipeline_config"]["pipeline_map"].keys())
-        assert group_pipelines == pmap_keys
+        # No subflows → pipeline_map is empty, group lists operators directly
+        assert pmap_keys == []
+        assert len(group_pipelines) == 1
+        assert group_pipelines[0].startswith("transform_by_lua_")
 
 
 class TestDefaultsAndDebug:

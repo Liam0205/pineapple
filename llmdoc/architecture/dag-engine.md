@@ -65,9 +65,10 @@
 
 2. **展开算子序列**（`internal/config.ExpandOperatorSequenceWithSubFlows`）
    - 解析 `pipeline_group["main"]`。
-   - 按 `pipeline_map` 顺序展开。
-   - 生成用于校验和 DAG 构建的扁平算子序列。
-   - 同时生成 `opToSubFlow` 映射，记录每个算子属于哪个声明的 SubFlow。
+   - 将 `pipeline_group.main.pipeline` 视为递归入口：条目既可以是叶子算子名，也可以是 `pipeline_map` 中的 SubFlow 路径。
+   - 递归展开 `pipeline_map`，生成用于校验和 DAG 构建的扁平算子序列。
+   - 同时生成 `opToSubFlow` 映射，记录每个算子的直接父 SubFlow 路径；顶层算子映射为空字符串。
+   - 对 SubFlow 引用做环检测；循环引用会在加载期报错。
 
 3. **构建算子实例**（`internal/registry.BuildOperator`）
    - 查找已注册的 Schema。
@@ -109,7 +110,7 @@
 
 图按 DSL 声明顺序存储算子。每个节点追踪前驱和后继索引。名称→索引查找支持显式 source 引用和 merge 边构建。
 
-每个 `Node` 还带有 `SubFlow` 字段，用来记录该算子来自哪个声明的 SubFlow。这个字段不参与调度、冒险分析或拓扑约束；它只作为稳定的可视化分组元数据，供 collapsed DAG 渲染使用。
+每个 `Node` 还带有 `SubFlow` 字段，用来记录该算子直接归属的 SubFlow 层级路径，例如 `recall/candidates`。顶层算子记为空字符串。这个字段不参与调度、冒险分析或拓扑约束；它只作为稳定的可视化分组元数据，供 collapsed DAG 渲染使用。
 
 声明顺序很重要，因为冒险追踪器按序列遍历算子并从该顺序推导因果关系。
 
@@ -510,28 +511,31 @@ HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Mid
 
 ### SubFlow 折叠视图
 
-collapsed 渲染把所有 `Node.SubFlow` 相同且非空的节点聚合为一个汇总节点：
+collapsed 渲染按 `Node.SubFlow` 的层级路径做前缀分组，而不是简单地“同名 SubFlow 全并到一组”。
 
-- 聚合节点名称使用 SubFlow 名称
-- `SubFlow == ""` 的节点保持独立，不会被强制并入其他组
-- 同一 SubFlow 内部的边不会出现在折叠视图中
+- `pine.WithCollapse(level)` 中 `level=0` 表示不折叠
+- `level=1` 表示按路径前 1 段分组，如 `recall/candidates` 与 `recall/rerank` 都折叠到 `recall`
+- `level=2` 表示按前 2 段分组
+- 若某节点的路径段数小于等于 `level`，则保留其完整路径作为组名
+- `SubFlow == ""` 的顶层算子始终保持独立，不会被并入伪组
+- 同一组内部的边不会出现在折叠视图中
 - 只保留跨组边，并对重复的跨组边做去重
 
-因此 collapsed 视图表达的是 SubFlow 之间的依赖骨架，而不是组内的算子执行细节。
+因此 collapsed 视图表达的是“按层级前缀聚合后的依赖骨架”，支持从全展开到逐层折叠的连续视角，而不是单一的二值 SubFlow 视图。
 
 ### API 与 HTTP 暴露面
 
 公共 API 通过 `Engine.RenderDAG(format string, opts ...RenderOption) (string, error)` 暴露：
 
 - format 支持 `"dot"` 和 `"mermaid"`
-- `pine.WithCollapse(true)` 切换到 SubFlow 折叠渲染
-- 不传 `RenderOption` 时保持旧的完整算子级视图
+- `pine.WithCollapse(level)` 选择折叠层级；`0` 表示完整算子级视图，`1/2/...` 表示按路径前 N 段折叠
+- 不传 `RenderOption` 时保持完整算子级视图
 
 HTTP 端点为 `GET /dag`：
 
 - `format=dot|mermaid` 选择输出格式，默认 `dot`
-- `collapse=subflow` 启用按 SubFlow 折叠的视图
-- 未指定 `collapse` 时返回完整算子级 DAG
+- `collapse=N` 启用层级折叠，其中 `N` 必须是非负整数
+- `collapse=0` 或未指定 `collapse` 时返回完整算子级 DAG
 
 由于 `Build()` 阶段已对执行图执行传递性归约，完整视图和 collapsed 视图都基于同一份最小边集。collapsed 渲染只是在这个最小边集上做分组、过滤组内边并去重跨组边，不重新推导执行依赖。
 

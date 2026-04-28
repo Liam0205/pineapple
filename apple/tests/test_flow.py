@@ -92,6 +92,106 @@ class TestSubFlow:
         assert "recall_stage" in pmap
         assert "rank_stage" in pmap
 
+    def test_nested_subflow(self):
+        inner = SubFlow(name="candidates")
+        inner.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+
+        outer = SubFlow(name="recall")
+        outer.add_subflow(inner)
+        outer.filter_condition(
+            item_input=["item_score"],
+            item_output=["item_score"],
+            field="item_score", value=0,
+        )
+
+        flow = Flow(
+            name="nested",
+            item_output=["item_id", "item_score"],
+            sub_flows=[outer],
+        )
+        cfg = flow.compile_dict()
+        pmap = cfg["pipeline_config"]["pipeline_map"]
+        assert "recall" in pmap
+        assert "recall/candidates" in pmap
+
+        # pipeline_group should reference "recall" directly
+        group = cfg["pipeline_group"]["main"]["pipeline"]
+        assert "recall" in group
+
+        # recall pipeline contains candidates subflow ref + filter op
+        recall_entries = pmap["recall"]["pipeline"]
+        assert "recall/candidates" in recall_entries
+        assert len(recall_entries) == 2
+
+    def test_mixed_ops_and_subflows(self):
+        sub = SubFlow(name="inner")
+        sub.reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        )
+
+        flow = Flow(name="mix", item_output=["item_id", "item_score"])
+        flow.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+        flow.add_subflow(sub)
+
+        cfg = flow.compile_dict()
+        group = cfg["pipeline_group"]["main"]["pipeline"]
+        # First entry should be the direct op, second the subflow ref
+        assert len(group) == 2
+        assert group[1] == "inner"
+
+    def test_add_subflow_slash_rejected(self):
+        import pytest
+        sf = SubFlow(name="a/b")
+        flow = Flow(name="test")
+        with pytest.raises(ValueError, match="must not contain '/'"):
+            flow.add_subflow(sf)
+
+    def test_subflow_cycle_detected(self):
+        import pytest
+        from apple.validator import ValidationError
+        sf = SubFlow(name="self_ref")
+        sf._sub_flows.append(sf)
+        sf._child_order.append(("sf", 0))
+
+        flow = Flow(
+            name="cycle_test",
+            item_output=["item_score"],
+        )
+        flow.add_subflow(sf)
+        flow.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+        with pytest.raises(ValidationError, match="cycle or reuse"):
+            flow.compile_dict()
+
+    def test_add_subflow_chaining(self):
+        sub1 = SubFlow(name="a")
+        sub1.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+        sub2 = SubFlow(name="b")
+        sub2.reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        )
+
+        flow = Flow(name="chain", item_output=["item_id", "item_score"])
+        flow.add_subflow(sub1).add_subflow(sub2)
+
+        cfg = flow.compile_dict()
+        pmap = cfg["pipeline_config"]["pipeline_map"]
+        assert "a" in pmap
+        assert "b" in pmap
+
 
 class TestJsonOutput:
     def test_json_roundtrip(self):

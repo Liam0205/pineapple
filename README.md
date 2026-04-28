@@ -495,27 +495,42 @@ flow.if_("{{is_new_user}}") \
 .end_if_()
 ```
 
-### SubFlow 复用
+### SubFlow 组合与嵌套
+
+SubFlow 支持任意深度嵌套，同一 SubFlow 内允许 ops 与子 SubFlow 自由穿插：
 
 ```python
 from apple.flow import Flow, SubFlow
 
-normalize_sub = SubFlow(name="normalize")
-normalize_sub.transform_normalize(
-    item_input=["raw_score"],
-    item_output=["norm_score"],
-    field="raw_score",
-)
+# 嵌套 SubFlow
+candidates = SubFlow(name="candidates")
+candidates.recall_static(item_output=["item_id", "item_score"], items=[...])
+candidates.recall_rt(item_output=["item_id", "item_score"], items=[...])
+
+recall = SubFlow(name="recall")
+recall.add_subflow(candidates)  # 嵌套子 SubFlow
+recall.merge_all(item_input=["item_id"], item_output=["item_id"])
+
+process = SubFlow(name="process")
+process.transform_normalize(item_input=["item_score"], item_output=["norm_score"], field="item_score")
 
 flow = Flow(
     name="main",
     common_input=["user_id"],
     item_output=["item_id", "norm_score"],
-    sub_flows=[normalize_sub],
+    sub_flows=[recall, process],
 )
-flow.recall_static(...)
-# normalize_sub 的算子会被展开到 flow 中
 ```
+
+也可以在 Flow 上直接混合算子和 SubFlow：
+
+```python
+flow = Flow(name="mixed", item_output=["item_id", "item_score"])
+flow.recall_static(item_output=["item_id", "item_score"], items=[...])
+flow.add_subflow(process_stage)  # 链式添加
+```
+
+编译后，SubFlow 路径用 `/` 分隔表示层级关系（如 `recall/candidates`）。Go 引擎递归展开。
 
 ### 资源声明
 
@@ -641,7 +656,7 @@ config = flow.compile_dict()
 |------|----|------|
 | `format` | `dot`（默认） | Graphviz DOT 格式，可通过 `dot -Tsvg` 渲染 |
 | `format` | `mermaid` | Mermaid flowchart 格式，可嵌入 Markdown |
-| `collapse` | `subflow` | 将同一 SubFlow 内的算子折叠为单个聚合节点 |
+| `collapse` | `0`（默认）/ `1` / `2` / ... | 按 SubFlow 层级折叠。0=全展开，1=按顶层 SubFlow，2=按两层嵌套 |
 
 节点按算子类型着色（Recall 绿、Transform 蓝、Filter 橙、Merge 紫、Reorder 黄、Observe 灰），标签包含算子名。
 
@@ -655,8 +670,9 @@ curl -s http://localhost:8080/dag | dot -Tsvg -o dag.svg
 # 获取 Mermaid 格式
 curl http://localhost:8080/dag?format=mermaid
 
-# SubFlow 折叠渲染
-curl http://localhost:8080/dag?format=dot&collapse=subflow
+# SubFlow 层级折叠渲染
+curl http://localhost:8080/dag?format=dot&collapse=1
+curl http://localhost:8080/dag?format=mermaid&collapse=2
 ```
 
 ## 项目结构

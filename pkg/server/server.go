@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -351,8 +352,15 @@ func handleDAG(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var opts []pine.RenderOption
-	if r.URL.Query().Get("collapse") == "subflow" {
-		opts = append(opts, pine.WithCollapse(true))
+	if collapseStr := r.URL.Query().Get("collapse"); collapseStr != "" {
+		level, err := strconv.Atoi(collapseStr)
+		if err != nil || level < 0 {
+			http.Error(w, "collapse must be a non-negative integer", http.StatusBadRequest)
+			return
+		}
+		if level > 0 {
+			opts = append(opts, pine.WithCollapse(level))
+		}
 	}
 
 	output, err := engine.RenderDAG(format, opts...)

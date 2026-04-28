@@ -33,11 +33,21 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 `apple/flow.py` 定义两个主要的面向用户的构建器：
 
 - `Flow` — 带输入/输出契约、资源和可选 `storage_mode` / `log_prefix` / `debug` 的顶层声明
-- `SubFlow` — 无独立契约的可复用算子片段
+- `SubFlow` — 无独立契约的可复用算子片段，可任意层级嵌套
 
-两者继承 `_FlowBase`，持有算子列表和控制流记账。
+两者继承 `_FlowBase`。`_FlowBase` 现在同时维护：
 
-`SubFlow` 通过 `Flow(sub_flows=[...])` 在构造 `Flow` 时传入，不存在独立的 `add_sub_flow()` 方法。由于 `_FlowBase.__getattr__` 会把未知属性调用当作算子声明，误写成 `flow.add_sub_flow(...)` 会被动态分发误解为声明了名为 `add_sub_flow` 的算子，而不是追加子流程。
+- `_ops` — 当前节点直挂的算子
+- `_sub_flows` — 当前节点直挂的子 `SubFlow`
+- `_child_order` — `("op", idx)` / `("sf", idx)` 的声明顺序账本，用于保留“算子与子流程穿插出现”的原始结构
+
+这意味着 `SubFlow` 不再只是顶层 `Flow` 的平面附件；它本身也可以继续容纳嵌套 `SubFlow`，编译器后续按树结构递归处理。`Flow(sub_flows=[...])` 仍可用于初始化顶层子流程，但稳定 API 现在还包括 `_FlowBase.add_subflow(sf)`：
+
+- 返回 `self`，可链式调用
+- 保留与算子声明一致的插入顺序
+- 拒绝名称中含 `/` 的 `SubFlow`，因为 `/` 已成为 JSON `pipeline_map` 的层级路径分隔符
+
+由于 `_FlowBase.__getattr__` 会把未知属性调用当作算子声明，误写成不存在的 `add_sub_flow(...)` 仍会被动态分发误解为声明了名为 `add_sub_flow` 的算子；稳定可用的方法名是 `add_subflow(...)`。
 
 ### 两条分发路径
 
@@ -138,13 +148,27 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 因此，像 `{{experiment_group_value}} == "treatment"` 这样的条件会只提取 `experiment_group_value`，不再把字符串常量 `"treatment"` 误识别为字段名。
 ## 编译流水线
 
-`apple/compiler.py` 执行固定序列。流水线很重要，因为后续步骤假设前面的步骤已稳定了排序和命名。
+`apple/compiler.py` 执行固定序列。新版流水线不再先做“单层展平后再回填结构”，而是围绕 Flow/SubFlow 树执行递归三阶段：先遍历结构，再统一命名，再组装 JSON。后续校验仍依赖由这套流程产出的全局声明顺序。
 
-### 步骤 1：展平子流程
+### 步骤 1：递归遍历结构树
 
-所有声明的 `SubFlow` 算子列表先拼接，然后是主流程自身的算子。
+编译器从顶层 `Flow` 出发，递归遍历每个节点的 `_child_order`：
 
-编译器还记录每个子流程的 `[start, end)` 切片，以便后续重建 `pipeline_map` 条目。
+- 遇到 `("op", idx)` 时，把对应 `OpCall` 追加到全局 `all_ops`
+- 遇到 `("sf", idx)` 时，生成层级路径 `parent/child`，继续递归遍历该 `SubFlow`
+- 同时为每个 Flow/SubFlow 节点记录 `structures[path] = [("op", global_idx) | ("sf", subflow_path)]`
+
+这一步同时确定两类稳定结果：
+
+- 全局算子顺序：供后续命名、校验和 Go 侧 DAG 基础序列使用
+- 层级结构账本：供后续发射 `pipeline_group.main.pipeline` 与 `pipeline_map`
+
+编译器会对遍历做两类结构保护：
+
+- 复用/环检测：同一个 `SubFlow` 对象若被重复引用，视为 `SubFlow cycle or reuse detected`
+- 路径唯一性：若生成的层级路径重复，则报 `duplicate SubFlow path`
+
+因此稳定模型是“SubFlow 树”，而不是“可共享 DAG 片段”。
 
 ### 步骤 1b：校验控制块闭合
 
@@ -206,11 +230,23 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 ### 步骤 5：构建 `pipeline_map`
 
-每个子流程成为一个命名 pipeline，包含分配给该片段的算子名。主流程自身的直接算子归入内部 `_main_*` pipeline 条目。
+每个非顶层 `SubFlow` 路径成为一个命名 pipeline，key 使用 `/` 连接层级，例如 `recall/candidates`。
+
+每个 `pipeline` 列表中的条目保持声明顺序，可混合两类引用：
+
+- 叶子算子名（引用 `operators` 中的条目）
+- 子 `SubFlow` 路径（引用 `pipeline_map` 中的下一层 pipeline）
+
+因此 `pipeline_map` 现在表达的是可递归展开的树，而不是仅容纳一层叶子算子的平面分组表。
 
 ### 步骤 6：构建 `pipeline_group`
 
-Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipeline-map 条目的展平顺序。
+Apple 仍输出单个名为 `main` 的 group，但 `pipeline_group.main.pipeline` 现在直接保留顶层声明序列：
+
+- 顶层叶子算子直接写入算子名
+- 顶层子 `SubFlow` 写入其路径引用
+
+编译器不再生成 `_main_<flow>` 这类合成 SubFlow 来包装顶层算子。顶层结构直接体现在 `pipeline_group.main.pipeline` 中。
 
 ### 步骤 7：构建 `flow_contract`
 
@@ -428,8 +464,9 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 ## 需要保持的重要不变量
 
 1. **Apple 输出 JSON，而非可执行运行时对象。** 保持基于文件/Schema 的边界。
-2. **校验使用展平声明顺序。** 该顺序必须与运行时排序假设保持对齐。
-3. **控制条件中的字段引用必须显式模板化。** `apple/control.py` 只会为 `{{field_name}}` 形式生成 `common_input` 依赖；Lua 发射前再移除模板标记。4. **下划线前缀字段保留。** 用户输出不应与编译器/运行时内部冲突。
+2. **校验使用递归遍历产出的全局声明顺序。** 该顺序必须与运行时递归展开后的顺序保持对齐。
+3. **控制条件中的字段引用必须显式模板化。** `apple/control.py` 只会为 `{{field_name}}` 形式生成 `common_input` 依赖；Lua 发射前再移除模板标记。
+4. **下划线前缀字段保留。** 用户输出不应与编译器/运行时内部冲突。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。

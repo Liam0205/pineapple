@@ -190,7 +190,7 @@ class TestControlFlowValidation:
 
         flow = Flow(name="main", common_input=["x"], common_output=["y"],
                      sub_flows=[sf])
-        with pytest.raises(ValidationError, match="unclosed if_ block in sub_flow"):
+        with pytest.raises(ValidationError, match="unclosed if_ block in 'bad_sub'"):
             flow.compile()
 
     def test_empty_if_branch_raises(self):

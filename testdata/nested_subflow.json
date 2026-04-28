@@ -1,0 +1,76 @@
+{
+  "_PINEAPPLE_VERSION": "0.6.0",
+  "pipeline_config": {
+    "operators": {
+      "recall_a": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["id", "score"]
+        },
+        "recall": true
+      },
+      "recall_b": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["id", "tag"]
+        },
+        "recall": true
+      },
+      "merge_c": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["id"],
+          "item_output": ["id"]
+        }
+      },
+      "transform_d": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["score"],
+          "item_output": ["score_norm"]
+        }
+      },
+      "filter_e": {
+        "type_name": "noop",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["score_norm"],
+          "item_output": []
+        }
+      }
+    },
+    "pipeline_map": {
+      "recall/candidates": {
+        "pipeline": ["recall_a", "recall_b"]
+      },
+      "recall": {
+        "pipeline": ["recall/candidates", "merge_c"]
+      },
+      "process": {
+        "pipeline": ["transform_d", "filter_e"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["recall", "process"]
+    }
+  },
+  "flow_contract": {
+    "common_input": [],
+    "item_input": [],
+    "common_output": [],
+    "item_output": ["score_norm"]
+  }
+}

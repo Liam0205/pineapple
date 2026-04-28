@@ -53,6 +53,8 @@ class _FlowBase:
     def __init__(self, name: str):
         self._name = name
         self._ops: list[OpCall] = []
+        self._sub_flows: list[SubFlow] = []
+        self._child_order: list[tuple[str, int]] = []  # ("op", idx) or ("sf", idx)
         # Control flow state
         self._ctrl_counter = 0
         self._ctrl_stack: list[ControlBlock] = []
@@ -119,7 +121,20 @@ class _FlowBase:
                 if branch.ctrl_field not in call.common_input:
                     call.common_input = [branch.ctrl_field] + call.common_input
 
+        idx = len(self._ops)
         self._ops.append(call)
+        self._child_order.append(("op", idx))
+        return self
+
+    def add_subflow(self, sf: SubFlow) -> _FlowBase:
+        """Add a nested SubFlow, preserving declaration order with ops."""
+        if "/" in sf._name:
+            raise ValueError(
+                f"SubFlow name must not contain '/': {sf._name!r}"
+            )
+        idx = len(self._sub_flows)
+        self._sub_flows.append(sf)
+        self._child_order.append(("sf", idx))
         return self
 
     # --- Control flow ---
@@ -141,7 +156,9 @@ class _FlowBase:
 
         # Emit the control operator
         ctrl_op = make_control_op(branch, [], condition)
+        idx = len(self._ops)
         self._ops.append(ctrl_op)
+        self._child_order.append(("op", idx))
         return self
 
     def elseif_(self, condition: str) -> _FlowBase:
@@ -165,7 +182,9 @@ class _FlowBase:
         block.branches.append(branch)
 
         ctrl_op = make_control_op(branch, prior_fields, condition)
+        idx = len(self._ops)
         self._ops.append(ctrl_op)
+        self._child_order.append(("op", idx))
         return self
 
     def else_(self) -> _FlowBase:
@@ -189,7 +208,9 @@ class _FlowBase:
         block.branches.append(branch)
 
         ctrl_op = make_control_op(branch, prior_fields, None)
+        idx = len(self._ops)
         self._ops.append(ctrl_op)
+        self._child_order.append(("op", idx))
         return self
 
     def end_if_(self) -> _FlowBase:
@@ -237,7 +258,8 @@ class Flow(_FlowBase):
         self._item_input = item_input or []
         self._common_output = common_output
         self._item_output = item_output
-        self._sub_flows = sub_flows or []
+        for sf in (sub_flows or []):
+            self.add_subflow(sf)
         self._resources: list[ResourceDecl] = []
         self._storage_mode = storage_mode
         self._log_prefix = log_prefix

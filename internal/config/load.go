@@ -59,44 +59,16 @@ func extractRawParams(raw json.RawMessage) (map[string]any, error) {
 }
 
 // ExpandOperatorSequence expands pipeline_group and pipeline_map into a flat
-// ordered list of operator names. Uses the "main" pipeline group entry.
+// ordered list of operator names. Delegates to ExpandOperatorSequenceWithSubFlows.
 func ExpandOperatorSequence(cfg *RootConfig) ([]string, error) {
-	group, ok := cfg.PipelineGroup["main"]
-	if !ok {
-		// If only one group exists, use it
-		if len(cfg.PipelineGroup) == 1 {
-			for _, g := range cfg.PipelineGroup {
-				group = g
-			}
-		} else {
-			return nil, &types.ConfigError{Message: "pipeline_group must contain a \"main\" entry or exactly one entry"}
-		}
-	}
-
-	var sequence []string
-	for _, subFlowName := range group.Pipeline {
-		subFlow, ok := cfg.PipelineConfig.PipelineMap[subFlowName]
-		if !ok {
-			return nil, &types.ConfigError{
-				Message: fmt.Sprintf("pipeline_group references undefined sub-flow %q", subFlowName),
-			}
-		}
-		for _, opName := range subFlow.Pipeline {
-			if _, ok := cfg.PipelineConfig.Operators[opName]; !ok {
-				return nil, &types.ConfigError{
-					Message: fmt.Sprintf("sub-flow %q references undefined operator %q", subFlowName, opName),
-				}
-			}
-			sequence = append(sequence, opName)
-		}
-	}
-
-	return sequence, nil
+	seq, _, err := ExpandOperatorSequenceWithSubFlows(cfg)
+	return seq, err
 }
 
-// ExpandOperatorSequenceWithSubFlows behaves like ExpandOperatorSequence but
-// additionally returns opToSubFlow — a map from operator name to its owning
-// sub-flow name. Operators that belong to no named sub-flow map to "".
+// ExpandOperatorSequenceWithSubFlows recursively expands the pipeline tree into
+// a flat operator sequence. Each pipeline entry is either an operator name
+// (leaf) or a pipeline_map key (SubFlow, recurse). Returns opToSubFlow mapping
+// each operator to its direct parent SubFlow path ("" for top-level operators).
 func ExpandOperatorSequenceWithSubFlows(cfg *RootConfig) ([]string, map[string]string, error) {
 	group, ok := cfg.PipelineGroup["main"]
 	if !ok {
@@ -111,25 +83,46 @@ func ExpandOperatorSequenceWithSubFlows(cfg *RootConfig) ([]string, map[string]s
 
 	var sequence []string
 	opToSubFlow := make(map[string]string)
-	for _, subFlowName := range group.Pipeline {
-		subFlow, ok := cfg.PipelineConfig.PipelineMap[subFlowName]
-		if !ok {
-			return nil, nil, &types.ConfigError{
-				Message: fmt.Sprintf("pipeline_group references undefined sub-flow %q", subFlowName),
-			}
-		}
-		for _, opName := range subFlow.Pipeline {
-			if _, ok := cfg.PipelineConfig.Operators[opName]; !ok {
-				return nil, nil, &types.ConfigError{
-					Message: fmt.Sprintf("sub-flow %q references undefined operator %q", subFlowName, opName),
-				}
-			}
-			sequence = append(sequence, opName)
-			opToSubFlow[opName] = subFlowName
-		}
+	visiting := make(map[string]bool)
+
+	if err := expandEntries(cfg, group.Pipeline, "", &sequence, opToSubFlow, visiting); err != nil {
+		return nil, nil, err
 	}
 
 	return sequence, opToSubFlow, nil
+}
+
+// expandEntries recursively resolves pipeline entries into leaf operators.
+func expandEntries(
+	cfg *RootConfig,
+	entries []string,
+	parentPath string,
+	sequence *[]string,
+	opToSubFlow map[string]string,
+	visiting map[string]bool,
+) error {
+	for _, entry := range entries {
+		if _, isOp := cfg.PipelineConfig.Operators[entry]; isOp {
+			*sequence = append(*sequence, entry)
+			opToSubFlow[entry] = parentPath
+		} else if subFlow, isSF := cfg.PipelineConfig.PipelineMap[entry]; isSF {
+			if visiting[entry] {
+				return &types.ConfigError{
+					Message: fmt.Sprintf("cycle detected in sub-flow expansion: %q", entry),
+				}
+			}
+			visiting[entry] = true
+			if err := expandEntries(cfg, subFlow.Pipeline, entry, sequence, opToSubFlow, visiting); err != nil {
+				return err
+			}
+			delete(visiting, entry)
+		} else {
+			return &types.ConfigError{
+				Message: fmt.Sprintf("pipeline entry %q is neither an operator nor a sub-flow", entry),
+			}
+		}
+	}
+	return nil
 }
 
 // validate checks structural integrity of the config.

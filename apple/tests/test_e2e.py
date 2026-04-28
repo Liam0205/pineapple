@@ -89,11 +89,11 @@ class TestE2E:
             # Verify flow contract
             assert cfg["flow_contract"]["common_input"] == ["user_age"]
 
-            # Verify pipeline structure
+            # Verify pipeline structure — no subflows, ops listed directly
             pmap = cfg["pipeline_config"]["pipeline_map"]
-            assert len(pmap) == 1
+            assert len(pmap) == 0
             group = cfg["pipeline_group"]["main"]["pipeline"]
-            assert len(group) == 1
+            assert len(group) == 2  # recall + lua operators
         finally:
             os.unlink(path)
 
