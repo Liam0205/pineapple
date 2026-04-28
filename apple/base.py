@@ -95,5 +95,7 @@ class BaseOp:
             code_info=code_info,
             name=name,
         )
+        idx = len(self._flow._ops)
         self._flow._ops.append(call)
+        self._flow._child_order.append(("op", idx))
         return self._flow

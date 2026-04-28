@@ -81,11 +81,21 @@ func ExpandOperatorSequenceWithSubFlows(cfg *RootConfig) ([]string, map[string]s
 		}
 	}
 
+	// Reject ambiguous configs where a name appears as both operator and SubFlow.
+	for name := range cfg.PipelineConfig.Operators {
+		if _, isSF := cfg.PipelineConfig.PipelineMap[name]; isSF {
+			return nil, nil, &types.ConfigError{
+				Message: fmt.Sprintf("name %q exists in both operators and pipeline_map", name),
+			}
+		}
+	}
+
 	var sequence []string
 	opToSubFlow := make(map[string]string)
 	visiting := make(map[string]bool)
+	seen := make(map[string]bool)
 
-	if err := expandEntries(cfg, group.Pipeline, "", &sequence, opToSubFlow, visiting); err != nil {
+	if err := expandEntries(cfg, group.Pipeline, "", &sequence, opToSubFlow, visiting, seen); err != nil {
 		return nil, nil, err
 	}
 
@@ -100,9 +110,16 @@ func expandEntries(
 	sequence *[]string,
 	opToSubFlow map[string]string,
 	visiting map[string]bool,
+	seen map[string]bool,
 ) error {
 	for _, entry := range entries {
 		if _, isOp := cfg.PipelineConfig.Operators[entry]; isOp {
+			if seen[entry] {
+				return &types.ConfigError{
+					Message: fmt.Sprintf("operator %q referenced more than once in pipeline tree", entry),
+				}
+			}
+			seen[entry] = true
 			*sequence = append(*sequence, entry)
 			opToSubFlow[entry] = parentPath
 		} else if subFlow, isSF := cfg.PipelineConfig.PipelineMap[entry]; isSF {
@@ -112,7 +129,7 @@ func expandEntries(
 				}
 			}
 			visiting[entry] = true
-			if err := expandEntries(cfg, subFlow.Pipeline, entry, sequence, opToSubFlow, visiting); err != nil {
+			if err := expandEntries(cfg, subFlow.Pipeline, entry, sequence, opToSubFlow, visiting, seen); err != nil {
 				return err
 			}
 			delete(visiting, entry)

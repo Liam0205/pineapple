@@ -105,7 +105,7 @@ type collapsedEdge struct {
 
 // collapseKey returns the grouping key for a SubFlow path at a given level.
 func collapseKey(subFlow string, level int) string {
-	if subFlow == "" {
+	if subFlow == "" || level <= 0 {
 		return ""
 	}
 	parts := strings.Split(subFlow, "/")

@@ -127,6 +127,13 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             "pipeline": [_resolve_entry(e, named_ops) for e in entries]
         }
 
+    # 6b. Validate no operator name collides with a SubFlow path
+    for name, _ in named_ops:
+        if name in pipeline_map:
+            raise ValidationError(
+                f"operator name {name!r} collides with SubFlow path"
+            )
+
     # 7. Build pipeline_group (top-level entries)
     top_entries = structures.get("", [])
     pipeline_group = {
