@@ -137,11 +137,35 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 控制算子返回 `false` 时分支应执行
 - 控制算子返回 `true` 时下游分支算子应跳过
 
-因此调度器的 skip 约定是 `true = 跳过`，`false = 运行`。
+因此调度器的 skip 约定是“skip 列表中任一字段为 `true` 即跳过”，单个分支算子的本地语义仍可视为 `true = 跳过`、`false = 运行`。
 
+### 嵌套控制流与 `inherited_skips`
+
+当编译器递归遍历 Flow/SubFlow 结构树时，`apple/compiler.py` 会沿 traversal 显式传递一份 `inherited_skips` 列表，用来承接当前节点所处的所有外层控制分支守卫。
+
+稳定语义是：
+
+- 顶层普通算子若不在任何控制分支内，则 `skip` 为空列表或不输出该字段
+- 位于单层 `if_` / `elseif_` / `else_` 分支内的算子，其 `skip` 列表包含当前分支自己的控制字段
+- 位于控制分支内的嵌套 `SubFlow` 中的算子，会继承外层分支的 `skip` 列表
+- 若嵌套 `SubFlow` 自身还声明了新的控制流，则内部业务算子的 `skip` 会是“外层 inherited skips + 当前内层控制字段”的拼接结果
+
+因此 `add_subflow()` 现在可以安全地放在控制分支里：编译器不再把 branch guard 停留在当前层，而是把它继续传播到子树中的所有叶子算子。
+
+该机制的目标不是改变 Go 侧调度协议，而是保证递归结构下控制语义与“若把所有算子手工写平”保持一致。
+
+### SubFlow 内部控制字段的路径前缀化
+
+控制字段名必须在整条 flow 的 common 域中全局唯一。为避免“外层控制块”和“SubFlow 内部控制块”生成同名 `_if_1` / `_else_1` 字段，编译器会对非顶层 `SubFlow` 内部生成的控制字段做路径前缀化。
+
+示例：
+
+- 顶层控制字段仍可能是 `_if_1`
+- `inner` 这个 SubFlow 内部的控制字段会变成 `_inner_if_1`
+- 更深层嵌套路径会继续把路径信息编码进字段名前缀，确保不同子树中的控制字段不会碰撞
+
+这项前缀化只影响编译器生成的内部 common 字段名，不改变控制算子的公开命名规则：控制算子本身仍使用 `if_1`、`elseif_2`、`else_3` 这类显式 `OpCall.name`，而真正写入 frame 并供 skip 依赖引用的是带路径前缀的内部字段。
 ### 条件字段提取
-
-对于控制算子，`extract_fields()` 现在只从 `{{field_name}}` 模板标记中提取字段名，并按出现顺序去重后加入控制算子的 `common_input` 集合；随后 `_strip_template()` 会在生成 Lua 脚本前去掉这些标记，把 `{{item_count}} > 0` 还原为 Lua 可执行的 `item_count > 0`。`elseif` 和 `else` 仍会额外加入它们依赖的先前分支控制字段。
 
 这一约束把字段依赖声明变成显式语法，而不再依赖对整段条件字符串做正则启发式扫描。稳定语义是：
 
@@ -500,7 +524,9 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
-8. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
+8. **控制分支守卫会沿 SubFlow 递归传播。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致。
+9. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
+10. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
 
 ## 检索指针
 

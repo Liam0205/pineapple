@@ -105,7 +105,7 @@
 - `type_name`
 - `$metadata`
 - `$code_info`
-- `skip`
+- `skip`（运行时配置层为字符串列表；旧版单字符串 JSON 会在加载期兼容归一化）
 - `recall`
 - `sources`
 - `debug`
