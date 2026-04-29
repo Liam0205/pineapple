@@ -531,6 +531,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 9. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
 10. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
 11. **编译器 traversal 幂等。** `_traverse()` 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过 `deepcopy` 局部 ops 实现；如果后续有新的 traversal 逻辑需要改写 IR，必须同样保证 `compile_dict()` 可重复调用。
+    - 测试覆盖要求应显式包含“控制分支内嵌 SubFlow”的场景：至少验证同一个包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 侧效应在该路径上累积。
 
 ## 检索指针
 
