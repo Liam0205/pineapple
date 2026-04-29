@@ -526,6 +526,120 @@ func TestRunSkipFieldFilteredFromInput(t *testing.T) {
 	}
 }
 
+func TestRunSkipMultipleAllFalse(t *testing.T) {
+	// Two skip fields both false → operator should execute
+	ctrl1 := &CompiledOperator{
+		Name:     "ctrl1",
+		Instance: &setCommonOp{field: "_if_1", value: false},
+		Config: config.OperatorConfig{
+			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"_if_1"}},
+		},
+	}
+	ctrl2 := &CompiledOperator{
+		Name:     "ctrl2",
+		Instance: &setCommonOp{field: "_if_2", value: false},
+		Config: config.OperatorConfig{
+			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
+		},
+	}
+	branch := &CompiledOperator{
+		Name:     "branch",
+		Instance: &setCommonOp{field: "executed", value: true},
+		Config: config.OperatorConfig{
+			TypeName: "set",
+			Meta:     config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
+			Skip:     []string{"_if_1", "_if_2"},
+		},
+	}
+
+	plan := buildPlan(t, []string{"ctrl1", "ctrl2", "branch"}, map[string]*CompiledOperator{
+		"ctrl1": ctrl1, "ctrl2": ctrl2, "branch": branch,
+	})
+	frame := dataframe.New(map[string]any{}, nil)
+	_, traces, err := Run(context.Background(), plan, frame, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.Common("executed") != true {
+		t.Error("branch should have executed when all skip fields are false")
+	}
+	var branchTrace *types.OpTrace
+	for i := range traces {
+		if traces[i].Name == "branch" {
+			branchTrace = &traces[i]
+			break
+		}
+	}
+	if branchTrace == nil {
+		t.Fatal("no trace for branch operator")
+	}
+	if branchTrace.Skipped {
+		t.Error("branch trace should not be marked skipped")
+	}
+}
+
+func TestRunSkipMultipleFieldsFilteredFromInput(t *testing.T) {
+	// Multiple skip fields should all be filtered from operator input
+	ctrl1 := &CompiledOperator{
+		Name:     "ctrl1",
+		Instance: &setCommonOp{field: "_if_1", value: false},
+		Config: config.OperatorConfig{
+			TypeName:         "set",
+			ForBranchControl: true,
+			Meta:             config.Metadata{CommonOutput: []string{"_if_1"}},
+		},
+	}
+	ctrl2 := &CompiledOperator{
+		Name:     "ctrl2",
+		Instance: &setCommonOp{field: "_if_2", value: false},
+		Config: config.OperatorConfig{
+			TypeName:         "set",
+			ForBranchControl: true,
+			Meta:             config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
+			Skip:             []string{"_if_1"},
+		},
+	}
+	capture := &captureKeysOp{}
+	branch := &CompiledOperator{
+		Name:     "branch",
+		Instance: capture,
+		Config: config.OperatorConfig{
+			TypeName: "capture",
+			Skip:     []string{"_if_1", "_if_2"},
+			Meta:     config.Metadata{CommonInput: []string{"_if_1", "_if_2", "user_id"}, CommonOutput: []string{"captured"}},
+		},
+	}
+
+	plan := buildPlan(t, []string{"ctrl1", "ctrl2", "branch"}, map[string]*CompiledOperator{
+		"ctrl1": ctrl1, "ctrl2": ctrl2, "branch": branch,
+	})
+	frame := dataframe.New(map[string]any{"user_id": "u123"}, nil)
+	_, _, err := Run(context.Background(), plan, frame, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.Common("captured") != true {
+		t.Error("branch should have executed")
+	}
+	capture.mu.Lock()
+	keys := capture.keys
+	capture.mu.Unlock()
+	for _, k := range keys {
+		if k == "_if_1" || k == "_if_2" {
+			t.Errorf("skip field %q should not appear in operator input", k)
+		}
+	}
+	found := false
+	for _, k := range keys {
+		if k == "user_id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("user_id should appear in operator input")
+	}
+}
+
 func TestRunPanicRecovery(t *testing.T) {
 	opA := &CompiledOperator{
 		Name:     "op_a",

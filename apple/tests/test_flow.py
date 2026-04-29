@@ -296,6 +296,56 @@ class TestSubFlow:
         assert renamed_field in sort_op["$metadata"]["common_input"]
         assert "_if_1" not in sort_op["skip"]
 
+    def test_compile_subflow_in_branch_is_idempotent(self):
+        sf = SubFlow(name="ranking")
+        sf.reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        )
+        flow = Flow(
+            name="test",
+            common_input=["enabled"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        flow.if_("{{enabled}}").add_subflow(sf).end_if_()
+
+        cfg1 = flow.compile_dict()
+        cfg2 = flow.compile_dict()
+        assert cfg1["pipeline_config"] == cfg2["pipeline_config"]
+        assert cfg1["pipeline_group"] == cfg2["pipeline_group"]
+
+    def test_three_level_nesting_branch_subflow_subflow(self):
+        grandchild = SubFlow(name="leaf")
+        grandchild.reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        )
+
+        child = SubFlow(name="mid")
+        child.add_subflow(grandchild)
+
+        flow = Flow(
+            name="test",
+            common_input=["enabled"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        flow.if_("{{enabled}}").add_subflow(child).end_if_()
+
+        cfg = flow.compile_dict()
+        ops = cfg["pipeline_config"]["operators"]
+        sort_op = next(
+            op for op in ops.values()
+            if op["type_name"] == "reorder_sort"
+        )
+        assert "_if_1" in sort_op["skip"]
+        assert "_if_1" in sort_op["$metadata"]["common_input"]
+
+        pmap = cfg["pipeline_config"]["pipeline_map"]
+        assert "mid" in pmap
+        assert "mid/leaf" in pmap
+
     def test_subflow_cycle_detected(self):
         import pytest
 
