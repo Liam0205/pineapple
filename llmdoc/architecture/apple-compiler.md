@@ -132,6 +132,8 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 嵌套控制流中，内层控制算子自身也继承外层控制字段；内层业务算子的 `skip` 同时包含外层与内层控制字段。分支内嵌套 `SubFlow` 时，父级控制字段会在递归遍历时传播到整个子树。若 `SubFlow` 内部也定义控制流，编译器会用 SubFlow 路径前缀重命名内部控制字段，例如 `_ranking_if_1`，避免与外层或兄弟 SubFlow 冲突。
 
+`skip` 是控制流降级机制中的横切字段——它被四类路径共同读写：直接 attach（`_add_op` / `BaseOp._apply`）、SubFlow 继承（`inherited_skips`）、字段重命名（SubFlow 路径前缀化）、以及最终 JSON 发射。任何对 `skip` 类型或语义的变更都必须检查这四条路径的一致性。
+
 运行时含义：
 
 - 控制算子返回 `false` 时分支应执行
@@ -165,6 +167,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 更深层嵌套路径会继续把路径信息编码进字段名前缀，确保不同子树中的控制字段不会碰撞
 
 这项前缀化只影响编译器生成的内部 common 字段名，不改变控制算子的公开命名规则：控制算子本身仍使用 `if_1`、`elseif_2`、`else_3` 这类显式 `OpCall.name`，而真正写入 frame 并供 skip 依赖引用的是带路径前缀的内部字段。
+注意 `_parent_skips` 在 `add_subflow()` 声明期捕获的是原始字段名；compile traversal 时通过 `_apply_field_renames()` 将其映射为重命名后的字段名，确保继承链路与最终 JSON 产物一致。
 ### 条件字段提取
 
 这一约束把字段依赖声明变成显式语法，而不再依赖对整段条件字符串做正则启发式扫描。稳定语义是：
@@ -527,6 +530,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 8. **控制分支守卫会沿 SubFlow 递归传播。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致。
 9. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
 10. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
+11. **编译器 traversal 幂等。** `_traverse()` 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过 `deepcopy` 局部 ops 实现；如果后续有新的 traversal 逻辑需要改写 IR，必须同样保证 `compile_dict()` 可重复调用。
 
 ## 检索指针
 
