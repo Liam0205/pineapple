@@ -244,6 +244,58 @@ class TestSubFlow:
         assert any(s.startswith("_if_") for s in all_skips)
         assert any(s.startswith("_else_") for s in all_skips)
 
+    def test_compile_subflow_control_is_idempotent(self):
+        sf = SubFlow(name="inner")
+        sf.if_("{{flag}}").reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        ).end_if_()
+
+        flow = Flow(
+            name="test",
+            common_input=["flag"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        flow.add_subflow(sf)
+
+        cfg1 = flow.compile_dict()
+        cfg2 = flow.compile_dict()
+        assert cfg1["pipeline_config"] == cfg2["pipeline_config"]
+        assert cfg1["pipeline_group"] == cfg2["pipeline_group"]
+
+    def test_subflow_under_internal_control_uses_renamed_parent_skip(self):
+        child = SubFlow(name="child")
+        child.reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        )
+
+        parent = SubFlow(name="parent")
+        parent.if_("{{enabled}}").add_subflow(child).end_if_()
+
+        flow = Flow(
+            name="test",
+            common_input=["enabled"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        flow.add_subflow(parent)
+
+        cfg = flow.compile_dict()
+        ops = cfg["pipeline_config"]["operators"]
+        ctrl_op = next(op for op in ops.values() if op.get("for_branch_control"))
+        sort_op = next(
+            op for op in ops.values()
+            if op["type_name"] == "reorder_sort"
+        )
+
+        renamed_field = ctrl_op["$metadata"]["common_output"][0]
+        assert renamed_field == "_parent_if_1"
+        assert sort_op["skip"] == [renamed_field]
+        assert renamed_field in sort_op["$metadata"]["common_input"]
+        assert "_if_1" not in sort_op["skip"]
+
     def test_subflow_cycle_detected(self):
         import pytest
 
@@ -313,6 +365,33 @@ class TestTypedOperators:
         )
         assert sort_op["skip"] == ["_if_1"]
         assert sort_op["$metadata"]["common_input"][0] == "_if_1"
+
+    def test_baseop_apply_inside_nested_control_gets_all_skips(self):
+        from apple.base import BaseOp
+
+        flow = Flow(
+            name="typed_nested_control",
+            common_input=["enabled", "ready"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        op = BaseOp(flow)
+        op._name = "reorder_sort"
+
+        flow.if_("{{enabled}}").if_("{{ready}}")
+        op._apply(
+            params={"field": "item_score", "order": "desc"},
+            item_input=["item_score"],
+        )
+        flow.end_if_().end_if_()
+
+        cfg = flow.compile_dict()
+        sort_op = next(
+            op
+            for op in cfg["pipeline_config"]["operators"].values()
+            if op["type_name"] == "reorder_sort"
+        )
+        assert sort_op["skip"] == ["_if_1", "_if_2"]
 
 
 class TestJsonOutput:

@@ -46,7 +46,7 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 - 返回 `self`，可链式调用
 - 保留与算子声明一致的插入顺序
 - 拒绝名称中含 `/` 的 `SubFlow`，因为 `/` 已成为 JSON `pipeline_map` 的层级路径分隔符
-- 不允许在未闭合的 `if_` / `elseif_` / `else_` 分支内调用；分支内应直接声明算子，或把控制流定义在 `SubFlow` 自身内部
+- 可在未闭合的 `if_` / `elseif_` / `else_` 分支内调用；编译器会把当前活跃控制字段继承到该 `SubFlow` 子树中的每个算子
 
 由于 `_FlowBase.__getattr__` 会把未知属性调用当作算子声明，误写成不存在的 `add_sub_flow(...)` 仍会被动态分发误解为声明了名为 `add_sub_flow` 的算子；稳定可用的方法名是 `add_subflow(...)`。
 
@@ -76,7 +76,7 @@ Apple 支持两种声明算子的方式。
 - 从 Go 算子 Schema 生成
 - 带类型的 `__call__` 签名，包含参数和元数据 kwargs
 - 最终调用 `BaseOp._apply()` 追加 `OpCall`
-- 与动态分发一致，在控制分支内声明时会继承当前 branch 的 `skip` 字段，并把对应控制字段加入 `common_input`
+- 与动态分发一致，在控制分支内声明时会继承当前活跃 branch 的 `skip` 字段列表，并把对应控制字段加入 `common_input`
 
 这些是开发时的类型化编写便利，不是独立的执行路径。
 
@@ -127,8 +127,10 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 块内声明的分支算子接收：
 
-- `skip=<该控制字段>`
-- 添加到 `common_input` 的对同一字段的依赖
+- `skip=[<当前活跃控制字段>...]`
+- 添加到 `common_input` 的对这些字段的依赖
+
+嵌套控制流中，内层控制算子自身也继承外层控制字段；内层业务算子的 `skip` 同时包含外层与内层控制字段。分支内嵌套 `SubFlow` 时，父级控制字段会在递归遍历时传播到整个子树。若 `SubFlow` 内部也定义控制流，编译器会用 SubFlow 路径前缀重命名内部控制字段，例如 `_ranking_if_1`，避免与外层或兄弟 SubFlow 冲突。
 
 运行时含义：
 
@@ -225,7 +227,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 可选 `$code_info`
 - `recall`
 - `sources`
-- `skip`
+- `skip`（字符串列表；Go 加载器兼容旧版单字符串）
 - `for_branch_control`
 - `row_dependency`
 - `data_parallel`（仅当 `> 1` 时输出）

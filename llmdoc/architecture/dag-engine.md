@@ -268,14 +268,14 @@ Frame 实现通过内部单个 `sync.RWMutex` 保证并发安全：读操作（`
 
 ### Skip 处理
 
-控制流被编译为普通算子加一个 `skip` common 字段引用。运行时调度器直接通过 Frame 方法读取该字段（Frame 内部加锁保证安全）：
+控制流被编译为普通算子加 `skip` common 字段引用列表。运行时调度器直接通过 Frame 方法读取这些字段（Frame 内部加锁保证安全）：
 
-- `true` 表示跳过执行
-- `false` 表示正常执行
+- 任一字段为 `true` 表示跳过执行
+- 所有字段均非 `true` 表示正常执行
 
 被跳过的算子仍参与图和 trace 流，但不运行业务逻辑。
 
-编译器将控制字段注入 `$metadata.CommonInput` 以建立 DAG 依赖。但引擎在两处过滤 skip 字段，使控制字段对算子透明：
+编译器将控制字段注入 `$metadata.CommonInput` 以建立 DAG 依赖。嵌套控制和分支内 SubFlow 会产生多个 skip 字段；Go 加载器兼容旧版单字符串 `skip`，新 JSON 使用字符串列表。引擎在两处过滤 skip 字段，使控制字段对算子透明：
 - `pine.go` 在调用 `SetMetadata` 前剔除 skip 字段，算子的 `MetadataHolder.CommonInput` 不含控制字段
 - `scheduler.go` 在调用 `BuildInput` 前剔除 skip 字段，算子的 `OperatorInput` 不含控制字段值
 

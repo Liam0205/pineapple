@@ -111,6 +111,24 @@ class TestControlFlowLowering:
         ops = cfg["pipeline_config"]["operators"]
         # 2 control ops + 2 business ops = 4
         assert len(ops) == 4
+        ctrl_by_output = {
+            op["$metadata"]["common_output"][0]: op
+            for op in ops.values()
+            if op.get("for_branch_control")
+        }
+        assert ctrl_by_output["_if_2"]["skip"] == ["_if_1"]
+        assert ctrl_by_output["_if_2"]["$metadata"]["common_input"][0] == "_if_1"
+
+        outer_op = next(
+            op for op in ops.values()
+            if op["$metadata"]["item_output"] == ["y"]
+        )
+        inner_op = next(
+            op for op in ops.values()
+            if op["$metadata"]["item_output"] == ["z"]
+        )
+        assert outer_op["skip"] == ["_if_1"]
+        assert inner_op["skip"] == ["_if_1", "_if_2"]
 
     def test_if_with_string_literal(self):
         """String literals in if_ condition must not be treated as field names."""

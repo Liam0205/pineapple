@@ -10,6 +10,7 @@ Steps:
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -219,6 +220,11 @@ def _rename_field(op: OpCall, old: str, new: str) -> None:
     op.common_output = [new if f == old else f for f in op.common_output]
 
 
+def _apply_field_renames(fields: list[str], renames: dict[str, str]) -> list[str]:
+    """Apply known control-field renames to a field list."""
+    return [renames.get(f, f) for f in fields]
+
+
 def _traverse(
     node: Any,
     path: str,
@@ -237,10 +243,12 @@ def _traverse(
         )
     visited.add(obj_id)
 
+    local_ops = [deepcopy(op) for op in node._ops]
+    field_renames: dict[str, str] = {}
     entries: list[tuple[str, Any]] = []
     for kind, idx in node._child_order:
         if kind == "op":
-            op = node._ops[idx]
+            op = local_ops[idx]
             op.subflow_path = path
             # Disambiguate control-flow fields inside SubFlows by prefixing
             # the SubFlow path onto the control field name and operator name.
@@ -251,7 +259,8 @@ def _traverse(
                 if old_field and new_field and old_field != new_field:
                     _rename_field(op, old_field, new_field)
                     op.name = f"{prefix}{op.name}"
-                    for other_op in node._ops:
+                    field_renames[old_field] = new_field
+                    for other_op in local_ops:
                         if other_op is not op:
                             _rename_field(other_op, old_field, new_field)
             for s in inherited_skips:
@@ -270,7 +279,11 @@ def _traverse(
                     f"duplicate SubFlow path: {sf_path!r}"
                 )
             entries.append(("sf", sf_path))
-            child_skips = inherited_skips + getattr(sf, '_parent_skips', [])
+            parent_skips = _apply_field_renames(
+                getattr(sf, '_parent_skips', []),
+                field_renames,
+            )
+            child_skips = inherited_skips + parent_skips
             _traverse(sf, sf_path, all_ops, structures, visited, child_skips)
 
     structures[path] = entries

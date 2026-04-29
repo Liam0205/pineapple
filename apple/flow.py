@@ -60,6 +60,25 @@ class _FlowBase:
         self._ctrl_stack: list[ControlBlock] = []
         self._parent_skips: list[str] = []
 
+    def _active_skip_fields(self, include_current: bool = True) -> list[str]:
+        """Return control fields that guard declarations at the current point."""
+        stack = self._ctrl_stack if include_current else self._ctrl_stack[:-1]
+        fields: list[str] = []
+        for block in stack:
+            if block.branches:
+                fields.append(block.branches[-1].ctrl_field)
+        return fields
+
+    def _apply_skip_fields(self, call: OpCall, skip_fields: list[str]) -> None:
+        """Attach control-flow skip dependencies to an operator call."""
+        missing_inputs: list[str] = []
+        for skip_field in skip_fields:
+            if skip_field not in call.skip:
+                call.skip.append(skip_field)
+            if skip_field not in call.common_input:
+                missing_inputs.append(skip_field)
+        call.common_input = missing_inputs + call.common_input
+
     def __getattr__(self, name: str) -> Any:
         """Dynamic operator dispatch: flow.some_op(...) creates an OpCall."""
         if name.startswith("_"):
@@ -113,14 +132,8 @@ class _FlowBase:
             name=meta.get("name", ""),
         )
 
-        # Apply skip field if inside a control block
-        if self._ctrl_stack:
-            block = self._ctrl_stack[-1]
-            if block.branches:
-                branch = block.branches[-1]
-                call.skip.append(branch.ctrl_field)
-                if branch.ctrl_field not in call.common_input:
-                    call.common_input = [branch.ctrl_field] + call.common_input
+        # Apply all active branch guards, including outer nested control blocks.
+        self._apply_skip_fields(call, self._active_skip_fields())
 
         idx = len(self._ops)
         self._ops.append(call)
@@ -133,11 +146,7 @@ class _FlowBase:
             raise ValueError(
                 f"SubFlow name must not contain '/': {sf._name!r}"
             )
-        sf._parent_skips = []
-        if self._ctrl_stack:
-            block = self._ctrl_stack[-1]
-            if block.branches:
-                sf._parent_skips = [block.branches[-1].ctrl_field]
+        sf._parent_skips = self._active_skip_fields()
         idx = len(self._sub_flows)
         self._sub_flows.append(sf)
         self._child_order.append(("sf", idx))
@@ -147,6 +156,7 @@ class _FlowBase:
 
     def if_(self, condition: str) -> _FlowBase:
         """Start an if block."""
+        parent_skips = self._active_skip_fields()
         self._ctrl_counter += 1
         block = ControlBlock(block_id=self._ctrl_counter)
         ctrl_field = f"_if_{block.block_id}"
@@ -162,6 +172,7 @@ class _FlowBase:
 
         # Emit the control operator
         ctrl_op = make_control_op(branch, [], condition)
+        self._apply_skip_fields(ctrl_op, parent_skips)
         idx = len(self._ops)
         self._ops.append(ctrl_op)
         self._child_order.append(("op", idx))
@@ -174,6 +185,7 @@ class _FlowBase:
         block = self._ctrl_stack[-1]
         if block.closed:
             raise ValueError("elseif_ after end_if_")
+        parent_skips = self._active_skip_fields(include_current=False)
 
         self._ctrl_counter += 1
         prior_fields = [b.ctrl_field for b in block.branches]
@@ -188,6 +200,7 @@ class _FlowBase:
         block.branches.append(branch)
 
         ctrl_op = make_control_op(branch, prior_fields, condition)
+        self._apply_skip_fields(ctrl_op, parent_skips)
         idx = len(self._ops)
         self._ops.append(ctrl_op)
         self._child_order.append(("op", idx))
@@ -200,6 +213,7 @@ class _FlowBase:
         block = self._ctrl_stack[-1]
         if block.closed:
             raise ValueError("else_ after end_if_")
+        parent_skips = self._active_skip_fields(include_current=False)
 
         self._ctrl_counter += 1
         prior_fields = [b.ctrl_field for b in block.branches]
@@ -214,6 +228,7 @@ class _FlowBase:
         block.branches.append(branch)
 
         ctrl_op = make_control_op(branch, prior_fields, None)
+        self._apply_skip_fields(ctrl_op, parent_skips)
         idx = len(self._ops)
         self._ops.append(ctrl_op)
         self._child_order.append(("op", idx))

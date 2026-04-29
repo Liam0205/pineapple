@@ -96,13 +96,7 @@ class BaseOp:
             name=name,
         )
 
-        if self._flow._ctrl_stack:
-            block = self._flow._ctrl_stack[-1]
-            if block.branches:
-                branch = block.branches[-1]
-                call.skip.append(branch.ctrl_field)
-                if branch.ctrl_field not in call.common_input:
-                    call.common_input = [branch.ctrl_field] + call.common_input
+        self._flow._apply_skip_fields(call, self._flow._active_skip_fields())
 
         idx = len(self._flow._ops)
         self._flow._ops.append(call)
