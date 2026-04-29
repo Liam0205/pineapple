@@ -278,7 +278,7 @@ func TestRunSkipTrue(t *testing.T) {
 		Instance: &setCommonOp{field: "executed", value: true},
 		Config: config.OperatorConfig{
 			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
-			Skip: "_if_1",
+			Skip: []string{"_if_1"},
 		},
 	}
 
@@ -323,7 +323,7 @@ func TestRunSkipFalse(t *testing.T) {
 		Instance: &setCommonOp{field: "executed", value: true},
 		Config: config.OperatorConfig{
 			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
-			Skip: "_if_1",
+			Skip: []string{"_if_1"},
 		},
 	}
 
@@ -337,6 +337,58 @@ func TestRunSkipFalse(t *testing.T) {
 	}
 	if frame.Common("executed") != true {
 		t.Error("branch should have executed")
+	}
+}
+
+func TestRunSkipMultiple(t *testing.T) {
+	// Two skip fields: _if_1=false, _if_2=true → should be skipped (any true → skip)
+	ctrl1 := &CompiledOperator{
+		Name:     "ctrl1",
+		Instance: &setCommonOp{field: "_if_1", value: false},
+		Config: config.OperatorConfig{
+			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"_if_1"}},
+		},
+	}
+	ctrl2 := &CompiledOperator{
+		Name:     "ctrl2",
+		Instance: &setCommonOp{field: "_if_2", value: true},
+		Config: config.OperatorConfig{
+			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
+		},
+	}
+	branch := &CompiledOperator{
+		Name:     "branch",
+		Instance: &setCommonOp{field: "executed", value: true},
+		Config: config.OperatorConfig{
+			TypeName: "set",
+			Meta:     config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
+			Skip:     []string{"_if_1", "_if_2"},
+		},
+	}
+
+	plan := buildPlan(t, []string{"ctrl1", "ctrl2", "branch"}, map[string]*CompiledOperator{
+		"ctrl1": ctrl1, "ctrl2": ctrl2, "branch": branch,
+	})
+	frame := dataframe.New(map[string]any{}, nil)
+	_, traces, err := Run(context.Background(), plan, frame, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.Common("executed") != nil {
+		t.Error("branch should have been skipped because _if_2 is true")
+	}
+	var branchTrace *types.OpTrace
+	for i := range traces {
+		if traces[i].Name == "branch" {
+			branchTrace = &traces[i]
+			break
+		}
+	}
+	if branchTrace == nil {
+		t.Fatal("no trace for branch operator")
+	}
+	if !branchTrace.Skipped {
+		t.Error("branch trace should be marked skipped")
 	}
 }
 
@@ -433,7 +485,7 @@ func TestRunSkipFieldFilteredFromInput(t *testing.T) {
 		Instance: capture,
 		Config: config.OperatorConfig{
 			TypeName: "capture",
-			Skip:     "_if_1",
+			Skip:     []string{"_if_1"},
 			Meta:     config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}},
 		},
 	}

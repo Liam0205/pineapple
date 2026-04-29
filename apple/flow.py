@@ -58,6 +58,7 @@ class _FlowBase:
         # Control flow state
         self._ctrl_counter = 0
         self._ctrl_stack: list[ControlBlock] = []
+        self._parent_skips: list[str] = []
 
     def __getattr__(self, name: str) -> Any:
         """Dynamic operator dispatch: flow.some_op(...) creates an OpCall."""
@@ -117,7 +118,7 @@ class _FlowBase:
             block = self._ctrl_stack[-1]
             if block.branches:
                 branch = block.branches[-1]
-                call.skip = branch.ctrl_field
+                call.skip.append(branch.ctrl_field)
                 if branch.ctrl_field not in call.common_input:
                     call.common_input = [branch.ctrl_field] + call.common_input
 
@@ -128,15 +129,15 @@ class _FlowBase:
 
     def add_subflow(self, sf: SubFlow) -> _FlowBase:
         """Add a nested SubFlow, preserving declaration order with ops."""
-        if self._ctrl_stack:
-            raise ValueError(
-                "add_subflow() inside control-flow branches is not supported; "
-                "add operators directly or define control flow inside the SubFlow"
-            )
         if "/" in sf._name:
             raise ValueError(
                 f"SubFlow name must not contain '/': {sf._name!r}"
             )
+        sf._parent_skips = []
+        if self._ctrl_stack:
+            block = self._ctrl_stack[-1]
+            if block.branches:
+                sf._parent_skips = [block.branches[-1].ctrl_field]
         idx = len(self._sub_flows)
         self._sub_flows.append(sf)
         self._child_order.append(("sf", idx))
@@ -225,8 +226,11 @@ class _FlowBase:
         block = self._ctrl_stack.pop()
         block.closed = True
         for branch in block.branches:
-            has_ops = any(op.skip == branch.ctrl_field for op in self._ops)
-            if not has_ops:
+            has_ops = any(branch.ctrl_field in op.skip for op in self._ops)
+            has_subflows = any(
+                branch.ctrl_field in sf._parent_skips for sf in self._sub_flows
+            )
+            if not has_ops and not has_subflows:
                 raise ValueError(
                     f"empty {branch.kind} branch: no operators under "
                     f"condition field {branch.ctrl_field!r}"

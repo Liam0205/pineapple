@@ -8,6 +8,8 @@
 
 > **⚠️ Pre-1.0 阶段**：Pineapple 尚处于 pre-1.0 开发阶段，API 和行为语义可能在版本间发生不兼容变更，不保证向后兼容。生产环境使用请锁定具体版本。
 
+> **Breaking Change (v0.5.7)**：JSON IR 中 `skip` 字段从字符串改为字符串列表（`"skip": "_if_1"` → `"skip": ["_if_1"]`）。Go 引擎向后兼容旧格式，但新编译产出始终为列表。同时新增支持分支内嵌套 SubFlow：`if_().add_subflow(sf).end_if_()`。
+
 > **Breaking Change (v0.5.6)**：`if_` / `elseif_` 条件中的字段引用必须使用 `{{field_name}}` 模板语法。旧写法 `flow.if_("item_count > 0")` 需改为 `flow.if_("{{item_count}} > 0")`。字段名用双花括号标记，其余部分为原生 Lua 表达式。
 
 ## 架构概览
@@ -532,6 +534,27 @@ flow.add_subflow(process_stage)  # 链式添加
 
 编译后，SubFlow 路径用 `/` 分隔表示层级关系（如 `recall/candidates`）。Go 引擎递归展开。
 
+### 分支内嵌套 SubFlow
+
+SubFlow 可以嵌套在条件分支内。编译器自动将外层分支的控制字段传播到 SubFlow 内所有算子：
+
+```python
+ranking = SubFlow(name="ranking")
+ranking.reorder_sort(item_input=["item_score"], field="item_score", order="desc")
+
+flow.if_("{{enabled}}") \
+    .add_subflow(ranking) \
+.else_() \
+    .transform_dispatch(
+        common_input=["default_score"],
+        item_output=["item_score"],
+        common_field="default_score", item_field="item_score",
+    ) \
+.end_if_()
+```
+
+SubFlow 内部也可以有自己的控制流。编译器会为内层控制字段加上 SubFlow 路径前缀（如 `_ranking_if_1`），避免与外层冲突。内层算子的 `skip` 列表同时包含内外两层控制字段，实现多层保护。
+
 ### 资源声明
 
 当算子依赖外部数据时，在 pipeline 中声明资源。codegen 会为每种资源生成带类型的 Python 类：
@@ -587,7 +610,7 @@ config = flow.compile_dict()
 - **死代码检测** — 产出字段未被下游消费的算子会被标记（observe 类算子豁免）
 - **写后覆写** — 检测同一字段被多次写入
 - **控制流完整性** — `if_` 必须有对应的 `end_if_`
-- **空分支检测** — 控制块的每个分支下必须有至少一个业务算子，空分支（如 `if_("{{cond}}").end_if_()`）会报错
+- **空分支检测** — 控制块的每个分支下必须有至少一个业务算子或 SubFlow，空分支（如 `if_("{{cond}}").end_if_()`）会报错
 - **数据并行约束** — `data_parallel > 1` 时必须是 Transform 算子且 `common_output` 为空
 - **参数-元数据一致性** — `transform_resource_lookup` 的 `lookup_key` 必须出现在 `item_input`，`output_field` 必须出现在 `item_output`，防止业务参数与元数据声明不匹配导致运行时静默错误
 - **控制算子可辨识命名** — 条件分支编译后的控制算子使用 `if_1`、`elseif_2`、`else_3` 等显式名称，在 DAG 可视化中可直观辨识

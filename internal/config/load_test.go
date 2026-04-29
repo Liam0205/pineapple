@@ -89,8 +89,40 @@ func TestLoadSkipBranch(t *testing.T) {
 	}
 
 	branch := cfg.PipelineConfig.Operators["op_branch_B2"]
-	if branch.Skip != "_if_1" {
-		t.Errorf("branch skip = %q", branch.Skip)
+	expected := []string{"_if_1"}
+	if len(branch.Skip) != len(expected) || branch.Skip[0] != expected[0] {
+		t.Errorf("branch skip = %v, want %v", branch.Skip, expected)
+	}
+}
+
+func TestLoadSkipBackwardCompat(t *testing.T) {
+	// Old format: skip is a string, not an array
+	data := []byte(`{
+		"pipeline_config": {
+			"operators": {
+				"ctrl": {
+					"type_name": "transform_by_lua",
+					"$metadata": {"common_input": [], "common_output": ["_if_1"], "item_input": [], "item_output": []},
+					"for_branch_control": true
+				},
+				"op": {
+					"type_name": "noop",
+					"$metadata": {"common_input": ["_if_1"], "common_output": [], "item_input": [], "item_output": []},
+					"skip": "_if_1"
+				}
+			},
+			"pipeline_map": {}
+		},
+		"pipeline_group": {"main": {"pipeline": ["ctrl", "op"]}},
+		"flow_contract": {"common_input": [], "item_input": [], "common_output": [], "item_output": []}
+	}`)
+	cfg, err := Load(data)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	op := cfg.PipelineConfig.Operators["op"]
+	if len(op.Skip) != 1 || op.Skip[0] != "_if_1" {
+		t.Errorf("skip = %v, want [_if_1]", op.Skip)
 	}
 }
 

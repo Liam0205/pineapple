@@ -32,6 +32,13 @@ func Load(data []byte) (*RootConfig, error) {
 			return nil, &types.ConfigError{Message: fmt.Sprintf("operator %q: %v", name, err)}
 		}
 		opCfg.RawParams = params
+		skip, err := normalizeSkip(rawOp)
+		if err != nil {
+			return nil, &types.ConfigError{Message: fmt.Sprintf("operator %q: %v", name, err)}
+		}
+		if skip != nil {
+			opCfg.Skip = skip
+		}
 		cfg.PipelineConfig.Operators[name] = opCfg
 	}
 
@@ -56,6 +63,31 @@ func extractRawParams(raw json.RawMessage) (map[string]any, error) {
 		}
 	}
 	return params, nil
+}
+
+// normalizeSkip handles backward compatibility for the skip field.
+// It accepts both a single string ("_if_1") and an array (["_if_1"]).
+func normalizeSkip(raw json.RawMessage) ([]string, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	skipRaw, ok := obj["skip"]
+	if !ok {
+		return nil, nil
+	}
+	var arr []string
+	if err := json.Unmarshal(skipRaw, &arr); err == nil {
+		return arr, nil
+	}
+	var s string
+	if err := json.Unmarshal(skipRaw, &s); err == nil {
+		if s == "" {
+			return nil, nil
+		}
+		return []string{s}, nil
+	}
+	return nil, fmt.Errorf("skip must be a string or array of strings")
 }
 
 // ExpandOperatorSequence expands pipeline_group and pipeline_map into a flat

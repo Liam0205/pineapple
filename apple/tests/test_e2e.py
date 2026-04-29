@@ -129,7 +129,7 @@ class TestE2E:
             # Sort op has skip
             sort = [o for o in ops.values() if o["type_name"] == "reorder_sort"]
             assert len(sort) == 1
-            assert sort[0]["skip"] == "_if_1"
+            assert sort[0]["skip"] == ["_if_1"]
         finally:
             os.unlink(path)
 

@@ -58,7 +58,7 @@
         "type_name": "reorder_sort",
         "field": "item_final_price",
         "order": "desc",
-        "skip": "_skip_sort",
+        "skip": ["_skip_sort"],
         "$metadata": {
           "common_input": ["_skip_sort"],
           "common_output": [],

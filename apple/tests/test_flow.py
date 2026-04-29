@@ -163,8 +163,7 @@ class TestSubFlow:
         with pytest.raises(ValueError, match="must not contain '/'"):
             flow.add_subflow(sf)
 
-    def test_add_subflow_inside_control_branch_rejected(self):
-        import pytest
+    def test_subflow_inside_if_branch(self):
         sf = SubFlow(name="ranking")
         sf.reorder_sort(
             item_input=["item_score"],
@@ -176,9 +175,74 @@ class TestSubFlow:
             item_input=["item_score"],
             item_output=["item_score"],
         )
-        flow.if_("{{enabled}}")
-        with pytest.raises(ValueError, match="add_subflow.*control-flow"):
-            flow.add_subflow(sf)
+        flow.if_("{{enabled}}").add_subflow(sf).end_if_()
+        cfg = flow.compile_dict()
+        ops = cfg["pipeline_config"]["operators"]
+        sort_op = next(
+            op for op in ops.values()
+            if op["type_name"] == "reorder_sort"
+        )
+        assert sort_op["skip"] == ["_if_1"]
+        assert "_if_1" in sort_op["$metadata"]["common_input"]
+
+    def test_nested_control_inside_branch_subflow(self):
+        sf = SubFlow(name="inner")
+        sf.if_("{{flag}}").reorder_sort(
+            item_input=["item_score"],
+            field="item_score", order="desc",
+        ).end_if_()
+
+        flow = Flow(
+            name="test",
+            common_input=["enabled", "flag"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+        )
+        flow.if_("{{enabled}}").add_subflow(sf).end_if_()
+        cfg = flow.compile_dict()
+        ops = cfg["pipeline_config"]["operators"]
+        sort_op = next(
+            op for op in ops.values()
+            if op["type_name"] == "reorder_sort"
+        )
+        # Should have both the inner (renamed) skip and the outer skip
+        assert "_if_1" in sort_op["skip"]  # outer flow's if
+        assert any("_inner_" in s for s in sort_op["skip"])  # inner SubFlow's renamed if
+        assert len(sort_op["skip"]) == 2
+
+    def test_subflow_if_else_both_branches(self):
+        sf1 = SubFlow(name="branch_a")
+        sf1.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+        sf2 = SubFlow(name="branch_b")
+        sf2.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "b", "item_score": 2.0}],
+        )
+        flow = Flow(
+            name="test",
+            common_input=["mode"],
+            item_output=["item_id", "item_score"],
+        )
+        flow.if_("{{mode}} == 1") \
+            .add_subflow(sf1) \
+        .else_() \
+            .add_subflow(sf2) \
+        .end_if_()
+        cfg = flow.compile_dict()
+        ops = cfg["pipeline_config"]["operators"]
+        recall_ops = [
+            op for op in ops.values()
+            if op["type_name"] == "recall_static"
+        ]
+        assert len(recall_ops) == 2
+        skip_fields = [tuple(op["skip"]) for op in recall_ops]
+        # One should have _if_1, the other _else_2
+        all_skips = {s for t in skip_fields for s in t}
+        assert any(s.startswith("_if_") for s in all_skips)
+        assert any(s.startswith("_else_") for s in all_skips)
 
     def test_subflow_cycle_detected(self):
         import pytest
@@ -247,7 +311,7 @@ class TestTypedOperators:
             for op in cfg["pipeline_config"]["operators"].values()
             if op["type_name"] == "reorder_sort"
         )
-        assert sort_op["skip"] == "_if_1"
+        assert sort_op["skip"] == ["_if_1"]
         assert sort_op["$metadata"]["common_input"][0] == "_if_1"
 
 

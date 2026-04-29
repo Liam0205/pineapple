@@ -25,7 +25,7 @@ class OpCall:
     # Engine-level flags
     recall: bool = False
     sources: list[str] | None = None
-    skip: str | None = None
+    skip: list[str] = field(default_factory=list)
     for_branch_control: bool = False
     row_dependency: bool = False
     data_parallel: int = 0
@@ -100,7 +100,7 @@ class BaseOp:
             block = self._flow._ctrl_stack[-1]
             if block.branches:
                 branch = block.branches[-1]
-                call.skip = branch.ctrl_field
+                call.skip.append(branch.ctrl_field)
                 if branch.ctrl_field not in call.common_input:
                     call.common_input = [branch.ctrl_field] + call.common_input
 

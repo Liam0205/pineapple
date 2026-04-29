@@ -44,7 +44,7 @@ class TestControlFlowLowering:
         sort_ops = {n: o for n, o in ops.items() if o["type_name"] == "reorder_sort"}
         assert len(sort_ops) == 1
         sort_op = list(sort_ops.values())[0]
-        assert sort_op["skip"] == "_if_1"
+        assert sort_op["skip"] == ["_if_1"]
 
     def test_if_elseif_else(self):
         flow = Flow(
@@ -84,10 +84,10 @@ class TestControlFlowLowering:
 
         # Check skip fields on business ops
         biz_ops = [o for o in ops.values() if not o.get("for_branch_control")]
-        skip_fields = [o.get("skip") for o in biz_ops]
-        assert "_if_1" in skip_fields
-        assert any("_elif_" in (s or "") for s in skip_fields)
-        assert any("_else_" in (s or "") for s in skip_fields)
+        all_skip_fields = [s for o in biz_ops for s in (o.get("skip") or [])]
+        assert "_if_1" in all_skip_fields
+        assert any("_elif_" in s for s in all_skip_fields)
+        assert any("_else_" in s for s in all_skip_fields)
 
     def test_nested_if(self):
         flow = Flow(

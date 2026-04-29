@@ -123,8 +123,8 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		// $metadata.CommonInput that includes the control field.
 		if ma, ok := op.(types.MetadataAware); ok {
 			commonIn := opCfg.Meta.CommonInput
-			if opCfg.Skip != "" {
-				commonIn = filterOutField(commonIn, opCfg.Skip)
+			for _, skipField := range opCfg.Skip {
+				commonIn = filterOutField(commonIn, skipField)
 			}
 			ma.SetMetadata(
 				commonIn,

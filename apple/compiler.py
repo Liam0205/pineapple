@@ -212,14 +212,24 @@ def _check_unclosed_control(node: Any, display_name: str, visited: set[int] | No
         _check_unclosed_control(sf, sf._name, visited)
 
 
+def _rename_field(op: OpCall, old: str, new: str) -> None:
+    """Replace all occurrences of a control field name in an OpCall."""
+    op.skip = [new if s == old else s for s in op.skip]
+    op.common_input = [new if f == old else f for f in op.common_input]
+    op.common_output = [new if f == old else f for f in op.common_output]
+
+
 def _traverse(
     node: Any,
     path: str,
     all_ops: list[OpCall],
     structures: dict[str, list[tuple[str, Any]]],
     visited: set[int],
+    inherited_skips: list[str] | None = None,
 ) -> None:
     """Recursively traverse _child_order, collecting ops and structure."""
+    if inherited_skips is None:
+        inherited_skips = []
     obj_id = id(node)
     if obj_id in visited:
         raise ValidationError(
@@ -232,6 +242,23 @@ def _traverse(
         if kind == "op":
             op = node._ops[idx]
             op.subflow_path = path
+            # Disambiguate control-flow fields inside SubFlows by prefixing
+            # the SubFlow path onto the control field name and operator name.
+            if path and op.for_branch_control and op.name:
+                prefix = path.replace("/", "_") + "_"
+                old_field = op.common_output[0] if op.common_output else None
+                new_field = f"_{prefix}{op.name}" if old_field else None
+                if old_field and new_field and old_field != new_field:
+                    _rename_field(op, old_field, new_field)
+                    op.name = f"{prefix}{op.name}"
+                    for other_op in node._ops:
+                        if other_op is not op:
+                            _rename_field(other_op, old_field, new_field)
+            for s in inherited_skips:
+                if s not in op.skip:
+                    op.skip.append(s)
+                if s not in op.common_input:
+                    op.common_input = [s] + op.common_input
             global_idx = len(all_ops)
             all_ops.append(op)
             entries.append(("op", global_idx))
@@ -243,7 +270,8 @@ def _traverse(
                     f"duplicate SubFlow path: {sf_path!r}"
                 )
             entries.append(("sf", sf_path))
-            _traverse(sf, sf_path, all_ops, structures, visited)
+            child_skips = inherited_skips + getattr(sf, '_parent_skips', [])
+            _traverse(sf, sf_path, all_ops, structures, visited, child_skips)
 
     structures[path] = entries
 
