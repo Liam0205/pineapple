@@ -119,6 +119,24 @@
 
 ## 可选接口
 
+### `ConcurrentSafe`
+
+若算子希望在 `data_parallel > 1` 时进入并发分片执行路径，必须实现 `internal/types/operator.go` 中的 `ConcurrentSafe` 可选接口。
+
+推荐模式：
+
+- 直接嵌入 `pine.ConcurrentSafeMarker`
+- 只在确认同一算子实例可被多个 shard 并发重入调用时才声明该能力
+
+职责边界：
+
+- Apple/编译期只做结构性校验：仅 Transform 可启用 `data_parallel`，且 `$metadata.common_output` 必须为空
+- Go/引擎加载期在 `pine.NewEngine()` 的 `validateDataParallel` 中做最终能力检查：`data_parallel > 1` 时实例必须实现 `ConcurrentSafe`
+
+未实现 `ConcurrentSafe` 的 Transform 默认不允许启用 `data_parallel > 1`。这替代了旧的名称 blocklist 模式，把事实源收敛到真实持有算子实例的 Go 层。
+
+当前内置 Transform 中，8 个逐 item 独立实现已标记 `ConcurrentSafe`；`transform_normalize` 保持未标记，因为它依赖完整 item 集合语义。
+
 ### `MetadataAware`
 
 若算子实现 `internal/types/operator.go` 中的 metadata-aware 接口，引擎将在 `Init()` 后注入字段元数据。
@@ -207,9 +225,9 @@
 | Reorder | 改变 item 顺序 | `SetItemOrder` |
 | Observe | 只读副作用 | 无 |
 
-`data_parallel` 仅支持 Transform。启用时，`$metadata.common_output` 必须为空；其他算子类型在编译期拒绝该配置。
+`data_parallel` 仅支持 Transform。启用时，`$metadata.common_output` 必须为空；其他算子类型会在 Apple 编译期与 Go 引擎加载期的结构校验中被拒绝。
 
-当算子被用于 `data_parallel > 1` 时，还必须满足额外契约：同一个算子实例会在单次请求内被多个 shard 并发调用，因此 `Execute()` 必须对“同实例并发重入”安全。当前运行时不会自动检测或强制这一点；是否满足该条件由算子作者自行保证。
+当算子被用于 `data_parallel > 1` 时，还必须满足额外契约：同一个算子实例会在单次请求内被多个 shard 并发调用，因此实例必须显式实现 `ConcurrentSafe`，才能通过 `pine.NewEngine()` 的加载期校验并进入并发路径。未实现 `ConcurrentSafe` 的 Transform 默认不允许这样使用。
 
 需记住的附加语义：
 

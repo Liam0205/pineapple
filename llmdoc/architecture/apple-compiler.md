@@ -400,17 +400,16 @@ Apple 仍输出单个名为 `main` 的 group，但 `pipeline_group.main.pipeline
 
 ### 5. 数据并行约束
 
-`validate_data_parallel` 在 Apple 编译期对 `data_parallel` 做 fail-fast 校验，这一规则与 Go 引擎 `pine.go` 中的 `validateDataParallel` 保持镜像一致。
+`validate_data_parallel` 在 Apple 编译期对 `data_parallel` 做 fail-fast 结构性校验。
 
 当 `data_parallel > 1` 时：
 
 - `type_name` 必须以 `transform_` 开头，也就是仅允许 Transform 类算子启用数据并行
 - `common_output` 必须为空，避免多个并发 worker 竞争写入 common 域
-- 算子不能在 `_DATA_PARALLEL_UNSAFE_TRANSFORMS` 中；该集合用于拒绝依赖完整 item 集合语义的 Transform，例如 `transform_normalize`
 
-这里还有一个稳定的跨语言维护风险：Apple 侧 `apple/validator.py` 与 Go 侧 `pine.go` 目前各自维护一份“对 `data_parallel` 不安全的 transform 名单”。两份列表需要人工保持同步，当前没有单一事实源或自动一致性校验，因此未来新增/调整 unsafe transform 时存在 Python/Go 漂移风险。
+Apple 侧**不再维护** unsafe transforms 名单。算子是否具备并发安全能力（`ConcurrentSafe` 接口）由 Go 引擎在 `NewEngine` → `validateDataParallel` 阶段通过接口断言检查。这消除了此前 Python/Go 双端名单的漂移风险，实现了单一事实源。
 
-该规则的目标不是替代引擎校验，而是把原本会在 Go 侧加载配置时失败的错误前移到 Apple compile time，尽早暴露 DSL 声明与引擎约束不匹配的问题。
+Apple 结构校验的目标是把明确的配置错误（非 Transform、有 common_output）前移到编译期，尽早暴露；能力校验则由持有算子实例的 Go 侧权威负责。
 
 ### 6. 参数-元数据一致性
 

@@ -242,7 +242,7 @@
 1. 等待所有前驱 done channel 或 context 取消。
 2. 检查 skip 条件（如有）。
 3. 从共享 DataFrame 构建输入快照（Frame 方法自行加锁）。
-4. 运行 `Execute`。当 `DataParallel > 1` 时，调度器改为委托 `internal/runtime/parallel.go` 中的 `parallelExecute`：按 item 将输入切成 N 份，启动 N 个带独立 panic recovery 的 goroutine 执行，再在返回调度器前合并输出。
+4. 运行 `Execute`。当 `DataParallel > 1` 时，调度器改为委托 `internal/runtime/parallel.go` 中的 `parallelExecute`：按 item 将输入切成 N 份，启动 N 个带独立 panic recovery 的 goroutine 执行，再在返回调度器前合并输出。该并发路径只会出现在引擎加载期已通过 `pine.go` `validateDataParallel` 校验的算子上：Apple 侧仅做结构性校验（必须是 Transform、且不能声明 `common_output`），真正的能力判定由 Go 在持有算子实例时完成，要求实例实现 `internal/types/operator.go` (`ConcurrentSafe`)。
 5. 根据算子类型契约校验输出。
 6. 将输出应用回 frame（Frame 方法自行加锁）。
 7. 记录 trace 和双通道 stats/metrics。
@@ -250,7 +250,14 @@
 
 `data_parallel` 仅是单节点运行时优化：它不改变 DAG 构建、依赖推导或图结构，调度器拿到的仍是同一张执行图。
 
-该能力只适合逐 item 独立的 Transform。依赖完整 item 集合语义的 Transform 必须在 `pine.go` 的 `isDataParallelSafeTransform` 中显式拒绝；当前 `transform_normalize` 被拒绝，因为按 shard 执行会把全局 min/max 变成分片 min/max。
+该能力只适合逐 item 独立的 Transform，并采用显式 opt-in 模型：
+
+- Apple/编译期只做结构性约束：`data_parallel > 1` 时算子必须是 Transform，且 `$metadata.common_output` 必须为空。
+- Go/引擎加载期在 `pine.NewEngine()` 的 `validateDataParallel` 中做最终能力检查：实例必须实现 `internal/types/operator.go` (`ConcurrentSafe`)。
+- `internal/types/operator.go` 同时提供可嵌入的 `ConcurrentSafeMarker`，作为内置和外部算子的标准声明方式。
+- 未实现 `ConcurrentSafe` 的 Transform 默认不允许进入并发分片路径；当前 `transform_normalize` 保持未标记，因为它依赖整个 item 集合语义，按 shard 执行会把全局 min/max 变成分片 min/max。
+
+这把 `data_parallel` 的实例能力判定收敛到真实持有算子实例的 Go 层，替代旧的跨 Python/Go 名称 blocklist 模式，避免双端事实源漂移。
 
 原子统计与 Provider metrics 分工如下：
 
@@ -505,7 +512,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 - **server hot-reload 快照不一致 — 已修复**：`pkg/server/server.go` 现已把 `*pine.Engine` 与 `*resource.Manager` 绑定进单一 `serverSnapshot`，并通过一个 `atomic.Pointer[serverSnapshot]` 统一管理。reload 时只做一次 snapshot swap，请求处理时也只 load 一次，因此不会再观察到“新 engine + 旧 resources”或“旧 engine + 新 resources”的混合版本快照。
 - **Lua state pool 生命周期缺口 — 已修复**：`operators/lua/pool.go` 的 `statePool` 现在提供 `Close()`，并跟踪池创建过的全部 state。引擎在 hot-reload 替换旧实例时，旧 pool 中持有的 Lua states/cgo 资源可以被完整释放，不再依赖进程退出回收。
 - **Lua baseline global 恢复不完整 — 已修复**：Lua pool 现在在每个 state 借出时记录该 state 的基线快照，并在 Return 时执行完整 baseline restoration，而不只是删除新增 global key。这样即使请求代码覆盖了已有全局变量，也会在归还时恢复，避免跨请求污染。
-- **`data_parallel` 算子实例可重入性缺口**：`internal/runtime/parallel.go` 会在单次请求内，把同一个算子实例并发调用到多个 shard。运行时当前没有 capability check 或 guard 去验证该实例是否支持这种并发重入；是否安全完全依赖算子作者自觉满足契约。当前尚无已实现的缓解措施。
+- **`data_parallel` 能力门由引擎加载期强制执行 — 已修复**：`pine.go` 的 `validateDataParallel` 现在在 `data_parallel > 1` 时要求算子实例实现 `ConcurrentSafe`。Apple 编译器不再维护并发安全 blocklist，只保留结构性校验（Transform + 无 `common_output`），从而把能力判定收敛到 Go 的单一事实源。`transform_normalize` 因依赖全集语义而保持未实现 `ConcurrentSafe`。
 
 HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Middlewares []func(http.Handler) http.Handler` 在启动 `ListenAndServe` 前按切片顺序从外到内包装整个 handler 链。也就是说，`Middlewares[0]` 最先看到请求、最后看到响应；`nil` 或空切片时行为与旧版一致。该注入点位于 server 边界层，不参与 Engine 编译、DAG 推导或配置热加载逻辑，因此业务侧可叠加访问日志、认证、限流等横切能力，而不必自行重写 Pineapple 的 reload / shutdown 框架。
 
