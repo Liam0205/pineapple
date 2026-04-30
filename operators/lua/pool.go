@@ -13,7 +13,12 @@ import (
 type statePool struct {
 	pool     sync.Pool
 	script   string
-	baseline map[string]struct{} // _G keys present after script load
+	baseline map[string]struct{} // _G key names present after script load
+
+	mu        sync.Mutex
+	allStates []*glua.LState
+	closed    bool
+	snapshots sync.Map // *glua.LState → map[string]glua.LValue (borrow-time values)
 
 	// always-on atomic counters (powers /stats)
 	borrowCount int64
@@ -63,6 +68,9 @@ func (sp *statePool) newState() (*glua.LState, error) {
 		L.Close()
 		return nil, err
 	}
+	sp.mu.Lock()
+	sp.allStates = append(sp.allStates, L)
+	sp.mu.Unlock()
 	return L, nil
 }
 
@@ -76,12 +84,18 @@ func (sp *statePool) Borrow() *glua.LState {
 	if sp.mActive != nil {
 		sp.mActive.Add(1)
 	}
-	return sp.pool.Get().(*glua.LState)
+	L := sp.pool.Get().(*glua.LState)
+	sp.snapshots.Store(L, snapshotBaselineValues(L, sp.baseline))
+	return L
 }
 
 // Return cleans up non-baseline globals and puts the state back in the pool.
 func (sp *statePool) Return(L *glua.LState) {
-	clearNonBaseline(L, sp.baseline)
+	var snap map[string]glua.LValue
+	if v, ok := sp.snapshots.LoadAndDelete(L); ok {
+		snap = v.(map[string]glua.LValue)
+	}
+	resetToBaseline(L, sp.baseline, snap)
 	sp.pool.Put(L)
 	atomic.AddInt64(&sp.returnCount, 1)
 	atomic.AddInt64(&sp.activeCount, -1)
@@ -109,8 +123,18 @@ func snapshotGlobals(L *glua.LState) map[string]struct{} {
 	return snapshot
 }
 
-// clearNonBaseline removes all globals not present in the baseline snapshot.
-func clearNonBaseline(L *glua.LState, baseline map[string]struct{}) {
+// snapshotBaselineValues captures current values of baseline globals for a specific state.
+func snapshotBaselineValues(L *glua.LState, baseline map[string]struct{}) map[string]glua.LValue {
+	snap := make(map[string]glua.LValue, len(baseline))
+	for k := range baseline {
+		snap[k] = L.GetGlobal(k)
+	}
+	return snap
+}
+
+// resetToBaseline removes non-baseline globals and restores modified/deleted baseline globals
+// using the per-state borrow-time snapshot.
+func resetToBaseline(L *glua.LState, baseline map[string]struct{}, borrowSnap map[string]glua.LValue) {
 	g := L.Get(glua.GlobalsIndex)
 	tbl, ok := g.(*glua.LTable)
 	if !ok {
@@ -119,13 +143,16 @@ func clearNonBaseline(L *glua.LState, baseline map[string]struct{}) {
 	var toRemove []string
 	tbl.ForEach(func(key glua.LValue, _ glua.LValue) {
 		if s, ok := key.(glua.LString); ok {
-			if _, base := baseline[string(s)]; !base {
+			if _, isBase := baseline[string(s)]; !isBase {
 				toRemove = append(toRemove, string(s))
 			}
 		}
 	})
 	for _, k := range toRemove {
 		L.SetGlobal(k, glua.LNil)
+	}
+	for k, v := range borrowSnap {
+		L.SetGlobal(k, v)
 	}
 }
 
@@ -136,6 +163,20 @@ func (sp *statePool) statsSnapshot() map[string]int64 {
 		"create_count": atomic.LoadInt64(&sp.createCount),
 		"active_count": atomic.LoadInt64(&sp.activeCount),
 	}
+}
+
+// Close releases all Lua states created by this pool.
+func (sp *statePool) Close() {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	if sp.closed {
+		return
+	}
+	sp.closed = true
+	for _, L := range sp.allStates {
+		L.Close()
+	}
+	sp.allStates = nil
 }
 
 func (sp *statePool) setMetrics(borrow, ret, create metrics.Counter, active metrics.Gauge) {

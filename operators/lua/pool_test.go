@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	glua "github.com/yuin/gopher-lua"
@@ -98,4 +99,109 @@ func TestPoolConcurrent(t *testing.T) {
 			t.Error(err)
 		}
 	}
+}
+
+func TestResetToBaselineRestoresModifiedGlobal(t *testing.T) {
+	L := glua.NewState()
+	defer L.Close()
+
+	baseline := snapshotGlobals(L)
+	snap := snapshotBaselineValues(L, baseline)
+
+	L.SetGlobal("tostring", glua.LString("hijacked"))
+
+	resetToBaseline(L, baseline, snap)
+
+	fn := L.GetGlobal("tostring")
+	if fn.Type() != glua.LTFunction {
+		t.Errorf("tostring type = %s, want function", fn.Type())
+	}
+}
+
+func TestResetToBaselineRestoresDeletedGlobal(t *testing.T) {
+	L := glua.NewState()
+	defer L.Close()
+
+	baseline := snapshotGlobals(L)
+	snap := snapshotBaselineValues(L, baseline)
+
+	L.SetGlobal("tostring", glua.LNil)
+
+	resetToBaseline(L, baseline, snap)
+
+	fn := L.GetGlobal("tostring")
+	if fn.Type() != glua.LTFunction {
+		t.Errorf("tostring type = %s, want function", fn.Type())
+	}
+}
+
+func TestPoolReturnRestoresModifiedBaseline(t *testing.T) {
+	sp, err := newStatePool(`function hijack() tostring = "pwned"; return 1 end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sp.Close()
+
+	const n = 5
+	states := make([]*glua.LState, n)
+	for i := range states {
+		states[i] = sp.Borrow()
+		if err := states[i].CallByParam(glua.P{Fn: states[i].GetGlobal("hijack"), NRet: 1, Protect: true}); err != nil {
+			t.Fatal(err)
+		}
+		states[i].Pop(1)
+	}
+	for _, L := range states {
+		sp.Return(L)
+	}
+
+	for i := 0; i < n; i++ {
+		L := sp.Borrow()
+		if L.GetGlobal("tostring").Type() != glua.LTFunction {
+			t.Errorf("state %d: tostring not restored after Return", i)
+		}
+		sp.Return(L)
+	}
+}
+
+func TestPoolCloseReleasesStates(t *testing.T) {
+	sp, err := newStatePool(`function f() return 1 end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 3; i++ {
+		L := sp.Borrow()
+		sp.Return(L)
+	}
+
+	created := atomic.LoadInt64(&sp.createCount)
+	if created == 0 {
+		t.Fatal("expected at least one state created")
+	}
+
+	sp.mu.Lock()
+	tracked := len(sp.allStates)
+	sp.mu.Unlock()
+	if int64(tracked) != created {
+		t.Errorf("tracked %d states, but %d created", tracked, created)
+	}
+
+	sp.Close()
+
+	sp.mu.Lock()
+	remaining := sp.allStates
+	sp.mu.Unlock()
+	if remaining != nil {
+		t.Errorf("expected nil allStates after Close, got %d entries", len(remaining))
+	}
+}
+
+func TestPoolCloseIdempotent(t *testing.T) {
+	sp, err := newStatePool(`function f() return 1 end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp.Close()
+	sp.Close()
 }
