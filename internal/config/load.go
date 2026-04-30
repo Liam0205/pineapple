@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/Liam0205/pineapple/internal/registry"
 	"github.com/Liam0205/pineapple/internal/types"
@@ -198,6 +199,41 @@ func validate(cfg *RootConfig) error {
 			if _, ok := cfg.PipelineConfig.Operators[src]; !ok {
 				return &types.ConfigError{
 					Message: fmt.Sprintf("operator %q: sources references undefined operator %q", name, src),
+				}
+			}
+		}
+	}
+
+	// Skip field names must start with '_' (engine-internal control fields)
+	for name, op := range cfg.PipelineConfig.Operators {
+		for _, skipField := range op.Skip {
+			if !strings.HasPrefix(skipField, "_") {
+				return &types.ConfigError{
+					Message: fmt.Sprintf(
+						"operator %q: skip field %q must start with '_' "+
+							"(control fields are engine-internal)",
+						name, skipField),
+				}
+			}
+		}
+	}
+
+	// Skip fields must also appear in $metadata.common_input (DAG ordering)
+	for name, op := range cfg.PipelineConfig.Operators {
+		for _, skipField := range op.Skip {
+			found := false
+			for _, ci := range op.Meta.CommonInput {
+				if ci == skipField {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return &types.ConfigError{
+					Message: fmt.Sprintf(
+						"operator %q: skip field %q must also appear in "+
+							"$metadata.common_input to ensure correct DAG ordering",
+						name, skipField),
 				}
 			}
 		}

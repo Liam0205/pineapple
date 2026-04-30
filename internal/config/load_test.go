@@ -502,3 +502,76 @@ func FuzzLoad(f *testing.F) {
 		}
 	})
 }
+
+func TestValidateSkipNotInCommonInput(t *testing.T) {
+	data := []byte(`{
+		"pipeline_config": {
+			"operators": {
+				"ctrl": {
+					"type_name": "transform_by_lua",
+					"$metadata": {"common_input": [], "common_output": ["_if_1"], "item_input": [], "item_output": []},
+					"for_branch_control": true
+				},
+				"op": {
+					"type_name": "noop",
+					"$metadata": {"common_input": [], "common_output": [], "item_input": [], "item_output": []},
+					"skip": ["_if_1"]
+				}
+			},
+			"pipeline_map": {}
+		},
+		"pipeline_group": {"main": {"pipeline": ["ctrl", "op"]}},
+		"flow_contract": {"common_input": [], "item_input": [], "common_output": [], "item_output": []}
+	}`)
+	_, err := Load(data)
+	if err == nil {
+		t.Error("expected error for skip field not in common_input")
+	}
+}
+
+func TestValidateSkipFieldNoUnderscorePrefix(t *testing.T) {
+	data := []byte(`{
+		"pipeline_config": {
+			"operators": {
+				"op": {
+					"type_name": "noop",
+					"$metadata": {"common_input": ["bad_field"], "common_output": [], "item_input": [], "item_output": []},
+					"skip": ["bad_field"]
+				}
+			},
+			"pipeline_map": {}
+		},
+		"pipeline_group": {"main": {"pipeline": ["op"]}},
+		"flow_contract": {"common_input": [], "item_input": [], "common_output": [], "item_output": []}
+	}`)
+	_, err := Load(data)
+	if err == nil {
+		t.Error("expected error for skip field without _ prefix")
+	}
+}
+
+func TestValidateSkipFieldValid(t *testing.T) {
+	data := []byte(`{
+		"pipeline_config": {
+			"operators": {
+				"ctrl": {
+					"type_name": "transform_by_lua",
+					"$metadata": {"common_input": [], "common_output": ["_if_1"], "item_input": [], "item_output": []},
+					"for_branch_control": true
+				},
+				"op": {
+					"type_name": "noop",
+					"$metadata": {"common_input": ["_if_1"], "common_output": [], "item_input": [], "item_output": []},
+					"skip": ["_if_1"]
+				}
+			},
+			"pipeline_map": {}
+		},
+		"pipeline_group": {"main": {"pipeline": ["ctrl", "op"]}},
+		"flow_contract": {"common_input": [], "item_input": [], "common_output": [], "item_output": []}
+	}`)
+	_, err := Load(data)
+	if err != nil {
+		t.Errorf("expected valid config to pass, got: %v", err)
+	}
+}
