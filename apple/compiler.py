@@ -78,7 +78,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         flow._common_output,
         flow._item_output,
     )
-    if dead:
+    if dead and not getattr(flow, '_skip_dead_code', False):
         raise ValidationError(
             f"dead operators detected (output not consumed): {dead}"
         )

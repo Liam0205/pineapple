@@ -276,6 +276,7 @@ class Flow(_FlowBase):
         storage_mode: str | None = None,
         log_prefix: str | None = None,
         debug: bool = False,
+        skip_dead_code: bool = False,
     ):
         super().__init__(name)
         self._common_input = common_input or []
@@ -294,6 +295,7 @@ class Flow(_FlowBase):
         self._storage_mode = storage_mode
         self._log_prefix = log_prefix
         self._debug = debug
+        self._skip_dead_code = skip_dead_code
 
     def resource(self, name: str, res: BaseResource) -> Flow:
         """Declare a resource this flow depends on."""
