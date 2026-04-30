@@ -22,8 +22,9 @@ if [ -f "go.mod" ]; then
 fi
 
 if [ -n "$errors" ]; then
-  echo -e "$errors"
+  echo -e "$errors" >&2
   exit 2
 fi
 
+echo "lint ok" >&2
 exit 0
