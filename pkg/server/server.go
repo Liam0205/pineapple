@@ -30,9 +30,15 @@ type Config struct {
 	Middlewares []func(http.Handler) http.Handler // Optional: HTTP middlewares applied outer-to-inner
 }
 
+// serverSnapshot bundles engine and resources into a single atomic unit
+// so that requests always observe a consistent pair.
+type serverSnapshot struct {
+	engine    *pine.Engine
+	resources *resource.Manager
+}
+
 var (
-	enginePtr atomic.Pointer[pine.Engine]
-	resources atomic.Pointer[resource.Manager]
+	snapshot atomic.Pointer[serverSnapshot]
 
 	// server-level atomic counters (powers /stats)
 	reloadCount          atomic.Int64
@@ -92,7 +98,6 @@ func Run(cfg Config) error {
 	if err != nil {
 		log.Fatalf("failed to load engine: %v", err)
 	}
-	enginePtr.Store(engine)
 	log.Printf("engine loaded from %s", cfg.ConfigPath)
 
 	// Initialize ResourceManager.
@@ -113,8 +118,9 @@ func Run(cfg Config) error {
 	if err := rm.Start(context.Background()); err != nil {
 		log.Fatalf("failed to start resource manager: %v", err)
 	}
-	resources.Store(rm)
-	defer resources.Load().Stop()
+
+	snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
+	defer snapshot.Load().resources.Stop()
 
 	// Validate resource dependencies against pipeline config.
 	if err := resource.ValidateResourceDeps(configData, rm); err != nil {
@@ -181,10 +187,9 @@ func reloadConfig(path string) error {
 		return err
 	}
 
-	enginePtr.Store(engine)
-	oldRM := resources.Swap(newRM)
-	if oldRM != nil {
-		oldRM.Stop()
+	old := snapshot.Swap(&serverSnapshot{engine: engine, resources: newRM})
+	if old != nil {
+		old.resources.Stop()
 	}
 	return nil
 }
@@ -248,8 +253,8 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	engine := enginePtr.Load()
-	if engine == nil {
+	snap := snapshot.Load()
+	if snap == nil {
 		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
 		return
 	}
@@ -266,8 +271,8 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inject resources into context so operators can access them.
-	ctx := resource.WithResources(r.Context(), resources.Load())
-	result, err := engine.Execute(ctx, pineReq)
+	ctx := resource.WithResources(r.Context(), snap.resources)
+	result, err := snap.engine.Execute(ctx, pineReq)
 
 	resp := executeResponse{}
 	if result != nil {
@@ -309,18 +314,18 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	engine := enginePtr.Load()
-	if engine == nil {
+	snap := snapshot.Load()
+	if snap == nil {
 		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
 		return
 	}
 
 	resp := map[string]any{
-		"operators": engine.Stats(),
-		"scheduler": engine.SchedulerStats(),
+		"operators": snap.engine.Stats(),
+		"scheduler": snap.engine.SchedulerStats(),
 		"server":    serverStats(),
 	}
-	if custom := engine.OperatorCustomStats(); custom != nil {
+	if custom := snap.engine.OperatorCustomStats(); custom != nil {
 		resp["operator_detail"] = custom
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -340,8 +345,8 @@ func handleDAG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	engine := enginePtr.Load()
-	if engine == nil {
+	snap := snapshot.Load()
+	if snap == nil {
 		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
 		return
 	}
@@ -363,7 +368,7 @@ func handleDAG(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	output, err := engine.RenderDAG(format, opts...)
+	output, err := snap.engine.RenderDAG(format, opts...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

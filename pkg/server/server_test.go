@@ -181,16 +181,17 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 		t.Fatalf("initial reloadConfig failed: %v", err)
 	}
 	defer func() {
-		if rm := resources.Load(); rm != nil {
-			rm.Stop()
+		if snap := snapshot.Load(); snap != nil {
+			snap.resources.Stop()
 		}
 	}()
 
 	// Verify engine and resources are loaded
-	if enginePtr.Load() == nil {
+	snap := snapshot.Load()
+	if snap == nil || snap.engine == nil {
 		t.Fatal("engine should be loaded")
 	}
-	rm := resources.Load()
+	rm := snap.resources
 	if rm == nil {
 		t.Fatal("resources should be loaded")
 	}
@@ -208,7 +209,7 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 		t.Fatalf("second reloadConfig failed: %v", err)
 	}
 
-	newRM := resources.Load()
+	newRM := snapshot.Load().resources
 	if newRM == oldRM {
 		t.Error("expected new Manager after reload")
 	}
@@ -258,13 +259,12 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 		t.Fatalf("initial reloadConfig failed: %v", err)
 	}
 	defer func() {
-		if rm := resources.Load(); rm != nil {
-			rm.Stop()
+		if snap := snapshot.Load(); snap != nil {
+			snap.resources.Stop()
 		}
 	}()
 
-	origEngine := enginePtr.Load()
-	origRM := resources.Load()
+	origSnap := snapshot.Load()
 
 	// Config with bad resource — Start should fail
 	cfg2 := minimalConfig(t, map[string]any{
@@ -281,15 +281,16 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 	}
 
 	// Engine and resources should be unchanged
-	if enginePtr.Load() != origEngine {
+	curSnap := snapshot.Load()
+	if curSnap.engine != origSnap.engine {
 		t.Error("engine should not change on failed reload")
 	}
-	if resources.Load() != origRM {
+	if curSnap.resources != origSnap.resources {
 		t.Error("resources should not change on failed reload")
 	}
 
 	// Old resources still work
-	val, ok := origRM.Get("r1")
+	val, ok := origSnap.resources.Get("r1")
 	if !ok || val != "ok" {
 		t.Errorf("old resource should still work, got %v, %v", val, ok)
 	}
@@ -306,15 +307,16 @@ func TestReloadConfig_NoResources(t *testing.T) {
 		t.Fatalf("reloadConfig with no resources failed: %v", err)
 	}
 	defer func() {
-		if rm := resources.Load(); rm != nil {
-			rm.Stop()
+		if snap := snapshot.Load(); snap != nil {
+			snap.resources.Stop()
 		}
 	}()
 
-	if enginePtr.Load() == nil {
+	snap := snapshot.Load()
+	if snap == nil || snap.engine == nil {
 		t.Fatal("engine should be loaded")
 	}
-	rm := resources.Load()
+	rm := snap.resources
 	if rm == nil {
 		t.Fatal("resources manager should exist even without resources")
 	}
@@ -350,13 +352,13 @@ func TestReloadConfig_OldManagerStopped(t *testing.T) {
 	if err := reloadConfig(path); err != nil {
 		t.Fatal(err)
 	}
-	oldRM := resources.Load()
+	oldRM := snapshot.Load().resources
 
 	// Reload to replace
 	if err := reloadConfig(path); err != nil {
 		t.Fatal(err)
 	}
-	defer resources.Load().Stop()
+	defer snapshot.Load().resources.Stop()
 
 	// Old Manager data is still readable (atomic.Value persists after Stop)
 	val, ok := oldRM.Get("r")
@@ -398,12 +400,12 @@ func TestWatchConfigIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if rm := resources.Load(); rm != nil {
-			rm.Stop()
+		if snap := snapshot.Load(); snap != nil {
+			snap.resources.Stop()
 		}
 	}()
 
-	rm := resources.Load()
+	rm := snapshot.Load().resources
 	val, _ := rm.Get("wr")
 	if val != "initial" {
 		t.Errorf("val = %v, want initial", val)
@@ -430,12 +432,10 @@ func setupEngine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enginePtr.Store(engine)
 	rm := resource.NewManager()
-	resources.Store(rm)
+	snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
 	t.Cleanup(func() {
-		enginePtr.Store(nil)
-		resources.Store(nil)
+		snapshot.Store(nil)
 	})
 }
 
@@ -519,7 +519,7 @@ func TestHandleExecute_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleExecute_EngineNotLoaded(t *testing.T) {
-	enginePtr.Store(nil)
+	snapshot.Store(nil)
 
 	body := `{"common":{"x":1}}`
 	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
@@ -570,7 +570,7 @@ func TestHandleStats_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleStats_EngineNotLoaded(t *testing.T) {
-	enginePtr.Store(nil)
+	snapshot.Store(nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
 	w := httptest.NewRecorder()
@@ -625,7 +625,7 @@ func TestHandleDAG_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleDAG_EngineNotLoaded(t *testing.T) {
-	enginePtr.Store(nil)
+	snapshot.Store(nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/dag", nil)
 	w := httptest.NewRecorder()
@@ -723,11 +723,10 @@ func TestServerHighConcurrencyStress(t *testing.T) {
 		t.Fatalf("initial reloadConfig: %v", err)
 	}
 	t.Cleanup(func() {
-		if rm := resources.Load(); rm != nil {
-			rm.Stop()
+		if snap := snapshot.Load(); snap != nil {
+			snap.resources.Stop()
 		}
-		enginePtr.Store(nil)
-		resources.Store(nil)
+		snapshot.Store(nil)
 	})
 
 	mux := http.NewServeMux()
@@ -861,11 +860,10 @@ func benchmarkHTTPServerExecuteThroughput(
 		b.Fatalf("initial reloadConfig: %v", err)
 	}
 	b.Cleanup(func() {
-		if rm := resources.Load(); rm != nil {
-			rm.Stop()
+		if snap := snapshot.Load(); snap != nil {
+			snap.resources.Stop()
 		}
-		enginePtr.Store(nil)
-		resources.Store(nil)
+		snapshot.Store(nil)
 	})
 
 	mux := http.NewServeMux()

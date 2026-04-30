@@ -499,11 +499,11 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 
 ### 已知运行时操作风险
 
-以下风险已在代码审计中确认，当前仅作为稳定运维认知记录，尚未在运行时彻底修复。
+以下风险已在代码审计中确认；其中部分已修复，仍保留的条目用于提示当前仍需运维关注的不变量。
 
-- **server hot-reload 快照不一致**：`pkg/server/server.go` 在 reload 时分别对 engine 和 resources 做两次独立原子替换。两次 swap 之间进入的请求，可能看到“新 engine + 旧 resources”或“旧 engine + 新 resources”的混合快照。计划中的修复方向是把两者打包进单一原子快照后一次性切换；当前尚未实现。
-- **Lua state pool 生命周期缺口**：`operators/lua/pool.go` 没有 `Close()`，引擎在 hot-reload 替换时无法主动释放旧 pool 中持有的 cgo Lua states，因此 reload 会累积泄漏。当前尚无已实现的缓解措施。
-- **Lua baseline global 恢复不完整**：Lua pool 归还状态时只删除“新增的全局变量”，不会恢复“修改过的基线全局变量”。这意味着同一池中复用的 state 之间仍可能发生跨请求污染。当前尚无已实现的缓解措施。
+- **server hot-reload 快照不一致 — 已修复**：`pkg/server/server.go` 现已把 `*pine.Engine` 与 `*resource.Manager` 绑定进单一 `serverSnapshot`，并通过一个 `atomic.Pointer[serverSnapshot]` 统一管理。reload 时只做一次 snapshot swap，请求处理时也只 load 一次，因此不会再观察到“新 engine + 旧 resources”或“旧 engine + 新 resources”的混合版本快照。
+- **Lua state pool 生命周期缺口 — 已修复**：`operators/lua/pool.go` 的 `statePool` 现在提供 `Close()`，并跟踪池创建过的全部 state。引擎在 hot-reload 替换旧实例时，旧 pool 中持有的 Lua states/cgo 资源可以被完整释放，不再依赖进程退出回收。
+- **Lua baseline global 恢复不完整 — 已修复**：Lua pool 现在在每个 state 借出时记录该 state 的基线快照，并在 Return 时执行完整 baseline restoration，而不只是删除新增 global key。这样即使请求代码覆盖了已有全局变量，也会在归还时恢复，避免跨请求污染。
 - **`data_parallel` 算子实例可重入性缺口**：`internal/runtime/parallel.go` 会在单次请求内，把同一个算子实例并发调用到多个 shard。运行时当前没有 capability check 或 guard 去验证该实例是否支持这种并发重入；是否安全完全依赖算子作者自觉满足契约。当前尚无已实现的缓解措施。
 
 HTTP 路由先由 `http.ServeMux` 注册内部端点，再由 `server.Config.Middlewares []func(http.Handler) http.Handler` 在启动 `ListenAndServe` 前按切片顺序从外到内包装整个 handler 链。也就是说，`Middlewares[0]` 最先看到请求、最后看到响应；`nil` 或空切片时行为与旧版一致。该注入点位于 server 边界层，不参与 Engine 编译、DAG 推导或配置热加载逻辑，因此业务侧可叠加访问日志、认证、限流等横切能力，而不必自行重写 Pineapple 的 reload / shutdown 框架。
