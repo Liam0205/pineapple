@@ -209,6 +209,8 @@
 
 `data_parallel` 仅支持 Transform。启用时，`$metadata.common_output` 必须为空；其他算子类型在编译期拒绝该配置。
 
+当算子被用于 `data_parallel > 1` 时，还必须满足额外契约：同一个算子实例会在单次请求内被多个 shard 并发调用，因此 `Execute()` 必须对“同实例并发重入”安全。当前运行时不会自动检测或强制这一点；是否满足该条件由算子作者自行保证。
+
 需记住的附加语义：
 
 - Filter、Merge 和 Reorder 是 DAG 构建中的屏障类型。

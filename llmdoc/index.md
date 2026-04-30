@@ -56,3 +56,4 @@
 - `llmdoc/memory/reflections/recurring-errcheck-ci-failure.md` — errcheck CI 失败复现复盘，记录已有警告未生效根因与标准工作流强化方案。
 - `llmdoc/memory/reflections/global-log-prefix.md` — 全局日志前缀功能复盘，记录 root-level `log_prefix` 扩展路径、标准库全局 logger 约束，以及首版遗漏 `Lshortfile` 的教训。
 - `llmdoc/memory/reflections/nested-subflow-multi-skip-design-gaps.md` — nested SubFlow multi-skip 设计缺口复盘，记录单路径思维、IR 原地变异非幂等性、声明期/编译期字段名漂移三类遗漏根因与防范方法。
+- `llmdoc/memory/reflections/deep-risk-audit-post-v061.md` — v0.6.1 后深度风险审计复盘，记录 server reload 一致性、Lua pool 生命周期、data_parallel 可重入等运行时操作健壮性缺口。

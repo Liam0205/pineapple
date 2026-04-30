@@ -408,6 +408,8 @@ Apple 仍输出单个名为 `main` 的 group，但 `pipeline_group.main.pipeline
 - `common_output` 必须为空，避免多个并发 worker 竞争写入 common 域
 - 算子不能在 `_DATA_PARALLEL_UNSAFE_TRANSFORMS` 中；该集合用于拒绝依赖完整 item 集合语义的 Transform，例如 `transform_normalize`
 
+这里还有一个稳定的跨语言维护风险：Apple 侧 `apple/validator.py` 与 Go 侧 `pine.go` 目前各自维护一份“对 `data_parallel` 不安全的 transform 名单”。两份列表需要人工保持同步，当前没有单一事实源或自动一致性校验，因此未来新增/调整 unsafe transform 时存在 Python/Go 漂移风险。
+
 该规则的目标不是替代引擎校验，而是把原本会在 Go 侧加载配置时失败的错误前移到 Apple compile time，尽早暴露 DSL 声明与引擎约束不匹配的问题。
 
 ### 6. 参数-元数据一致性
