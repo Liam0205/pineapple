@@ -109,41 +109,53 @@ def validate_write_without_read(
     ops: list[tuple[str, OpCall]],
     flow_common_input: list[str],
     flow_item_input: list[str],
+    exclusion_groups: list[set[str]] | None = None,
 ) -> None:
     """Detect writing a field that already exists (from upstream operator output)
     without reading it. Flow-contract inputs are not flagged — operators are
     allowed to output fields that match flow inputs without reading them.
 
-    Operators inside a control-flow branch (``skip`` is set) are exempt from
-    *being flagged* AND their outputs do not count as "already written" for
-    downstream checks.  This is because mutually exclusive branches (if/else)
-    may legitimately write the same field without reading it."""
-    # Track fields written by operators (not flow contract).
-    # Only unconditional (non-skip) operators contribute.
-    written_by_ops_common: set[str] = set()
-    written_by_ops_item: set[str] = set()
+    Operators in mutually exclusive branches (same ControlBlock, different
+    branches) may write the same field without reading it.  Two independent
+    if blocks are NOT mutually exclusive and will be flagged."""
+    groups = exclusion_groups or []
+
+    def _are_mutually_exclusive(skip_a: list[str], skip_b: list[str]) -> bool:
+        for group in groups:
+            fields_a = group & set(skip_a)
+            fields_b = group & set(skip_b)
+            if fields_a and fields_b and fields_a != fields_b:
+                return True
+        return False
+
+    writers_common: dict[str, tuple[str, list[str]]] = {}
+    writers_item: dict[str, tuple[str, list[str]]] = {}
 
     for name, op in ops:
-        if op.skip:
-            continue  # branch-internal ops are exempt
         for field in op.common_output:
             if field.startswith("_"):
                 continue
-            if field in written_by_ops_common and field not in op.common_input:
-                raise ValidationError(
-                    f"{_op_location(name, op)}writes common field {field!r} "
-                    f"without reading it (field already exists from upstream)"
-                )
+            if field in writers_common:
+                prior_name, prior_skip = writers_common[field]
+                if not _are_mutually_exclusive(prior_skip, op.skip):
+                    if field not in op.common_input:
+                        raise ValidationError(
+                            f"{_op_location(name, op)}writes common field {field!r} "
+                            f"without reading it (field already exists from upstream)"
+                        )
+            writers_common[field] = (name, list(op.skip))
         for field in op.item_output:
             if field.startswith("_"):
                 continue
-            if field in written_by_ops_item and field not in op.item_input:
-                raise ValidationError(
-                    f"{_op_location(name, op)}writes item field {field!r} "
-                    f"without reading it (field already exists from upstream)"
-                )
-        written_by_ops_common.update(op.common_output)
-        written_by_ops_item.update(op.item_output)
+            if field in writers_item:
+                prior_name, prior_skip = writers_item[field]
+                if not _are_mutually_exclusive(prior_skip, op.skip):
+                    if field not in op.item_input:
+                        raise ValidationError(
+                            f"{_op_location(name, op)}writes item field {field!r} "
+                            f"without reading it (field already exists from upstream)"
+                        )
+            writers_item[field] = (name, list(op.skip))
 
 
 def validate_data_parallel(ops: list[tuple[str, OpCall]]) -> None:

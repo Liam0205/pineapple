@@ -36,7 +36,8 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     all_ops: list[OpCall] = []
     structures: dict[str, list[tuple[str, Any]]] = {}
     visited: set[int] = set()
-    _traverse(flow, "", all_ops, structures, visited)
+    exclusion_groups: list[set[str]] = []
+    _traverse(flow, "", all_ops, structures, visited, exclusion_groups=exclusion_groups)
 
     # 3. Generate unique names
     named_ops: list[tuple[str, OpCall]] = []
@@ -70,6 +71,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         named_ops,
         flow._common_input or [],
         flow._item_input or [],
+        exclusion_groups=exclusion_groups,
     )
     validate_data_parallel(named_ops)
     validate_param_metadata_consistency(named_ops)
@@ -232,10 +234,13 @@ def _traverse(
     structures: dict[str, list[tuple[str, Any]]],
     visited: set[int],
     inherited_skips: list[str] | None = None,
+    exclusion_groups: list[set[str]] | None = None,
 ) -> None:
     """Recursively traverse _child_order, collecting ops and structure."""
     if inherited_skips is None:
         inherited_skips = []
+    if exclusion_groups is None:
+        exclusion_groups = []
     obj_id = id(node)
     if obj_id in visited:
         raise ValidationError(
@@ -279,7 +284,7 @@ def _traverse(
                 field_renames,
             )
             child_skips = inherited_skips + parent_skips
-            _traverse(sf, sf_path, all_ops, structures, visited, child_skips)
+            _traverse(sf, sf_path, all_ops, structures, visited, child_skips, exclusion_groups)
 
     # Apply inherited_skips AFTER all renames are complete so that inherited
     # fields (e.g. _if_1 from an outer branch) are never incorrectly renamed
@@ -292,6 +297,16 @@ def _traverse(
                     op.skip.append(s)
                 if s not in op.common_input:
                     op.common_input = [s] + op.common_input
+
+    # Collect exclusion groups from closed control blocks (after renames)
+    for block in getattr(node, '_closed_blocks', []):
+        group: set[str] = set()
+        for branch in block.branches:
+            original = branch.ctrl_field
+            renamed = field_renames.get(original, original)
+            group.add(renamed)
+        if len(group) > 1:
+            exclusion_groups.append(group)
 
     structures[path] = entries
 

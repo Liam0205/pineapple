@@ -81,8 +81,41 @@ class TestWriteWithoutRead:
         .end_if_()
         flow.compile()  # should not raise
 
+    def test_independent_if_blocks_write_same_field_rejected(self):
+        """Two independent if blocks writing the same field is NOT safe."""
+        flow = Flow(name="bad", common_input=["x"], common_output=["salt"])
+        flow.if_("{{x}} == 1") \
+            ._add_op("transform_by_lua",
+                     common_input=["x"], common_output=["salt"],
+                     lua_script="function f() return 'a' end",
+                     function_for_common="f", function_for_item="") \
+        .end_if_()
+        flow.if_("{{x}} == 2") \
+            ._add_op("transform_by_lua",
+                     common_output=["salt"],
+                     lua_script="function g() return 'b' end",
+                     function_for_common="g", function_for_item="") \
+        .end_if_()
+        with pytest.raises(ValidationError, match="writes common field"):
+            flow.compile()
 
-class TestDeadCode:
+    def test_nested_branch_write_same_field_ok(self):
+        """Inner branch under outer if can write the same field as outer else."""
+        flow = Flow(name="ok", common_input=["x", "y"], common_output=["salt"])
+        flow.if_("{{x}} ~= nil") \
+            .if_("{{y}} ~= nil") \
+                ._add_op("transform_by_lua",
+                         common_input=["x", "y"], common_output=["salt"],
+                         lua_script="function f() return x end",
+                         function_for_common="f", function_for_item="") \
+            .end_if_() \
+        .else_() \
+            ._add_op("transform_by_lua",
+                     common_output=["salt"],
+                     lua_script="function g() return 'default' end",
+                     function_for_common="g", function_for_item="") \
+        .end_if_()
+        flow.compile()  # should not raise
     def test_dead_operator(self):
         flow = Flow(
             name="dead",

@@ -58,6 +58,7 @@ class _FlowBase:
         # Control flow state
         self._ctrl_counter = 0
         self._ctrl_stack: list[ControlBlock] = []
+        self._closed_blocks: list[ControlBlock] = []
         self._parent_skips: list[str] = []
 
     def _active_skip_fields(self, include_current: bool = True) -> list[str]:
@@ -244,6 +245,7 @@ class _FlowBase:
             raise ValueError("end_if_ without matching if_")
         block = self._ctrl_stack.pop()
         block.closed = True
+        self._closed_blocks.append(block)
         for branch in block.branches:
             has_ops = any(branch.ctrl_field in op.skip for op in self._ops)
             has_subflows = any(
