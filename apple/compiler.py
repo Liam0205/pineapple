@@ -253,7 +253,7 @@ def _traverse(
             # Disambiguate control-flow fields inside SubFlows by prefixing
             # the SubFlow path onto the control field name and operator name.
             if path and op.for_branch_control and op.name:
-                prefix = path.replace("/", "_") + "_"
+                prefix = path.replace("/", "::") + "::"
                 old_field = op.common_output[0] if op.common_output else None
                 new_field = f"_{prefix}{op.name}" if old_field else None
                 if old_field and new_field and old_field != new_field:

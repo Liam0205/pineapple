@@ -1,9 +1,9 @@
 {
   "_PINEAPPLE_VERSION": "0.6.1",
-  "_PINEAPPLE_CREATE_TIME": "2026-04-30T03:44:27Z",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-30T10:01:48Z",
   "pipeline_config": {
     "operators": {
-      "recall_static_3D8C80": {
+      "recall_static_BE820B": {
         "type_name": "recall_static",
         "$metadata": {
           "common_input": [],
@@ -18,8 +18,8 @@
         "recall": true,
         "items": [
           {
-            "item_id": "x",
-            "item_score": 42.0
+            "item_id": "test",
+            "item_score": 1.0
           }
         ]
       },
@@ -41,7 +41,7 @@
         "function_for_item": "",
         "function_for_common": "evaluate"
       },
-      "transform_by_lua_133E6C": {
+      "mark_l1": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
@@ -52,18 +52,19 @@
             "item_score"
           ],
           "item_output": [
+            "item_score",
             "mark_l1"
           ]
         },
-        "$code_info": "<string>:25 in <module>(): .transform_by_lua(...)",
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
         "skip": [
           "_if_1"
         ],
-        "lua_script": "function f() return 1 end",
+        "lua_script": "function f(item_score) return item_score, true end",
         "function_for_item": "f",
         "function_for_common": ""
       },
-      "L1_if_1": {
+      "L1::if_1": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
@@ -71,7 +72,7 @@
             "flag_l1"
           ],
           "common_output": [
-            "_L1_if_1"
+            "_L1::if_1"
           ],
           "item_input": [],
           "item_output": []
@@ -85,11 +86,11 @@
         "function_for_item": "",
         "function_for_common": "evaluate"
       },
-      "transform_by_lua_4AB2B2": {
+      "mark_l2": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
-            "_L1_if_1",
+            "_L1::if_1",
             "_if_1"
           ],
           "common_output": [],
@@ -97,28 +98,29 @@
             "item_score"
           ],
           "item_output": [
+            "item_score",
             "mark_l2"
           ]
         },
-        "$code_info": "<string>:18 in <module>(): .transform_by_lua(...)",
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
         "skip": [
           "_if_1",
-          "_L1_if_1"
+          "_L1::if_1"
         ],
-        "lua_script": "function f() return 1 end",
+        "lua_script": "function f(item_score) return item_score, true end",
         "function_for_item": "f",
         "function_for_common": ""
       },
-      "L1_L2_if_1": {
+      "L1::L2::if_1": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
-            "_L1_if_1",
+            "_L1::if_1",
             "_if_1",
             "flag_l2"
           ],
           "common_output": [
-            "_L1_L2_if_1"
+            "_L1::L2::if_1"
           ],
           "item_input": [],
           "item_output": []
@@ -126,19 +128,19 @@
         "$code_info": "[if] {{flag_l2}}",
         "skip": [
           "_if_1",
-          "_L1_if_1"
+          "_L1::if_1"
         ],
         "for_branch_control": true,
         "lua_script": "function evaluate() if (flag_l2) then return false else return true end end",
         "function_for_item": "",
         "function_for_common": "evaluate"
       },
-      "transform_by_lua_4B5959": {
+      "mark_l3": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
-            "_L1_L2_if_1",
-            "_L1_if_1",
+            "_L1::L2::if_1",
+            "_L1::if_1",
             "_if_1"
           ],
           "common_output": [],
@@ -146,30 +148,31 @@
             "item_score"
           ],
           "item_output": [
+            "item_score",
             "mark_l3"
           ]
         },
-        "$code_info": "<string>:7 in <module>(): .transform_by_lua(...)",
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
         "skip": [
           "_if_1",
-          "_L1_if_1",
-          "_L1_L2_if_1"
+          "_L1::if_1",
+          "_L1::L2::if_1"
         ],
-        "lua_script": "function f() return 1 end",
+        "lua_script": "function f(item_score) return item_score, true end",
         "function_for_item": "f",
         "function_for_common": ""
       },
-      "L1_L2_L3_if_1": {
+      "L1::L2::L3::if_1": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
-            "_L1_L2_if_1",
-            "_L1_if_1",
+            "_L1::L2::if_1",
+            "_L1::if_1",
             "_if_1",
             "flag_l3"
           ],
           "common_output": [
-            "_L1_L2_L3_if_1"
+            "_L1::L2::L3::if_1"
           ],
           "item_input": [],
           "item_output": []
@@ -177,39 +180,40 @@
         "$code_info": "[if] {{flag_l3}}",
         "skip": [
           "_if_1",
-          "_L1_if_1",
-          "_L1_L2_if_1"
+          "_L1::if_1",
+          "_L1::L2::if_1"
         ],
         "for_branch_control": true,
         "lua_script": "function evaluate() if (flag_l3) then return false else return true end end",
         "function_for_item": "",
         "function_for_common": "evaluate"
       },
-      "transform_by_lua_5F8089": {
+      "mark_leaf": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
-            "_L1_L2_if_1",
-            "_L1_if_1",
+            "_L1::L2::if_1",
+            "_L1::if_1",
             "_if_1",
-            "_L1_L2_L3_if_1"
+            "_L1::L2::L3::if_1"
           ],
           "common_output": [],
           "item_input": [
             "item_score"
           ],
           "item_output": [
+            "item_score",
             "mark_leaf"
           ]
         },
-        "$code_info": "<string>:11 in <module>(): .transform_by_lua(...)",
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
         "skip": [
-          "_L1_L2_L3_if_1",
+          "_L1::L2::L3::if_1",
           "_if_1",
-          "_L1_if_1",
-          "_L1_L2_if_1"
+          "_L1::if_1",
+          "_L1::L2::if_1"
         ],
-        "lua_script": "function f() return 1 end",
+        "lua_script": "function f(item_score) return item_score, true end",
         "function_for_item": "f",
         "function_for_common": ""
       },
@@ -231,7 +235,7 @@
         "function_for_item": "",
         "function_for_common": "evaluate"
       },
-      "transform_by_lua_00F830": {
+      "mark_else": {
         "type_name": "transform_by_lua",
         "$metadata": {
           "common_input": [
@@ -242,14 +246,15 @@
             "item_score"
           ],
           "item_output": [
+            "item_score",
             "mark_else"
           ]
         },
-        "$code_info": "<string>:40 in <module>(): .transform_by_lua(...)",
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
         "skip": [
           "_else_2"
         ],
-        "lua_script": "function f() return 1 end",
+        "lua_script": "function f(item_score) return item_score, true end",
         "function_for_item": "f",
         "function_for_common": ""
       }
@@ -257,22 +262,22 @@
     "pipeline_map": {
       "L1/L2/L3": {
         "pipeline": [
-          "transform_by_lua_4B5959",
-          "L1_L2_L3_if_1",
-          "transform_by_lua_5F8089"
+          "mark_l3",
+          "L1::L2::L3::if_1",
+          "mark_leaf"
         ]
       },
       "L1/L2": {
         "pipeline": [
-          "transform_by_lua_4AB2B2",
-          "L1_L2_if_1",
+          "mark_l2",
+          "L1::L2::if_1",
           "L1/L2/L3"
         ]
       },
       "L1": {
         "pipeline": [
-          "transform_by_lua_133E6C",
-          "L1_if_1",
+          "mark_l1",
+          "L1::if_1",
           "L1/L2"
         ]
       }
@@ -281,11 +286,11 @@
   "pipeline_group": {
     "main": {
       "pipeline": [
-        "recall_static_3D8C80",
+        "recall_static_BE820B",
         "if_1",
         "L1",
         "else_2",
-        "transform_by_lua_00F830"
+        "mark_else"
       ]
     }
   },

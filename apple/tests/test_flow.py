@@ -163,6 +163,13 @@ class TestSubFlow:
         with pytest.raises(ValueError, match="must not contain '/'"):
             flow.add_subflow(sf)
 
+    def test_add_subflow_double_colon_rejected(self):
+        import pytest
+        sf = SubFlow(name="a::b")
+        flow = Flow(name="test")
+        with pytest.raises(ValueError, match="must not contain '::'"):
+            flow.add_subflow(sf)
+
     def test_subflow_inside_if_branch(self):
         sf = SubFlow(name="ranking")
         sf.reorder_sort(
@@ -207,7 +214,7 @@ class TestSubFlow:
         )
         # Should have both the inner (renamed) skip and the outer skip
         assert "_if_1" in sort_op["skip"]  # outer flow's if
-        assert any("_inner_" in s for s in sort_op["skip"])  # inner SubFlow's renamed if
+        assert any("_inner::" in s for s in sort_op["skip"])  # inner SubFlow's renamed if
         assert len(sort_op["skip"]) == 2
 
     def test_subflow_if_else_both_branches(self):
@@ -291,7 +298,7 @@ class TestSubFlow:
         )
 
         renamed_field = ctrl_op["$metadata"]["common_output"][0]
-        assert renamed_field == "_parent_if_1"
+        assert renamed_field == "_parent::if_1"
         assert sort_op["skip"] == [renamed_field]
         assert renamed_field in sort_op["$metadata"]["common_input"]
         assert "_if_1" not in sort_op["skip"]
@@ -450,19 +457,19 @@ class TestDeepNesting:
         )
         assert transform_l1 is not None
 
-        # transform in L2 (outside L2's if): skip by _if_1 + _L1_if_1
+        # transform in L2 (outside L2's if): skip by _if_1 + _L1::if_1
         transform_l2 = next(
             op for n, op in biz_ops.items()
             if op["type_name"] == "transform_by_lua"
-            and sorted(op["skip"]) == sorted(["_if_1", "_L1_if_1"])
+            and sorted(op["skip"]) == sorted(["_if_1", "_L1::if_1"])
         )
         assert transform_l2 is not None
 
-        # transform in L3 (outside L3's if): skip by _if_1 + _L1_if_1 + _L1_L2_if_1
+        # transform in L3 (outside L3's if): skip by _if_1 + _L1::if_1 + _L1::L2::if_1
         transform_l3 = next(
             op for n, op in biz_ops.items()
             if op["type_name"] == "transform_by_lua"
-            and sorted(op["skip"]) == sorted(["_if_1", "_L1_if_1", "_L1_L2_if_1"])
+            and sorted(op["skip"]) == sorted(["_if_1", "_L1::if_1", "_L1::L2::if_1"])
         )
         assert transform_l3 is not None
 
@@ -473,7 +480,7 @@ class TestDeepNesting:
             and len(op["skip"]) == 4
         )
         assert sorted(transform_leaf["skip"]) == sorted([
-            "_L1_L2_L3_if_1", "_if_1", "_L1_if_1", "_L1_L2_if_1"
+            "_L1::L2::L3::if_1", "_if_1", "_L1::if_1", "_L1::L2::if_1"
         ])
 
         # else branch op: only _else_2
@@ -496,16 +503,16 @@ class TestDeepNesting:
 
         # --- 1d. control ops have correct inherited skips ---
         l1_ctrl = next(op for op in ctrl_ops.values()
-                       if op["$metadata"]["common_output"] == ["_L1_if_1"])
+                       if op["$metadata"]["common_output"] == ["_L1::if_1"])
         assert "_if_1" in l1_ctrl["skip"]
 
         l2_ctrl = next(op for op in ctrl_ops.values()
-                       if op["$metadata"]["common_output"] == ["_L1_L2_if_1"])
-        assert sorted(l2_ctrl["skip"]) == sorted(["_if_1", "_L1_if_1"])
+                       if op["$metadata"]["common_output"] == ["_L1::L2::if_1"])
+        assert sorted(l2_ctrl["skip"]) == sorted(["_if_1", "_L1::if_1"])
 
         l3_ctrl = next(op for op in ctrl_ops.values()
-                       if op["$metadata"]["common_output"] == ["_L1_L2_L3_if_1"])
-        assert sorted(l3_ctrl["skip"]) == sorted(["_if_1", "_L1_if_1", "_L1_L2_if_1"])
+                       if op["$metadata"]["common_output"] == ["_L1::L2::L3::if_1"])
+        assert sorted(l3_ctrl["skip"]) == sorted(["_if_1", "_L1::if_1", "_L1::L2::if_1"])
 
     def test_deep_nesting_compile_idempotent(self):
         """Compilation of deep nesting must be idempotent."""

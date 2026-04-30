@@ -146,6 +146,10 @@ class _FlowBase:
             raise ValueError(
                 f"SubFlow name must not contain '/': {sf._name!r}"
             )
+        if "::" in sf._name:
+            raise ValueError(
+                f"SubFlow name must not contain '::' (reserved separator): {sf._name!r}"
+            )
         sf._parent_skips = self._active_skip_fields()
         idx = len(self._sub_flows)
         self._sub_flows.append(sf)

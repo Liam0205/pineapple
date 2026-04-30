@@ -471,14 +471,14 @@ func buildDeepNestedGraph(t *testing.T) *Graph {
 			OperatorType: string(types.OpTypeTransform),
 			Meta: config.Metadata{
 				CommonInput:  []string{"flag_l1", "_if_1"},
-				CommonOutput: []string{"_L1_if_1"},
+				CommonOutput: []string{"_L1::if_1"},
 			},
 		},
 		"transform_l2": {
 			TypeName:     "transform_by_lua",
 			OperatorType: string(types.OpTypeTransform),
 			Meta: config.Metadata{
-				CommonInput: []string{"_if_1", "_L1_if_1"},
+				CommonInput: []string{"_if_1", "_L1::if_1"},
 				ItemInput:   []string{"item_score"},
 				ItemOutput:  []string{"item_score"},
 			},
@@ -487,15 +487,15 @@ func buildDeepNestedGraph(t *testing.T) *Graph {
 			TypeName:     "transform_by_lua",
 			OperatorType: string(types.OpTypeTransform),
 			Meta: config.Metadata{
-				CommonInput:  []string{"flag_l2", "_if_1", "_L1_if_1"},
-				CommonOutput: []string{"_L1_L2_if_1"},
+				CommonInput:  []string{"flag_l2", "_if_1", "_L1::if_1"},
+				CommonOutput: []string{"_L1::L2::if_1"},
 			},
 		},
 		"transform_l3": {
 			TypeName:     "transform_by_lua",
 			OperatorType: string(types.OpTypeTransform),
 			Meta: config.Metadata{
-				CommonInput: []string{"_if_1", "_L1_if_1", "_L1_L2_if_1"},
+				CommonInput: []string{"_if_1", "_L1::if_1", "_L1::L2::if_1"},
 				ItemInput:   []string{"item_score"},
 				ItemOutput:  []string{"item_score"},
 			},
@@ -504,15 +504,15 @@ func buildDeepNestedGraph(t *testing.T) *Graph {
 			TypeName:     "transform_by_lua",
 			OperatorType: string(types.OpTypeTransform),
 			Meta: config.Metadata{
-				CommonInput:  []string{"flag_l3", "_if_1", "_L1_if_1", "_L1_L2_if_1"},
-				CommonOutput: []string{"_L1_L2_L3_if_1"},
+				CommonInput:  []string{"flag_l3", "_if_1", "_L1::if_1", "_L1::L2::if_1"},
+				CommonOutput: []string{"_L1::L2::L3::if_1"},
 			},
 		},
 		"transform_leaf": {
 			TypeName:     "transform_by_lua",
 			OperatorType: string(types.OpTypeTransform),
 			Meta: config.Metadata{
-				CommonInput: []string{"_L1_L2_L3_if_1", "_if_1", "_L1_if_1", "_L1_L2_if_1"},
+				CommonInput: []string{"_L1::L2::L3::if_1", "_if_1", "_L1::if_1", "_L1::L2::if_1"},
 				ItemInput:   []string{"item_score"},
 				ItemOutput:  []string{"item_score"},
 			},
