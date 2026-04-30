@@ -1,5 +1,5 @@
 {
-  "_PINEAPPLE_VERSION": "0.5.7",
+  "_PINEAPPLE_VERSION": "0.6.0",
   "pipeline_config": {
     "operators": {
       "_ctrl_1_A1": {
