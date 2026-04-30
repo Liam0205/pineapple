@@ -1,0 +1,190 @@
+{
+  "_PINEAPPLE_VERSION": "0.6.1",
+  "_PINEAPPLE_CREATE_TIME": "2026-04-30T04:31:48Z",
+  "pipeline_config": {
+    "operators": {
+      "if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [
+            "_if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "[if] true",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (true) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "aaa_without_ctrl": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_if_1"
+          ],
+          "common_output": [
+            "aaa_without_ctrl_output"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
+        "skip": [
+          "_if_1"
+        ],
+        "function_for_common": "func",
+        "lua_script": "\n    function func()\n        return 1\n    end\n    "
+      },
+      "AAA_if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_if_1"
+          ],
+          "common_output": [
+            "_AAA_if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "[if] false",
+        "skip": [
+          "_if_1"
+        ],
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (false) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "aaa_within_ctrl": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_if_1",
+            "_AAA_if_1"
+          ],
+          "common_output": [
+            "aaa_within_ctrl_output"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
+        "skip": [
+          "_AAA_if_1",
+          "_if_1"
+        ],
+        "function_for_common": "func",
+        "lua_script": "\n    function func()\n        return 1\n    end\n    "
+      },
+      "bbb_without_ctrl": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_AAA_if_1",
+            "_if_1"
+          ],
+          "common_output": [
+            "bbb_without_ctrl_output"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
+        "skip": [
+          "_if_1",
+          "_AAA_if_1"
+        ],
+        "function_for_common": "func",
+        "lua_script": "\n    function func()\n        return 1\n    end\n    "
+      },
+      "AAA_BBB_if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_AAA_if_1",
+            "_if_1"
+          ],
+          "common_output": [
+            "_AAA_BBB_if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "[if] false",
+        "skip": [
+          "_if_1",
+          "_AAA_if_1"
+        ],
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (false) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "bbb_within_ctrl": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_AAA_if_1",
+            "_if_1",
+            "_AAA_BBB_if_1"
+          ],
+          "common_output": [
+            "bbb_within_ctrl_output"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:88 in op_caller(): .transform_by_lua(...)",
+        "skip": [
+          "_AAA_BBB_if_1",
+          "_if_1",
+          "_AAA_if_1"
+        ],
+        "function_for_common": "func",
+        "lua_script": "\n    function func()\n        return 1\n    end\n    "
+      }
+    },
+    "pipeline_map": {
+      "AAA/BBB": {
+        "pipeline": [
+          "bbb_without_ctrl",
+          "AAA_BBB_if_1",
+          "bbb_within_ctrl"
+        ]
+      },
+      "AAA": {
+        "pipeline": [
+          "aaa_without_ctrl",
+          "AAA_if_1",
+          "aaa_within_ctrl",
+          "AAA/BBB"
+        ]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": [
+        "if_1",
+        "AAA"
+      ]
+    }
+  },
+  "flow_contract": {
+    "common_input": [
+      "user_age"
+    ],
+    "item_input": [],
+    "common_output": [
+      "aaa_without_ctrl_output",
+      "aaa_within_ctrl_output",
+      "bbb_without_ctrl_output",
+      "bbb_within_ctrl_output"
+    ],
+    "item_output": []
+  }
+}
