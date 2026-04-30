@@ -73,26 +73,34 @@ func (f *RowFrame) BuildInput(
 
 	cs := make(map[string]any, len(commonFields))
 	for _, field := range commonFields {
-		v := f.common[field]
-		if v == nil {
-			if d, ok := commonDefaults[field]; ok {
-				v = d
+		v, exists := f.common[field]
+		if exists {
+			if v == nil {
+				if d, ok := commonDefaults[field]; ok {
+					v = d
+				}
 			}
+			cs[field] = v
+		} else if d, ok := commonDefaults[field]; ok {
+			cs[field] = d
 		}
-		cs[field] = v
 	}
 
 	its := make([]map[string]any, len(f.items))
 	for i, item := range f.items {
 		row := make(map[string]any, len(itemFields))
 		for _, field := range itemFields {
-			v := item[field]
-			if v == nil {
-				if d, ok := itemDefaults[field]; ok {
-					v = d
+			v, exists := item[field]
+			if exists {
+				if v == nil {
+					if d, ok := itemDefaults[field]; ok {
+						v = d
+					}
 				}
+				row[field] = v
+			} else if d, ok := itemDefaults[field]; ok {
+				row[field] = d
 			}
-			row[field] = v
 		}
 		its[i] = row
 	}

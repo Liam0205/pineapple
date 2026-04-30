@@ -87,29 +87,35 @@ func (f *ColumnFrame) BuildInput(
 	f.mu.RLock()
 	cs := make(map[string]any, len(commonFields))
 	for _, field := range commonFields {
-		v := f.common[field]
-		if v == nil {
-			if d, ok := commonDefaults[field]; ok {
-				v = d
+		v, exists := f.common[field]
+		if exists {
+			if v == nil {
+				if d, ok := commonDefaults[field]; ok {
+					v = d
+				}
 			}
+			cs[field] = v
+		} else if d, ok := commonDefaults[field]; ok {
+			cs[field] = d
 		}
-		cs[field] = v
 	}
 
 	its := make([]map[string]any, f.rowCount)
 	for i := 0; i < f.rowCount; i++ {
 		row := make(map[string]any, len(itemFields))
 		for _, field := range itemFields {
-			var v any
-			if col, ok := f.columns[field]; ok {
-				v = col[i]
-			}
-			if v == nil {
-				if d, ok := itemDefaults[field]; ok {
-					v = d
+			col, colExists := f.columns[field]
+			if colExists && f.present[field][i] {
+				v := col[i]
+				if v == nil {
+					if d, ok := itemDefaults[field]; ok {
+						v = d
+					}
 				}
+				row[field] = v
+			} else if d, ok := itemDefaults[field]; ok {
+				row[field] = d
 			}
-			row[field] = v
 		}
 		its[i] = row
 	}

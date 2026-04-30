@@ -91,11 +91,13 @@ type ColumnFrame struct {
     mu       sync.RWMutex
     common   map[string]any
     columns  map[string][]any
+    present  map[string][]bool   // per-item field presence bitmap
     rowCount int
 }
 ```
 
 - 构造和字段写入时分配数量极少（`[]any` 列式布局）
+- `present` bitmap 记录每个 item 上每个字段是否显式存在，用于区分「字段缺失」与「字段存在但值为 nil」
 - 结构变更操作需遍历所有列，开销随列数线性增长
 - 与 RowFrame 一样，通过单个 `sync.RWMutex` 保证并发安全（读操作 RLock，写操作 Lock）
 
@@ -118,6 +120,27 @@ type ColumnFrame struct {
 
 defaults 解决的是"数据稀疏"问题（列存在，部分行的值缺失），不是"配置错误"问题。
 
+### Missing vs Explicit-nil
+
+在 DataFrame 层面，我们区分两种状态：
+
+- **字段缺失（missing）**：item 上某个字段根本不存在。在 RowFrame 中体现为 map key 不存在；在 ColumnFrame 中体现为 `present[field][i] == false`。
+- **显式 nil（explicit-nil）**：item 上字段存在，但值为 nil。在 RowFrame 中体现为 `item[field] = nil`（key 存在）；在 ColumnFrame 中体现为 `columns[field][i] == nil && present[field][i] == true`。
+
+这个区分贯穿 DataFrame 的三个核心操作：
+
+| 操作 | 行为 |
+|------|------|
+| `BuildInput` | 只为 present 的字段写入 `OperatorInput` map key。missing 字段不写 key（除非有 default）。 |
+| `ApplyOutput` | 写入任何值（包括 nil）都标记为 present。 |
+| `ToResult` | 只投影 present 的字段到结果 JSON。missing 字段从输出中省略，不会变成 `null`。 |
+
+**Defaults 的应用规则**：defaults 对 missing 和 explicit-nil 都生效——无论字段是缺失还是显式为 nil，只要配了 default，算子就会收到 default 值。区分 missing 和 explicit-nil 的意义不在于 default 行为，而在于：
+
+1. `OperatorInput.ItemKeys()` / `CommonKeys()` 正确反映原始数据的稀疏结构。
+2. 算子（如 `transform_by_remote_pineapple`）将输入序列化为 JSON 发给下游时，missing 字段不会被错误地编码为 `null`。
+3. Debug trace / 输入快照不会把缺失字段显示为 `null`，避免误导排障。
+
 ### DSL 示例
 
 ```python
@@ -132,8 +155,8 @@ flow.some_op(
 
 | 层面 | 行为 |
 |------|------|
-| DataFrame | 原生支持 nil，字段存在但值为空 与 字段不存在 均表现为 nil |
-| Go 算子 | `interface{}` 为 nil，算子开发者自行判断 |
+| DataFrame | 原生支持 nil。区分「字段存在但值为 nil」（key present）与「字段不存在」（key absent）；`BuildInput` 和 `ToResult` 均保留此区分 |
+| Go 算子 | `interface{}` 为 nil，算子开发者自行判断；可通过 `ItemKeys()` / `CommonKeys()` 查询实际存在的字段 |
 | Lua 行模式 | `item["field"]` 为 nil，用 `if value ~= nil then` 判断 |
 | Lua 列模式 | 数组中对应位置为 nil |
 

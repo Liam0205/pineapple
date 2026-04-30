@@ -106,6 +106,112 @@ func TestBuildInputWithDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildInputSparseItemPresence(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, nil, []map[string]any{
+				{"a": nil},
+				{"b": int64(2)},
+			})
+
+			in := BuildInput(f,
+				nil,
+				[]string{"a", "b"},
+				nil, nil,
+			)
+
+			keys0 := toSet(in.ItemKeys(0))
+			if !keys0["a"] {
+				t.Error("item 0: expected key 'a' present")
+			}
+			if keys0["b"] {
+				t.Error("item 0: key 'b' should be absent (missing)")
+			}
+			if in.Item(0, "a") != nil {
+				t.Errorf("item 0 a = %v, want nil", in.Item(0, "a"))
+			}
+
+			keys1 := toSet(in.ItemKeys(1))
+			if keys1["a"] {
+				t.Error("item 1: key 'a' should be absent (missing)")
+			}
+			if !keys1["b"] {
+				t.Error("item 1: expected key 'b' present")
+			}
+			if in.Item(1, "b") != int64(2) {
+				t.Errorf("item 1 b = %v, want 2", in.Item(1, "b"))
+			}
+		})
+	}
+}
+
+func TestBuildInputSparseItemWithDefaults(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, nil, []map[string]any{
+				{"a": nil},
+				{"b": int64(2)},
+			})
+
+			in := BuildInput(f,
+				nil,
+				[]string{"a", "b"},
+				nil,
+				map[string]any{"a": int64(0), "b": int64(0)},
+			)
+
+			if in.Item(0, "a") != int64(0) {
+				t.Errorf("item 0 a = %v, want 0 (default on present-nil)", in.Item(0, "a"))
+			}
+			if in.Item(0, "b") != int64(0) {
+				t.Errorf("item 0 b = %v, want 0 (default on missing)", in.Item(0, "b"))
+			}
+			if in.Item(1, "a") != int64(0) {
+				t.Errorf("item 1 a = %v, want 0 (default on missing)", in.Item(1, "a"))
+			}
+			if in.Item(1, "b") != int64(2) {
+				t.Errorf("item 1 b = %v, want 2", in.Item(1, "b"))
+			}
+
+			for i := 0; i < 2; i++ {
+				keys := toSet(in.ItemKeys(i))
+				if !keys["a"] || !keys["b"] {
+					t.Errorf("item %d: expected both keys present when defaults exist, got %v", i, in.ItemKeys(i))
+				}
+			}
+		})
+	}
+}
+
+func TestBuildInputSparseCommon(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, map[string]any{"x": nil}, nil)
+
+			in := BuildInput(f,
+				[]string{"x", "y"},
+				nil, nil, nil,
+			)
+
+			keys := toSet(in.CommonKeys())
+			if !keys["x"] {
+				t.Error("expected common key 'x' present (explicit nil)")
+			}
+			if keys["y"] {
+				t.Error("common key 'y' should be absent (missing, no default)")
+			}
+		})
+	}
+}
+
+func toSet(keys []string) map[string]bool {
+	s := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		s[k] = true
+	}
+	return s
+}
+
 func TestApplyOutputCommonWrites(t *testing.T) {
 	for _, tm := range testModes {
 		t.Run(tm.name, func(t *testing.T) {
