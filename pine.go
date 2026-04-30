@@ -113,7 +113,7 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 			opCfg.Recall = true
 		}
 		// Normalize and validate data_parallel config
-		if err := validateDataParallel(name, &opCfg, schema.Type); err != nil {
+		if err := validateDataParallel(name, &opCfg, schema.Type, op); err != nil {
 			return nil, err
 		}
 		cfg.PipelineConfig.Operators[name] = opCfg
@@ -295,7 +295,7 @@ func filterOutField(ss []string, exclude string) []string {
 	return out
 }
 
-func validateDataParallel(opName string, opCfg *config.OperatorConfig, opType types.OperatorType) error {
+func validateDataParallel(opName string, opCfg *config.OperatorConfig, opType types.OperatorType, instance types.Operator) error {
 	if opCfg.DataParallel == 0 {
 		opCfg.DataParallel = 1
 	}
@@ -315,20 +315,11 @@ func validateDataParallel(opName string, opCfg *config.OperatorConfig, opType ty
 				Message: fmt.Sprintf("operator %q: data_parallel=%d requires empty $metadata.common_output for Transform operators", opName, opCfg.DataParallel),
 			}
 		}
-		if !isDataParallelSafeTransform(opCfg.TypeName) {
+		if _, ok := instance.(types.ConcurrentSafe); !ok {
 			return &ValidationError{
-				Message: fmt.Sprintf("operator %q: data_parallel=%d is not supported for operator type %q because it requires whole-item-set semantics", opName, opCfg.DataParallel, opCfg.TypeName),
+				Message: fmt.Sprintf("operator %q: data_parallel=%d requires the operator to implement ConcurrentSafe interface (type %q does not)", opName, opCfg.DataParallel, opCfg.TypeName),
 			}
 		}
 	}
 	return nil
-}
-
-func isDataParallelSafeTransform(typeName string) bool {
-	switch typeName {
-	case "transform_normalize":
-		return false
-	default:
-		return true
-	}
 }

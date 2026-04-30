@@ -51,6 +51,7 @@ func init() {
 // RedisSetOp writes a value to Redis by constructed key.
 type RedisSetOp struct {
 	pine.MetadataHolder
+	pine.ConcurrentSafeMarker
 	rdb       *redis.Client
 	keyPrefix string
 	dataType  string

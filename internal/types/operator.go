@@ -260,3 +260,23 @@ type StatsProvider interface {
 type MetricsAware interface {
 	SetMetricsProvider(p metrics.Provider)
 }
+
+// ConcurrentSafe is an optional interface. Operators that implement it
+// declare their Execute method is safe for concurrent calls on the same
+// instance (no mutable receiver state). The engine requires this when
+// data_parallel > 1.
+type ConcurrentSafe interface {
+	IsConcurrentSafe()
+}
+
+// ConcurrentSafeMarker is an embeddable struct that satisfies ConcurrentSafe.
+// Embed it in an operator struct to declare concurrent safety:
+//
+//	type MyOp struct {
+//	    pine.MetadataHolder
+//	    pine.ConcurrentSafeMarker
+//	}
+type ConcurrentSafeMarker struct{}
+
+// IsConcurrentSafe implements ConcurrentSafe.
+func (ConcurrentSafeMarker) IsConcurrentSafe() {}

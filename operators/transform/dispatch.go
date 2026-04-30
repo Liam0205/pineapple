@@ -32,6 +32,7 @@ func init() {
 // DispatchOp copies a common field value to all items.
 type DispatchOp struct {
 	pine.MetadataHolder
+	pine.ConcurrentSafeMarker
 }
 
 func (o *DispatchOp) Init(params map[string]any) error {

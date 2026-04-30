@@ -566,3 +566,55 @@ func cloneRuntimeItems(in []map[string]any) []map[string]any {
 	}
 	return out
 }
+
+// --- race safety tests (meaningful under go test -race) ---
+
+// safeStatelessOp is a stateless operator — safe for concurrent Execute.
+type safeStatelessOp struct {
+	types.ConcurrentSafeMarker
+	readField  string
+	writeField string
+}
+
+func (o *safeStatelessOp) Init(params map[string]any) error { return nil }
+func (o *safeStatelessOp) Execute(_ context.Context, in *types.OperatorInput, out *types.OperatorOutput) error {
+	for i := 0; i < in.ItemCount(); i++ {
+		v, _ := in.Item(i, o.readField).(float64)
+		out.SetItem(i, o.writeField, v+1)
+	}
+	return nil
+}
+
+func TestParallelExecuteRaceSafe(t *testing.T) {
+	const itemCount = 200
+	items := make([]map[string]any, itemCount)
+	for i := range items {
+		items[i] = map[string]any{"val": float64(i)}
+	}
+
+	cop := &CompiledOperator{
+		Name:     "safe_op",
+		Instance: &safeStatelessOp{readField: "val", writeField: "result"},
+		Config: config.OperatorConfig{
+			TypeName:     "transform_test",
+			OperatorType: "Transform",
+			DataParallel: 8,
+			Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"result"}},
+		},
+	}
+
+	for iter := 0; iter < 10; iter++ {
+		input := types.NewOperatorInput(map[string]any{}, cloneRuntimeItems(items))
+		output, err := parallelExecute(context.Background(), cop, input)
+		if err != nil {
+			t.Fatalf("iter %d: %v", iter, err)
+		}
+		iw := output.GetItemWrites()
+		for i := 0; i < itemCount; i++ {
+			want := float64(i) + 1
+			if iw[i]["result"] != want {
+				t.Errorf("iter %d item %d: got %v, want %v", iter, i, iw[i]["result"], want)
+			}
+		}
+	}
+}

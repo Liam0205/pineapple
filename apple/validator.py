@@ -159,11 +159,14 @@ def validate_write_without_read(
 
 
 def validate_data_parallel(ops: list[tuple[str, OpCall]]) -> None:
-    """Check data_parallel constraints at compile time.
+    """Check data_parallel structural constraints at compile time.
 
     When data_parallel > 1:
     1. The operator must be a Transform (type_name starts with "transform_").
     2. common_output must be empty.
+
+    Capability check (ConcurrentSafe interface) is enforced on the Go side
+    at engine build time, eliminating the need for a Python-side blocklist.
     """
     for name, op in ops:
         if op.data_parallel > 1:
@@ -178,17 +181,6 @@ def validate_data_parallel(ops: list[tuple[str, OpCall]]) -> None:
                     f"{_op_location(name, op)}data_parallel={op.data_parallel} "
                     f"requires empty common_output for Transform operators"
                 )
-            if op.type_name in _DATA_PARALLEL_UNSAFE_TRANSFORMS:
-                raise ValidationError(
-                    f"{_op_location(name, op)}data_parallel={op.data_parallel} "
-                    f"is not supported for operator {op.type_name!r} because "
-                    "it requires whole-item-set semantics"
-                )
-
-
-_DATA_PARALLEL_UNSAFE_TRANSFORMS: set[str] = {
-    "transform_normalize",
-}
 
 
 def detect_dead_code(

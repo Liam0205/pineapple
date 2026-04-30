@@ -48,6 +48,7 @@ func init() {
 type LuaOp struct {
 	pine.MetadataHolder
 	pine.DebugHolder
+	pine.ConcurrentSafeMarker
 	pool       *statePool
 	funcName   string
 	isItemMode bool

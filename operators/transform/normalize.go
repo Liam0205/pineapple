@@ -9,10 +9,11 @@
 // The output field is determined by item_output metadata (first field).
 //
 // Metadata contract (typical usage):
-//   CommonInput:  []
-//   CommonOutput: []
-//   ItemInput:    [<field>]
-//   ItemOutput:   [<output_field>]
+//
+//	CommonInput:  []
+//	CommonOutput: []
+//	ItemInput:    [<field>]
+//	ItemOutput:   [<output_field>]
 package transform
 
 import (

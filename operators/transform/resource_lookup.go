@@ -43,6 +43,7 @@ func init() {
 
 type ResourceLookupOp struct {
 	pine.MetadataHolder
+	pine.ConcurrentSafeMarker
 	resourceName string
 	lookupKey    string
 	outputField  string

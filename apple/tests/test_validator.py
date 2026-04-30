@@ -327,13 +327,17 @@ class TestDataParallel:
         with pytest.raises(ValidationError, match="requires empty common_output"):
             flow.compile()
 
-    def test_data_parallel_whole_item_set_transform_rejected(self):
-        """Whole-item-set transforms must not be silently sharded."""
-        flow = Flow(name="bad", item_input=["score"], item_output=["norm"])
+    def test_data_parallel_whole_item_set_transform_passes_apple(self):
+        """Apple-side no longer rejects whole-item-set transforms by name.
+
+        ConcurrentSafe capability check is enforced on Go side at engine build
+        time. Apple only validates structural constraints (must be Transform,
+        no common_output).
+        """
+        flow = Flow(name="ok", item_input=["score"], item_output=["norm"])
         flow._add_op("transform_normalize", item_input=["score"],
                       item_output=["norm"], data_parallel=2)
-        with pytest.raises(ValidationError, match="whole-item-set semantics"):
-            flow.compile()
+        flow.compile()  # should not raise
 
     def test_data_parallel_one_ok(self):
         """data_parallel=1 should not trigger validation."""

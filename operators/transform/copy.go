@@ -47,6 +47,7 @@ func init() {
 // CopyOp copies field values between common and item dimensions.
 type CopyOp struct {
 	pine.MetadataHolder
+	pine.ConcurrentSafeMarker
 	direction string
 }
 

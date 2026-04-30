@@ -289,6 +289,31 @@ func (out *OperatorOutput) SetWarning(err error)
 - **无状态可重入**：算子在 `Init` 后不持有可变状态，`Execute` 可被多个 goroutine 并发调用。算子可持有只读配置和线程安全资源（如连接池），不可持有请求级状态。
 - **错误约定**：`return nil` 表示正常执行；`output.SetWarning(err)` 表示可恢复错误（DAG 继续）；`return err` 表示不可恢复错误（DAG 终止）。
 
+#### ConcurrentSafe — 并发安全声明
+
+当 DSL 声明 `data_parallel > 1` 时，引擎在多个 goroutine 中并发调用**同一实例**的 `Execute`（`internal/runtime/parallel.go`）。这要求算子的 `Execute` 在同一实例上并发调用时不会产生 data race。
+
+Go 的类型系统无法在编译期强制「方法不写实例字段」——接口无法约束 receiver 是 pointer 还是 value，且即使用 value receiver，通过指针字段仍可间接写入。因此我们采用 **opt-in 声明 + 运行时验证** 模型：
+
+```go
+// ConcurrentSafe is an optional interface. Operators that implement it
+// declare their Execute is safe for concurrent calls on the same instance.
+type ConcurrentSafe interface {
+    IsConcurrentSafe()
+}
+
+type ConcurrentSafeMarker struct{}
+func (ConcurrentSafeMarker) IsConcurrentSafe() {}
+```
+
+**规则**：
+
+- 引擎在构建时检查：当 `data_parallel > 1`，算子实例必须实现 `ConcurrentSafe`，否则拒绝加载（`ValidationError`）。
+- 算子通过嵌入 `pine.ConcurrentSafeMarker` 声明自身并发安全。
+- 安全的前提：`Execute` 不写实例字段（`o.xxx = ...`），持有的资源（如连接池、Lua state pool）自身是线程安全的。
+- 需要全集语义的算子（如 `transform_normalize` 需看所有 item 的 min/max）不应标记 `ConcurrentSafe`，因为分片后结果不正确。
+- `go test -race ./...` 作为运行时验证手段，捕获声明正确性的遗漏。
+
 #### MetadataAware — 字段名自省
 
 算子操作的字段名已在 DSL 的 `common_input` / `common_output` / `item_input` / `item_output` 中声明。通过实现可选接口 `MetadataAware`，算子可以在初始化阶段获取这些声明的字段名，而无需通过 `Params` 重复指定。

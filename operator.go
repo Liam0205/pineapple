@@ -56,3 +56,11 @@ type StatsProvider = types.StatsProvider
 // MetricsAware is an optional interface for operators that record
 // metrics to an external provider (e.g., Prometheus).
 type MetricsAware = types.MetricsAware
+
+// ConcurrentSafe is an optional interface. Operators that implement it
+// declare their Execute is safe for concurrent calls on the same instance.
+// Required when data_parallel > 1.
+type ConcurrentSafe = types.ConcurrentSafe
+
+// ConcurrentSafeMarker is an embeddable struct that satisfies ConcurrentSafe.
+type ConcurrentSafeMarker = types.ConcurrentSafeMarker

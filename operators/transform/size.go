@@ -34,6 +34,7 @@ func init() {
 // SizeOp outputs the current item count to the first common_output field.
 type SizeOp struct {
 	pine.MetadataHolder
+	pine.ConcurrentSafeMarker
 }
 
 func (o *SizeOp) Init(params map[string]any) error { return nil }

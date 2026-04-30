@@ -48,6 +48,7 @@ func init() {
 // RedisGetOp reads a value from Redis by constructed key.
 type RedisGetOp struct {
 	pine.MetadataHolder
+	pine.ConcurrentSafeMarker
 	rdb       *redis.Client
 	keyPrefix string
 	dataType  string
