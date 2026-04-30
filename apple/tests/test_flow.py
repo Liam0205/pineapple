@@ -387,6 +387,174 @@ class TestSubFlow:
         assert "b" in pmap
 
 
+class TestDeepNesting:
+    def test_deep_nesting_with_control_and_mixed_ops(self):
+        """4+ level nesting: Flow -> L1 -> L2 -> L3, each with if_ + ops."""
+        l3 = SubFlow(name="L3")
+        l3._add_op("transform_by_lua",
+                    item_input=["item_score"], item_output=["item_score"],
+                    lua_script="function f() return item_score end",
+                    function_for_item="f", function_for_common="")
+        l3.if_("{{flag_l3}}")._add_op(
+            "transform_by_lua",
+            item_input=["item_score"], item_output=["item_score"],
+            lua_script="function f() return item_score end",
+            function_for_item="f", function_for_common="").end_if_()
+
+        l2 = SubFlow(name="L2")
+        l2._add_op("transform_by_lua",
+                    item_input=["item_score"], item_output=["item_score"],
+                    lua_script="function f() return item_score end",
+                    function_for_item="f", function_for_common="")
+        l2.if_("{{flag_l2}}").add_subflow(l3).end_if_()
+
+        l1 = SubFlow(name="L1")
+        l1._add_op("transform_by_lua",
+                    item_input=["item_score"], item_output=["item_score"],
+                    lua_script="function f() return item_score end",
+                    function_for_item="f", function_for_common="")
+        l1.if_("{{flag_l1}}").add_subflow(l2).end_if_()
+
+        flow = Flow(
+            name="deep_test",
+            common_input=["enabled", "flag_l1", "flag_l2", "flag_l3"],
+            item_output=["item_id", "item_score"],
+        )
+        flow.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+        flow.if_("{{enabled}}").add_subflow(l1).else_()._add_op(
+            "transform_by_lua",
+            item_input=["item_score"], item_output=["item_score"],
+            lua_script="function f() return item_score end",
+            function_for_item="f", function_for_common="").end_if_()
+
+        cfg = flow.compile_dict()
+        ops = cfg["pipeline_config"]["operators"]
+
+        # Categorize operators by role
+        ctrl_ops = {n: op for n, op in ops.items() if op.get("for_branch_control")}
+        biz_ops = {n: op for n, op in ops.items() if not op.get("for_branch_control")}
+
+        # --- 1a. skip propagation correctness ---
+        recall_op = next(op for op in biz_ops.values()
+                         if op["type_name"] == "recall_static")
+        assert recall_op.get("skip", []) == []
+
+        # transform in L1 (outside L1's if): skip by inherited _if_1 only
+        transform_l1 = next(
+            op for n, op in biz_ops.items()
+            if op["type_name"] == "transform_by_lua"
+            and op["skip"] == ["_if_1"]
+        )
+        assert transform_l1 is not None
+
+        # transform in L2 (outside L2's if): skip by _if_1 + _L1_if_1
+        transform_l2 = next(
+            op for n, op in biz_ops.items()
+            if op["type_name"] == "transform_by_lua"
+            and sorted(op["skip"]) == sorted(["_if_1", "_L1_if_1"])
+        )
+        assert transform_l2 is not None
+
+        # transform in L3 (outside L3's if): skip by _if_1 + _L1_if_1 + _L1_L2_if_1
+        transform_l3 = next(
+            op for n, op in biz_ops.items()
+            if op["type_name"] == "transform_by_lua"
+            and sorted(op["skip"]) == sorted(["_if_1", "_L1_if_1", "_L1_L2_if_1"])
+        )
+        assert transform_l3 is not None
+
+        # leaf op inside L3's if: 4 skip fields
+        transform_leaf = next(
+            op for n, op in biz_ops.items()
+            if op["type_name"] == "transform_by_lua"
+            and len(op["skip"]) == 4
+        )
+        assert sorted(transform_leaf["skip"]) == sorted([
+            "_L1_L2_L3_if_1", "_if_1", "_L1_if_1", "_L1_L2_if_1"
+        ])
+
+        # else branch op: only _else_2
+        transform_else = next(
+            op for n, op in biz_ops.items()
+            if op["type_name"] == "transform_by_lua"
+            and "_else_2" in op["skip"]
+        )
+        assert transform_else["skip"] == ["_else_2"]
+
+        # --- 1b. pipeline_map structure ---
+        pmap = cfg["pipeline_config"]["pipeline_map"]
+        assert "L1" in pmap
+        assert "L1/L2" in pmap
+        assert "L1/L2/L3" in pmap
+
+        # --- 1c. pipeline_group references ---
+        group = cfg["pipeline_group"]["main"]["pipeline"]
+        assert "L1" in group
+
+        # --- 1d. control ops have correct inherited skips ---
+        l1_ctrl = next(op for op in ctrl_ops.values()
+                       if op["$metadata"]["common_output"] == ["_L1_if_1"])
+        assert "_if_1" in l1_ctrl["skip"]
+
+        l2_ctrl = next(op for op in ctrl_ops.values()
+                       if op["$metadata"]["common_output"] == ["_L1_L2_if_1"])
+        assert sorted(l2_ctrl["skip"]) == sorted(["_if_1", "_L1_if_1"])
+
+        l3_ctrl = next(op for op in ctrl_ops.values()
+                       if op["$metadata"]["common_output"] == ["_L1_L2_L3_if_1"])
+        assert sorted(l3_ctrl["skip"]) == sorted(["_if_1", "_L1_if_1", "_L1_L2_if_1"])
+
+    def test_deep_nesting_compile_idempotent(self):
+        """Compilation of deep nesting must be idempotent."""
+        l3 = SubFlow(name="L3")
+        l3._add_op("transform_by_lua",
+                    item_input=["item_score"], item_output=["item_score"],
+                    lua_script="function f() return item_score end",
+                    function_for_item="f", function_for_common="")
+        l3.if_("{{flag_l3}}")._add_op(
+            "transform_by_lua",
+            item_input=["item_score"], item_output=["item_score"],
+            lua_script="function f() return item_score end",
+            function_for_item="f", function_for_common="").end_if_()
+
+        l2 = SubFlow(name="L2")
+        l2._add_op("transform_by_lua",
+                    item_input=["item_score"], item_output=["item_score"],
+                    lua_script="function f() return item_score end",
+                    function_for_item="f", function_for_common="")
+        l2.if_("{{flag_l2}}").add_subflow(l3).end_if_()
+
+        l1 = SubFlow(name="L1")
+        l1._add_op("transform_by_lua",
+                    item_input=["item_score"], item_output=["item_score"],
+                    lua_script="function f() return item_score end",
+                    function_for_item="f", function_for_common="")
+        l1.if_("{{flag_l1}}").add_subflow(l2).end_if_()
+
+        flow = Flow(
+            name="deep_test",
+            common_input=["enabled", "flag_l1", "flag_l2", "flag_l3"],
+            item_output=["item_id", "item_score"],
+        )
+        flow.recall_static(
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "a", "item_score": 1.0}],
+        )
+        flow.if_("{{enabled}}").add_subflow(l1).else_()._add_op(
+            "transform_by_lua",
+            item_input=["item_score"], item_output=["item_score"],
+            lua_script="function f() return item_score end",
+            function_for_item="f", function_for_common="").end_if_()
+
+        cfg1 = flow.compile_dict()
+        cfg2 = flow.compile_dict()
+        assert cfg1["pipeline_config"] == cfg2["pipeline_config"]
+        assert cfg1["pipeline_group"] == cfg2["pipeline_group"]
+
+
 class TestTypedOperators:
     def test_baseop_apply_inside_control_branch_gets_skip(self):
         from apple.base import BaseOp

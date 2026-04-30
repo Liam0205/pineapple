@@ -236,3 +236,17 @@ class TestE2E:
         finally:
             with open(config_path, "wb") as f:
                 f.write(original_config)
+
+    def test_go_engine_deep_nested_e2e(self):
+        """Full e2e: deep nested SubFlow DSL → JSON → Go engine execution."""
+        result = subprocess.run(
+            ["go", "test", "./integration/", "-run", "TestDeepNestedE2E", "-v", "-count=1"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
+            timeout=60,
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(result.stderr)
+        assert result.returncode == 0, f"Go test failed:\n{result.stdout}\n{result.stderr}"

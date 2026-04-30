@@ -1276,3 +1276,144 @@ func containsIndex(xs []int, target int) bool {
 	}
 	return false
 }
+
+// TestBuildDeepNestedSubFlowDAG verifies DAG construction with 4+ level
+// SubFlow nesting, per-level control ops, and mixed operators.
+func TestBuildDeepNestedSubFlowDAG(t *testing.T) {
+	// Mirrors the Python test: Flow -> L1 -> L2 -> L3, each with control + ops.
+	sequence := []string{
+		"recall_top",
+		"ctrl_if",
+		"transform_l1",
+		"ctrl_l1_if",
+		"transform_l2",
+		"ctrl_l1_l2_if",
+		"transform_l3",
+		"ctrl_l1_l2_l3_if",
+		"transform_leaf",
+		"ctrl_else",
+		"transform_else",
+	}
+	operators := map[string]config.OperatorConfig{
+		"recall_top": recallOp(nil, []string{"item_id", "item_score"}),
+		"ctrl_if": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Skip:         nil,
+			Meta: config.Metadata{
+				CommonInput:  []string{"enabled"},
+				CommonOutput: []string{"_if_1"},
+			},
+		},
+		"transform_l1": transformOp([]string{"_if_1"}, nil, []string{"item_score"}, []string{"item_score"}),
+		"ctrl_l1_if": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Skip:         []string{"_if_1"},
+			Meta: config.Metadata{
+				CommonInput:  []string{"flag_l1", "_if_1"},
+				CommonOutput: []string{"_L1_if_1"},
+			},
+		},
+		"transform_l2": transformOp([]string{"_if_1", "_L1_if_1"}, nil, []string{"item_score"}, []string{"item_score"}),
+		"ctrl_l1_l2_if": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Skip:         []string{"_if_1", "_L1_if_1"},
+			Meta: config.Metadata{
+				CommonInput:  []string{"flag_l2", "_if_1", "_L1_if_1"},
+				CommonOutput: []string{"_L1_L2_if_1"},
+			},
+		},
+		"transform_l3": transformOp([]string{"_if_1", "_L1_if_1", "_L1_L2_if_1"}, nil, []string{"item_score"}, []string{"item_score"}),
+		"ctrl_l1_l2_l3_if": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Skip:         []string{"_if_1", "_L1_if_1", "_L1_L2_if_1"},
+			Meta: config.Metadata{
+				CommonInput:  []string{"flag_l3", "_if_1", "_L1_if_1", "_L1_L2_if_1"},
+				CommonOutput: []string{"_L1_L2_L3_if_1"},
+			},
+		},
+		"transform_leaf": transformOp([]string{"_L1_L2_L3_if_1", "_if_1", "_L1_if_1", "_L1_L2_if_1"}, nil, []string{"item_score"}, []string{"item_score"}),
+		"ctrl_else": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Skip:         nil,
+			Meta: config.Metadata{
+				CommonInput:  []string{"enabled"},
+				CommonOutput: []string{"_else_2"},
+			},
+		},
+		"transform_else": transformOp([]string{"_else_2"}, nil, []string{"item_score"}, []string{"item_score"}),
+	}
+	opToSubFlow := map[string]string{
+		"transform_l1": "L1",
+		"ctrl_l1_if":   "L1",
+		"transform_l2": "L1/L2",
+		"ctrl_l1_l2_if": "L1/L2",
+		"transform_l3": "L1/L2/L3",
+		"ctrl_l1_l2_l3_if": "L1/L2/L3",
+		"transform_leaf": "L1/L2/L3",
+	}
+
+	g, err := Build(sequence, operators, opToSubFlow)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if len(g.Nodes) != len(sequence) {
+		t.Fatalf("node count = %d, want %d", len(g.Nodes), len(sequence))
+	}
+
+	// Verify basic graph invariants
+	for i, node := range g.Nodes {
+		if node.Name != sequence[i] {
+			t.Errorf("node %d name = %q, want %q", i, node.Name, sequence[i])
+		}
+		if node.SubFlow != opToSubFlow[node.Name] {
+			t.Errorf("node %q SubFlow = %q, want %q", node.Name, node.SubFlow, opToSubFlow[node.Name])
+		}
+	}
+
+	// recall_top produces item_score; all transforms consume it → data dependency chain exists
+	recallIdx := g.NameToIndex["recall_top"]
+	if len(g.Nodes[recallIdx].Succs) == 0 {
+		t.Error("recall_top should have successors (item_score dependency)")
+	}
+
+	// else branch op should NOT depend on inner control ops (independent branch)
+	elseIdx := g.NameToIndex["transform_else"]
+	for _, pred := range g.Nodes[elseIdx].Preds {
+		predName := g.Nodes[pred].Name
+		if predName == "ctrl_l1_if" || predName == "ctrl_l1_l2_if" || predName == "ctrl_l1_l2_l3_if" {
+			t.Errorf("transform_else should not depend on control op %q (independent branch)", predName)
+		}
+	}
+
+	// Topological sort must succeed (no cycles)
+	order, err := TopologicalSort(g)
+	if err != nil {
+		t.Fatalf("TopologicalSort: %v", err)
+	}
+	position := make([]int, len(order))
+	for pos, idx := range order {
+		position[idx] = pos
+	}
+	for _, node := range g.Nodes {
+		for _, succ := range node.Succs {
+			if position[node.Index] >= position[succ] {
+				t.Errorf("edge %s -> %s violates topological order", node.Name, g.Nodes[succ].Name)
+			}
+		}
+	}
+
+	t.Logf("Deep nested DAG built successfully with %d nodes, %d edges",
+		len(g.Nodes), func() int {
+			c := 0
+			for _, n := range g.Nodes {
+				c += len(n.Succs)
+			}
+			return c
+		}())
+}

@@ -425,3 +425,188 @@ func TestRenderCollapsedMermaidLevel1(t *testing.T) {
 
 	t.Logf("Level 1 Mermaid:\n%s", mmd)
 }
+
+func buildDeepNestedGraph(t *testing.T) *Graph {
+	t.Helper()
+
+	sequence := []string{
+		"recall_top",
+		"ctrl_if",
+		"transform_l1",
+		"ctrl_l1_if",
+		"transform_l2",
+		"ctrl_l1_l2_if",
+		"transform_l3",
+		"ctrl_l1_l2_l3_if",
+		"transform_leaf",
+		"ctrl_else",
+		"transform_else",
+	}
+	operators := map[string]config.OperatorConfig{
+		"recall_top": {
+			TypeName:     "recall_static",
+			OperatorType: string(types.OpTypeRecall),
+			Recall:       true,
+			Meta:         config.Metadata{ItemOutput: []string{"item_id", "item_score"}},
+		},
+		"ctrl_if": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:  []string{"enabled"},
+				CommonOutput: []string{"_if_1"},
+			},
+		},
+		"transform_l1": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput: []string{"_if_1"},
+				ItemInput:   []string{"item_score"},
+				ItemOutput:  []string{"item_score"},
+			},
+		},
+		"ctrl_l1_if": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:  []string{"flag_l1", "_if_1"},
+				CommonOutput: []string{"_L1_if_1"},
+			},
+		},
+		"transform_l2": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput: []string{"_if_1", "_L1_if_1"},
+				ItemInput:   []string{"item_score"},
+				ItemOutput:  []string{"item_score"},
+			},
+		},
+		"ctrl_l1_l2_if": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:  []string{"flag_l2", "_if_1", "_L1_if_1"},
+				CommonOutput: []string{"_L1_L2_if_1"},
+			},
+		},
+		"transform_l3": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput: []string{"_if_1", "_L1_if_1", "_L1_L2_if_1"},
+				ItemInput:   []string{"item_score"},
+				ItemOutput:  []string{"item_score"},
+			},
+		},
+		"ctrl_l1_l2_l3_if": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:  []string{"flag_l3", "_if_1", "_L1_if_1", "_L1_L2_if_1"},
+				CommonOutput: []string{"_L1_L2_L3_if_1"},
+			},
+		},
+		"transform_leaf": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput: []string{"_L1_L2_L3_if_1", "_if_1", "_L1_if_1", "_L1_L2_if_1"},
+				ItemInput:   []string{"item_score"},
+				ItemOutput:  []string{"item_score"},
+			},
+		},
+		"ctrl_else": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:  []string{"enabled"},
+				CommonOutput: []string{"_else_2"},
+			},
+		},
+		"transform_else": {
+			TypeName:     "transform_by_lua",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput: []string{"_else_2"},
+				ItemInput:   []string{"item_score"},
+				ItemOutput:  []string{"item_score"},
+			},
+		},
+	}
+	opToSubFlow := map[string]string{
+		"transform_l1":      "L1",
+		"ctrl_l1_if":        "L1",
+		"transform_l2":      "L1/L2",
+		"ctrl_l1_l2_if":     "L1/L2",
+		"transform_l3":      "L1/L2/L3",
+		"ctrl_l1_l2_l3_if":  "L1/L2/L3",
+		"transform_leaf":    "L1/L2/L3",
+	}
+
+	g, err := Build(sequence, operators, opToSubFlow)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	return g
+}
+
+func TestRenderCollapsedDeepLevel1(t *testing.T) {
+	g := buildDeepNestedGraph(t)
+	dot := RenderCollapsedDOT(g, 1)
+
+	// Level 1: "L1/L2", "L1/L2/L3", "L1" all collapse into "L1"
+	if !strings.Contains(dot, `"L1"`) {
+		t.Error("missing aggregate node 'L1' at level 1")
+	}
+	// standalone nodes remain
+	if !strings.Contains(dot, `"recall_top"`) {
+		t.Error("missing standalone node recall_top")
+	}
+	// deeper paths should NOT appear as distinct nodes
+	if strings.Contains(dot, `"L1/L2"`) {
+		t.Error("L1/L2 should be collapsed into L1 at level 1")
+	}
+	if strings.Contains(dot, `"L1/L2/L3"`) {
+		t.Error("L1/L2/L3 should be collapsed into L1 at level 1")
+	}
+
+	t.Logf("Deep Level 1 DOT:\n%s", dot)
+}
+
+func TestRenderCollapsedDeepLevel2(t *testing.T) {
+	g := buildDeepNestedGraph(t)
+	dot := RenderCollapsedDOT(g, 2)
+
+	// Level 2: "L1" stays, "L1/L2" and "L1/L2/L3" collapse into "L1/L2"
+	if !strings.Contains(dot, `"L1"`) {
+		t.Error("missing aggregate node 'L1' at level 2")
+	}
+	if !strings.Contains(dot, `"L1/L2"`) {
+		t.Error("missing aggregate node 'L1/L2' at level 2")
+	}
+	if strings.Contains(dot, `"L1/L2/L3"`) {
+		t.Error("L1/L2/L3 should be collapsed into L1/L2 at level 2")
+	}
+
+	t.Logf("Deep Level 2 DOT:\n%s", dot)
+}
+
+func TestRenderCollapsedDeepLevel3(t *testing.T) {
+	g := buildDeepNestedGraph(t)
+	dot := RenderCollapsedDOT(g, 3)
+
+	// Level 3: all paths fully expanded
+	if !strings.Contains(dot, `"L1"`) {
+		t.Error("missing aggregate node 'L1' at level 3")
+	}
+	if !strings.Contains(dot, `"L1/L2"`) {
+		t.Error("missing aggregate node 'L1/L2' at level 3")
+	}
+	if !strings.Contains(dot, `"L1/L2/L3"`) {
+		t.Error("missing aggregate node 'L1/L2/L3' at level 3")
+	}
+
+	t.Logf("Deep Level 3 DOT:\n%s", dot)
+}

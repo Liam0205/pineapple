@@ -263,11 +263,6 @@ def _traverse(
                     for other_op in local_ops:
                         if other_op is not op:
                             _rename_field(other_op, old_field, new_field)
-            for s in inherited_skips:
-                if s not in op.skip:
-                    op.skip.append(s)
-                if s not in op.common_input:
-                    op.common_input = [s] + op.common_input
             global_idx = len(all_ops)
             all_ops.append(op)
             entries.append(("op", global_idx))
@@ -285,6 +280,18 @@ def _traverse(
             )
             child_skips = inherited_skips + parent_skips
             _traverse(sf, sf_path, all_ops, structures, visited, child_skips)
+
+    # Apply inherited_skips AFTER all renames are complete so that inherited
+    # fields (e.g. _if_1 from an outer branch) are never incorrectly renamed
+    # to a local prefixed variant (e.g. _L1_if_1).
+    for kind, idx in node._child_order:
+        if kind == "op":
+            op = local_ops[idx]
+            for s in inherited_skips:
+                if s not in op.skip:
+                    op.skip.append(s)
+                if s not in op.common_input:
+                    op.common_input = [s] + op.common_input
 
     structures[path] = entries
 
