@@ -298,27 +298,36 @@ server.Run(server.Config{
 
 #### SubFlow 折叠渲染
 
-当 pipeline 包含多个 SubFlow 且算子数量较多时，完整 DAG 可能难以阅读。引擎支持将同一 SubFlow 内的算子折叠为单个聚合节点，只保留跨 SubFlow 的边（自动去重）。
+当 pipeline 包含多个 SubFlow 且算子数量较多时，完整 DAG 可能难以阅读。引擎支持按层级将 SubFlow 折叠为聚合节点，只保留跨组的边（自动去重）。
 
 **API**：
 
 ```go
-dot, _ := engine.RenderDAG("dot", pine.WithCollapse(true))
-mmd, _ := engine.RenderDAG("mermaid", pine.WithCollapse(true))
+// Level 0 = 全展开, Level 1 = 按顶层 SubFlow 折叠, Level 2 = 按两层折叠, ...
+dot, _ := engine.RenderDAG("dot", pine.WithCollapse(1))
+mmd, _ := engine.RenderDAG("mermaid", pine.WithCollapse(2))
 ```
 
 **HTTP**：
 
 ```bash
-curl http://localhost:8080/dag?format=dot&collapse=subflow
-curl http://localhost:8080/dag?format=mermaid&collapse=subflow
+# 按顶层 SubFlow 折叠
+curl http://localhost:8080/dag?format=dot&collapse=1
+
+# 按两层折叠
+curl http://localhost:8080/dag?format=mermaid&collapse=2
+
+# 全展开（默认）
+curl http://localhost:8080/dag?format=dot&collapse=0
 ```
 
 折叠逻辑：
-- 按 `Node.SubFlow` 归组，每个 SubFlow 生成一个聚合节点（label = SubFlow 名）
+- 按 `Node.SubFlow` 路径（`/` 分隔）的前 N 段分组，N 即 collapse 层级
+- 例如 `collapse=1` 时，`recall/candidates` 和 `recall` 都归入 `recall` 组
+- `collapse=2` 时，`recall/candidates` 与 `recall` 分属不同组
 - 无 SubFlow 归属的节点（`SubFlow == ""`）保持独立
-- 跨 SubFlow 的边提升为聚合边，自动去重
-- 不传 `WithCollapse` 或 `collapse` 参数时行为完全不变
+- 跨组的边提升为聚合边，自动去重
+- `collapse=0` 或不传 `collapse` 参数时行为完全不变
 
 ### 全局日志前缀
 
@@ -355,9 +364,9 @@ engine, _ := pine.NewEngine(jsonConfig)
 dot, _ := engine.RenderDAG("dot")       // Graphviz DOT
 mmd, _ := engine.RenderDAG("mermaid")   // Mermaid flowchart
 
-// SubFlow 折叠
-dotCollapsed, _ := engine.RenderDAG("dot", pine.WithCollapse(true))
-mmdCollapsed, _ := engine.RenderDAG("mermaid", pine.WithCollapse(true))
+// SubFlow 层级折叠
+dotCollapsed, _ := engine.RenderDAG("dot", pine.WithCollapse(1))
+mmdCollapsed, _ := engine.RenderDAG("mermaid", pine.WithCollapse(2))
 ```
 
 #### HTTP 端点
@@ -372,7 +381,7 @@ curl http://localhost:8080/dag?format=mermaid
 # 渲染为 SVG（需要本地安装 graphviz）
 curl -s http://localhost:8080/dag | dot -Tsvg -o dag.svg
 
-# SubFlow 折叠
-curl http://localhost:8080/dag?format=dot&collapse=subflow
-curl http://localhost:8080/dag?format=mermaid&collapse=subflow
+# SubFlow 层级折叠
+curl http://localhost:8080/dag?format=dot&collapse=1
+curl http://localhost:8080/dag?format=mermaid&collapse=2
 ```

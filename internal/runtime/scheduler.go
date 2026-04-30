@@ -93,9 +93,9 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 
 			startTime := time.Now()
 
-			// Evaluate skip
-			if cop.Config.Skip != "" {
-				skipVal := frame.Common(cop.Config.Skip)
+			// Evaluate skip — any skip field being true causes the operator to be skipped
+			for _, skipField := range cop.Config.Skip {
+				skipVal := frame.Common(skipField)
 				if skipVal == true {
 					traces[idx] = types.OpTrace{
 						Name:      cop.Name,
@@ -115,8 +115,8 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 
 			// Build input — frame methods are concurrency-safe.
 			commonInput := cop.Config.Meta.CommonInput
-			if cop.Config.Skip != "" {
-				commonInput = filterOutField(commonInput, cop.Config.Skip)
+			for _, skipField := range cop.Config.Skip {
+				commonInput = filterOutField(commonInput, skipField)
 			}
 			input := dataframe.BuildInput(
 				frame,

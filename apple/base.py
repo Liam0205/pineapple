@@ -25,13 +25,14 @@ class OpCall:
     # Engine-level flags
     recall: bool = False
     sources: list[str] | None = None
-    skip: str | None = None
+    skip: list[str] = field(default_factory=list)
     for_branch_control: bool = False
     row_dependency: bool = False
     data_parallel: int = 0
     debug: bool = False
     # Debug info
     code_info: str = ""
+    subflow_path: str = ""
     # Explicit name (overrides auto-generated name)
     name: str = ""
 
@@ -94,5 +95,10 @@ class BaseOp:
             code_info=code_info,
             name=name,
         )
+
+        self._flow._apply_skip_fields(call, self._flow._active_skip_fields())
+
+        idx = len(self._flow._ops)
         self._flow._ops.append(call)
+        self._flow._child_order.append(("op", idx))
         return self._flow

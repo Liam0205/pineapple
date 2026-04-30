@@ -15,6 +15,16 @@ class ValidationError(Exception):
     pass
 
 
+def _op_location(name: str, op: OpCall) -> str:
+    """Build a human-friendly location prefix for operator error messages."""
+    header = f"operator {name!r}"
+    if op.subflow_path:
+        header += f" [{op.subflow_path}]"
+    if op.code_info:
+        return f"{header}:\n  defined at: {op.code_info}\n  "
+    return f"{header}: "
+
+
 def validate_no_underscore_output(
     ops: list[tuple[str, OpCall]],
     flow_common_output: list[str] | None,
@@ -51,13 +61,13 @@ def validate_no_underscore_output(
         for field in op.common_output:
             if field.startswith("_"):
                 raise ValidationError(
-                    f"operator {name!r}: common_output field {field!r} starts "
+                    f"{_op_location(name, op)}common_output field {field!r} starts "
                     f"with '_', which is reserved for engine internals"
                 )
         for field in op.item_output:
             if field.startswith("_"):
                 raise ValidationError(
-                    f"operator {name!r}: item_output field {field!r} starts "
+                    f"{_op_location(name, op)}item_output field {field!r} starts "
                     f"with '_', which is reserved for engine internals"
                 )
 
@@ -78,7 +88,7 @@ def validate_field_coverage(
                 continue  # internal control fields handled by compiler
             if field not in available_common:
                 raise ValidationError(
-                    f"operator {name!r}: common_input field {field!r} not provided "
+                    f"{_op_location(name, op)}common_input field {field!r} not provided "
                     f"by flow contract or upstream output"
                 )
         # Check item inputs
@@ -87,7 +97,7 @@ def validate_field_coverage(
                 continue
             if field not in available_item:
                 raise ValidationError(
-                    f"operator {name!r}: item_input field {field!r} not provided "
+                    f"{_op_location(name, op)}item_input field {field!r} not provided "
                     f"by flow contract or upstream output"
                 )
         # Register outputs
@@ -121,7 +131,7 @@ def validate_write_without_read(
                 continue
             if field in written_by_ops_common and field not in op.common_input:
                 raise ValidationError(
-                    f"operator {name!r}: writes common field {field!r} "
+                    f"{_op_location(name, op)}writes common field {field!r} "
                     f"without reading it (field already exists from upstream)"
                 )
         for field in op.item_output:
@@ -129,7 +139,7 @@ def validate_write_without_read(
                 continue
             if field in written_by_ops_item and field not in op.item_input:
                 raise ValidationError(
-                    f"operator {name!r}: writes item field {field!r} "
+                    f"{_op_location(name, op)}writes item field {field!r} "
                     f"without reading it (field already exists from upstream)"
                 )
         written_by_ops_common.update(op.common_output)
@@ -147,18 +157,18 @@ def validate_data_parallel(ops: list[tuple[str, OpCall]]) -> None:
         if op.data_parallel > 1:
             if not op.type_name.startswith("transform_"):
                 raise ValidationError(
-                    f"operator {name!r}: data_parallel={op.data_parallel} "
+                    f"{_op_location(name, op)}data_parallel={op.data_parallel} "
                     f"is only supported for Transform operators, "
                     f"got type_name={op.type_name!r}"
                 )
             if op.common_output:
                 raise ValidationError(
-                    f"operator {name!r}: data_parallel={op.data_parallel} "
+                    f"{_op_location(name, op)}data_parallel={op.data_parallel} "
                     f"requires empty common_output for Transform operators"
                 )
             if op.type_name in _DATA_PARALLEL_UNSAFE_TRANSFORMS:
                 raise ValidationError(
-                    f"operator {name!r}: data_parallel={op.data_parallel} "
+                    f"{_op_location(name, op)}data_parallel={op.data_parallel} "
                     f"is not supported for operator {op.type_name!r} because "
                     "it requires whole-item-set semantics"
                 )
@@ -242,6 +252,6 @@ def validate_param_metadata_consistency(
             value = op.params.get(param_name)
             if value and value not in getattr(op, metadata_attr, []):
                 raise ValidationError(
-                    f"operator {name!r}: param {param_name!r}={value!r} "
+                    f"{_op_location(name, op)}param {param_name!r}={value!r} "
                     f"must appear in {metadata_attr}"
                 )

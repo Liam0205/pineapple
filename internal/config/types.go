@@ -52,7 +52,7 @@ type OperatorConfig struct {
 	TypeName         string         `json:"type_name"`
 	Meta             Metadata       `json:"$metadata"`
 	CodeInfo         string         `json:"$code_info,omitempty"`
-	Skip             string         `json:"skip,omitempty"`
+	Skip             []string       `json:"-"`
 	Recall           bool           `json:"recall,omitempty"`
 	Sources          []string       `json:"sources,omitempty"`
 	Debug            bool           `json:"debug,omitempty"`

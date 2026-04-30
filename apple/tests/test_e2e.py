@@ -89,11 +89,11 @@ class TestE2E:
             # Verify flow contract
             assert cfg["flow_contract"]["common_input"] == ["user_age"]
 
-            # Verify pipeline structure
+            # Verify pipeline structure — no subflows, ops listed directly
             pmap = cfg["pipeline_config"]["pipeline_map"]
-            assert len(pmap) == 1
+            assert len(pmap) == 0
             group = cfg["pipeline_group"]["main"]["pipeline"]
-            assert len(group) == 1
+            assert len(group) == 2  # recall + lua operators
         finally:
             os.unlink(path)
 
@@ -129,7 +129,7 @@ class TestE2E:
             # Sort op has skip
             sort = [o for o in ops.values() if o["type_name"] == "reorder_sort"]
             assert len(sort) == 1
-            assert sort[0]["skip"] == "_if_1"
+            assert sort[0]["skip"] == ["_if_1"]
         finally:
             os.unlink(path)
 
@@ -209,23 +209,30 @@ class TestE2E:
             order="desc",
         )
 
-        # Write to testdata
+        # Write to testdata for the Go integration test, then restore the
+        # checked-in fixture so pytest does not dirty the worktree.
         json_str = flow.compile()
         config_path = os.path.join(
             os.path.dirname(__file__), "..", "..", "testdata", "e2e_apple_dsl.json"
         )
-        with open(config_path, "w") as f:
-            f.write(json_str)
+        with open(config_path, "rb") as f:
+            original_config = f.read()
+        try:
+            with open(config_path, "w") as f:
+                f.write(json_str)
 
-        # Run the Go test
-        result = subprocess.run(
-            ["go", "test", "./integration/", "-run", "TestAppleDSLe2e", "-v", "-count=1"],
-            capture_output=True,
-            text=True,
-            cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
-            timeout=60,
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print(result.stderr)
-        assert result.returncode == 0, f"Go test failed:\n{result.stdout}\n{result.stderr}"
+            # Run the Go test
+            result = subprocess.run(
+                ["go", "test", "./integration/", "-run", "TestAppleDSLe2e", "-v", "-count=1"],
+                capture_output=True,
+                text=True,
+                cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
+                timeout=60,
+            )
+            print(result.stdout)
+            if result.returncode != 0:
+                print(result.stderr)
+            assert result.returncode == 0, f"Go test failed:\n{result.stdout}\n{result.stderr}"
+        finally:
+            with open(config_path, "wb") as f:
+                f.write(original_config)

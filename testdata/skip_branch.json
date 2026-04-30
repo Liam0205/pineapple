@@ -22,7 +22,7 @@
           "item_input": ["item_score"],
           "item_output": ["item_rank"]
         },
-        "skip": "_if_1"
+        "skip": ["_if_1"]
       }
     },
     "pipeline_map": {

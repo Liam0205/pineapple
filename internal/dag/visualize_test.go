@@ -224,7 +224,7 @@ func buildTwoSubFlowGraph(t *testing.T) *Graph {
 
 func TestRenderCollapsedDOT(t *testing.T) {
 	g := buildTwoSubFlowGraph(t)
-	dot := RenderCollapsedDOT(g)
+	dot := RenderCollapsedDOT(g, 1)
 
 	if !strings.Contains(dot, "digraph pipeline {") {
 		t.Error("missing digraph header")
@@ -255,7 +255,7 @@ func TestRenderCollapsedDOT(t *testing.T) {
 
 func TestRenderCollapsedMermaid(t *testing.T) {
 	g := buildTwoSubFlowGraph(t)
-	mmd := RenderCollapsedMermaid(g)
+	mmd := RenderCollapsedMermaid(g, 1)
 
 	if !strings.HasPrefix(mmd, "graph TB\n") {
 		t.Error("missing graph TB header")
@@ -314,7 +314,7 @@ func TestRenderCollapsedMixedSubFlows(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 
-	dot := RenderCollapsedDOT(g)
+	dot := RenderCollapsedDOT(g, 1)
 
 	// standalone_a should appear as its own node
 	if !strings.Contains(dot, `"standalone_a"`) {
@@ -326,4 +326,102 @@ func TestRenderCollapsedMixedSubFlows(t *testing.T) {
 	}
 
 	t.Logf("Mixed collapsed DOT:\n%s", dot)
+}
+
+func buildNestedSubFlowGraph(t *testing.T) *Graph {
+	t.Helper()
+
+	sequence := []string{"recall_a", "recall_b", "merge_c", "transform_d", "filter_e"}
+	operators := map[string]config.OperatorConfig{
+		"recall_a": {
+			TypeName:     "recall_static",
+			OperatorType: string(types.OpTypeRecall),
+			Recall:       true,
+			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
+		},
+		"recall_b": {
+			TypeName:     "recall_static",
+			OperatorType: string(types.OpTypeRecall),
+			Recall:       true,
+			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
+		},
+		"merge_c": {
+			TypeName:     "noop",
+			OperatorType: string(types.OpTypeTransform),
+			Meta:         config.Metadata{ItemInput: []string{"id"}, ItemOutput: []string{"id"}},
+		},
+		"transform_d": {
+			TypeName:     "transform_copy",
+			OperatorType: string(types.OpTypeTransform),
+			Meta:         config.Metadata{ItemInput: []string{"score"}, ItemOutput: []string{"score_norm"}},
+		},
+		"filter_e": {
+			TypeName:     "filter_condition",
+			OperatorType: string(types.OpTypeFilter),
+			Meta:         config.Metadata{ItemInput: []string{"score_norm"}},
+		},
+	}
+	opToSubFlow := map[string]string{
+		"recall_a":    "recall/candidates",
+		"recall_b":    "recall/candidates",
+		"merge_c":     "recall",
+		"transform_d": "process",
+		"filter_e":    "process",
+	}
+
+	g, err := Build(sequence, operators, opToSubFlow)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	return g
+}
+
+func TestRenderCollapsedLevel1(t *testing.T) {
+	g := buildNestedSubFlowGraph(t)
+	dot := RenderCollapsedDOT(g, 1)
+
+	// Level 1: "recall/candidates" and "recall" both → "recall"; "process" stays
+	if !strings.Contains(dot, `"recall"`) {
+		t.Error("missing aggregate node 'recall' at level 1")
+	}
+	if !strings.Contains(dot, `"process"`) {
+		t.Error("missing aggregate node 'process' at level 1")
+	}
+
+	t.Logf("Level 1 DOT:\n%s", dot)
+}
+
+func TestRenderCollapsedLevel2(t *testing.T) {
+	g := buildNestedSubFlowGraph(t)
+	dot := RenderCollapsedDOT(g, 2)
+
+	// Level 2: "recall/candidates" is distinct from "recall"; "process" stays
+	if !strings.Contains(dot, `"recall/candidates"`) {
+		t.Error("missing aggregate node 'recall/candidates' at level 2")
+	}
+	if !strings.Contains(dot, `"recall"`) {
+		t.Error("missing aggregate node 'recall' at level 2")
+	}
+	if !strings.Contains(dot, `"process"`) {
+		t.Error("missing aggregate node 'process' at level 2")
+	}
+
+	t.Logf("Level 2 DOT:\n%s", dot)
+}
+
+func TestRenderCollapsedMermaidLevel1(t *testing.T) {
+	g := buildNestedSubFlowGraph(t)
+	mmd := RenderCollapsedMermaid(g, 1)
+
+	if !strings.HasPrefix(mmd, "graph TB\n") {
+		t.Error("missing graph TB header")
+	}
+	if !strings.Contains(mmd, `"recall"`) {
+		t.Error("missing aggregate node 'recall'")
+	}
+	if !strings.Contains(mmd, `"process"`) {
+		t.Error("missing aggregate node 'process'")
+	}
+
+	t.Logf("Level 1 Mermaid:\n%s", mmd)
 }

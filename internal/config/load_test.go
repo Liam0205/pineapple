@@ -89,8 +89,40 @@ func TestLoadSkipBranch(t *testing.T) {
 	}
 
 	branch := cfg.PipelineConfig.Operators["op_branch_B2"]
-	if branch.Skip != "_if_1" {
-		t.Errorf("branch skip = %q", branch.Skip)
+	expected := []string{"_if_1"}
+	if len(branch.Skip) != len(expected) || branch.Skip[0] != expected[0] {
+		t.Errorf("branch skip = %v, want %v", branch.Skip, expected)
+	}
+}
+
+func TestLoadSkipBackwardCompat(t *testing.T) {
+	// Old format: skip is a string, not an array
+	data := []byte(`{
+		"pipeline_config": {
+			"operators": {
+				"ctrl": {
+					"type_name": "transform_by_lua",
+					"$metadata": {"common_input": [], "common_output": ["_if_1"], "item_input": [], "item_output": []},
+					"for_branch_control": true
+				},
+				"op": {
+					"type_name": "noop",
+					"$metadata": {"common_input": ["_if_1"], "common_output": [], "item_input": [], "item_output": []},
+					"skip": "_if_1"
+				}
+			},
+			"pipeline_map": {}
+		},
+		"pipeline_group": {"main": {"pipeline": ["ctrl", "op"]}},
+		"flow_contract": {"common_input": [], "item_input": [], "common_output": [], "item_output": []}
+	}`)
+	cfg, err := Load(data)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	op := cfg.PipelineConfig.Operators["op"]
+	if len(op.Skip) != 1 || op.Skip[0] != "_if_1" {
+		t.Errorf("skip = %v, want [_if_1]", op.Skip)
 	}
 }
 
@@ -303,6 +335,123 @@ func TestExpandWithSubFlowsMatchesOriginal(t *testing.T) {
 	}
 }
 
+func TestExpandNestedSubFlow(t *testing.T) {
+	cfg, err := Load(mustReadTestdata(t, "nested_subflow.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seq, mapping, err := ExpandOperatorSequenceWithSubFlows(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Expected flat order: recall_a, recall_b, merge_c, transform_d, filter_e
+	expected := []string{"recall_a", "recall_b", "merge_c", "transform_d", "filter_e"}
+	if len(seq) != len(expected) {
+		t.Fatalf("sequence length = %d, want %d", len(seq), len(expected))
+	}
+	for i, name := range expected {
+		if seq[i] != name {
+			t.Errorf("seq[%d] = %q, want %q", i, seq[i], name)
+		}
+	}
+
+	// Verify opToSubFlow paths
+	wantMap := map[string]string{
+		"recall_a":    "recall/candidates",
+		"recall_b":    "recall/candidates",
+		"merge_c":     "recall",
+		"transform_d": "process",
+		"filter_e":    "process",
+	}
+	for op, wantSF := range wantMap {
+		if mapping[op] != wantSF {
+			t.Errorf("opToSubFlow[%q] = %q, want %q", op, mapping[op], wantSF)
+		}
+	}
+}
+
+func TestExpandTopLevelMixedEntries(t *testing.T) {
+	cfg := &RootConfig{
+		PipelineGroup: map[string]SubFlowRef{
+			"main": {Pipeline: []string{"op_a", "sub1", "op_b"}},
+		},
+		PipelineConfig: PipelineConfig{
+			Operators: map[string]OperatorConfig{
+				"op_a": {TypeName: "noop"},
+				"op_b": {TypeName: "noop"},
+				"op_c": {TypeName: "noop"},
+			},
+			PipelineMap: map[string]SubFlowRef{
+				"sub1": {Pipeline: []string{"op_c"}},
+			},
+		},
+	}
+
+	seq, mapping, err := ExpandOperatorSequenceWithSubFlows(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"op_a", "op_c", "op_b"}
+	if len(seq) != len(expected) {
+		t.Fatalf("len = %d, want %d", len(seq), len(expected))
+	}
+	for i := range expected {
+		if seq[i] != expected[i] {
+			t.Errorf("seq[%d] = %q, want %q", i, seq[i], expected[i])
+		}
+	}
+
+	if mapping["op_a"] != "" {
+		t.Errorf("op_a should have empty SubFlow, got %q", mapping["op_a"])
+	}
+	if mapping["op_c"] != "sub1" {
+		t.Errorf("op_c SubFlow = %q, want %q", mapping["op_c"], "sub1")
+	}
+	if mapping["op_b"] != "" {
+		t.Errorf("op_b should have empty SubFlow, got %q", mapping["op_b"])
+	}
+}
+
+func TestExpandCycleDetection(t *testing.T) {
+	cfg := &RootConfig{
+		PipelineGroup: map[string]SubFlowRef{
+			"main": {Pipeline: []string{"a"}},
+		},
+		PipelineConfig: PipelineConfig{
+			Operators: map[string]OperatorConfig{},
+			PipelineMap: map[string]SubFlowRef{
+				"a": {Pipeline: []string{"b"}},
+				"b": {Pipeline: []string{"a"}},
+			},
+		},
+	}
+
+	_, _, err := ExpandOperatorSequenceWithSubFlows(cfg)
+	if err == nil {
+		t.Error("expected error for cycle")
+	}
+}
+
+func TestExpandUndefinedEntry(t *testing.T) {
+	cfg := &RootConfig{
+		PipelineGroup: map[string]SubFlowRef{
+			"main": {Pipeline: []string{"ghost"}},
+		},
+		PipelineConfig: PipelineConfig{
+			Operators:   map[string]OperatorConfig{},
+			PipelineMap: map[string]SubFlowRef{},
+		},
+	}
+
+	_, _, err := ExpandOperatorSequenceWithSubFlows(cfg)
+	if err == nil {
+		t.Error("expected error for undefined entry")
+	}
+}
+
 func FuzzLoad(f *testing.F) {
 	seed, err := os.ReadFile(testdataPath("minimal_valid.json"))
 	if err != nil {
@@ -318,6 +467,7 @@ func FuzzLoad(f *testing.F) {
 		"e2e_recall_resource.json",
 		"e2e_resource_lookup.json",
 		"e2e_resource_pipeline.json",
+		"nested_subflow.json",
 		"recall_merge.json",
 		"skip_branch.json",
 	} {

@@ -33,11 +33,22 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 `apple/flow.py` 定义两个主要的面向用户的构建器：
 
 - `Flow` — 带输入/输出契约、资源和可选 `storage_mode` / `log_prefix` / `debug` 的顶层声明
-- `SubFlow` — 无独立契约的可复用算子片段
+- `SubFlow` — 无独立契约的可复用算子片段，可任意层级嵌套
 
-两者继承 `_FlowBase`，持有算子列表和控制流记账。
+两者继承 `_FlowBase`。`_FlowBase` 现在同时维护：
 
-`SubFlow` 通过 `Flow(sub_flows=[...])` 在构造 `Flow` 时传入，不存在独立的 `add_sub_flow()` 方法。由于 `_FlowBase.__getattr__` 会把未知属性调用当作算子声明，误写成 `flow.add_sub_flow(...)` 会被动态分发误解为声明了名为 `add_sub_flow` 的算子，而不是追加子流程。
+- `_ops` — 当前节点直挂的算子
+- `_sub_flows` — 当前节点直挂的子 `SubFlow`
+- `_child_order` — `("op", idx)` / `("sf", idx)` 的声明顺序账本，用于保留“算子与子流程穿插出现”的原始结构
+
+这意味着 `SubFlow` 不再只是顶层 `Flow` 的平面附件；它本身也可以继续容纳嵌套 `SubFlow`，编译器后续按树结构递归处理。`Flow(sub_flows=[...])` 仍可用于初始化顶层子流程，但稳定 API 现在还包括 `_FlowBase.add_subflow(sf)`：
+
+- 返回 `self`，可链式调用
+- 保留与算子声明一致的插入顺序
+- 拒绝名称中含 `/` 的 `SubFlow`，因为 `/` 已成为 JSON `pipeline_map` 的层级路径分隔符
+- 可在未闭合的 `if_` / `elseif_` / `else_` 分支内调用；编译器会把当前活跃控制字段继承到该 `SubFlow` 子树中的每个算子
+
+由于 `_FlowBase.__getattr__` 会把未知属性调用当作算子声明，误写成不存在的 `add_sub_flow(...)` 仍会被动态分发误解为声明了名为 `add_sub_flow` 的算子；稳定可用的方法名是 `add_subflow(...)`。
 
 ### 两条分发路径
 
@@ -65,6 +76,7 @@ Apple 支持两种声明算子的方式。
 - 从 Go 算子 Schema 生成
 - 带类型的 `__call__` 签名，包含参数和元数据 kwargs
 - 最终调用 `BaseOp._apply()` 追加 `OpCall`
+- 与动态分发一致，在控制分支内声明时会继承当前活跃 branch 的 `skip` 字段列表，并把对应控制字段加入 `common_input`
 
 这些是开发时的类型化编写便利，不是独立的执行路径。
 
@@ -115,19 +127,48 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 块内声明的分支算子接收：
 
-- `skip=<该控制字段>`
-- 添加到 `common_input` 的对同一字段的依赖
+- `skip=[<当前活跃控制字段>...]`
+- 添加到 `common_input` 的对这些字段的依赖
+
+嵌套控制流中，内层控制算子自身也继承外层控制字段；内层业务算子的 `skip` 同时包含外层与内层控制字段。分支内嵌套 `SubFlow` 时，父级控制字段会在递归遍历时传播到整个子树。若 `SubFlow` 内部也定义控制流，编译器会用 SubFlow 路径前缀重命名内部控制字段，例如 `_ranking_if_1`，避免与外层或兄弟 SubFlow 冲突。
+
+`skip` 是控制流降级机制中的横切字段——它被四类路径共同读写：直接 attach（`_add_op` / `BaseOp._apply`）、SubFlow 继承（`inherited_skips`）、字段重命名（SubFlow 路径前缀化）、以及最终 JSON 发射。任何对 `skip` 类型或语义的变更都必须检查这四条路径的一致性。
 
 运行时含义：
 
 - 控制算子返回 `false` 时分支应执行
 - 控制算子返回 `true` 时下游分支算子应跳过
 
-因此调度器的 skip 约定是 `true = 跳过`，`false = 运行`。
+因此调度器的 skip 约定是“skip 列表中任一字段为 `true` 即跳过”，单个分支算子的本地语义仍可视为 `true = 跳过`、`false = 运行`。
 
+### 嵌套控制流与 `inherited_skips`
+
+当编译器递归遍历 Flow/SubFlow 结构树时，`apple/compiler.py` 会沿 traversal 显式传递一份 `inherited_skips` 列表，用来承接当前节点所处的所有外层控制分支守卫。
+
+稳定语义是：
+
+- 顶层普通算子若不在任何控制分支内，则 `skip` 为空列表或不输出该字段
+- 位于单层 `if_` / `elseif_` / `else_` 分支内的算子，其 `skip` 列表包含当前分支自己的控制字段
+- 位于控制分支内的嵌套 `SubFlow` 中的算子，会继承外层分支的 `skip` 列表
+- 若嵌套 `SubFlow` 自身还声明了新的控制流，则内部业务算子的 `skip` 会是“外层 inherited skips + 当前内层控制字段”的拼接结果
+
+因此 `add_subflow()` 现在可以安全地放在控制分支里：编译器不再把 branch guard 停留在当前层，而是把它继续传播到子树中的所有叶子算子。
+
+该机制的目标不是改变 Go 侧调度协议，而是保证递归结构下控制语义与“若把所有算子手工写平”保持一致。
+
+### SubFlow 内部控制字段的路径前缀化
+
+控制字段名必须在整条 flow 的 common 域中全局唯一。为避免“外层控制块”和“SubFlow 内部控制块”生成同名 `_if_1` / `_else_1` 字段，编译器会对非顶层 `SubFlow` 内部生成的控制字段做路径前缀化。
+
+示例：
+
+- 顶层控制字段仍可能是 `_if_1`
+- `inner` 这个 SubFlow 内部的控制字段会变成 `_inner_if_1`
+- 更深层嵌套路径会继续把路径信息编码进字段名前缀，确保不同子树中的控制字段不会碰撞
+
+这项前缀化只影响编译器生成的内部 common 字段名，不改变控制算子的公开命名规则：控制算子本身仍使用 `if_1`、`elseif_2`、`else_3` 这类显式 `OpCall.name`，而真正写入 frame 并供 skip 依赖引用的是带路径前缀的内部字段。
+注意 `_parent_skips` 在 `add_subflow()` 声明期捕获的是原始字段名；compile traversal 时通过 `_apply_field_renames()` 将其映射为重命名后的字段名，确保继承链路与最终 JSON 产物一致。
 ### 条件字段提取
-
-对于控制算子，`extract_fields()` 现在只从 `{{field_name}}` 模板标记中提取字段名，并按出现顺序去重后加入控制算子的 `common_input` 集合；随后 `_strip_template()` 会在生成 Lua 脚本前去掉这些标记，把 `{{item_count}} > 0` 还原为 Lua 可执行的 `item_count > 0`。`elseif` 和 `else` 仍会额外加入它们依赖的先前分支控制字段。
 
 这一约束把字段依赖声明变成显式语法，而不再依赖对整段条件字符串做正则启发式扫描。稳定语义是：
 
@@ -138,13 +179,35 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 因此，像 `{{experiment_group_value}} == "treatment"` 这样的条件会只提取 `experiment_group_value`，不再把字符串常量 `"treatment"` 误识别为字段名。
 ## 编译流水线
 
-`apple/compiler.py` 执行固定序列。流水线很重要，因为后续步骤假设前面的步骤已稳定了排序和命名。
+`apple/compiler.py` 执行固定序列。新版流水线不再先做“单层展平后再回填结构”，而是围绕 Flow/SubFlow 树执行递归三阶段：先遍历结构，再统一命名，再组装 JSON。后续校验仍依赖由这套流程产出的全局声明顺序。
 
-### 步骤 1：展平子流程
+### 步骤 1：递归遍历结构树
 
-所有声明的 `SubFlow` 算子列表先拼接，然后是主流程自身的算子。
+编译器从顶层 `Flow` 出发，递归遍历每个节点的 `_child_order`：
 
-编译器还记录每个子流程的 `[start, end)` 切片，以便后续重建 `pipeline_map` 条目。
+- 遇到 `("op", idx)` 时，把对应 `OpCall` 追加到全局 `all_ops`
+- 遇到 `("sf", idx)` 时，生成层级路径 `parent/child`，继续递归遍历该 `SubFlow`
+- 同时为每个 Flow/SubFlow 节点记录 `structures[path] = [("op", global_idx) | ("sf", subflow_path)]`
+
+这一步同时确定两类稳定结果：
+
+- 全局算子顺序：供后续命名、校验和 Go 侧 DAG 基础序列使用
+- 层级结构账本：供后续发射 `pipeline_group.main.pipeline` 与 `pipeline_map`
+
+递归遍历时，编译器还会把当前层级路径注入每个 `OpCall.subflow_path`：
+
+- 顶层算子的 `subflow_path` 保持为空字符串
+- 嵌套算子使用 `/` 连接的稳定路径，例如 `recall/candidates`
+- 该字段只作为编译期诊断上下文，不会写入最终 JSON `operators` 配置
+
+因此后续 validator 可以在不改变运行时契约的前提下，把声明错误精确归因到某个嵌套 `SubFlow`。
+
+编译器会对遍历做两类结构保护：
+
+- 复用/环检测：同一个 `SubFlow` 对象若被重复引用，视为 `SubFlow cycle or reuse detected`
+- 路径唯一性：若生成的层级路径重复，则报 `duplicate SubFlow path`
+
+因此稳定模型是“SubFlow 树”，而不是“可共享 DAG 片段”。
 
 ### 步骤 1b：校验控制块闭合
 
@@ -191,7 +254,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 可选 `$code_info`
 - `recall`
 - `sources`
-- `skip`
+- `skip`（字符串列表；Go 加载器兼容旧版单字符串）
 - `for_branch_control`
 - `row_dependency`
 - `data_parallel`（仅当 `> 1` 时输出）
@@ -206,11 +269,23 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 ### 步骤 5：构建 `pipeline_map`
 
-每个子流程成为一个命名 pipeline，包含分配给该片段的算子名。主流程自身的直接算子归入内部 `_main_*` pipeline 条目。
+每个非顶层 `SubFlow` 路径成为一个命名 pipeline，key 使用 `/` 连接层级，例如 `recall/candidates`。
+
+每个 `pipeline` 列表中的条目保持声明顺序，可混合两类引用：
+
+- 叶子算子名（引用 `operators` 中的条目）
+- 子 `SubFlow` 路径（引用 `pipeline_map` 中的下一层 pipeline）
+
+因此 `pipeline_map` 现在表达的是可递归展开的树，而不是仅容纳一层叶子算子的平面分组表。
 
 ### 步骤 6：构建 `pipeline_group`
 
-Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipeline-map 条目的展平顺序。
+Apple 仍输出单个名为 `main` 的 group，但 `pipeline_group.main.pipeline` 现在直接保留顶层声明序列：
+
+- 顶层叶子算子直接写入算子名
+- 顶层子 `SubFlow` 写入其路径引用
+
+编译器不再生成 `_main_<flow>` 这类合成 SubFlow 来包装顶层算子。顶层结构直接体现在 `pipeline_group.main.pipeline` 中。
 
 ### 步骤 7：构建 `flow_contract`
 
@@ -292,6 +367,24 @@ Apple 当前输出单个名为 `main` 的 group，其 pipeline 列表保持 pipe
 - 它们的输出也不计入全局"已写"集
 
 这使互斥的 if/elseif/else 分支可以写入相同字段。
+
+### 校验报错定位格式
+
+`apple/validator.py` 通过 `_op_location(name, op)` 统一构造逐算子校验错误前缀。所有 per-operator `ValidationError` 都应复用这一路径，而不是各自拼接字符串。
+
+稳定格式分三层：
+
+- 基础头部始终是 `operator 'name'`
+- 若 `OpCall.subflow_path` 非空，则在头部追加 ` [path/to/subflow]`
+- 若 `OpCall.code_info` 可用，则继续追加换行的 `defined at: file:line ...`
+
+因此同一类字段/参数错误，在不同嵌套层级下会呈现为：
+
+- 顶层算子：`operator 'transform_xxx': ...`
+- 子流程算子：`operator 'transform_xxx' [recall/candidates]: ...`
+- 若带源码位置，还会在消息中出现 `defined at: path/to/file.py:123 ...`
+
+该定位信息只服务于 Apple compile-time 诊断，不参与 JSON 发射，也不会影响 Go 侧配置加载契约。它的目标是让深层 `SubFlow` 中的字段覆盖、写后未读、`data_parallel` 和参数-元数据一致性错误，都能直接指向“哪条子流程路径、哪一行声明代码”触发了问题。
 
 ### 4. 死代码检测
 
@@ -428,12 +521,17 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 ## 需要保持的重要不变量
 
 1. **Apple 输出 JSON，而非可执行运行时对象。** 保持基于文件/Schema 的边界。
-2. **校验使用展平声明顺序。** 该顺序必须与运行时排序假设保持对齐。
-3. **控制条件中的字段引用必须显式模板化。** `apple/control.py` 只会为 `{{field_name}}` 形式生成 `common_input` 依赖；Lua 发射前再移除模板标记。4. **下划线前缀字段保留。** 用户输出不应与编译器/运行时内部冲突。
+2. **校验使用递归遍历产出的全局声明顺序。** 该顺序必须与运行时递归展开后的顺序保持对齐。
+3. **控制条件中的字段引用必须显式模板化。** `apple/control.py` 只会为 `{{field_name}}` 形式生成 `common_input` 依赖；Lua 发射前再移除模板标记。
+4. **下划线前缀字段保留。** 用户输出不应与编译器/运行时内部冲突。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
-8. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
+8. **控制分支守卫会沿 SubFlow 递归传播。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致。
+9. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
+10. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
+11. **编译器 traversal 幂等。** `_traverse()` 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过 `deepcopy` 局部 ops 实现；如果后续有新的 traversal 逻辑需要改写 IR，必须同样保证 `compile_dict()` 可重复调用。
+    - 测试覆盖要求应显式包含“控制分支内嵌 SubFlow”的场景：至少验证同一个包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 侧效应在该路径上累积。
 
 ## 检索指针
 

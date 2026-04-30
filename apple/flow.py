@@ -53,9 +53,31 @@ class _FlowBase:
     def __init__(self, name: str):
         self._name = name
         self._ops: list[OpCall] = []
+        self._sub_flows: list[SubFlow] = []
+        self._child_order: list[tuple[str, int]] = []  # ("op", idx) or ("sf", idx)
         # Control flow state
         self._ctrl_counter = 0
         self._ctrl_stack: list[ControlBlock] = []
+        self._parent_skips: list[str] = []
+
+    def _active_skip_fields(self, include_current: bool = True) -> list[str]:
+        """Return control fields that guard declarations at the current point."""
+        stack = self._ctrl_stack if include_current else self._ctrl_stack[:-1]
+        fields: list[str] = []
+        for block in stack:
+            if block.branches:
+                fields.append(block.branches[-1].ctrl_field)
+        return fields
+
+    def _apply_skip_fields(self, call: OpCall, skip_fields: list[str]) -> None:
+        """Attach control-flow skip dependencies to an operator call."""
+        missing_inputs: list[str] = []
+        for skip_field in skip_fields:
+            if skip_field not in call.skip:
+                call.skip.append(skip_field)
+            if skip_field not in call.common_input:
+                missing_inputs.append(skip_field)
+        call.common_input = missing_inputs + call.common_input
 
     def __getattr__(self, name: str) -> Any:
         """Dynamic operator dispatch: flow.some_op(...) creates an OpCall."""
@@ -110,22 +132,31 @@ class _FlowBase:
             name=meta.get("name", ""),
         )
 
-        # Apply skip field if inside a control block
-        if self._ctrl_stack:
-            block = self._ctrl_stack[-1]
-            if block.branches:
-                branch = block.branches[-1]
-                call.skip = branch.ctrl_field
-                if branch.ctrl_field not in call.common_input:
-                    call.common_input = [branch.ctrl_field] + call.common_input
+        # Apply all active branch guards, including outer nested control blocks.
+        self._apply_skip_fields(call, self._active_skip_fields())
 
+        idx = len(self._ops)
         self._ops.append(call)
+        self._child_order.append(("op", idx))
+        return self
+
+    def add_subflow(self, sf: SubFlow) -> _FlowBase:
+        """Add a nested SubFlow, preserving declaration order with ops."""
+        if "/" in sf._name:
+            raise ValueError(
+                f"SubFlow name must not contain '/': {sf._name!r}"
+            )
+        sf._parent_skips = self._active_skip_fields()
+        idx = len(self._sub_flows)
+        self._sub_flows.append(sf)
+        self._child_order.append(("sf", idx))
         return self
 
     # --- Control flow ---
 
     def if_(self, condition: str) -> _FlowBase:
         """Start an if block."""
+        parent_skips = self._active_skip_fields()
         self._ctrl_counter += 1
         block = ControlBlock(block_id=self._ctrl_counter)
         ctrl_field = f"_if_{block.block_id}"
@@ -141,7 +172,10 @@ class _FlowBase:
 
         # Emit the control operator
         ctrl_op = make_control_op(branch, [], condition)
+        self._apply_skip_fields(ctrl_op, parent_skips)
+        idx = len(self._ops)
         self._ops.append(ctrl_op)
+        self._child_order.append(("op", idx))
         return self
 
     def elseif_(self, condition: str) -> _FlowBase:
@@ -151,6 +185,7 @@ class _FlowBase:
         block = self._ctrl_stack[-1]
         if block.closed:
             raise ValueError("elseif_ after end_if_")
+        parent_skips = self._active_skip_fields(include_current=False)
 
         self._ctrl_counter += 1
         prior_fields = [b.ctrl_field for b in block.branches]
@@ -165,7 +200,10 @@ class _FlowBase:
         block.branches.append(branch)
 
         ctrl_op = make_control_op(branch, prior_fields, condition)
+        self._apply_skip_fields(ctrl_op, parent_skips)
+        idx = len(self._ops)
         self._ops.append(ctrl_op)
+        self._child_order.append(("op", idx))
         return self
 
     def else_(self) -> _FlowBase:
@@ -175,6 +213,7 @@ class _FlowBase:
         block = self._ctrl_stack[-1]
         if block.closed:
             raise ValueError("else_ after end_if_")
+        parent_skips = self._active_skip_fields(include_current=False)
 
         self._ctrl_counter += 1
         prior_fields = [b.ctrl_field for b in block.branches]
@@ -189,7 +228,10 @@ class _FlowBase:
         block.branches.append(branch)
 
         ctrl_op = make_control_op(branch, prior_fields, None)
+        self._apply_skip_fields(ctrl_op, parent_skips)
+        idx = len(self._ops)
         self._ops.append(ctrl_op)
+        self._child_order.append(("op", idx))
         return self
 
     def end_if_(self) -> _FlowBase:
@@ -199,8 +241,11 @@ class _FlowBase:
         block = self._ctrl_stack.pop()
         block.closed = True
         for branch in block.branches:
-            has_ops = any(op.skip == branch.ctrl_field for op in self._ops)
-            if not has_ops:
+            has_ops = any(branch.ctrl_field in op.skip for op in self._ops)
+            has_subflows = any(
+                branch.ctrl_field in sf._parent_skips for sf in self._sub_flows
+            )
+            if not has_ops and not has_subflows:
                 raise ValueError(
                     f"empty {branch.kind} branch: no operators under "
                     f"condition field {branch.ctrl_field!r}"
@@ -237,8 +282,15 @@ class Flow(_FlowBase):
         self._item_input = item_input or []
         self._common_output = common_output
         self._item_output = item_output
-        self._sub_flows = sub_flows or []
+        for sf in (sub_flows or []):
+            self.add_subflow(sf)
         self._resources: list[ResourceDecl] = []
+        _VALID_STORAGE_MODES = {"row", "column"}
+        if storage_mode is not None and storage_mode not in _VALID_STORAGE_MODES:
+            raise ValueError(
+                f"invalid storage_mode={storage_mode!r}, "
+                f"must be one of {sorted(_VALID_STORAGE_MODES)}"
+            )
         self._storage_mode = storage_mode
         self._log_prefix = log_prefix
         self._debug = debug

@@ -115,5 +115,5 @@ flow.elseif_("{{fallback_enabled}} ~= nil and {{item_count}} > 10") \
 
 - 控制流降级与编译流水线：`llmdoc/architecture/apple-compiler.md`
 - 引擎侧 skip / 控制字段透明性：`llmdoc/architecture/dag-engine.md`
-- 设计示例：`design_doc/06_json_config.md`
+- 控制流降级、`inherited_skips` 与嵌套 SubFlow 传播：`llmdoc/architecture/apple-compiler.md`
 - 实现入口：`apple/control.py`

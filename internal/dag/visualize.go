@@ -91,12 +91,11 @@ func sanitizeMermaidID(name string) string {
 	return strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(name)
 }
 
-// collapsedGraph computes the aggregated view for SubFlow-level rendering.
-// Nodes with the same non-empty SubFlow are grouped into a single aggregate
-// node. Nodes with empty SubFlow remain independent. Cross-group edges are
-// deduped.
+// collapsedGraph computes the aggregated view for level-based SubFlow rendering.
+// Nodes are grouped by truncating their SubFlow path to the first `level`
+// segments (split by "/"). Nodes with empty SubFlow remain independent.
 type collapsedNode struct {
-	Name  string // SubFlow name or original node name
+	Name  string // group key or original node name
 	Group bool   // true if this represents a SubFlow group
 }
 
@@ -104,13 +103,25 @@ type collapsedEdge struct {
 	From, To int
 }
 
-func buildCollapsed(g *Graph) ([]collapsedNode, []collapsedEdge) {
+// collapseKey returns the grouping key for a SubFlow path at a given level.
+func collapseKey(subFlow string, level int) string {
+	if subFlow == "" || level <= 0 {
+		return ""
+	}
+	parts := strings.Split(subFlow, "/")
+	if level >= len(parts) {
+		return subFlow
+	}
+	return strings.Join(parts[:level], "/")
+}
+
+func buildCollapsed(g *Graph, level int) ([]collapsedNode, []collapsedEdge) {
 	nodeToGroup := make(map[int]int)
 	var groups []collapsedNode
 	groupIndex := make(map[string]int) // key → group index
 
 	for _, node := range g.Nodes {
-		key := node.SubFlow
+		key := collapseKey(node.SubFlow, level)
 		if key == "" {
 			key = "\x00" + node.Name // unique per standalone node
 		}
@@ -119,7 +130,7 @@ func buildCollapsed(g *Graph) ([]collapsedNode, []collapsedEdge) {
 		} else {
 			idx := len(groups)
 			if node.SubFlow != "" {
-				groups = append(groups, collapsedNode{Name: node.SubFlow, Group: true})
+				groups = append(groups, collapsedNode{Name: collapseKey(node.SubFlow, level), Group: true})
 			} else {
 				groups = append(groups, collapsedNode{Name: node.Name, Group: false})
 			}
@@ -149,9 +160,9 @@ func buildCollapsed(g *Graph) ([]collapsedNode, []collapsedEdge) {
 }
 
 // RenderCollapsedDOT renders the DAG with SubFlow nodes collapsed into
-// single aggregate nodes.
-func RenderCollapsedDOT(g *Graph) string {
-	groups, edges := buildCollapsed(g)
+// single aggregate nodes at the specified level.
+func RenderCollapsedDOT(g *Graph, level int) string {
+	groups, edges := buildCollapsed(g, level)
 	var b strings.Builder
 	b.WriteString("digraph pipeline {\n")
 	b.WriteString("    rankdir=TB;\n")
@@ -178,9 +189,9 @@ func RenderCollapsedDOT(g *Graph) string {
 }
 
 // RenderCollapsedMermaid renders the DAG with SubFlow nodes collapsed into
-// single aggregate nodes.
-func RenderCollapsedMermaid(g *Graph) string {
-	groups, edges := buildCollapsed(g)
+// single aggregate nodes at the specified level.
+func RenderCollapsedMermaid(g *Graph, level int) string {
+	groups, edges := buildCollapsed(g, level)
 	var b strings.Builder
 	b.WriteString("graph TB\n")
 
