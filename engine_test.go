@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"testing"
 
@@ -1002,5 +1003,68 @@ func TestNewEngineUnknownOperator(t *testing.T) {
 	_, err := pine.NewEngine(mustJSON(t, cfg))
 	if err == nil {
 		t.Error("expected error for unknown operator type")
+	}
+}
+
+func TestSourcesForwardReferenceRejected(t *testing.T) {
+	cfg := makeConfig(
+		map[string]any{
+			"op_a": map[string]any{
+				"type_name": "set_field",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{"x"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+				"field": "x",
+				"value": 1,
+				"sources": []string{"op_b"},
+			},
+			"op_b": map[string]any{
+				"type_name": "set_field",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{"y"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+				"field": "y",
+				"value": 2,
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op_a", "op_b"}}},
+		map[string]any{"common_input": []string{}},
+	)
+
+	_, err := pine.NewEngine(mustJSON(t, cfg))
+	if err == nil {
+		t.Fatal("expected error for forward reference in sources")
+	}
+	if !strings.Contains(err.Error(), "forward reference") {
+		t.Errorf("error = %q, want 'forward reference'", err.Error())
+	}
+}
+
+func TestSourcesNonexistentReferenceRejected(t *testing.T) {
+	cfg := makeConfig(
+		map[string]any{
+			"op_a": map[string]any{
+				"type_name": "set_field",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{"x"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+				"field":   "x",
+				"value":   1,
+				"sources": []string{"ghost"},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op_a"}}},
+		map[string]any{"common_input": []string{}},
+	)
+
+	_, err := pine.NewEngine(mustJSON(t, cfg))
+	if err == nil {
+		t.Fatal("expected error for nonexistent sources reference")
+	}
+	if !strings.Contains(err.Error(), "undefined operator") {
+		t.Errorf("error = %q, want 'undefined operator'", err.Error())
 	}
 }

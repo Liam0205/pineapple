@@ -400,6 +400,90 @@ class TestParamMetadataConsistency:
         flow.compile()  # should not raise
 
 
+class TestSourcesReferences:
+    def test_valid_backward_reference(self):
+        """sources referencing an earlier named op should pass."""
+        flow = Flow(name="ok", item_input=["item_id"], item_output=["item_id"])
+        flow._add_op("recall_static", item_output=["item_id"],
+                      items=[{"item_id": "a"}], name="my_recall", recall=True)
+        flow._add_op("transform_by_lua",
+                      item_input=["item_id"], item_output=["item_id"],
+                      lua_script="function f() return item_id end",
+                      function_for_item="f", function_for_common="",
+                      sources=["my_recall"])
+        flow.compile()  # should not raise
+
+    def test_forward_reference_rejected(self):
+        """sources referencing a later-declared op should be rejected."""
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="",
+                      sources=["future_op"])
+        flow._add_op("transform_by_lua",
+                      common_input=["y"], common_output=["y"],
+                      lua_script="function g() return y end",
+                      function_for_common="g", function_for_item="",
+                      name="future_op")
+        with pytest.raises(ValidationError, match="forward reference"):
+            flow.compile()
+
+    def test_nonexistent_reference_rejected(self):
+        """sources referencing a non-existent op should be rejected."""
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="",
+                      sources=["no_such_op"])
+        with pytest.raises(ValidationError, match="does not exist"):
+            flow.compile()
+
+    def test_no_sources_ok(self):
+        """Ops without sources should pass without issues."""
+        flow = Flow(name="ok", common_input=["x"], common_output=["y"])
+        flow._add_op("transform_by_lua", common_input=["x"], common_output=["y"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        flow.compile()  # should not raise
+
+    def test_sources_in_subflow_forward_reference_rejected(self):
+        """Forward reference within a SubFlow should also be caught."""
+        from apple.flow import SubFlow
+        sf = SubFlow(name="stage")
+        sf._add_op("transform_by_lua",
+                    common_input=["x"], common_output=["y"],
+                    lua_script="function f() return x end",
+                    function_for_common="f", function_for_item="",
+                    sources=["later_op"])
+        sf._add_op("transform_by_lua",
+                    common_input=["y"], common_output=["z"],
+                    lua_script="function g() return y end",
+                    function_for_common="g", function_for_item="",
+                    name="later_op")
+
+        flow = Flow(name="bad", common_input=["x"], common_output=["z"])
+        flow.add_subflow(sf)
+        with pytest.raises(ValidationError, match="forward reference"):
+            flow.compile()
+
+    def test_sources_error_includes_subflow_path(self):
+        """Sources error in nested SubFlow should include the SubFlow path."""
+        from apple.flow import SubFlow
+        sf = SubFlow(name="inner")
+        sf._add_op("transform_by_lua",
+                    common_input=["x"], common_output=["y"],
+                    lua_script="function f() return x end",
+                    function_for_common="f", function_for_item="",
+                    sources=["ghost"])
+
+        flow = Flow(name="bad", common_input=["x"], common_output=["y"])
+        flow.add_subflow(sf)
+        with pytest.raises(ValidationError, match=r"(?s)\[inner\].*does not exist"):
+            flow.compile()
+
+
 class TestErrorLocationInfo:
     def test_error_includes_subflow_path(self):
         """Nested SubFlow op error should include the SubFlow path."""

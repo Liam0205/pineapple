@@ -23,6 +23,7 @@ from apple.validator import (
     validate_field_coverage,
     validate_no_underscore_output,
     validate_param_metadata_consistency,
+    validate_sources_references,
     validate_write_without_read,
 )
 
@@ -74,6 +75,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         exclusion_groups=exclusion_groups,
     )
     validate_data_parallel(named_ops)
+    validate_sources_references(named_ops)
     validate_param_metadata_consistency(named_ops)
     dead = detect_dead_code(
         named_ops,

@@ -240,6 +240,34 @@ _PARAM_METADATA_RULES: dict[str, list[tuple[str, str]]] = {
 }
 
 
+def validate_sources_references(ops: list[tuple[str, OpCall]]) -> None:
+    """Check that every sources entry refers to an operator declared before the current one.
+
+    This catches two classes of errors in a single pass:
+    1. References to non-existent operators (typos, forgotten name=).
+    2. Forward references to operators declared after the current one,
+       which would create causal inversions in the DAG.
+    """
+    all_names = {name for name, _ in ops}
+    seen: set[str] = set()
+    for name, op in ops:
+        if op.sources:
+            for src in op.sources:
+                if src not in seen:
+                    if src in all_names:
+                        raise ValidationError(
+                            f"{_op_location(name, op)}sources references {src!r} "
+                            f"which is declared after the current operator "
+                            f"(forward reference)"
+                        )
+                    else:
+                        raise ValidationError(
+                            f"{_op_location(name, op)}sources references {src!r} "
+                            f"which does not exist in the pipeline"
+                        )
+        seen.add(name)
+
+
 def validate_param_metadata_consistency(
     ops: list[tuple[str, OpCall]],
 ) -> None:

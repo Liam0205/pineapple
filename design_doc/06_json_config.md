@@ -116,7 +116,7 @@ flow.recall_static(name="my_recall", item_output=["item_id"], items=[...], recal
 | `$code_info` | 否 | DSL 源码位置，便于调试回溯 |
 | `skip` | 否 | 引用控制属性列表（common 字段名列表），任一字段值为 true 时跳过该算子 |
 | `recall` | 否 | 标记为召回算子，item_output 不参与字段级 DAG 推导，引擎写回时自动注入 `_source` |
-| `sources` | 否 | 合并算子专用，引用召回算子名称，Pine 据此建立显式 DAG 边 |
+| `sources` | 否 | 合并算子专用，引用召回算子名称，Pine 据此建立显式 DAG 边。Apple 编译期校验每个引用必须指向声明序列中更早的算子（禁止前向引用和不存在引用） |
 | 其他字段 | 否 | 算子的业务参数，由算子类型定义 |
 
 ### 召回与合并算子示例
@@ -422,6 +422,7 @@ flow.if_("{{enabled}}") \
 
 - **未关闭控制块**：`if_()` 必须有配对的 `end_if_()`，否则编译时报错（`ValidationError`）。
 - **空分支检测**：`end_if_()` 时检查每个分支下是否有至少一个业务算子引用了该分支的 `ctrl_field`。空分支（如 `if_("{{cond}}").end_if_()`）会立即报错（`ValueError`），因为空分支生成的控制算子无意义。
+- **`sources` 引用校验**：`sources` 中的每个名称必须指向声明序列中更早的算子。这一条校验同时捕获两类错误：引用不存在的算子（如忘写 `name=`）和前向引用（引用声明顺序靠后的算子，会导致 DAG 因果倒置）。
 
 ## DAG 推导
 

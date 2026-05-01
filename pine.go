@@ -95,6 +95,11 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 
+	// 2b. Validate sources references against declaration order
+	if err := validateSourcesOrder(sequence, cfg); err != nil {
+		return nil, err
+	}
+
 	// 3. Build operator instances and populate OperatorType
 	compiledOps := make([]*runtime.CompiledOperator, len(sequence))
 	for i, name := range sequence {
@@ -320,6 +325,22 @@ func validateDataParallel(opName string, opCfg *config.OperatorConfig, opType ty
 				Message: fmt.Sprintf("operator %q: data_parallel=%d requires the operator to implement ConcurrentSafe interface (type %q does not)", opName, opCfg.DataParallel, opCfg.TypeName),
 			}
 		}
+	}
+	return nil
+}
+
+func validateSourcesOrder(sequence []string, cfg *config.RootConfig) error {
+	seen := make(map[string]struct{}, len(sequence))
+	for _, name := range sequence {
+		opCfg := cfg.PipelineConfig.Operators[name]
+		for _, src := range opCfg.Sources {
+			if _, ok := seen[src]; !ok {
+				return &ValidationError{
+					Message: fmt.Sprintf("operator %q: sources references %q which is declared after the current operator (forward reference)", name, src),
+				}
+			}
+		}
+		seen[name] = struct{}{}
 	}
 	return nil
 }
