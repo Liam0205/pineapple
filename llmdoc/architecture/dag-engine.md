@@ -207,7 +207,41 @@
 
 传递性归约完成后，`TopologicalSort` 校验图是否无环。环表示由屏障、冒险或显式 source 边暗示的不可能排序。
 
+当检测到环时，错误信息不再是泛化的 “DAG contains a cycle”，而是会列出仍有入度、也就是实际参与环的算子名，例如 `DAG contains a cycle involving operators: [recall_a merge ranker]`。这让手写 JSON、DSL 降级后的控制流、或复杂的 SubFlow/source 组合在出现闭环时，可以直接定位到参与循环的算子集合，而不是只知道“某处有环”。
+
+诊断语义还包含一个重要边界：错误中只报告真正处于环内的节点，不会把仅仅依赖该环、但自身不属于闭环的下游节点一起报出来。
+
 归约保证可达性不变：若原图中 u 可达 v，归约后仍可达。调度器的执行顺序约束完全由可达性（`done[pred]` channel 的 happens-before 语义）决定，因此归约不改变执行语义。
+
+## DAG 测试覆盖面
+
+`internal/dag/dag_test.go` 现在不仅覆盖单一 hazard 或单一 barrier 语义，还专门覆盖多特性交互与诊断质量。
+
+### 环诊断测试
+
+- `TestTopologicalSortCycleReportsNodeNames` — 验证完整环会在错误中报告所有参与闭环的算子名。
+- `TestTopologicalSortPartialCycleReportsOnlyCycleNodes` — 验证错误只包含真正位于环中的节点，不把环外下游节点误报为 cycle participant。
+
+这两项测试与 `TopologicalSort` 的新错误格式共同构成稳定契约：DAG 构建失败时，调用方可以依赖错误中的算子名集合做人工排查或上层报错包装。
+
+### 组合语义回归测试
+
+以下测试补强了 Pineapple DAG 的“语义组合面”，确保多个机制叠加时仍保持既有不变量：
+
+- `TestNestedSubFlowWithBarrierAndSources` — 覆盖 recall + merge + filter + SubFlow 的组合，确认嵌套 SubFlow 场景下 barrier 与显式 `sources` 边仍能共同给出正确依赖骨架。
+- `TestControlFlowWithBarrierInteraction` — 覆盖控制字段依赖与 barrier 语义交互，确认控制流守卫不会破坏屏障建立的全序约束。
+- `TestRowDepWithRecallAndBarrierCombined` — 覆盖 row dependency、recall additive 写入与 barrier reset 的组合，确认 `_row_set_` 哨兵在多阶段 item 集合变更下仍能表达正确因果关系。
+- `TestObserveInNestedSubFlowDoesNotBlock` — 覆盖嵌套 SubFlow 中的 observe 非阻塞语义，确认 observe 仍只建立 RAW 依赖，不会在复杂图形里意外产生 WAR 阻塞。
+
+这些测试的意义不只是增加 case 数量，而是把几个容易一起回归的核心不变量钉住：
+
+- barrier 仍是全序栅栏
+- recall 仍是 item 行集上的 additive writer
+- row dependency 仍只通过 `_row_set_` 建模，而不是退化成对无关列写入的过度串行化
+- observe 仍是非阻塞读者，即使放进嵌套 SubFlow 或与 barrier、control-flow 混合
+- `sources` 仍是对推导图的显式补边，而不是绕开 hazard / barrier 规则的替代机制
+
+因此，`internal/dag/dag_test.go` 现在既验证单点规则，也验证这些规则在真实流水线组合形态下不会互相破坏。
 
 ## 行依赖模型
 
