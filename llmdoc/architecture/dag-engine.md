@@ -282,13 +282,14 @@ Frame 实现通过内部单个 `sync.RWMutex` 保证并发安全：读操作（`
 
 ### Skip 处理
 
-控制流被编译为普通算子加 `skip` 字段列表引用。JSON 契约中的 `skip` 现在是”零个或多个 common 控制字段名”的列表；Go 配置加载器在 `internal/config/load.go` 中通过 `normalizeSkip()` 兼容旧版单字符串 JSON，并在加载后统一归一为列表语义。运行时调度器直接通过 Frame 方法读取这些字段（Frame 内部加锁保证安全）：
+控制流被编译为普通算子加 `skip` 字段列表引用。JSON 契约中的 `skip` 现在是“零个或多个 common 控制字段名”的列表；Go 配置加载器在 `internal/config/load.go` 中通过 `normalizeSkip()` 兼容旧版单字符串 JSON，并在加载后统一归一为列表语义。运行时调度器直接通过 Frame 方法读取这些字段（Frame 内部加锁保证安全）：
 
-- `skip` 列表中任一字段为 `true`，该算子就跳过执行
-- 只有当列表中的所有字段都不是 `true` 时，算子才正常执行
+- `skip` 列表中任一字段只要是 Lua truthy 值，该算子就跳过执行
+- Go 运行时的判定与 Lua 一致：只有 `nil` 和 `false` 视为 falsy；任何非 `nil`、非 `false` 的值都视为 truthy
+- 因此手写 JSON 或其他非 Apple 来源若把控制字段写成 `1`、非空字符串等非 bool truthy 值，运行时也会触发跳过，而不会像旧版严格 `== true` 那样静默放行
 - 空列表或缺失 `skip` 表示没有控制流守卫
 
-这使嵌套控制流可以自然表达为”外层分支守卫 + 内层分支守卫”的合取约束：只要任一外层或内层 guard 判定为跳过，业务算子就不会运行。
+这使嵌套控制流可以自然表达为“外层分支守卫 + 内层分支守卫”的合取约束：只要任一外层或内层 guard 判定为跳过，业务算子就不会运行。
 
 被跳过的算子仍参与图和 trace 流，但不运行业务逻辑。
 
@@ -492,7 +493,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 - `log_prefix` — 根级全局日志前缀，供 `NewEngine` 调用 `log.SetPrefix()`，并配套设置 `log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)` 以启用 `file:line` 输出
 - `debug` — 根级全局 debug 默认值；`NewEngine` 可直接消费，也可被 `pine.WithDebug(...)` 覆盖，最终批量下沉到每个算子的 `opCfg.Debug`
 - `$metadata` — 声明的 common/item 输入和输出
-- `skip` — 控制流守卫字段列表；任一字段为 `true` 即跳过，旧版单字符串 JSON 在加载期会被归一化为单元素列表
+- `skip` — 控制流守卫字段列表；任一字段只要是 Lua truthy 值即跳过，旧版单字符串 JSON 在加载期会被归一化为单元素列表
 - `recall` — 从 DSL/codegen 约定保留的声明提示
 - `sources` — 显式上游 source 引用；名称必须存在，且在扁平声明顺序上只能指向当前算子之前已经出现的命名上游
 - `debug` — 逐算子 trace 捕获开关

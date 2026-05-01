@@ -137,9 +137,9 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 运行时含义：
 
 - 控制算子返回 `false` 时分支应执行
-- 控制算子返回 `true` 时下游分支算子应跳过
+- 控制算子返回任意 Lua truthy 值时下游分支算子应跳过；只有 `nil` 和 `false` 视为 falsy
 
-因此调度器的 skip 约定是“skip 列表中任一字段为 `true` 即跳过”，单个分支算子的本地语义仍可视为 `true = 跳过`、`false = 运行`。
+因此调度器的 skip 约定是“skip 列表中任一字段只要为 truthy 即跳过”，单个分支算子的本地语义仍可视为 `truthy = 跳过`、`false/nil = 运行`。这与 `apple/control.py` 发射的 Lua prior-check 保持一致：`elseif_` 与 `else_` 不再使用严格 `(f == true)`，而是直接使用 `(f)`，从而允许上游控制字段在手写 JSON 或其他边界输入中以 `1` 等非 bool truthy 值参与分支互斥。
 
 ### 嵌套控制流与 `inherited_skips`
 
@@ -547,7 +547,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
 8. **`sources` 引用也必须遵守声明顺序。** Apple compile time 的 `validate_sources_references` 只允许引用已经出现在当前算子之前的命名上游；不存在的名字报 `does not exist`，存在但尚未出现的名字报 `forward reference`。这保证显式 merge/source 边不会把 DAG 拉成“未来节点依赖过去节点”的因果倒置。
-9. **控制分支守卫会沿 SubFlow 递归传播。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致。
+9. **控制分支守卫会沿 SubFlow 递归传播，且 skip 采用 Lua truthiness。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致；`apple/control.py` 发射的 prior-check 与 Go 调度器的 skip 判定都以 Lua truthiness 为准，只有 `nil` 和 `false` 不触发跳过。
 10. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
 11. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
 12. **编译器 traversal 幂等。** `_traverse()` 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过 `deepcopy` 局部 ops 实现；如果后续有新的 traversal 逻辑需要改写 IR，必须同样保证 `compile_dict()` 可重复调用。
