@@ -2,6 +2,7 @@ package dag
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Liam0205/pineapple/internal/config"
@@ -1275,6 +1276,254 @@ func containsIndex(xs []int, target int) bool {
 		}
 	}
 	return false
+}
+
+// --- Cycle diagnostics (#9) ---
+
+func TestTopologicalSortCycleReportsNodeNames(t *testing.T) {
+	// Manually construct a graph with a cycle: A->B->C->A
+	g := &Graph{
+		NameToIndex: map[string]int{"alpha": 0, "beta": 1, "gamma": 2},
+		Nodes: []*Node{
+			{Name: "alpha", Index: 0, Succs: []int{1}, Preds: []int{2}},
+			{Name: "beta", Index: 1, Succs: []int{2}, Preds: []int{0}},
+			{Name: "gamma", Index: 2, Succs: []int{0}, Preds: []int{1}},
+		},
+	}
+
+	_, err := TopologicalSort(g)
+	if err == nil {
+		t.Fatal("expected cycle error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "alpha") {
+		t.Errorf("error should mention 'alpha', got: %s", msg)
+	}
+	if !strings.Contains(msg, "beta") {
+		t.Errorf("error should mention 'beta', got: %s", msg)
+	}
+	if !strings.Contains(msg, "gamma") {
+		t.Errorf("error should mention 'gamma', got: %s", msg)
+	}
+}
+
+func TestTopologicalSortPartialCycleReportsOnlyCycleNodes(t *testing.T) {
+	// A->B->C, C->B (cycle between B and C only). A has no cycle.
+	g := &Graph{
+		NameToIndex: map[string]int{"entry": 0, "loop_x": 1, "loop_y": 2},
+		Nodes: []*Node{
+			{Name: "entry", Index: 0, Succs: []int{1}, Preds: nil},
+			{Name: "loop_x", Index: 1, Succs: []int{2}, Preds: []int{0, 2}},
+			{Name: "loop_y", Index: 2, Succs: []int{1}, Preds: []int{1}},
+		},
+	}
+
+	_, err := TopologicalSort(g)
+	if err == nil {
+		t.Fatal("expected cycle error")
+	}
+	msg := err.Error()
+	// entry should NOT be in the cycle (it has in-degree 0, gets processed)
+	if strings.Contains(msg, "entry") {
+		t.Errorf("error should NOT mention 'entry' (not in cycle), got: %s", msg)
+	}
+	if !strings.Contains(msg, "loop_x") {
+		t.Errorf("error should mention 'loop_x', got: %s", msg)
+	}
+	if !strings.Contains(msg, "loop_y") {
+		t.Errorf("error should mention 'loop_y', got: %s", msg)
+	}
+}
+
+// --- Combination tests (#10): nested SubFlow + barrier + sources + control ---
+
+func TestNestedSubFlowWithBarrierAndSources(t *testing.T) {
+	// Realistic pipeline:
+	//   recall_a, recall_b (parallel) -> merge (barrier, sources=[recall_a, recall_b])
+	//   -> transform_post (reads merged items) -> filter (barrier) -> transform_final
+	// All in nested SubFlows.
+	seq := []string{"recall_a", "recall_b", "merge", "transform_post", "filter", "transform_final"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":       recallOp(nil, []string{"item_id", "item_score"}),
+		"recall_b":       recallOp(nil, []string{"item_id", "item_score"}),
+		"merge":          mergeOp([]string{"recall_a", "recall_b"}, []string{"item_id", "item_score"}),
+		"transform_post": transformOp(nil, nil, []string{"item_score"}, []string{"item_rank"}),
+		"filter":         filterOp([]string{"item_rank"}, nil),
+		"transform_final": transformOp(nil, nil, []string{"item_rank"}, []string{"item_output"}),
+	}
+	opToSubFlow := map[string]string{
+		"recall_a":       "recall_stage",
+		"recall_b":       "recall_stage",
+		"merge":          "recall_stage",
+		"transform_post": "process_stage",
+		"filter":         "process_stage",
+		"transform_final": "process_stage",
+	}
+
+	g, err := Build(seq, ops, opToSubFlow)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// recalls are parallel
+	if hasPred(g, "recall_b", "recall_a") || hasPred(g, "recall_a", "recall_b") {
+		t.Error("recalls should be independent")
+	}
+	// merge depends on both recalls (barrier + sources)
+	if !hasPred(g, "merge", "recall_a") {
+		t.Error("expected merge depends on recall_a")
+	}
+	if !hasPred(g, "merge", "recall_b") {
+		t.Error("expected merge depends on recall_b")
+	}
+	// transform_post depends on merge (barrier semantics)
+	if !hasPred(g, "transform_post", "merge") {
+		t.Error("expected transform_post depends on merge")
+	}
+	// filter depends on transform_post (barrier)
+	if !hasPred(g, "filter", "transform_post") {
+		t.Error("expected filter depends on transform_post")
+	}
+	// transform_final depends on filter (barrier)
+	if !hasPred(g, "transform_final", "filter") {
+		t.Error("expected transform_final depends on filter")
+	}
+
+	// SubFlow membership is recorded
+	for _, node := range g.Nodes {
+		if node.SubFlow != opToSubFlow[node.Name] {
+			t.Errorf("node %q SubFlow = %q, want %q", node.Name, node.SubFlow, opToSubFlow[node.Name])
+		}
+	}
+
+	// Valid topological order
+	order, err := TopologicalSort(g)
+	if err != nil {
+		t.Fatalf("TopologicalSort: %v", err)
+	}
+	if len(order) != len(seq) {
+		t.Fatalf("order length = %d, want %d", len(order), len(seq))
+	}
+}
+
+func TestControlFlowWithBarrierInteraction(t *testing.T) {
+	// Control flow interleaved with barrier:
+	//   ctrl_if produces _if_1 (common), transform_branch reads _if_1 + item,
+	//   filter (barrier), transform_post reads item after filter.
+	// Ensures control fields don't break barrier semantics.
+	seq := []string{"recall_init", "ctrl_if", "transform_branch", "filter", "transform_post"}
+	ops := map[string]config.OperatorConfig{
+		"recall_init": recallOp(nil, []string{"item_id", "item_score"}),
+		"ctrl_if": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:  []string{"enabled"},
+				CommonOutput: []string{"_if_1"},
+			},
+		},
+		"transform_branch": transformOp([]string{"_if_1"}, nil, []string{"item_score"}, []string{"item_rank"}),
+		"filter":           filterOp([]string{"item_rank"}, nil),
+		"transform_post":   transformOp(nil, nil, []string{"item_rank"}, []string{"item_output"}),
+	}
+
+	g, err := Build(seq, ops, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// ctrl_if is independent of recall_init (different fields)
+	if hasPred(g, "ctrl_if", "recall_init") {
+		t.Error("ctrl_if should not depend on recall_init (no field overlap)")
+	}
+
+	// transform_branch depends on ctrl_if (RAW _if_1) and recall_init (RAW item_score)
+	if !hasPred(g, "transform_branch", "ctrl_if") {
+		t.Error("expected transform_branch depends on ctrl_if")
+	}
+	if !hasPred(g, "transform_branch", "recall_init") {
+		t.Error("expected transform_branch depends on recall_init")
+	}
+
+	// filter is barrier: all prior ops finish before it
+	if !hasPred(g, "filter", "transform_branch") {
+		t.Error("expected filter depends on transform_branch")
+	}
+
+	// transform_post depends on filter
+	if !hasPred(g, "transform_post", "filter") {
+		t.Error("expected transform_post depends on filter")
+	}
+}
+
+func TestRowDepWithRecallAndBarrierCombined(t *testing.T) {
+	// recall_a, recall_b -> size (row_dep) -> filter (barrier) -> transform_final
+	// Ensures row dependency + barrier + recall all compose correctly.
+	seq := []string{"recall_a", "recall_b", "size", "filter", "transform_final"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":       recallOp(nil, []string{"item_id"}),
+		"recall_b":       recallOp(nil, []string{"item_id"}),
+		"size":           rowDepOp([]string{"item_count"}),
+		"filter":         filterOp([]string{"item_id"}, nil),
+		"transform_final": transformOp([]string{"item_count"}, nil, []string{"item_id"}, []string{"item_output"}),
+	}
+
+	g, err := Build(seq, ops, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// size depends on both recalls (row-dep)
+	if !hasPred(g, "size", "recall_a") {
+		t.Error("expected size depends on recall_a")
+	}
+	if !hasPred(g, "size", "recall_b") {
+		t.Error("expected size depends on recall_b")
+	}
+	// filter is barrier: depends on all prior (including size)
+	closure := transitiveClosure(g)
+	sizeIdx := g.NameToIndex["size"]
+	filterIdx := g.NameToIndex["filter"]
+	if !closure[sizeIdx][filterIdx] {
+		t.Error("filter should be reachable from size")
+	}
+	// transform_final depends on filter (barrier) and size (RAW item_count)
+	if !hasPred(g, "transform_final", "filter") {
+		t.Error("expected transform_final depends on filter")
+	}
+}
+
+func TestObserveInNestedSubFlowDoesNotBlock(t *testing.T) {
+	// Observe node in a nested SubFlow reads item fields but must not block
+	// downstream transforms that write to the same field.
+	seq := []string{"recall_a", "observe_log", "transform_b"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":    recallOp(nil, []string{"item_id", "item_score"}),
+		"observe_log": observeOp(nil, []string{"item_score"}),
+		"transform_b": transformOp(nil, nil, []string{"item_score"}, []string{"item_rank"}),
+	}
+	opToSubFlow := map[string]string{
+		"recall_a":    "stage1",
+		"observe_log": "stage1",
+		"transform_b": "stage2",
+	}
+
+	g, err := Build(seq, ops, opToSubFlow)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// Both observe and transform_b depend on recall_a
+	if !hasPred(g, "observe_log", "recall_a") {
+		t.Error("expected observe_log depends on recall_a")
+	}
+	if !hasPred(g, "transform_b", "recall_a") {
+		t.Error("expected transform_b depends on recall_a")
+	}
+	// transform_b must NOT depend on observe_log (observe is non-blocking)
+	if hasPred(g, "transform_b", "observe_log") {
+		t.Error("transform_b should NOT depend on observe_log")
+	}
 }
 
 // TestBuildDeepNestedSubFlowDAG verifies DAG construction with 4+ level

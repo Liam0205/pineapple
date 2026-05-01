@@ -303,7 +303,15 @@ func TopologicalSort(g *Graph) ([]int, error) {
 	}
 
 	if len(order) != n {
-		return nil, &types.ConfigError{Message: "DAG contains a cycle"}
+		var cycleNodes []string
+		for i, d := range inDegree {
+			if d > 0 {
+				cycleNodes = append(cycleNodes, g.Nodes[i].Name)
+			}
+		}
+		return nil, &types.ConfigError{
+			Message: fmt.Sprintf("DAG contains a cycle involving operators: %v", cycleNodes),
+		}
 	}
 	return order, nil
 }
