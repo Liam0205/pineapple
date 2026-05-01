@@ -232,7 +232,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 这创建了后续所有阶段使用的有序命名序列。
 
-### 步骤 3：运行六项校验
+### 步骤 3：运行七项校验
 
 校验采用 fail-fast，按特定顺序运行。
 
@@ -240,10 +240,11 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 2. `validate_field_coverage`
 3. `validate_write_without_read`
 4. `validate_data_parallel`
-5. `validate_param_metadata_consistency`
-6. `detect_dead_code`
+5. `validate_sources_references`
+6. `validate_param_metadata_consistency`
+7. `detect_dead_code`
 
-顺序重要，因为每个后续规则假设算子序列和字段集已足够合理。`validate_data_parallel` 刻意放在写后未读之后、参数-元数据一致性之前：前者先确认字段声明本身合理，后者再基于已通过约束的算子集做消费性分析。
+顺序重要，因为每个后续规则假设算子序列和字段集已足够合理。`validate_data_parallel` 刻意放在写后未读之后、sources 校验之前：前者先确认字段声明本身合理，而 sources 校验依赖稳定的命名算子序列。`validate_sources_references` 又必须先于参数-元数据一致性与死代码检测运行，这样能更早拦截两类因果顺序错误：引用不存在的 source，以及引用虽存在但尚未在声明序列中出现的前向引用。
 
 ### 步骤 4：构建 operators dict
 
@@ -411,7 +412,24 @@ Apple 侧**不再维护** unsafe transforms 名单。算子是否具备并发安
 
 Apple 结构校验的目标是把明确的配置错误（非 Transform、有 common_output）前移到编译期，尽早暴露；能力校验则由持有算子实例的 Go 侧权威负责。
 
-### 6. 参数-元数据一致性
+### 6. `sources` 引用顺序与存在性
+
+`validate_sources_references` 按命名算子的声明顺序遍历，并维护一个 `seen` 集合作为“已经出现过的算子名”账本。
+
+对每个算子的 `sources` 条目：
+
+- 若 source 名既不在 `seen` 中，也不在全局算子名集合中，报 `does not exist`
+- 若 source 名在全局集合中、但尚未进入 `seen`，报 `forward reference`
+- 只有已经出现在当前算子之前的 source 才是合法引用
+
+这条规则一次覆盖两类高风险配置错误：
+
+- 忘记给上游算子写显式 `name=`，却在 `sources=[...]` 中引用一个不存在的名字
+- 引用了声明顺序上位于未来的算子，造成 DAG 因果倒置
+
+错误消息应复用 `_op_location(name, op)`，因此在嵌套 `SubFlow` 中同样会带上 `subflow_path` 与源码位置。
+
+### 7. 参数-元数据一致性
 
 `validate_param_metadata_consistency` 使用规则表 `_PARAM_METADATA_RULES` 校验业务参数与元数据声明的一致性。
 
@@ -528,10 +546,11 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
-8. **控制分支守卫会沿 SubFlow 递归传播。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致。
-9. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
-10. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
-11. **编译器 traversal 幂等。** `_traverse()` 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过 `deepcopy` 局部 ops 实现；如果后续有新的 traversal 逻辑需要改写 IR，必须同样保证 `compile_dict()` 可重复调用。
+8. **`sources` 引用也必须遵守声明顺序。** Apple compile time 的 `validate_sources_references` 只允许引用已经出现在当前算子之前的命名上游；不存在的名字报 `does not exist`，存在但尚未出现的名字报 `forward reference`。这保证显式 merge/source 边不会把 DAG 拉成“未来节点依赖过去节点”的因果倒置。
+9. **控制分支守卫会沿 SubFlow 递归传播。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致。
+10. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
+11. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
+12. **编译器 traversal 幂等。** `_traverse()` 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过 `deepcopy` 局部 ops 实现；如果后续有新的 traversal 逻辑需要改写 IR，必须同样保证 `compile_dict()` 可重复调用。
     - 测试覆盖要求应显式包含“控制分支内嵌 SubFlow”的场景：至少验证同一个包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 侧效应在该路径上累积。
 
 ## 检索指针

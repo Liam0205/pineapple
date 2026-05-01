@@ -70,7 +70,13 @@
    - 同时生成 `opToSubFlow` 映射，记录每个算子的直接父 SubFlow 路径；顶层算子映射为空字符串。
    - 对 SubFlow 引用做环检测；循环引用会在加载期报错。
 
-3. **构建算子实例**（`internal/registry.BuildOperator`）
+3. **校验 `sources` 顺序引用**（`pine.validateSourcesOrder`）
+   - 在扁平序列上按声明顺序扫描 `sources`。
+   - 只允许引用已经出现在当前算子之前的命名上游。
+   - 不存在的 source 名称通常会更早在 `internal/config.Load` 的 `validate()` 中被拦截；这里重点兜底前向引用。
+   - 这与 Apple 侧的 `validate_sources_references` 形成纵深防御，保证手写 JSON 或绕过 DSL 的输入也不能构造因果倒置的 source 边。
+
+4. **构建算子实例**（`internal/registry.BuildOperator`）
    - 查找已注册的 Schema。
    - 从参数中过滤保留键。
    - 应用默认值和必填参数检查。
@@ -194,8 +200,9 @@
 
 带 `sources` 的算子从每个命名 source 算子添加硬边。这用用户声明的 merge 祖先补充推导出的冒险图。
 
-这对 merge 算子最为重要——当仅凭字段级元数据不够明确时，merge 算子必须等待特定上游生产者。
+稳定约束是：`sources` 只能引用已经在扁平声明序列中出现过的命名上游，不能前向引用未来节点。Go 侧在 `pine.go` 的 `validateSourcesOrder` 中对展开后的序列再次校验这条规则；不存在名称的情况通常更早由 `config.Load` 拒绝，运行到这里的重点是阻止“名字存在但顺序在后”的因果倒置配置。
 
+这对 merge 算子最为重要——当仅凭字段级元数据不够明确时，merge 算子必须等待特定上游生产者。
 ### 最终校验
 
 传递性归约完成后，`TopologicalSort` 校验图是否无环。环表示由屏障、冒险或显式 source 边暗示的不可能排序。
@@ -487,7 +494,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 - `$metadata` — 声明的 common/item 输入和输出
 - `skip` — 控制流守卫字段列表；任一字段为 `true` 即跳过，旧版单字符串 JSON 在加载期会被归一化为单元素列表
 - `recall` — 从 DSL/codegen 约定保留的声明提示
-- `sources` — 显式上游 source 引用
+- `sources` — 显式上游 source 引用；名称必须存在，且在扁平声明顺序上只能指向当前算子之前已经出现的命名上游
 - `debug` — 逐算子 trace 捕获开关
 - `row_dependency` — 启用 `_row_set_` 读取
 - `common_defaults` / `item_defaults` — 快照构建时的输入默认值
