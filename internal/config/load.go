@@ -204,6 +204,15 @@ func validate(cfg *RootConfig) error {
 		}
 	}
 
+	// Operator names must not collide with pipeline_map keys
+	for name := range cfg.PipelineConfig.Operators {
+		if _, ok := cfg.PipelineConfig.PipelineMap[name]; ok {
+			return &types.ConfigError{
+				Message: fmt.Sprintf("operator name %q collides with a SubFlow path in pipeline_map", name),
+			}
+		}
+	}
+
 	// Skip field names must start with '_' (engine-internal control fields)
 	for name, op := range cfg.PipelineConfig.Operators {
 		for _, skipField := range op.Skip {

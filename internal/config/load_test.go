@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/Liam0205/pineapple/internal/registry"
@@ -573,5 +574,38 @@ func TestValidateSkipFieldValid(t *testing.T) {
 	_, err := Load(data)
 	if err != nil {
 		t.Errorf("expected valid config to pass, got: %v", err)
+	}
+}
+
+func TestLoadRejectsOperatorNameCollidingWithSubFlowPath(t *testing.T) {
+	// "stage" appears both as an operator name and a pipeline_map key.
+	// Without validation, Go silently treats it as an operator and drops
+	// the SubFlow contents.
+	data := []byte(`{
+		"_PINEAPPLE_VERSION": "0.1.0",
+		"pipeline_config": {
+			"operators": {
+				"stage": {
+					"type_name": "noop",
+					"$metadata": {"common_input": [], "common_output": ["x"], "item_input": [], "item_output": []}
+				},
+				"inner_op": {
+					"type_name": "noop",
+					"$metadata": {"common_input": ["x"], "common_output": ["y"], "item_input": [], "item_output": []}
+				}
+			},
+			"pipeline_map": {
+				"stage": {"pipeline": ["inner_op"]}
+			}
+		},
+		"pipeline_group": {"main": {"pipeline": ["stage"]}},
+		"flow_contract": {"common_input": [], "item_input": [], "common_output": [], "item_output": []}
+	}`)
+	_, err := Load(data)
+	if err == nil {
+		t.Fatal("expected error when operator name collides with SubFlow path, but got nil")
+	}
+	if !strings.Contains(err.Error(), "collides") {
+		t.Errorf("error = %q, want message about name collision", err.Error())
 	}
 }
