@@ -132,7 +132,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 嵌套控制流中，内层控制算子自身也继承外层控制字段；内层业务算子的 `skip` 同时包含外层与内层控制字段。分支内嵌套 `SubFlow` 时，父级控制字段会在递归遍历时传播到整个子树。若 `SubFlow` 内部也定义控制流，编译器会用 SubFlow 路径前缀重命名内部控制字段，例如 `_ranking_if_1`，避免与外层或兄弟 SubFlow 冲突。
 
-`skip` 是控制流降级机制中的横切字段——它被四类路径共同读写：直接 attach（`_add_op` / `BaseOp._apply`）、SubFlow 继承（`inherited_skips`）、字段重命名（SubFlow 路径前缀化）、以及最终 JSON 发射。任何对 `skip` 类型或语义的变更都必须检查这四条路径的一致性。
+`skip` 是控制流降级机制中的横切字段——它被四类路径共同读写：直接 attach（`_add_op` / `BaseOp._apply`）、SubFlow 继承（`_inject_inherited_skips(...)`）、字段重命名（`_rename_control_fields(...)` 产出的映射）、以及最终 JSON 发射。任何对 `skip` 类型或语义的变更都必须检查这四条路径的一致性。
 
 运行时含义：
 
@@ -167,7 +167,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 更深层嵌套路径会继续把路径信息编码进字段名前缀，确保不同子树中的控制字段不会碰撞
 
 这项前缀化只影响编译器生成的内部 common 字段名，不改变控制算子的公开命名规则：控制算子本身仍使用 `if_1`、`elseif_2`、`else_3` 这类显式 `OpCall.name`，而真正写入 frame 并供 skip 依赖引用的是带路径前缀的内部字段。
-注意 `_parent_skips` 在 `add_subflow()` 声明期捕获的是原始字段名；compile traversal 时通过 `_apply_field_renames()` 将其映射为重命名后的字段名，确保继承链路与最终 JSON 产物一致。
+注意 `_parent_skips` 在 `add_subflow()` 声明期捕获的是原始字段名；compile traversal 时会先经 `_rename_control_fields(...)` 生成当前节点的字段映射，再由 skip 注入阶段把这些引用统一到重命名后的字段名，确保继承链路与最终 JSON 产物一致。
 ### 条件字段提取
 
 这一约束把字段依赖声明变成显式语法，而不再依赖对整段条件字符串做正则启发式扫描。稳定语义是：
@@ -179,11 +179,42 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 因此，像 `{{experiment_group_value}} == "treatment"` 这样的条件会只提取 `experiment_group_value`，不再把字符串常量 `"treatment"` 误识别为字段名。
 ## 编译流水线
 
-`apple/compiler.py` 执行固定序列。新版流水线不再先做“单层展平后再回填结构”，而是围绕 Flow/SubFlow 树执行递归三阶段：先遍历结构，再统一命名，再组装 JSON。后续校验仍依赖由这套流程产出的全局声明顺序。
+`apple/compiler.py` 执行固定序列。新版流水线围绕 Flow/SubFlow 树执行“递归展平 + 局部多 pass 编译”，把原先 `_traverse()` 中靠注释维持的隐式顺序约束拆成独立步骤。后续校验仍依赖由这套流程产出的全局声明顺序。
 
-### 步骤 1：递归遍历结构树
+### 步骤 1：递归遍历结构树，并在每个节点内执行局部多 pass
 
-编译器从顶层 `Flow` 出发，递归遍历每个节点的 `_child_order`：
+编译器从顶层 `Flow` 出发，递归遍历每个节点的 `_child_order`，但每个 Flow/SubFlow 节点在把本层内容写入全局结果前，会先对本层局部 `OpCall` 列表执行固定顺序的多 pass 处理。
+
+局部 pass 的稳定顺序是：
+
+1. `_rename_control_fields(local_ops, child_order, path)`
+2. flatten + recurse
+3. `_inject_inherited_skips(local_ops, child_order, inherited_skips)`
+4. `_collect_exclusion_groups(node, field_renames, exclusion_groups)`
+
+顺序不可交换：
+
+- `rename` 必须先于 `inject`，因为父级继承下来的 skip 需要先映射到当前 SubFlow 最终使用的控制字段名
+- `flatten + recurse` 负责保留全局算子顺序，后续校验和 Go 侧 DAG 都依赖这一顺序
+- `collect exclusion groups` 必须在 rename 之后运行，否则记录到的互斥控制字段集合会与最终 JSON / skip 引用使用的字段名不一致
+
+这套拆分替代了旧版 `_traverse()` 中的单体式原地处理逻辑，使三个控制流相关阶段都可以独立测试，同时由函数调用顺序而非注释来强制执行依赖关系。
+
+#### 1. `_rename_control_fields(local_ops, child_order, path)`
+
+该 pass 只处理当前节点“本地声明”的控制字段重命名，不负责递归子树。
+
+稳定语义：
+
+- 仅当 `path` 非空时生效，也就是仅对非顶层 `SubFlow` 做路径前缀化
+- 把本层控制块生成的内部字段名（如 `_if_1`、`_else_1`）改写为带 SubFlow 路径前缀的名字
+- 返回 `dict[str, str]` 形式的字段重命名表，供后续 skip 注入和互斥组收集复用
+
+因此控制字段的“路径去冲突”现在是显式的独立 pass，而不是遍历时顺手改写的副作用。
+
+#### 2. flatten + recurse
+
+在完成本层字段重命名后，编译器继续按 `_child_order` 保留原始声明结构：
 
 - 遇到 `("op", idx)` 时，把对应 `OpCall` 追加到全局 `all_ops`
 - 遇到 `("sf", idx)` 时，生成层级路径 `parent/child`，继续递归遍历该 `SubFlow`
@@ -208,6 +239,30 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 路径唯一性：若生成的层级路径重复，则报 `duplicate SubFlow path`
 
 因此稳定模型是“SubFlow 树”，而不是“可共享 DAG 片段”。
+
+#### 3. `_inject_inherited_skips(local_ops, child_order, inherited_skips)`
+
+该 pass 负责把当前节点外层分支守卫传播到本层子树中的子算子声明。
+
+稳定语义：
+
+- 把外层 `inherited_skips` 追加到子算子的 `skip`
+- 同时把这些 skip 字段补入对应算子的 `common_input`
+- 必须在 `rename` 之后执行，确保追加的是最终字段名，而不是重命名前的原始控制字段
+
+这使“控制分支里再挂一个 SubFlow”与“手工把该 SubFlow 内算子写平到当前分支里”的控制语义保持一致。
+
+#### 4. `_collect_exclusion_groups(node, field_renames, exclusion_groups)`
+
+该 pass 从已闭合的控制块中收集互斥控制字段集合，用于表达同一组 if/elseif/else 分支之间的互斥关系。
+
+稳定语义：
+
+- 只收集已经闭合的控制块，不从未完成结构推导互斥信息
+- 写入的字段名必须使用 rename 之后的最终名字
+- 因此必须在 `_rename_control_fields(...)` 之后执行
+
+把互斥组收集拆成独立 pass 后，控制字段命名与互斥关系不再耦合在同一段遍历副作用中。
 
 ### 步骤 1b：校验控制块闭合
 
@@ -550,8 +605,9 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 9. **控制分支守卫会沿 SubFlow 递归传播，且 skip 采用 Lua truthiness。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致；`apple/control.py` 发射的 prior-check 与 Go 调度器的 skip 判定都以 Lua truthiness 为准，只有 `nil` 和 `false` 不触发跳过。
 10. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
 11. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
-12. **编译器 traversal 幂等。** `_traverse()` 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过 `deepcopy` 局部 ops 实现；如果后续有新的 traversal 逻辑需要改写 IR，必须同样保证 `compile_dict()` 可重复调用。
-    - 测试覆盖要求应显式包含“控制分支内嵌 SubFlow”的场景：至少验证同一个包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 侧效应在该路径上累积。
+12. **编译器 traversal 幂等。** `_traverse()` 的局部多 pass 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过复制本地 ops 并把重命名、skip 注入、互斥组收集拆成独立 pass 来保证 `compile_dict()` 可重复调用；如果后续新增 traversal 逻辑需要改写 IR，必须同样保持幂等。
+    - 测试覆盖要求应显式包含“同一 Flow 连续编译两次输出完全一致”的场景，并继续覆盖“控制分支内嵌 SubFlow”的路径：至少验证包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 侧效应在该路径上累积。
+    - 当前测试拆分为四类：`TestCompileIdempotency` 覆盖重复编译稳定性；`TestRenameControlFields` 覆盖控制字段重命名 pass；`TestInjectInheritedSkips` 覆盖外层 skip 传播 pass；`TestCollectExclusionGroups` 覆盖闭合控制块的互斥组收集。
 
 ## 检索指针
 
