@@ -499,8 +499,8 @@ class TestCompileIdempotency:
 class TestRenameControlFields:
     def test_empty_path_no_rename(self):
         """Top-level ops (empty path) should not be renamed."""
-        from apple.compiler import _rename_control_fields
         from apple.base import OpCall
+        from apple.compiler import _rename_control_fields
 
         op = OpCall(
             type_name="transform_by_lua",
@@ -515,8 +515,8 @@ class TestRenameControlFields:
 
     def test_subflow_path_renames_control_field(self):
         """Control op in a SubFlow should have its field prefixed."""
-        from apple.compiler import _rename_control_fields
         from apple.base import OpCall
+        from apple.compiler import _rename_control_fields
 
         ctrl_op = OpCall(
             type_name="transform_by_lua",
@@ -542,8 +542,8 @@ class TestRenameControlFields:
 
     def test_nested_path_uses_double_colon(self):
         """Nested SubFlow path uses :: as separator."""
-        from apple.compiler import _rename_control_fields
         from apple.base import OpCall
+        from apple.compiler import _rename_control_fields
 
         ctrl_op = OpCall(
             type_name="transform_by_lua",
@@ -561,8 +561,8 @@ class TestRenameControlFields:
 class TestInjectInheritedSkips:
     def test_empty_inherited_no_change(self):
         """No inherited skips → ops unchanged."""
-        from apple.compiler import _inject_inherited_skips
         from apple.base import OpCall
+        from apple.compiler import _inject_inherited_skips
 
         op = OpCall(type_name="noop", params={}, common_input=["x"], skip=[])
         _inject_inherited_skips([op], [("op", 0)], [])
@@ -571,8 +571,8 @@ class TestInjectInheritedSkips:
 
     def test_injects_skip_and_common_input(self):
         """Inherited skips are appended to skip and prepended to common_input."""
-        from apple.compiler import _inject_inherited_skips
         from apple.base import OpCall
+        from apple.compiler import _inject_inherited_skips
 
         op = OpCall(type_name="noop", params={}, common_input=["x"], skip=[])
         _inject_inherited_skips([op], [("op", 0)], ["_if_1"])
@@ -581,8 +581,8 @@ class TestInjectInheritedSkips:
 
     def test_no_duplicate_injection(self):
         """If skip field already present, do not duplicate."""
-        from apple.compiler import _inject_inherited_skips
         from apple.base import OpCall
+        from apple.compiler import _inject_inherited_skips
 
         op = OpCall(
             type_name="noop", params={},
@@ -595,8 +595,8 @@ class TestInjectInheritedSkips:
 
     def test_skips_sf_entries(self):
         """SubFlow entries in child_order are ignored."""
-        from apple.compiler import _inject_inherited_skips
         from apple.base import OpCall
+        from apple.compiler import _inject_inherited_skips
 
         op = OpCall(type_name="noop", params={}, common_input=[], skip=[])
         _inject_inherited_skips([op], [("op", 0), ("sf", 1)], ["_if_1"])
@@ -626,8 +626,14 @@ class TestCollectExclusionGroups:
                 ControlBlock(
                     block_id=1,
                     branches=[
-                        ControlBranch(kind="if", condition="x", ctrl_field="_if_1", ctrl_index=1),
-                        ControlBranch(kind="else", condition=None, ctrl_field="_else_2", ctrl_index=2),
+                        ControlBranch(
+                            kind="if", condition="x",
+                            ctrl_field="_if_1", ctrl_index=1,
+                        ),
+                        ControlBranch(
+                            kind="else", condition=None,
+                            ctrl_field="_else_2", ctrl_index=2,
+                        ),
                     ],
                     closed=True,
                 )
