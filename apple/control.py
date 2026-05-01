@@ -62,10 +62,10 @@ def make_control_op(
     if branch.kind == "if":
         lua_body = f"if ({lua_cond}) then return false else return true end"
     elif branch.kind == "elseif":
-        prior_check = " and ".join(f"({f} == true)" for f in prior_ctrl_fields)
+        prior_check = " and ".join(f"({f})" for f in prior_ctrl_fields)
         lua_body = f"if ({prior_check}) and ({lua_cond}) then return false else return true end"
     else:  # else
-        prior_check = " and ".join(f"({f} == true)" for f in prior_ctrl_fields)
+        prior_check = " and ".join(f"({f})" for f in prior_ctrl_fields)
         lua_body = f"if ({prior_check}) then return false else return true end"
 
     lua_script = f"function evaluate() {lua_body} end"

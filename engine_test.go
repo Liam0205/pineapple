@@ -449,6 +449,50 @@ func TestEngineSkipControlFlow(t *testing.T) {
 	}
 }
 
+func TestEngineSkipTruthyNonBool(t *testing.T) {
+	// A skip field with a non-bool truthy value (e.g. integer 1) should
+	// still trigger skip, not silently let the operator run.
+	cfg := makeConfig(
+		map[string]any{
+			"ctrl": map[string]any{
+				"type_name": "set_field",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{"_if_1"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+				"for_branch_control": true,
+				"field":              "_if_1",
+				"value":              1,
+			},
+			"branch_op": map[string]any{
+				"type_name": "set_field",
+				"$metadata": map[string]any{
+					"common_input": []string{"_if_1"}, "common_output": []string{"branch_ran"},
+					"item_input": []string{}, "item_output": []string{},
+				},
+				"skip":  "_if_1",
+				"field": "branch_ran",
+				"value": true,
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"ctrl", "branch_op"}}},
+		map[string]any{"common_input": []string{}},
+	)
+
+	engine, err := pine.NewEngine(mustJSON(t, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.Execute(context.Background(), &pine.Request{Common: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// _if_1=1 (truthy non-bool) -> branch_op should still be skipped
+	if result.Common["branch_ran"] != nil {
+		t.Error("branch_op should have been skipped (truthy non-bool skip field)")
+	}
+}
+
 func TestEngineSkipFieldNotInMetadata(t *testing.T) {
 	// Verify that the skip (control-flow) field is filtered out of
 	// the operator's MetadataHolder.CommonInput at engine build time.

@@ -93,10 +93,12 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 
 			startTime := time.Now()
 
-			// Evaluate skip — any skip field being true causes the operator to be skipped
+			// Evaluate skip — any skip field being truthy causes the operator to be skipped.
+			// Standard control operators write bool; truthy check guards against
+			// edge cases from hand-written JSON or unexpected Lua return types.
 			for _, skipField := range cop.Config.Skip {
 				skipVal := frame.Common(skipField)
-				if skipVal == true {
+				if skipVal != nil && skipVal != false {
 					traces[idx] = types.OpTrace{
 						Name:      cop.Name,
 						StartTime: startTime,
