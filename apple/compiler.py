@@ -229,6 +229,78 @@ def _apply_field_renames(fields: list[str], renames: dict[str, str]) -> list[str
     return [renames.get(f, f) for f in fields]
 
 
+def _rename_control_fields(
+    local_ops: list[OpCall],
+    child_order: list[tuple[str, int]],
+    path: str,
+) -> dict[str, str]:
+    """Prefix control-field names with SubFlow path. Returns rename mapping.
+
+    Only applies when path is non-empty (i.e. inside a SubFlow). For each
+    control op (for_branch_control=True with a name), renames its output field
+    and propagates the rename to all other local ops.
+    """
+    if not path:
+        return {}
+    field_renames: dict[str, str] = {}
+    for kind, idx in child_order:
+        if kind != "op":
+            continue
+        op = local_ops[idx]
+        if not (op.for_branch_control and op.name):
+            continue
+        prefix = path.replace("/", "::") + "::"
+        old_field = op.common_output[0] if op.common_output else None
+        new_field = f"_{prefix}{op.name}" if old_field else None
+        if old_field and new_field and old_field != new_field:
+            _rename_field(op, old_field, new_field)
+            op.name = f"{prefix}{op.name}"
+            field_renames[old_field] = new_field
+            for other_op in local_ops:
+                if other_op is not op:
+                    _rename_field(other_op, old_field, new_field)
+    return field_renames
+
+
+def _inject_inherited_skips(
+    local_ops: list[OpCall],
+    child_order: list[tuple[str, int]],
+    inherited_skips: list[str],
+) -> None:
+    """Append inherited skip fields to each op's skip and common_input.
+
+    Must be called AFTER _rename_control_fields so that inherited fields
+    (from an outer branch) are never incorrectly renamed to a local variant.
+    """
+    if not inherited_skips:
+        return
+    for kind, idx in child_order:
+        if kind != "op":
+            continue
+        op = local_ops[idx]
+        for s in inherited_skips:
+            if s not in op.skip:
+                op.skip.append(s)
+            if s not in op.common_input:
+                op.common_input = [s] + op.common_input
+
+
+def _collect_exclusion_groups(
+    node: Any,
+    field_renames: dict[str, str],
+    exclusion_groups: list[set[str]],
+) -> None:
+    """Collect mutual-exclusion groups from closed control blocks."""
+    for block in getattr(node, '_closed_blocks', []):
+        group: set[str] = set()
+        for branch in block.branches:
+            original = branch.ctrl_field
+            renamed = field_renames.get(original, original)
+            group.add(renamed)
+        if len(group) > 1:
+            exclusion_groups.append(group)
+
+
 def _traverse(
     node: Any,
     path: str,
@@ -238,7 +310,14 @@ def _traverse(
     inherited_skips: list[str] | None = None,
     exclusion_groups: list[set[str]] | None = None,
 ) -> None:
-    """Recursively traverse _child_order, collecting ops and structure."""
+    """Recursively traverse _child_order, collecting ops and structure.
+
+    Execution order:
+    1. Rename control fields (local transform, no recursion)
+    2. Flatten + recurse into SubFlows (maintains global op ordering)
+    3. Inject inherited skips (after rename, so outer fields stay intact)
+    4. Collect exclusion groups (after rename)
+    """
     if inherited_skips is None:
         inherited_skips = []
     if exclusion_groups is None:
@@ -251,25 +330,16 @@ def _traverse(
     visited.add(obj_id)
 
     local_ops = [deepcopy(op) for op in node._ops]
-    field_renames: dict[str, str] = {}
+
+    # Pass 1: Rename control fields
+    field_renames = _rename_control_fields(local_ops, node._child_order, path)
+
+    # Pass 2: Flatten + recurse (preserves global op ordering)
     entries: list[tuple[str, Any]] = []
     for kind, idx in node._child_order:
         if kind == "op":
             op = local_ops[idx]
             op.subflow_path = path
-            # Disambiguate control-flow fields inside SubFlows by prefixing
-            # the SubFlow path onto the control field name and operator name.
-            if path and op.for_branch_control and op.name:
-                prefix = path.replace("/", "::") + "::"
-                old_field = op.common_output[0] if op.common_output else None
-                new_field = f"_{prefix}{op.name}" if old_field else None
-                if old_field and new_field and old_field != new_field:
-                    _rename_field(op, old_field, new_field)
-                    op.name = f"{prefix}{op.name}"
-                    field_renames[old_field] = new_field
-                    for other_op in local_ops:
-                        if other_op is not op:
-                            _rename_field(other_op, old_field, new_field)
             global_idx = len(all_ops)
             all_ops.append(op)
             entries.append(("op", global_idx))
@@ -288,27 +358,11 @@ def _traverse(
             child_skips = inherited_skips + parent_skips
             _traverse(sf, sf_path, all_ops, structures, visited, child_skips, exclusion_groups)
 
-    # Apply inherited_skips AFTER all renames are complete so that inherited
-    # fields (e.g. _if_1 from an outer branch) are never incorrectly renamed
-    # to a local prefixed variant (e.g. _L1_if_1).
-    for kind, idx in node._child_order:
-        if kind == "op":
-            op = local_ops[idx]
-            for s in inherited_skips:
-                if s not in op.skip:
-                    op.skip.append(s)
-                if s not in op.common_input:
-                    op.common_input = [s] + op.common_input
+    # Pass 3: Inject inherited skips (after rename)
+    _inject_inherited_skips(local_ops, node._child_order, inherited_skips)
 
-    # Collect exclusion groups from closed control blocks (after renames)
-    for block in getattr(node, '_closed_blocks', []):
-        group: set[str] = set()
-        for branch in block.branches:
-            original = branch.ctrl_field
-            renamed = field_renames.get(original, original)
-            group.add(renamed)
-        if len(group) > 1:
-            exclusion_groups.append(group)
+    # Pass 4: Collect exclusion groups (after rename)
+    _collect_exclusion_groups(node, field_renames, exclusion_groups)
 
     structures[path] = entries
 

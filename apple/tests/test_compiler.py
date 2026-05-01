@@ -468,3 +468,175 @@ class TestGlobalDebug:
         )
         cfg = compile_flow(flow)
         assert "debug" not in cfg
+
+
+class TestCompileIdempotency:
+    def test_nested_subflow_control_flow_idempotent(self):
+        """Compiling the same Flow twice must produce identical output."""
+        inner = SubFlow(name="inner")
+        inner.if_("{{flag}} > 0") \
+            ._add_op("transform_by_lua", item_input=["x"], item_output=["y"],
+                     lua_script="function f() return x end",
+                     function_for_item="f", function_for_common="") \
+        .end_if_()
+
+        flow = Flow(
+            name="idempotent_test",
+            common_input=["flag"],
+            item_input=["x"],
+            item_output=["y"],
+            sub_flows=[inner],
+        )
+
+        cfg1 = compile_flow(flow)
+        cfg2 = compile_flow(flow)
+        # Remove timestamps for comparison
+        cfg1.pop("_PINEAPPLE_CREATE_TIME", None)
+        cfg2.pop("_PINEAPPLE_CREATE_TIME", None)
+        assert cfg1 == cfg2
+
+
+class TestRenameControlFields:
+    def test_empty_path_no_rename(self):
+        """Top-level ops (empty path) should not be renamed."""
+        from apple.compiler import _rename_control_fields
+        from apple.base import OpCall
+
+        op = OpCall(
+            type_name="transform_by_lua",
+            params={},
+            common_output=["_if_1"],
+            for_branch_control=True,
+            name="if_1",
+        )
+        renames = _rename_control_fields([op], [("op", 0)], "")
+        assert renames == {}
+        assert op.common_output == ["_if_1"]
+
+    def test_subflow_path_renames_control_field(self):
+        """Control op in a SubFlow should have its field prefixed."""
+        from apple.compiler import _rename_control_fields
+        from apple.base import OpCall
+
+        ctrl_op = OpCall(
+            type_name="transform_by_lua",
+            params={},
+            common_output=["_if_1"],
+            for_branch_control=True,
+            name="if_1",
+        )
+        biz_op = OpCall(
+            type_name="noop",
+            params={},
+            common_input=["_if_1"],
+            skip=["_if_1"],
+        )
+        renames = _rename_control_fields(
+            [ctrl_op, biz_op], [("op", 0), ("op", 1)], "L1"
+        )
+        assert "_if_1" in renames
+        assert renames["_if_1"] == "_L1::if_1"
+        assert ctrl_op.common_output == ["_L1::if_1"]
+        assert biz_op.common_input == ["_L1::if_1"]
+        assert biz_op.skip == ["_L1::if_1"]
+
+    def test_nested_path_uses_double_colon(self):
+        """Nested SubFlow path uses :: as separator."""
+        from apple.compiler import _rename_control_fields
+        from apple.base import OpCall
+
+        ctrl_op = OpCall(
+            type_name="transform_by_lua",
+            params={},
+            common_output=["_if_1"],
+            for_branch_control=True,
+            name="if_1",
+        )
+        renames = _rename_control_fields(
+            [ctrl_op], [("op", 0)], "L1/L2"
+        )
+        assert renames["_if_1"] == "_L1::L2::if_1"
+
+
+class TestInjectInheritedSkips:
+    def test_empty_inherited_no_change(self):
+        """No inherited skips → ops unchanged."""
+        from apple.compiler import _inject_inherited_skips
+        from apple.base import OpCall
+
+        op = OpCall(type_name="noop", params={}, common_input=["x"], skip=[])
+        _inject_inherited_skips([op], [("op", 0)], [])
+        assert op.skip == []
+        assert op.common_input == ["x"]
+
+    def test_injects_skip_and_common_input(self):
+        """Inherited skips are appended to skip and prepended to common_input."""
+        from apple.compiler import _inject_inherited_skips
+        from apple.base import OpCall
+
+        op = OpCall(type_name="noop", params={}, common_input=["x"], skip=[])
+        _inject_inherited_skips([op], [("op", 0)], ["_if_1"])
+        assert "_if_1" in op.skip
+        assert op.common_input[0] == "_if_1"
+
+    def test_no_duplicate_injection(self):
+        """If skip field already present, do not duplicate."""
+        from apple.compiler import _inject_inherited_skips
+        from apple.base import OpCall
+
+        op = OpCall(
+            type_name="noop", params={},
+            common_input=["_if_1", "x"],
+            skip=["_if_1"],
+        )
+        _inject_inherited_skips([op], [("op", 0)], ["_if_1"])
+        assert op.skip.count("_if_1") == 1
+        assert op.common_input.count("_if_1") == 1
+
+    def test_skips_sf_entries(self):
+        """SubFlow entries in child_order are ignored."""
+        from apple.compiler import _inject_inherited_skips
+        from apple.base import OpCall
+
+        op = OpCall(type_name="noop", params={}, common_input=[], skip=[])
+        _inject_inherited_skips([op], [("op", 0), ("sf", 1)], ["_if_1"])
+        assert "_if_1" in op.skip
+
+
+class TestCollectExclusionGroups:
+    def test_no_closed_blocks(self):
+        """Node without _closed_blocks should not add groups."""
+        from apple.compiler import _collect_exclusion_groups
+
+        class FakeNode:
+            pass
+
+        node = FakeNode()
+        groups: list = []
+        _collect_exclusion_groups(node, {}, groups)
+        assert groups == []
+
+    def test_collects_renamed_fields(self):
+        """Exclusion groups use renamed field names."""
+        from apple.compiler import _collect_exclusion_groups
+        from apple.control import ControlBlock, ControlBranch
+
+        class FakeNode:
+            _closed_blocks = [
+                ControlBlock(
+                    block_id=1,
+                    branches=[
+                        ControlBranch(kind="if", condition="x", ctrl_field="_if_1", ctrl_index=1),
+                        ControlBranch(kind="else", condition=None, ctrl_field="_else_2", ctrl_index=2),
+                    ],
+                    closed=True,
+                )
+            ]
+
+        node = FakeNode()
+        groups: list = []
+        renames = {"_if_1": "_L1::if_1"}
+        _collect_exclusion_groups(node, renames, groups)
+        assert len(groups) == 1
+        assert "_L1::if_1" in groups[0]
+        assert "_else_2" in groups[0]
