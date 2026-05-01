@@ -153,6 +153,7 @@ func (o *benchMultiField) Execute(_ context.Context, in *pine.OperatorInput, out
 
 type benchIterative struct {
 	pine.MetadataHolder
+	pine.ConcurrentSafeMarker
 }
 
 func (o *benchIterative) Init(_ map[string]any) error { return nil }
