@@ -327,6 +327,9 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
+		if de, ok := err.(interface{ DetailedError() string }); ok {
+			log.Printf("execute error: %s", de.DetailedError())
+		}
 		resp.Error = err.Error()
 		writeJSON(w, http.StatusInternalServerError, resp)
 		return

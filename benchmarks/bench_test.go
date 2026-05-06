@@ -76,7 +76,6 @@ func smallPipelineConfig(numItems int) map[string]any {
 			},
 			"sort": map[string]any{
 				"type_name": "reorder_sort",
-				"field":     "item_score",
 				"order":     "desc",
 				"$metadata": map[string]any{
 					"item_input": []string{"item_score"},
@@ -113,16 +112,13 @@ func mediumPipelineConfig(numItems int) map[string]any {
 			"merge": map[string]any{
 				"type_name": "merge_dedup",
 				"sources":   []string{"recall_a", "recall_b"},
-				"dedup_by":  "item_id",
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_id", "_source"},
 					"item_output": []string{"item_id", "item_score", "item_status", "item_category"},
 				},
 			},
 			"dispatch": map[string]any{
-				"type_name":   "transform_dispatch",
-				"common_field": "scene",
-				"item_field":  "item_scene",
+				"type_name": "transform_dispatch",
 				"$metadata": map[string]any{
 					"common_input": []string{"scene"},
 					"item_input":   []string{"item_status"},
@@ -131,7 +127,6 @@ func mediumPipelineConfig(numItems int) map[string]any {
 			},
 			"normalize": map[string]any{
 				"type_name": "transform_normalize",
-				"field":     "item_score",
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_score"},
 					"item_output": []string{"item_score_norm"},
@@ -139,7 +134,6 @@ func mediumPipelineConfig(numItems int) map[string]any {
 			},
 			"sort": map[string]any{
 				"type_name": "reorder_sort",
-				"field":     "item_score",
 				"order":     "desc",
 				"$metadata": map[string]any{
 					"item_input": []string{"item_score", "item_score_norm"},
@@ -185,7 +179,6 @@ func largePipelineConfig(numItems int) map[string]any {
 			"merge": map[string]any{
 				"type_name": "merge_dedup",
 				"sources":   []string{"recall_a", "recall_b"},
-				"dedup_by":  "item_id",
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_id", "_source"},
 					"item_output": []string{"item_id", "item_score", "item_status", "item_category"},
@@ -193,7 +186,6 @@ func largePipelineConfig(numItems int) map[string]any {
 			},
 			"filter": map[string]any{
 				"type_name": "filter_condition",
-				"field":     "item_status",
 				"value":     "offline",
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_status"},
@@ -201,9 +193,7 @@ func largePipelineConfig(numItems int) map[string]any {
 				},
 			},
 			"dispatch": map[string]any{
-				"type_name":   "transform_dispatch",
-				"common_field": "scene",
-				"item_field":  "item_scene",
+				"type_name": "transform_dispatch",
 				"$metadata": map[string]any{
 					"common_input": []string{"scene"},
 					"item_input":   []string{"item_status"},
@@ -212,7 +202,6 @@ func largePipelineConfig(numItems int) map[string]any {
 			},
 			"normalize": map[string]any{
 				"type_name": "transform_normalize",
-				"field":     "item_score",
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_score"},
 					"item_output": []string{"item_score_norm"},
@@ -220,7 +209,6 @@ func largePipelineConfig(numItems int) map[string]any {
 			},
 			"sort": map[string]any{
 				"type_name": "reorder_sort",
-				"field":     "item_score",
 				"order":     "desc",
 				"$metadata": map[string]any{
 					"item_input": []string{"item_score", "item_score_norm"},
@@ -491,7 +479,6 @@ func luaControlFlowConfig(numItems int) map[string]any {
 			},
 			"sort": map[string]any{
 				"type_name": "reorder_sort",
-				"field":     "item_score",
 				"order":     "desc",
 				"skip":      "_skip_sort",
 				"$metadata": map[string]any{
