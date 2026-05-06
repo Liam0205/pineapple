@@ -3,6 +3,11 @@ set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
+# Activate project venv if present (provides ruff, etc.)
+if [ -f ".venv/bin/activate" ]; then
+  source .venv/bin/activate
+fi
+
 errors=""
 
 # Python lint
