@@ -867,6 +867,7 @@ func TestDataParallelValidation(t *testing.T) {
 }
 
 func TestLogPrefixFromJSON(t *testing.T) {
+	pine.ResetLogOnce()
 	origPrefix := log.Prefix()
 	origFlags := log.Flags()
 	defer func() { log.SetPrefix(origPrefix); log.SetFlags(origFlags) }()
@@ -898,6 +899,7 @@ func TestLogPrefixFromJSON(t *testing.T) {
 }
 
 func TestLogPrefixOptionOverridesJSON(t *testing.T) {
+	pine.ResetLogOnce()
 	origPrefix := log.Prefix()
 	origFlags := log.Flags()
 	defer func() { log.SetPrefix(origPrefix); log.SetFlags(origFlags) }()
@@ -919,6 +921,8 @@ func TestLogPrefixOptionOverridesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// With sync.Once reset, this is the first call to set the prefix.
+	// WithLogPrefix takes precedence over JSON config.
 	if got := log.Prefix(); got != "[opt] " {
 		t.Errorf("log.Prefix() = %q, want %q", got, "[opt] ")
 	}

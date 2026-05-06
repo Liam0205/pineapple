@@ -380,6 +380,7 @@ class TransformByRemotePineappleOp(BaseOp):
     """Operator: transform_by_remote_pineapple"""
     _name = "transform_by_remote_pineapple"
     _params_schema = {
+        "allow_private": {"type": "bool", "required": False, "default": False},
         "common_request": {"type": "any", "required": False},
         "common_response": {"type": "any", "required": False},
         "endpoint": {"type": "string", "required": False, "default": "/execute"},
@@ -387,6 +388,7 @@ class TransformByRemotePineappleOp(BaseOp):
         "host": {"type": "string", "required": True},
         "item_request": {"type": "any", "required": False},
         "item_response": {"type": "any", "required": False},
+        "max_response_size": {"type": "int64", "required": False, "default": 10485760},
         "port": {"type": "int64", "required": True},
         "timeout": {"type": "float64", "required": False, "default": 5},
     }
@@ -394,6 +396,7 @@ class TransformByRemotePineappleOp(BaseOp):
     def __call__(
         self,
         *,
+        allow_private: bool = False,
         common_request: Any = None,
         common_response: Any = None,
         endpoint: str = "/execute",
@@ -401,6 +404,7 @@ class TransformByRemotePineappleOp(BaseOp):
         host: str = ...,
         item_request: Any = None,
         item_response: Any = None,
+        max_response_size: int = 10485760,
         port: int = ...,
         timeout: float = 5,
         common_input: list[str] | None = None,
@@ -414,9 +418,11 @@ class TransformByRemotePineappleOp(BaseOp):
         name: str | None = None,
     ) -> "TransformByRemotePineappleOp":
         _params = {
+            "allow_private": allow_private,
             "endpoint": endpoint,
             "fail_on_error": fail_on_error,
             "host": host,
+            "max_response_size": max_response_size,
             "port": port,
             "timeout": timeout,
         }
@@ -554,6 +560,7 @@ class TransformRedisGetOp(BaseOp):
     _name = "transform_redis_get"
     _params_schema = {
         "data_type": {"type": "string", "required": False, "default": "string"},
+        "fail_on_error": {"type": "bool", "required": False, "default": False},
         "key_prefix": {"type": "string", "required": True},
         "redis_addr": {"type": "string", "required": True},
         "redis_db": {"type": "int", "required": False, "default": 0},
@@ -564,6 +571,7 @@ class TransformRedisGetOp(BaseOp):
         self,
         *,
         data_type: str = "string",
+        fail_on_error: bool = False,
         key_prefix: str = ...,
         redis_addr: str = ...,
         redis_db: int = 0,
@@ -580,6 +588,7 @@ class TransformRedisGetOp(BaseOp):
     ) -> "TransformRedisGetOp":
         _params = {
             "data_type": data_type,
+            "fail_on_error": fail_on_error,
             "key_prefix": key_prefix,
             "redis_addr": redis_addr,
             "redis_db": redis_db,

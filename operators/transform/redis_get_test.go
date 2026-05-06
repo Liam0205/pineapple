@@ -244,3 +244,59 @@ func TestBuildKeySuffix(t *testing.T) {
 		t.Errorf("multi fields: got %q, want 1:2:3", got)
 	}
 }
+
+func TestRedisGetOp_InfraError_Warning(t *testing.T) {
+	s := miniredis.RunT(t)
+	addr := s.Addr()
+	// Stop miniredis to simulate infra failure
+	s.Close()
+
+	op := &RedisGetOp{}
+	if err := op.Init(map[string]any{
+		"redis_addr": addr,
+		"key_prefix": "prefix:",
+		"data_type":  "string",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
+
+	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
+	out := pine.NewOperatorOutput()
+	err := op.Execute(context.Background(), in, out)
+	if err != nil {
+		t.Fatalf("expected nil error (default fail_on_error=false), got %v", err)
+	}
+	cw := out.GetCommonWrites()
+	if cw["cache_hit"] != false {
+		t.Errorf("cache_hit = %v, want false", cw["cache_hit"])
+	}
+	if out.GetWarning() == nil {
+		t.Error("expected warning to be set on infra error")
+	}
+}
+
+func TestRedisGetOp_InfraError_Fatal(t *testing.T) {
+	s := miniredis.RunT(t)
+	addr := s.Addr()
+	// Stop miniredis to simulate infra failure
+	s.Close()
+
+	op := &RedisGetOp{}
+	if err := op.Init(map[string]any{
+		"redis_addr":    addr,
+		"key_prefix":    "prefix:",
+		"data_type":     "string",
+		"fail_on_error": true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	op.SetMetadata([]string{"uid"}, []string{"result", "cache_hit"}, nil, nil)
+
+	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
+	out := pine.NewOperatorOutput()
+	err := op.Execute(context.Background(), in, out)
+	if err == nil {
+		t.Fatal("expected fatal error with fail_on_error=true")
+	}
+}

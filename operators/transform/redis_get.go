@@ -8,6 +8,7 @@
 //   - redis_db (int, optional, default=0): Redis DB number.
 //   - key_prefix (string, required): Key prefix prepended to the suffix built from common_input fields.
 //   - data_type (string, optional, default="string"): Redis data type: "set", "string", or "list".
+//   - fail_on_error (bool, optional, default=false): Return fatal error on Redis infrastructure failure instead of treating as cache miss.
 //
 // Key construction: key_prefix + join(common_input values, ":").
 // common_output[0] = result value, common_output[1] = cache hit flag (bool).
@@ -22,7 +23,6 @@ package transform
 import (
 	"context"
 	"fmt"
-	"log"
 
 	pine "github.com/Liam0205/pineapple"
 	"github.com/redis/go-redis/v9"
@@ -39,6 +39,7 @@ func init() {
 			"redis_db":       {Type: "int", Required: false, Default: 0, Description: "Redis DB number."},
 			"key_prefix":     {Type: "string", Required: true, Description: "Key prefix prepended to the suffix built from common_input fields."},
 			"data_type":      {Type: "string", Required: false, Default: "string", Description: `Redis data type: "set", "string", or "list".`},
+			"fail_on_error":  {Type: "bool", Required: false, Default: false, Description: "Return fatal error on Redis infrastructure failure instead of treating as cache miss."},
 		},
 	}, func() pine.Operator {
 		return &RedisGetOp{}
@@ -49,9 +50,10 @@ func init() {
 type RedisGetOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
-	rdb       *redis.Client
-	keyPrefix string
-	dataType  string
+	rdb         *redis.Client
+	keyPrefix   string
+	dataType    string
+	failOnError bool
 }
 
 func (o *RedisGetOp) Init(params map[string]any) error {
@@ -65,6 +67,12 @@ func (o *RedisGetOp) Init(params map[string]any) error {
 	o.dataType, _ = params["data_type"].(string)
 	if o.dataType == "" {
 		o.dataType = "string"
+	}
+
+	if v, ok := params["fail_on_error"]; ok {
+		if b, ok := v.(bool); ok {
+			o.failOnError = b
+		}
 	}
 
 	if addr != "" {
@@ -92,7 +100,10 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	case "set":
 		members, err := o.rdb.SMembers(ctx, key).Result()
 		if err != nil && err != redis.Nil {
-			log.Printf("transform_redis_get: SMembers(%s): %v", key, err)
+			out.SetWarning(fmt.Errorf("transform_redis_get: %s(%s): %v", "SMembers", key, err))
+			if o.failOnError {
+				return fmt.Errorf("transform_redis_get: SMembers(%s): %v", key, err)
+			}
 			out.SetCommon(cacheHitField, false)
 			return nil
 		}
@@ -106,7 +117,10 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	case "list":
 		vals, err := o.rdb.LRange(ctx, key, 0, -1).Result()
 		if err != nil && err != redis.Nil {
-			log.Printf("transform_redis_get: LRange(%s): %v", key, err)
+			out.SetWarning(fmt.Errorf("transform_redis_get: %s(%s): %v", "LRange", key, err))
+			if o.failOnError {
+				return fmt.Errorf("transform_redis_get: LRange(%s): %v", key, err)
+			}
 			out.SetCommon(cacheHitField, false)
 			return nil
 		}
@@ -120,7 +134,10 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	case "string":
 		val, err := o.rdb.Get(ctx, key).Result()
 		if err != nil && err != redis.Nil {
-			log.Printf("transform_redis_get: Get(%s): %v", key, err)
+			out.SetWarning(fmt.Errorf("transform_redis_get: %s(%s): %v", "Get", key, err))
+			if o.failOnError {
+				return fmt.Errorf("transform_redis_get: Get(%s): %v", key, err)
+			}
 			out.SetCommon(cacheHitField, false)
 			return nil
 		}

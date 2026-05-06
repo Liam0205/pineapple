@@ -176,18 +176,20 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 	})
 	path := writeTempConfig(t, cfg1)
 
+	s := &Server{}
+
 	// Initial load via reloadConfig
-	if err := reloadConfig(path); err != nil {
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatalf("initial reloadConfig failed: %v", err)
 	}
 	defer func() {
-		if snap := snapshot.Load(); snap != nil {
+		if snap := s.snapshot.Load(); snap != nil {
 			snap.resources.Stop()
 		}
 	}()
 
 	// Verify engine and resources are loaded
-	snap := snapshot.Load()
+	snap := s.snapshot.Load()
 	if snap == nil || snap.engine == nil {
 		t.Fatal("engine should be loaded")
 	}
@@ -205,11 +207,11 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 
 	// Reload — should create new Manager
 	oldRM := rm
-	if err := reloadConfig(path); err != nil {
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatalf("second reloadConfig failed: %v", err)
 	}
 
-	newRM := snapshot.Load().resources
+	newRM := s.snapshot.Load().resources
 	if newRM == oldRM {
 		t.Error("expected new Manager after reload")
 	}
@@ -246,6 +248,8 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 		}, nil
 	})
 
+	s := &Server{}
+
 	// Initial config with good resource only
 	cfg1 := minimalConfig(t, map[string]any{
 		"r1": map[string]any{
@@ -255,16 +259,16 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 		},
 	})
 	path1 := writeTempConfig(t, cfg1)
-	if err := reloadConfig(path1); err != nil {
+	if err := s.reloadConfig(path1); err != nil {
 		t.Fatalf("initial reloadConfig failed: %v", err)
 	}
 	defer func() {
-		if snap := snapshot.Load(); snap != nil {
+		if snap := s.snapshot.Load(); snap != nil {
 			snap.resources.Stop()
 		}
 	}()
 
-	origSnap := snapshot.Load()
+	origSnap := s.snapshot.Load()
 
 	// Config with bad resource — Start should fail
 	cfg2 := minimalConfig(t, map[string]any{
@@ -275,13 +279,13 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 		},
 	})
 	path2 := writeTempConfig(t, cfg2)
-	err := reloadConfig(path2)
+	err := s.reloadConfig(path2)
 	if err == nil {
 		t.Fatal("expected error from bad resource")
 	}
 
 	// Engine and resources should be unchanged
-	curSnap := snapshot.Load()
+	curSnap := s.snapshot.Load()
 	if curSnap.engine != origSnap.engine {
 		t.Error("engine should not change on failed reload")
 	}
@@ -303,16 +307,18 @@ func TestReloadConfig_NoResources(t *testing.T) {
 	cfg := minimalConfig(t, nil)
 	path := writeTempConfig(t, cfg)
 
-	if err := reloadConfig(path); err != nil {
+	s := &Server{}
+
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatalf("reloadConfig with no resources failed: %v", err)
 	}
 	defer func() {
-		if snap := snapshot.Load(); snap != nil {
+		if snap := s.snapshot.Load(); snap != nil {
 			snap.resources.Stop()
 		}
 	}()
 
-	snap := snapshot.Load()
+	snap := s.snapshot.Load()
 	if snap == nil || snap.engine == nil {
 		t.Fatal("engine should be loaded")
 	}
@@ -349,16 +355,18 @@ func TestReloadConfig_OldManagerStopped(t *testing.T) {
 	})
 	path := writeTempConfig(t, cfg)
 
-	if err := reloadConfig(path); err != nil {
+	s := &Server{}
+
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatal(err)
 	}
-	oldRM := snapshot.Load().resources
+	oldRM := s.snapshot.Load().resources
 
 	// Reload to replace
-	if err := reloadConfig(path); err != nil {
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatal(err)
 	}
-	defer snapshot.Load().resources.Stop()
+	defer s.snapshot.Load().resources.Stop()
 
 	// Old Manager data is still readable (atomic.Value persists after Stop)
 	val, ok := oldRM.Get("r")
@@ -395,17 +403,19 @@ func TestWatchConfigIntegration(t *testing.T) {
 	})
 	path := writeTempConfig(t, cfg)
 
+	s := &Server{}
+
 	// Do initial load
-	if err := reloadConfig(path); err != nil {
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if snap := snapshot.Load(); snap != nil {
+		if snap := s.snapshot.Load(); snap != nil {
 			snap.resources.Stop()
 		}
 	}()
 
-	rm := snapshot.Load().resources
+	rm := s.snapshot.Load().resources
 	val, _ := rm.Get("wr")
 	if val != "initial" {
 		t.Errorf("val = %v, want initial", val)
@@ -418,14 +428,14 @@ func TestWatchConfigIntegration(t *testing.T) {
 	}
 
 	// reloadConfig should succeed when called directly (simulating watchConfig behavior)
-	if err := reloadConfig(path); err != nil {
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatalf("manual reload failed: %v", err)
 	}
 }
 
 // --- HTTP handler tests ---
 
-func setupEngine(t *testing.T) {
+func setupEngine(t *testing.T) *Server {
 	t.Helper()
 	cfg := minimalConfig(t, nil)
 	engine, err := pine.NewEngine(cfg)
@@ -433,20 +443,22 @@ func setupEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	rm := resource.NewManager()
-	snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
+	s := &Server{}
+	s.snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
 	t.Cleanup(func() {
-		snapshot.Store(nil)
+		s.snapshot.Store(nil)
 	})
+	return s
 }
 
 func setupTestHTTPServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	setupEngine(t)
+	s := setupEngine(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
-	mux.HandleFunc("/execute", handleExecute)
-	mux.HandleFunc("/stats", handleStats)
-	mux.HandleFunc("/dag", handleDAG)
+	mux.HandleFunc("/execute", s.handleExecute)
+	mux.HandleFunc("/stats", s.handleStats)
+	mux.HandleFunc("/dag", s.handleDAG)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -469,12 +481,12 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleExecute_Success(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	body := `{"common":{"x":42},"items":[]}`
 	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	handleExecute(w, req)
+	s.handleExecute(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -489,12 +501,12 @@ func TestHandleExecute_Success(t *testing.T) {
 }
 
 func TestHandleExecute_WithTrace(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	body := `{"common":{"x":42,"_return_trace":true},"items":[]}`
 	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	handleExecute(w, req)
+	s.handleExecute(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -509,9 +521,10 @@ func TestHandleExecute_WithTrace(t *testing.T) {
 }
 
 func TestHandleExecute_MethodNotAllowed(t *testing.T) {
+	s := &Server{}
 	req := httptest.NewRequest(http.MethodGet, "/execute", nil)
 	w := httptest.NewRecorder()
-	handleExecute(w, req)
+	s.handleExecute(w, req)
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", w.Code)
@@ -519,12 +532,13 @@ func TestHandleExecute_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleExecute_EngineNotLoaded(t *testing.T) {
-	snapshot.Store(nil)
+	s := &Server{}
+	s.snapshot.Store(nil)
 
 	body := `{"common":{"x":1}}`
 	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
 	w := httptest.NewRecorder()
-	handleExecute(w, req)
+	s.handleExecute(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
@@ -532,11 +546,11 @@ func TestHandleExecute_EngineNotLoaded(t *testing.T) {
 }
 
 func TestHandleExecute_BadJSON(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader("{invalid"))
 	w := httptest.NewRecorder()
-	handleExecute(w, req)
+	s.handleExecute(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
@@ -544,7 +558,7 @@ func TestHandleExecute_BadJSON(t *testing.T) {
 }
 
 func TestExecuteRequestBodyTooLarge(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	// Create a JSON body larger than 10 MB.
 	// Start with valid JSON structure containing a huge string value.
@@ -561,7 +575,7 @@ func TestExecuteRequestBodyTooLarge(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/execute", bytes.NewReader(bigBody))
 	w := httptest.NewRecorder()
-	handleExecute(w, req)
+	s.handleExecute(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
@@ -573,11 +587,11 @@ func TestExecuteRequestBodyTooLarge(t *testing.T) {
 }
 
 func TestHandleStats_Success(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
 	w := httptest.NewRecorder()
-	handleStats(w, req)
+	s.handleStats(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -589,9 +603,10 @@ func TestHandleStats_Success(t *testing.T) {
 }
 
 func TestHandleStats_MethodNotAllowed(t *testing.T) {
+	s := &Server{}
 	req := httptest.NewRequest(http.MethodPost, "/stats", nil)
 	w := httptest.NewRecorder()
-	handleStats(w, req)
+	s.handleStats(w, req)
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", w.Code)
@@ -599,11 +614,12 @@ func TestHandleStats_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleStats_EngineNotLoaded(t *testing.T) {
-	snapshot.Store(nil)
+	s := &Server{}
+	s.snapshot.Store(nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
 	w := httptest.NewRecorder()
-	handleStats(w, req)
+	s.handleStats(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
@@ -611,11 +627,11 @@ func TestHandleStats_EngineNotLoaded(t *testing.T) {
 }
 
 func TestHandleDAG_Dot(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/dag", nil)
 	w := httptest.NewRecorder()
-	handleDAG(w, req)
+	s.handleDAG(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -629,11 +645,11 @@ func TestHandleDAG_Dot(t *testing.T) {
 }
 
 func TestHandleDAG_Mermaid(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/dag?format=mermaid", nil)
 	w := httptest.NewRecorder()
-	handleDAG(w, req)
+	s.handleDAG(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -644,9 +660,10 @@ func TestHandleDAG_Mermaid(t *testing.T) {
 }
 
 func TestHandleDAG_MethodNotAllowed(t *testing.T) {
+	s := &Server{}
 	req := httptest.NewRequest(http.MethodPost, "/dag", nil)
 	w := httptest.NewRecorder()
-	handleDAG(w, req)
+	s.handleDAG(w, req)
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", w.Code)
@@ -654,11 +671,12 @@ func TestHandleDAG_MethodNotAllowed(t *testing.T) {
 }
 
 func TestHandleDAG_EngineNotLoaded(t *testing.T) {
-	snapshot.Store(nil)
+	s := &Server{}
+	s.snapshot.Store(nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/dag", nil)
 	w := httptest.NewRecorder()
-	handleDAG(w, req)
+	s.handleDAG(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
@@ -666,11 +684,11 @@ func TestHandleDAG_EngineNotLoaded(t *testing.T) {
 }
 
 func TestHandleDAG_BadFormat(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/dag?format=xyz", nil)
 	w := httptest.NewRecorder()
-	handleDAG(w, req)
+	s.handleDAG(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
@@ -748,20 +766,22 @@ func TestServerHighConcurrencyStress(t *testing.T) {
 
 	cfg := minimalConfig(t, nil)
 	path := writeTempConfig(t, cfg)
-	if err := reloadConfig(path); err != nil {
+
+	s := &Server{}
+	if err := s.reloadConfig(path); err != nil {
 		t.Fatalf("initial reloadConfig: %v", err)
 	}
 	t.Cleanup(func() {
-		if snap := snapshot.Load(); snap != nil {
+		if snap := s.snapshot.Load(); snap != nil {
 			snap.resources.Stop()
 		}
-		snapshot.Store(nil)
+		s.snapshot.Store(nil)
 	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/execute", handleExecute)
-	mux.HandleFunc("/stats", handleStats)
-	mux.HandleFunc("/dag", handleDAG)
+	mux.HandleFunc("/execute", s.handleExecute)
+	mux.HandleFunc("/stats", s.handleStats)
+	mux.HandleFunc("/dag", s.handleDAG)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -786,7 +806,7 @@ func TestServerHighConcurrencyStress(t *testing.T) {
 			case <-stopReload:
 				return
 			case <-ticker.C:
-				if err := reloadConfig(path); err != nil {
+				if err := s.reloadConfig(path); err != nil {
 					reloadErrors.Add(1)
 				}
 			}
@@ -885,18 +905,20 @@ func benchmarkHTTPServerExecuteThroughput(
 	post func(client *http.Client, baseURL string, value int) error,
 ) {
 	path := writeTempConfig(b, cfg)
-	if err := reloadConfig(path); err != nil {
+
+	s := &Server{}
+	if err := s.reloadConfig(path); err != nil {
 		b.Fatalf("initial reloadConfig: %v", err)
 	}
 	b.Cleanup(func() {
-		if snap := snapshot.Load(); snap != nil {
+		if snap := s.snapshot.Load(); snap != nil {
 			snap.resources.Stop()
 		}
-		snapshot.Store(nil)
+		s.snapshot.Store(nil)
 	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/execute", handleExecute)
+	mux.HandleFunc("/execute", s.handleExecute)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -916,7 +938,7 @@ func benchmarkHTTPServerExecuteThroughput(
 				case <-stopReload:
 					return
 				case <-ticker.C:
-					_ = reloadConfig(path)
+					_ = s.reloadConfig(path)
 				}
 			}
 		}()
@@ -1167,7 +1189,8 @@ func getOK(client *http.Client, url string) error {
 }
 
 func TestMiddlewareApplied(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
+	_ = s // Server instance available if needed
 
 	var order []string
 	makeMiddleware := func(tag string) func(http.Handler) http.Handler {
@@ -1211,7 +1234,8 @@ func TestMiddlewareApplied(t *testing.T) {
 }
 
 func TestNoMiddlewareNoop(t *testing.T) {
-	setupEngine(t)
+	s := setupEngine(t)
+	_ = s // Server instance available if needed
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)

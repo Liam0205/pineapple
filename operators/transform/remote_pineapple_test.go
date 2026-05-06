@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,7 @@ func TestRemotePineapple_BasicFieldMapping(t *testing.T) {
 	if err := op.Init(map[string]any{
 		"host":            host,
 		"port":            port,
+		"allow_private":   true,
 		"common_request":  []any{"age"},
 		"item_request":    []any{"id"},
 		"common_response": []any{"score"},
@@ -106,8 +108,9 @@ func TestRemotePineapple_NoMapping(t *testing.T) {
 
 	op := &RemotePineappleOp{}
 	if err := op.Init(map[string]any{
-		"host": host,
-		"port": port,
+		"host":          host,
+		"port":          port,
+		"allow_private": true,
 	}); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
@@ -145,6 +148,7 @@ func TestRemotePineapple_DownstreamError_Fatal(t *testing.T) {
 	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
+		"allow_private": true,
 		"fail_on_error": true,
 	}); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -171,6 +175,7 @@ func TestRemotePineapple_DownstreamError_Warning(t *testing.T) {
 	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
+		"allow_private": true,
 		"fail_on_error": false,
 	}); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -199,6 +204,7 @@ func TestRemotePineapple_HTTP500_Fatal(t *testing.T) {
 	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
+		"allow_private": true,
 		"fail_on_error": true,
 	}); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -225,6 +231,7 @@ func TestRemotePineapple_Timeout(t *testing.T) {
 	if err := op.Init(map[string]any{
 		"host":          host,
 		"port":          port,
+		"allow_private": true,
 		"timeout":       0.1,
 		"fail_on_error": true,
 	}); err != nil {
@@ -238,5 +245,83 @@ func TestRemotePineapple_Timeout(t *testing.T) {
 	err := op.Execute(context.Background(), in, out)
 	if err == nil {
 		t.Fatal("expected timeout error")
+	}
+}
+
+func TestRemotePineapple_ResponseTooLarge(t *testing.T) {
+	host, port, cleanup := startTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// Write a response larger than the configured limit
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Write 2048 bytes (exceeding our 1024 byte limit)
+		data := make([]byte, 2048)
+		for i := range data {
+			data[i] = 'x'
+		}
+		_, _ = w.Write(data)
+	})
+	defer cleanup()
+
+	op := &RemotePineappleOp{}
+	if err := op.Init(map[string]any{
+		"host":              host,
+		"port":              port,
+		"allow_private":     true,
+		"fail_on_error":     true,
+		"max_response_size": int64(1024),
+	}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	op.SetMetadata(nil, nil, nil, nil)
+
+	in := pine.NewOperatorInput(map[string]any{}, nil)
+	out := pine.NewOperatorOutput()
+
+	err := op.Execute(context.Background(), in, out)
+	if err == nil {
+		t.Fatal("expected error for oversized response")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("expected error about exceeding size limit, got: %v", err)
+	}
+}
+
+func TestRemotePineapple_SSRFBlocksLoopback(t *testing.T) {
+	op := &RemotePineappleOp{}
+	err := op.Init(map[string]any{
+		"host": "127.0.0.1",
+		"port": int64(8080),
+	})
+	if err == nil {
+		t.Fatal("expected Init to return error for loopback address")
+	}
+	if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("expected error about private/not allowed, got: %v", err)
+	}
+}
+
+func TestRemotePineapple_SSRFBlocksLocalhost(t *testing.T) {
+	op := &RemotePineappleOp{}
+	err := op.Init(map[string]any{
+		"host": "localhost",
+		"port": int64(8080),
+	})
+	if err == nil {
+		t.Fatal("expected Init to return error for localhost")
+	}
+	if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("expected error about private/not allowed, got: %v", err)
+	}
+}
+
+func TestRemotePineapple_AllowPrivateOverride(t *testing.T) {
+	op := &RemotePineappleOp{}
+	err := op.Init(map[string]any{
+		"host":          "127.0.0.1",
+		"port":          int64(8080),
+		"allow_private": true,
+	})
+	if err != nil {
+		t.Fatalf("expected Init to succeed with allow_private=true, got: %v", err)
 	}
 }

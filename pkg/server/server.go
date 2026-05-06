@@ -47,32 +47,30 @@ type serverSnapshot struct {
 	resources *resource.Manager
 }
 
-var (
-	snapshot atomic.Pointer[serverSnapshot]
-
-	// maxRequestBodySize is set in Run and used by handleExecute.
-	maxRequestBodySize int64
-
-	// server-level atomic counters (powers /stats)
+// Server holds all instance-level mutable state for the Pine HTTP server.
+type Server struct {
+	snapshot             atomic.Pointer[serverSnapshot]
+	maxRequestBodySize   int64
 	reloadCount          atomic.Int64
 	reloadErrorCount     atomic.Int64
 	lastReloadDurationNs atomic.Int64
-
-	// external metrics (set once at Run, nil-safe)
-	srvMetrics struct {
+	metricsProvider      metrics.Provider
+	srvMetrics           struct {
 		reloadTotal    metrics.Counter
 		reloadErrors   metrics.Counter
 		reloadDuration metrics.Histogram
 	}
-
-	// metricsProvider is stored so reloadConfig can pass it to NewEngine.
-	metricsProvider metrics.Provider
-)
+}
 
 // Run starts the Pine HTTP server with the given configuration.
 // It loads the initial config, starts a config-reload watcher, registers
 // HTTP handlers, and blocks until a SIGINT/SIGTERM is received.
 func Run(cfg Config) error {
+	s := &Server{}
+	return s.run(cfg)
+}
+
+func (s *Server) run(cfg Config) error {
 	if cfg.ConfigPath == "" {
 		log.Fatal("usage: pineapple-server -config <path-to-config.json>")
 	}
@@ -81,9 +79,9 @@ func Run(cfg Config) error {
 	}
 
 	// Set effective max request body size.
-	maxRequestBodySize = cfg.MaxRequestBodySize
-	if maxRequestBodySize == 0 {
-		maxRequestBodySize = 10 << 20 // 10 MB default
+	s.maxRequestBodySize = cfg.MaxRequestBodySize
+	if s.maxRequestBodySize == 0 {
+		s.maxRequestBodySize = 10 << 20 // 10 MB default
 	}
 
 	// Initialize metrics provider
@@ -91,16 +89,16 @@ func Run(cfg Config) error {
 	if mp == nil {
 		mp = metrics.Nop()
 	}
-	metricsProvider = mp
-	srvMetrics.reloadTotal = mp.NewCounter(metrics.MetricOpts{
+	s.metricsProvider = mp
+	s.srvMetrics.reloadTotal = mp.NewCounter(metrics.MetricOpts{
 		Name: "pine_config_reload_total",
 		Help: "Total successful config reloads.",
 	})
-	srvMetrics.reloadErrors = mp.NewCounter(metrics.MetricOpts{
+	s.srvMetrics.reloadErrors = mp.NewCounter(metrics.MetricOpts{
 		Name: "pine_config_reload_errors_total",
 		Help: "Total failed config reloads.",
 	})
-	srvMetrics.reloadDuration = mp.NewHistogram(metrics.HistogramOpts{
+	s.srvMetrics.reloadDuration = mp.NewHistogram(metrics.HistogramOpts{
 		MetricOpts: metrics.MetricOpts{
 			Name: "pine_config_reload_duration_seconds",
 			Help: "Config reload duration in seconds.",
@@ -138,8 +136,8 @@ func Run(cfg Config) error {
 		log.Fatalf("failed to start resource manager: %v", err)
 	}
 
-	snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
-	defer snapshot.Load().resources.Stop()
+	s.snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
+	defer s.snapshot.Load().resources.Stop()
 
 	// Validate resource dependencies against pipeline config.
 	if err := resource.ValidateResourceDeps(configData, rm); err != nil {
@@ -147,14 +145,16 @@ func Run(cfg Config) error {
 	}
 
 	// Start config reload watcher
-	go watchConfig(cfg.ConfigPath)
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	defer watchCancel()
+	go s.watchConfig(watchCtx, cfg.ConfigPath)
 
 	// Set up routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
-	mux.HandleFunc("/execute", handleExecute)
-	mux.HandleFunc("/stats", handleStats)
-	mux.HandleFunc("/dag", handleDAG)
+	mux.HandleFunc("/execute", s.handleExecute)
+	mux.HandleFunc("/stats", s.handleStats)
+	mux.HandleFunc("/dag", s.handleDAG)
 
 	// Apply middlewares (outer-to-inner: first middleware sees request first)
 	var handler http.Handler = mux
@@ -189,13 +189,13 @@ func Run(cfg Config) error {
 	return nil
 }
 
-func reloadConfig(path string) error {
+func (s *Server) reloadConfig(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	engine, err := pine.NewEngine(data, pine.WithMetrics(metricsProvider))
+	engine, err := pine.NewEngine(data, pine.WithMetrics(s.metricsProvider))
 	if err != nil {
 		return err
 	}
@@ -213,17 +213,23 @@ func reloadConfig(path string) error {
 		return err
 	}
 
-	old := snapshot.Swap(&serverSnapshot{engine: engine, resources: newRM})
+	old := s.snapshot.Swap(&serverSnapshot{engine: engine, resources: newRM})
 	if old != nil {
 		old.resources.Stop()
 	}
 	return nil
 }
 
-func watchConfig(path string) {
+func (s *Server) watchConfig(ctx context.Context, path string) {
 	var lastMod time.Time
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 	for {
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 		info, err := os.Stat(path)
 		if err != nil {
 			continue
@@ -231,16 +237,16 @@ func watchConfig(path string) {
 		if info.ModTime().After(lastMod) {
 			lastMod = info.ModTime()
 			start := time.Now()
-			if err := reloadConfig(path); err != nil {
-				reloadErrorCount.Add(1)
-				srvMetrics.reloadErrors.Inc()
+			if err := s.reloadConfig(path); err != nil {
+				s.reloadErrorCount.Add(1)
+				s.srvMetrics.reloadErrors.Inc()
 				log.Printf("config reload failed: %v", err)
 			} else {
 				dur := time.Since(start)
-				reloadCount.Add(1)
-				lastReloadDurationNs.Store(dur.Nanoseconds())
-				srvMetrics.reloadTotal.Inc()
-				srvMetrics.reloadDuration.Observe(metrics.DurationSeconds(dur))
+				s.reloadCount.Add(1)
+				s.lastReloadDurationNs.Store(dur.Nanoseconds())
+				s.srvMetrics.reloadTotal.Inc()
+				s.srvMetrics.reloadDuration.Observe(metrics.DurationSeconds(dur))
 				log.Printf("config reloaded from %s", path)
 			}
 		}
@@ -273,20 +279,20 @@ type traceEntry struct {
 	OutputSnapshot map[string]any `json:"output_snapshot,omitempty"`
 }
 
-func handleExecute(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	snap := snapshot.Load()
+	snap := s.snapshot.Load()
 	if snap == nil {
 		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
 		return
 	}
 
 	var req executeRequest
-	r.Body = http.MaxBytesReader(w, r.Body, effectiveMaxRequestBodySize())
+	r.Body = http.MaxBytesReader(w, r.Body, s.effectiveMaxRequestBodySize())
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, executeResponse{Error: "invalid request: " + err.Error()})
 		return
@@ -335,13 +341,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func handleStats(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	snap := snapshot.Load()
+	snap := s.snapshot.Load()
 	if snap == nil {
 		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
 		return
@@ -350,7 +356,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"operators": snap.engine.Stats(),
 		"scheduler": snap.engine.SchedulerStats(),
-		"server":    serverStats(),
+		"server":    s.serverStats(),
 	}
 	if custom := snap.engine.OperatorCustomStats(); custom != nil {
 		resp["operator_detail"] = custom
@@ -358,21 +364,21 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func serverStats() map[string]int64 {
+func (s *Server) serverStats() map[string]int64 {
 	return map[string]int64{
-		"reload_count":           reloadCount.Load(),
-		"reload_error_count":     reloadErrorCount.Load(),
-		"last_reload_duration_ns": lastReloadDurationNs.Load(),
+		"reload_count":            s.reloadCount.Load(),
+		"reload_error_count":      s.reloadErrorCount.Load(),
+		"last_reload_duration_ns": s.lastReloadDurationNs.Load(),
 	}
 }
 
-func handleDAG(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDAG(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	snap := snapshot.Load()
+	snap := s.snapshot.Load()
 	if snap == nil {
 		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
 		return
@@ -419,9 +425,9 @@ func withDefault(v, def time.Duration) time.Duration {
 }
 
 // effectiveMaxRequestBodySize returns the configured max body size, or 10MB if not set.
-func effectiveMaxRequestBodySize() int64 {
-	if maxRequestBodySize == 0 {
+func (s *Server) effectiveMaxRequestBodySize() int64 {
+	if s.maxRequestBodySize == 0 {
 		return 10 << 20
 	}
-	return maxRequestBodySize
+	return s.maxRequestBodySize
 }

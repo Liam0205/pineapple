@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/Liam0205/pineapple/internal/config"
 	"github.com/Liam0205/pineapple/internal/dag"
@@ -17,6 +18,10 @@ import (
 // Re-export Request and Result from internal/types.
 type Request = types.Request
 type Result = types.Result
+
+// logOnce ensures log.SetPrefix/SetFlags is called only once,
+// preventing a data race on hot-reload.
+var logOnce sync.Once
 
 // Engine is an immutable, concurrency-safe execution engine.
 // Create with NewEngine; call Execute for each request.
@@ -79,8 +84,10 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		logPrefix = cfg.LogPrefix
 	}
 	if logPrefix != "" {
-		log.SetPrefix(logPrefix)
-		log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+		logOnce.Do(func() {
+			log.SetPrefix(logPrefix)
+			log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+		})
 	}
 
 	// 1c. Resolve global debug (Option > JSON config)

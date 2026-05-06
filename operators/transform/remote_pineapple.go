@@ -8,6 +8,7 @@
 //   - endpoint (string, optional, default="/execute"): Downstream endpoint path.
 //   - timeout (float64, optional, default=5.0): Request timeout in seconds.
 //   - fail_on_error (bool, optional, default=true): true=fatal on downstream error; false=warning and skip.
+//   - allow_private (bool, optional, default=false): Allow connections to private/loopback addresses (dev/internal use).
 //   - common_request ([]string, optional): Downstream common field names, positionally mapped to common_input.
 //   - item_request ([]string, optional): Downstream item field names, positionally mapped to item_input.
 //   - common_response ([]string, optional): Downstream common response field names, positionally mapped to common_output.
@@ -38,15 +39,17 @@ func init() {
 		Type:        pine.OpTypeTransform,
 		Description: "Calls a downstream Pineapple service and maps response fields back to the local frame.",
 		Params: map[string]pine.ParamSpec{
-			"host":            {Type: "string", Required: true, Description: "Downstream service host."},
-			"port":            {Type: "int64", Required: true, Description: "Downstream service port."},
-			"endpoint":        {Type: "string", Required: false, Default: "/execute", Description: "Downstream endpoint path."},
-			"timeout":         {Type: "float64", Required: false, Default: 5.0, Description: "Request timeout in seconds."},
-			"fail_on_error":   {Type: "bool", Required: false, Default: true, Description: "true=fatal on downstream error; false=warning and skip."},
-			"common_request":  {Type: "any", Required: false, Description: "Downstream common field names, positionally mapped to common_input."},
-			"item_request":    {Type: "any", Required: false, Description: "Downstream item field names, positionally mapped to item_input."},
-			"common_response": {Type: "any", Required: false, Description: "Downstream common response field names, positionally mapped to common_output."},
-			"item_response":   {Type: "any", Required: false, Description: "Downstream item response field names, positionally mapped to item_output."},
+			"host":              {Type: "string", Required: true, Description: "Downstream service host."},
+			"port":              {Type: "int64", Required: true, Description: "Downstream service port."},
+			"endpoint":          {Type: "string", Required: false, Default: "/execute", Description: "Downstream endpoint path."},
+			"timeout":           {Type: "float64", Required: false, Default: 5.0, Description: "Request timeout in seconds."},
+			"fail_on_error":     {Type: "bool", Required: false, Default: true, Description: "true=fatal on downstream error; false=warning and skip."},
+			"max_response_size": {Type: "int64", Required: false, Default: int64(10 << 20), Description: "Maximum response body size in bytes (default 10 MB)."},
+			"allow_private":     {Type: "bool", Required: false, Default: false, Description: "Allow connections to private/loopback addresses (dev/internal use)."},
+			"common_request":    {Type: "any", Required: false, Description: "Downstream common field names, positionally mapped to common_input."},
+			"item_request":      {Type: "any", Required: false, Description: "Downstream item field names, positionally mapped to item_input."},
+			"common_response":   {Type: "any", Required: false, Description: "Downstream common response field names, positionally mapped to common_output."},
+			"item_response":     {Type: "any", Required: false, Description: "Downstream item response field names, positionally mapped to item_output."},
 		},
 	}, func() pine.Operator {
 		return &RemotePineappleOp{}
@@ -56,10 +59,12 @@ func init() {
 type RemotePineappleOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
-	url         string
-	timeout     time.Duration
-	failOnError bool
-	client      *http.Client
+	url             string
+	timeout         time.Duration
+	failOnError     bool
+	allowPrivate    bool
+	maxResponseSize int64
+	client          *http.Client
 
 	commonReq  []string
 	itemReq    []string
@@ -91,12 +96,36 @@ func (o *RemotePineappleOp) Init(params map[string]any) error {
 		}
 	}
 
+	o.maxResponseSize = int64(10 << 20)
+	if v, ok := params["max_response_size"]; ok {
+		o.maxResponseSize = toInt64Param(v)
+	}
+
+	if v, ok := params["allow_private"]; ok {
+		if b, ok := v.(bool); ok {
+			o.allowPrivate = b
+		}
+	}
+
 	o.commonReq, _ = toStringSlice(params["common_request"])
 	o.itemReq, _ = toStringSlice(params["item_request"])
 	o.commonResp, _ = toStringSlice(params["common_response"])
 	o.itemResp, _ = toStringSlice(params["item_response"])
 
-	o.client = &http.Client{}
+	if !o.allowPrivate {
+		if err := validateRemoteHost(host); err != nil {
+			return fmt.Errorf("transform_by_remote_pineapple: %w", err)
+		}
+		o.client = &http.Client{
+			Timeout: o.timeout,
+			Transport: &http.Transport{
+				DialContext: ssrfSafeDialContext(),
+			},
+		}
+	} else {
+		o.client = &http.Client{Timeout: o.timeout}
+	}
+
 	return nil
 }
 
@@ -157,9 +186,13 @@ func (o *RemotePineappleOp) Execute(ctx context.Context, in *pine.OperatorInput,
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	limitedReader := io.LimitReader(resp.Body, o.maxResponseSize+1)
+	respBody, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return o.handleError(out, fmt.Errorf("transform_by_remote_pineapple: read response: %w", err))
+	}
+	if int64(len(respBody)) > o.maxResponseSize {
+		return o.handleError(out, fmt.Errorf("transform_by_remote_pineapple: response body exceeds %d bytes limit", o.maxResponseSize))
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -214,4 +247,3 @@ type remoteResponse struct {
 	Items  []map[string]any `json:"items"`
 	Error  string           `json:"error,omitempty"`
 }
-
