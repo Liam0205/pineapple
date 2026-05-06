@@ -9,6 +9,7 @@ Generic Redis read operator. Reads a value by key and outputs the result and a c
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | data_type | string | No | `"string"` | Redis data type: "set", "string", or "list". |
+| fail_on_error | bool | No | `False` | Return fatal error on Redis infrastructure failure instead of treating as cache miss. |
 | key_prefix | string | Yes | - | Key prefix prepended to the suffix built from common_input fields. |
 | redis_addr | string | Yes | - | Redis server address (host:port). |
 | redis_db | int | No | `0` | Redis DB number. |
@@ -28,6 +29,7 @@ Generic Redis read operator. Reads a value by key and outputs the result and a c
 ```python
 flow.transform_redis_get(
     data_type=...,
+    fail_on_error=...,
     key_prefix=...,
     redis_addr=...,
     redis_db=...,
