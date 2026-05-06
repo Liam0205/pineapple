@@ -4,7 +4,7 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Python/Go 契约、blank-import 注册、版本同步、codegen 新鲜度、测试规范。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Python/Go 契约、blank-import 注册、版本同步、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）。
 
 ## overview/
 
@@ -12,7 +12,7 @@
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`、`debug`）、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`、`debug`）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
 
 ## guides/
@@ -24,7 +24,7 @@
 
 ## reference/
 
-- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范。
+- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）。
 - `llmdoc/reference/apple-control-template-syntax.md` — Apple DSL 控制流条件参考：`if_` / `elseif_` 需要使用 `{{field_name}}` 模板语法显式标记字段引用，编译器据此提取依赖并在发射 Lua 前去掉模板标记。
 - `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：`pkg/metrics` Provider 契约、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应、Prometheus 适配边界，以及 server middleware 与 observability 的职责分离。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
@@ -60,3 +60,4 @@
 - `llmdoc/memory/reflections/deep-risk-audit-post-v061.md` — v0.6.1 后深度风险审计复盘，记录 server reload 一致性、Lua pool 生命周期、data_parallel 可重入等运行时操作健壮性缺口。
 - `llmdoc/memory/reflections/buildinput-sparse-fix.md` — BuildInput 稀疏语义修复复盘，记录 missing vs explicit-nil 边界、row/column parity 与文档纠偏点。
 - `llmdoc/memory/reflections/security-audit-fixes.md` — 安全与正确性审计修复复盘，记录 Lua 沙箱白名单、PanicError 信息分级、Registry 严格参数、HTTP 超时加固、控制流声明期校验等决策。
+- `llmdoc/memory/reflections/medium-severity-audit-fixes.md` — 第二轮中等严重度审计修复复盘，记录 Server struct 重构、watchConfig 生命周期、SSRF 防护模型、LimitReader 安全默认、Redis 错误透传模式。

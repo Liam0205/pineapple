@@ -378,6 +378,28 @@ Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `condition
 - 在算子结构体上存储请求本地可变状态可能破坏并发执行。
 - 更改 Schema 但不重新生成 `apple_generated/` 和 `doc/operators/` 将导致 CI 失败。
 
+## 网络调用安全约束
+
+执行外部网络调用的算子（如 `transform_by_remote_pineapple`）必须遵循以下安全契约：
+
+### SSRF 防护
+
+- Init 阶段对目标地址做 DNS 解析校验，拒绝解析到 private/loopback 范围的地址
+- 运行时通过自定义 `http.Transport` 的 `DialContext` 在拨号时再次检查解析后的 IP，防止 DNS rebinding
+- 提供 `allow_private` 参数，允许在合法内网调用场景下显式跳过 SSRF 检查
+
+### 有界响应读取
+
+- 禁止裸 `io.ReadAll`；必须使用 `io.LimitReader(body, maxSize+1)` 读取外部响应
+- 读取后检查实际长度是否超过 `maxSize`，超过则返回错误
+- 通过 `max_response_size` 参数暴露上限配置，默认 10MB
+
+### 基础设施错误处理模式
+
+- 非致命基础设施错误（如 Redis 连接失败）应通过 `output.SetWarning()` 透传，而非静默吞没
+- 提供 `fail_on_error` 参数，允许调用方切换为严格模式（基础设施错误 → 算子失败）
+- 这是跨算子可复用的错误处理模式，适用于任何依赖外部服务的算子
+
 ## 检索指针
 
 - 接口和类型约束：`internal/types/operator.go`

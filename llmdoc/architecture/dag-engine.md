@@ -558,7 +558,20 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
   - 可配置 `MaxRequestBodySize`（默认 10MB），通过 `http.MaxBytesReader` 在 handler 层限制请求体大小
   - 上述参数均通过 `server.Config` 字段暴露，`cmd/pineapple-server/main.go` 提供对应命令行 flags
 
-配置热加载同时覆盖 Engine 和 ResourceManager。`enginePtr` 和 `resources` 均为 `atomic.Pointer`，`watchConfig` 检测文件变更后调用 `reloadConfig`，创建新 Manager → Start → 原子替换 → Stop 旧 Manager。失败时保持旧配置不变。
+### Server 结构体生命周期
+
+Server 现在是 struct-based 设计：`Server` 结构体封装所有可变状态（snapshot 指针、metrics handle 等），handler 函数作为 `*Server` 的方法接收者运行。公共 API `Run(cfg Config) error` 保持不变，内部委托给 `s.run(cfg)`。
+
+`watchConfig` 接受 `context.Context`，通过 `ticker + select` 实现干净的关闭传播：
+
+- `ctx.Done()` 分支停止 ticker 并退出 goroutine
+- 不再依赖永不退出的 goroutine 存活模式
+
+这消除了旧版包级全局状态的竞态风险，并确保 graceful shutdown 时 watchConfig goroutine 可被确定性回收。
+
+### 配置热加载
+
+配置热加载同时覆盖 Engine 和 ResourceManager。`watchConfig` 检测文件变更后调用 `reloadConfig`，创建新 Manager → Start → 原子替换 snapshot → Stop 旧 Manager。失败时保持旧配置不变。
 
 ### 已知运行时操作风险
 
