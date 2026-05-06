@@ -38,10 +38,10 @@ class TestBasicFlow:
         flow.filter_condition(
             item_input=["item_status"],
             item_output=["item_status", "item_score"],
-            field="item_status", value="offline",
+            value="offline",
         ).reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
         cfg = flow.compile_dict()
         ops = cfg["pipeline_config"]["operators"]
@@ -86,7 +86,7 @@ class TestSubFlow:
         sub2 = SubFlow(name="rank_stage")
         sub2.reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
 
         flow = Flow(
@@ -114,7 +114,7 @@ class TestSubFlow:
         outer.filter_condition(
             item_input=["item_score"],
             item_output=["item_score"],
-            field="item_score", value=0,
+            value=0,
         )
 
         flow = Flow(
@@ -140,7 +140,7 @@ class TestSubFlow:
         sub = SubFlow(name="inner")
         sub.reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
 
         flow = Flow(name="mix", item_output=["item_id", "item_score"])
@@ -174,7 +174,7 @@ class TestSubFlow:
         sf = SubFlow(name="ranking")
         sf.reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
         flow = Flow(
             name="test",
@@ -196,7 +196,7 @@ class TestSubFlow:
         sf = SubFlow(name="inner")
         sf.if_("{{flag}}").reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         ).end_if_()
 
         flow = Flow(
@@ -255,7 +255,7 @@ class TestSubFlow:
         sf = SubFlow(name="inner")
         sf.if_("{{flag}}").reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         ).end_if_()
 
         flow = Flow(
@@ -275,7 +275,7 @@ class TestSubFlow:
         child = SubFlow(name="child")
         child.reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
 
         parent = SubFlow(name="parent")
@@ -307,7 +307,7 @@ class TestSubFlow:
         sf = SubFlow(name="ranking")
         sf.reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
         flow = Flow(
             name="test",
@@ -326,7 +326,7 @@ class TestSubFlow:
         grandchild = SubFlow(name="leaf")
         grandchild.reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
 
         child = SubFlow(name="mid")
@@ -382,7 +382,7 @@ class TestSubFlow:
         sub2 = SubFlow(name="b")
         sub2.reorder_sort(
             item_input=["item_score"],
-            field="item_score", order="desc",
+            order="desc",
         )
 
         flow = Flow(name="chain", item_output=["item_id", "item_score"])
@@ -577,7 +577,7 @@ class TestTypedOperators:
 
         flow.if_("{{enabled}}")
         op._apply(
-            params={"field": "item_score", "order": "desc"},
+            params={"order": "desc"},
             item_input=["item_score"],
         )
         flow.end_if_()
@@ -605,7 +605,7 @@ class TestTypedOperators:
 
         flow.if_("{{enabled}}").if_("{{ready}}")
         op._apply(
-            params={"field": "item_score", "order": "desc"},
+            params={"order": "desc"},
             item_input=["item_score"],
         )
         flow.end_if_().end_if_()

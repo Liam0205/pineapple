@@ -108,7 +108,6 @@ class TestE2E:
         flow.if_("{{user_age}} > 18") \
             .reorder_sort(
                 item_input=["item_score"],
-                field="item_score",
                 order="desc",
             ) \
         .end_if_()
@@ -145,7 +144,6 @@ class TestE2E:
         rank_stage = SubFlow(name="ranking")
         rank_stage.reorder_sort(
             item_input=["item_score"],
-            field="item_score",
             order="desc",
         )
 
@@ -205,7 +203,6 @@ class TestE2E:
         )
         flow.reorder_sort(
             item_input=["item_final_price"],
-            field="item_final_price",
             order="desc",
         )
 

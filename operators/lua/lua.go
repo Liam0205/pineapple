@@ -83,7 +83,7 @@ func (o *LuaOp) Init(params map[string]any) error {
 	return nil
 }
 
-func (o *LuaOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+func (o *LuaOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	if o.IsDebug() {
 		nonNil := 0
 		for _, f := range o.CommonInput {
@@ -97,7 +97,13 @@ func (o *LuaOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Ope
 	}
 
 	L := o.pool.Borrow()
+	if L == nil {
+		return fmt.Errorf("lua: pool is closed")
+	}
 	defer o.pool.Return(L)
+
+	L.SetContext(ctx)
+	defer L.RemoveContext()
 
 	if o.isItemMode {
 		return o.executeForItem(L, in, out)

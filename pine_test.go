@@ -146,7 +146,7 @@ func TestErrorTypes(t *testing.T) {
 		{&pine.RegistryError{Operator: "foo", Message: "not found"}, "pine: registry error [foo]: not found"},
 		{&pine.ValidationError{Message: "missing field"}, "pine: validation error: missing field"},
 		{&pine.ExecutionError{Operator: "bar", Err: context.Canceled}, `pine: execution error in operator "bar": context canceled`},
-		{&pine.PanicError{Operator: "baz", Value: "oops", Stack: "stack"}, "pine: panic in operator \"baz\": oops\nstack"},
+		{&pine.PanicError{Operator: "baz", Value: "oops", Stack: "stack"}, "pine: panic in operator \"baz\": oops"},
 	}
 	for _, tt := range tests {
 		if got := tt.err.Error(); got != tt.want {

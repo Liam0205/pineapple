@@ -52,5 +52,10 @@ type PanicError struct {
 }
 
 func (e *PanicError) Error() string {
+	return fmt.Sprintf("pine: panic in operator %q: %v", e.Operator, e.Value)
+}
+
+// DetailedError returns the full error including stack trace, for logging purposes.
+func (e *PanicError) DetailedError() string {
 	return fmt.Sprintf("pine: panic in operator %q: %v\n%s", e.Operator, e.Value, e.Stack)
 }

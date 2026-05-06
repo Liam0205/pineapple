@@ -242,6 +242,36 @@ class TestControlFlowValidation:
         with pytest.raises(ValueError, match="empty else branch"):
             flow.end_if_()
 
+    def test_elseif_after_else_raises(self):
+        flow = Flow(name="bad", common_input=["x", "y"], common_output=["z"])
+        flow.if_("{{x}} ~= nil")
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["z"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        flow.else_()
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["z"],
+                      lua_script="function g() return 0 end",
+                      function_for_common="g", function_for_item="")
+        with pytest.raises(ValueError, match="elseif_ after else_"):
+            flow.elseif_("{{y}} ~= nil")
+
+    def test_duplicate_else_raises(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["z"])
+        flow.if_("{{x}} ~= nil")
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["z"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        flow.else_()
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["z"],
+                      lua_script="function g() return 0 end",
+                      function_for_common="g", function_for_item="")
+        with pytest.raises(ValueError, match="duplicate else_"):
+            flow.else_()
+
 
 class TestUnderscorePrefix:
     def test_underscore_in_flow_common_output_rejected(self):

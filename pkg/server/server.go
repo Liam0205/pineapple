@@ -28,6 +28,16 @@ type Config struct {
 	Resources   *resource.Manager                // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
 	Metrics     metrics.Provider                 // Optional: metrics provider (nil → no-op)
 	Middlewares []func(http.Handler) http.Handler // Optional: HTTP middlewares applied outer-to-inner
+
+	// Timeouts for the HTTP server. Zero means no timeout.
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+
+	// MaxRequestBodySize limits the size of request bodies in bytes.
+	// Zero means use the default (10 MB).
+	MaxRequestBodySize int64
 }
 
 // serverSnapshot bundles engine and resources into a single atomic unit
@@ -39,6 +49,9 @@ type serverSnapshot struct {
 
 var (
 	snapshot atomic.Pointer[serverSnapshot]
+
+	// maxRequestBodySize is set in Run and used by handleExecute.
+	maxRequestBodySize int64
 
 	// server-level atomic counters (powers /stats)
 	reloadCount          atomic.Int64
@@ -65,6 +78,12 @@ func Run(cfg Config) error {
 	}
 	if cfg.Addr == "" {
 		cfg.Addr = ":8080"
+	}
+
+	// Set effective max request body size.
+	maxRequestBodySize = cfg.MaxRequestBodySize
+	if maxRequestBodySize == 0 {
+		maxRequestBodySize = 10 << 20 // 10 MB default
 	}
 
 	// Initialize metrics provider
@@ -143,7 +162,14 @@ func Run(cfg Config) error {
 		handler = cfg.Middlewares[i](handler)
 	}
 
-	srv := &http.Server{Addr: cfg.Addr, Handler: handler}
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           handler,
+		ReadHeaderTimeout: withDefault(cfg.ReadHeaderTimeout, 10*time.Second),
+		ReadTimeout:       withDefault(cfg.ReadTimeout, 30*time.Second),
+		WriteTimeout:      withDefault(cfg.WriteTimeout, 60*time.Second),
+		IdleTimeout:       withDefault(cfg.IdleTimeout, 120*time.Second),
+	}
 
 	// Graceful shutdown
 	go func() {
@@ -260,6 +286,7 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req executeRequest
+	r.Body = http.MaxBytesReader(w, r.Body, effectiveMaxRequestBodySize())
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, executeResponse{Error: "invalid request: " + err.Error()})
 		return
@@ -381,4 +408,20 @@ func handleDAG(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 	_, _ = w.Write([]byte(output))
+}
+
+// withDefault returns v if non-zero, otherwise def.
+func withDefault(v, def time.Duration) time.Duration {
+	if v == 0 {
+		return def
+	}
+	return v
+}
+
+// effectiveMaxRequestBodySize returns the configured max body size, or 10MB if not set.
+func effectiveMaxRequestBodySize() int64 {
+	if maxRequestBodySize == 0 {
+		return 10 << 20
+	}
+	return maxRequestBodySize
 }

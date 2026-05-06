@@ -36,7 +36,6 @@
       "merge_step": {
         "type_name": "merge_dedup",
         "sources": ["recall_hot", "recall_new"],
-        "dedup_by": "item_id",
         "$metadata": {
           "common_input": [],
           "common_output": [],
@@ -46,8 +45,6 @@
       },
       "dispatch_scene": {
         "type_name": "transform_dispatch",
-        "common_field": "scene",
-        "item_field": "item_scene",
         "$metadata": {
           "common_input": ["scene"],
           "common_output": [],
@@ -57,7 +54,6 @@
       },
       "normalize_score": {
         "type_name": "transform_normalize",
-        "field": "item_score",
         "$metadata": {
           "common_input": [],
           "common_output": [],
@@ -67,7 +63,6 @@
       },
       "filter_offline": {
         "type_name": "filter_condition",
-        "field": "item_status",
         "value": "offline",
         "$metadata": {
           "common_input": [],
@@ -78,7 +73,6 @@
       },
       "sort_by_score": {
         "type_name": "reorder_sort",
-        "field": "item_score",
         "order": "desc",
         "$metadata": {
           "common_input": [],

@@ -56,7 +56,6 @@
       },
       "sort_by_price": {
         "type_name": "reorder_sort",
-        "field": "item_final_price",
         "order": "desc",
         "skip": ["_skip_sort"],
         "$metadata": {

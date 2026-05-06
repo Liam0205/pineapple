@@ -190,6 +190,8 @@ class _FlowBase:
         block = self._ctrl_stack[-1]
         if block.closed:
             raise ValueError("elseif_ after end_if_")
+        if any(b.kind == "else" for b in block.branches):
+            raise ValueError("elseif_ after else_ is not allowed")
         parent_skips = self._active_skip_fields(include_current=False)
 
         self._ctrl_counter += 1
@@ -218,6 +220,8 @@ class _FlowBase:
         block = self._ctrl_stack[-1]
         if block.closed:
             raise ValueError("else_ after end_if_")
+        if any(b.kind == "else" for b in block.branches):
+            raise ValueError("duplicate else_ is not allowed")
         parent_skips = self._active_skip_fields(include_current=False)
 
         self._ctrl_counter += 1

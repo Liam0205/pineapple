@@ -543,6 +543,35 @@ func TestHandleExecute_BadJSON(t *testing.T) {
 	}
 }
 
+func TestExecuteRequestBodyTooLarge(t *testing.T) {
+	setupEngine(t)
+
+	// Create a JSON body larger than 10 MB.
+	// Start with valid JSON structure containing a huge string value.
+	prefix := []byte(`{"common":{"x":"`)
+	suffix := []byte(`"}}`)
+	padding := make([]byte, 11<<20) // 11 MB of 'a'
+	for i := range padding {
+		padding[i] = 'a'
+	}
+	bigBody := make([]byte, 0, len(prefix)+len(padding)+len(suffix))
+	bigBody = append(bigBody, prefix...)
+	bigBody = append(bigBody, padding...)
+	bigBody = append(bigBody, suffix...)
+
+	req := httptest.NewRequest(http.MethodPost, "/execute", bytes.NewReader(bigBody))
+	w := httptest.NewRecorder()
+	handleExecute(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "too large") && !strings.Contains(body, "request body") {
+		t.Errorf("expected error about body size, got: %s", body)
+	}
+}
+
 func TestHandleStats_Success(t *testing.T) {
 	setupEngine(t)
 

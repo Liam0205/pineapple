@@ -1,12 +1,15 @@
 package lua
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 
 	"github.com/Liam0205/pineapple/pkg/metrics"
 	glua "github.com/yuin/gopher-lua"
 )
+
+var errPoolClosed = errors.New("lua statePool: pool is closed")
 
 // statePool manages a pool of Lua states sharing the same loaded script.
 // Each state is independent and safe for single-goroutine use.
@@ -49,8 +52,7 @@ func newStatePool(script string) (*statePool, error) {
 	sp.pool.New = func() any {
 		s, err := sp.newState()
 		if err != nil {
-			// Script was validated at init; this should not happen.
-			panic("lua statePool: failed to create state: " + err.Error())
+			return nil
 		}
 		atomic.AddInt64(&sp.createCount, 1)
 		if sp.mCreate != nil {
@@ -63,18 +65,42 @@ func newStatePool(script string) (*statePool, error) {
 }
 
 func (sp *statePool) newState() (*glua.LState, error) {
-	L := glua.NewState()
+	L := glua.NewState(glua.Options{SkipOpenLibs: true})
+	// Only open safe libraries: base, table, string, math.
+	for _, lib := range []struct {
+		name string
+		fn   glua.LGFunction
+	}{
+		{glua.BaseLibName, glua.OpenBase},
+		{glua.TabLibName, glua.OpenTable},
+		{glua.StringLibName, glua.OpenString},
+		{glua.MathLibName, glua.OpenMath},
+	} {
+		L.Push(L.NewFunction(lib.fn))
+		L.Push(glua.LString(lib.name))
+		L.Call(1, 0)
+	}
+	// Remove filesystem-accessing functions from base library
+	for _, name := range []string{"dofile", "loadfile"} {
+		L.SetGlobal(name, glua.LNil)
+	}
 	if err := L.DoString(sp.script); err != nil {
 		L.Close()
 		return nil, err
 	}
 	sp.mu.Lock()
+	if sp.closed {
+		sp.mu.Unlock()
+		L.Close()
+		return nil, errPoolClosed
+	}
 	sp.allStates = append(sp.allStates, L)
 	sp.mu.Unlock()
 	return L, nil
 }
 
 // Borrow returns a Lua state from the pool, ready for use.
+// Returns nil if the pool has been closed.
 func (sp *statePool) Borrow() *glua.LState {
 	atomic.AddInt64(&sp.borrowCount, 1)
 	atomic.AddInt64(&sp.activeCount, 1)
@@ -84,7 +110,13 @@ func (sp *statePool) Borrow() *glua.LState {
 	if sp.mActive != nil {
 		sp.mActive.Add(1)
 	}
-	L := sp.pool.Get().(*glua.LState)
+	v := sp.pool.Get()
+	if v == nil {
+		atomic.AddInt64(&sp.borrowCount, -1)
+		atomic.AddInt64(&sp.activeCount, -1)
+		return nil
+	}
+	L := v.(*glua.LState)
 	sp.snapshots.Store(L, snapshotBaselineValues(L, sp.baseline))
 	return L
 }

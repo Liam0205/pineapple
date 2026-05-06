@@ -116,7 +116,12 @@ func TestValidateAndExtractParamsDefault(t *testing.T) {
 
 func TestValidateAndExtractParamsFiltersReserved(t *testing.T) {
 	Reset()
-	schema := types.OperatorSchema{Name: "test", Type: types.OpTypeTransform, Description: "Test op."}
+	schema := types.OperatorSchema{
+		Name: "test", Type: types.OpTypeTransform, Description: "Test op.",
+		Params: map[string]types.ParamSpec{
+			"business_key": {Type: "string", Required: false, Description: "A business param."},
+		},
+	}
 
 	raw := map[string]any{
 		"type_name":    "test",
@@ -141,6 +146,27 @@ func TestValidateAndExtractParamsFiltersReserved(t *testing.T) {
 	}
 	if params["business_key"] != "value" {
 		t.Errorf("business_key = %v", params["business_key"])
+	}
+}
+
+func TestValidateAndExtractParamsRejectsUndeclared(t *testing.T) {
+	Reset()
+	schema := types.OperatorSchema{
+		Name: "test", Type: types.OpTypeTransform, Description: "Test op.",
+		Params: map[string]types.ParamSpec{
+			"known": {Type: "string", Required: false, Description: "Known param."},
+		},
+	}
+
+	raw := map[string]any{
+		"type_name": "test",
+		"known":     "ok",
+		"typo_key":  "oops",
+	}
+
+	_, err := ValidateAndExtractParams(schema, raw)
+	if err == nil {
+		t.Fatal("expected error for undeclared parameter")
 	}
 }
 

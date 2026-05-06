@@ -62,6 +62,21 @@
 - `Default` — 可选默认值
 - `Description` — 非空描述
 
+### 严格参数校验
+
+`internal/registry/registry.go` 的 `ValidateAndExtractParams` 现在对传入参数执行严格检查：
+
+- 所有未在 `Schema.Params` 中声明的参数名会被拒绝
+- 错误消息会列出全部未声明的参数名
+
+此行为的意义：
+
+- 拼写错误的参数名会立即报错，而不是被静默忽略
+- `Schema.Params` 必须声明算子接收的所有业务参数，否则引擎加载会失败
+- 引擎保留键（`type_name`、`$metadata` 等）在校验前已被剥离，不受影响
+
+因此新增算子或修改算子参数时，`Schema.Params` 必须与实际使用的参数名保持完全一致。
+
 ### 注册失败行为
 
 `internal/registry.Register` 有意严格，在无效定义时 panic，包括：
@@ -278,6 +293,37 @@
 - 跨服务 transform：`operators/transform/remote_pineapple.go`
 - debug-aware transform：`operators/lua/lua.go`
 - stats + metrics aware transform：`operators/lua/lua.go`、`operators/lua/pool.go`
+
+## Lua 沙箱与安全模型
+
+`operators/lua/pool.go` 创建的 Lua VM 实施严格的沙箱隔离：
+
+- 使用 `glua.Options{SkipOpenLibs: true}` 创建裸 state，默认不加载任何库
+- 仅显式加载安全子集：`base`、`table`、`string`、`math`
+- `dofile` 和 `loadfile` 被显式设为 `LNil`，阻止文件系统访问
+- 未加载 `os`、`io`、`debug` 等危险库
+
+此沙箱模型确保用户编写的 Lua 脚本无法：
+
+- 访问宿主文件系统
+- 执行系统命令
+- 操作进程环境
+
+### Context 取消传播
+
+`operators/lua/lua.go` 的 `Execute` 方法通过 `L.SetContext(ctx)` / `defer L.RemoveContext()` 把请求 context 注入 Lua VM。GopherLua 在指令边界检查 context cancellation，因此长时间运行的 Lua 脚本会在 context 超时或取消时被中断。
+
+这是算子尊重 context 的典型模式：即使执行逻辑在外部 VM 中运行，仍然必须传播 Go context 以保证请求取消的及时性。
+
+### Lua Pool 关闭保护
+
+`operators/lua/pool.go` 的 `newState()` 在 mutex 内检查 `sp.closed` 状态。若 pool 已关闭：
+
+- 立即 `L.Close()` 释放刚创建的 state
+- 返回 `errPoolClosed` 错误
+- `Borrow()` 对 nil state 优雅处理
+
+此保护避免 hot-reload teardown 过程中创建的 state 泄漏到已关闭的 pool。
 
 ## 元数据契约注释与生成文档
 

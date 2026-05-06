@@ -22,7 +22,7 @@ class TestControlFlowLowering:
             .reorder_sort(
                 item_input=["item_score"],
                 item_output=["item_rank"],
-                field="item_score", order="desc",
+                order="desc",
             ) \
         .end_if_()
 
@@ -57,7 +57,7 @@ class TestControlFlowLowering:
             .reorder_sort(
                 item_input=["item_score"],
                 item_output=["item_rank"],
-                field="item_score", order="desc",
+                order="desc",
             ) \
         .elseif_("{{mode}} == 2") \
             ._add_op("transform_by_lua",

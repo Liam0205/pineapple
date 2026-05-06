@@ -214,7 +214,9 @@ func init() {
 	}, func() types.Operator { return &setFieldOp{} })
 	registry.Register(types.OperatorSchema{Name: "enrich_item", Type: types.OpTypeTransform, Description: "Enriches items."}, func() types.Operator { return &enrichItemOp{} })
 	registry.Register(types.OperatorSchema{Name: "transform_normalize", Type: types.OpTypeTransform, Description: "Whole-item-set normalization."}, func() types.Operator { return &unsafeNoopTestOp{} })
-	registry.Register(types.OperatorSchema{Name: "recall_fixed", Type: types.OpTypeRecall, Description: "Fixed recall."}, func() types.Operator { return &recallFixedOp{} })
+	registry.Register(types.OperatorSchema{Name: "recall_fixed", Type: types.OpTypeRecall, Description: "Fixed recall.", Params: map[string]types.ParamSpec{
+		"fixed_items": {Type: "any", Required: false, Description: "Fixed items to recall."},
+	}}, func() types.Operator { return &recallFixedOp{} })
 	registry.Register(types.OperatorSchema{Name: "merge_dedup", Type: types.OpTypeMerge, Description: "Test dedup."}, func() types.Operator { return &mergeTestOp{} })
 	registry.Register(types.OperatorSchema{Name: "filter_offline", Type: types.OpTypeFilter, Description: "Filter offline."}, func() types.Operator { return &filterOfflineOp{} })
 	registry.Register(types.OperatorSchema{Name: "sort_desc", Type: types.OpTypeReorder, Description: "Sort descending."}, func() types.Operator { return &sortDescOp{} })

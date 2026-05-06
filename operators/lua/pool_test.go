@@ -205,3 +205,25 @@ func TestPoolCloseIdempotent(t *testing.T) {
 	sp.Close()
 	sp.Close()
 }
+
+func TestBorrowAfterCloseReturnsNil(t *testing.T) {
+	sp, err := newStatePool(`function f() return 1 end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Drain any cached states from the pool
+	L := sp.Borrow()
+	sp.Return(L)
+
+	sp.Close()
+
+	// After Close, pool.New returns nil because sp.closed == true.
+	// The sync.Pool may still return previously cached (now-closed) states,
+	// so borrow twice to exhaust the cache and trigger pool.New.
+	_ = sp.Borrow() // may get cached (closed) state
+	L2 := sp.Borrow()
+	if L2 != nil {
+		t.Errorf("expected nil from Borrow after Close (pool.New path), got %v", L2)
+	}
+}

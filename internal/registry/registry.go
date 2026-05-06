@@ -107,6 +107,13 @@ func ValidateAndExtractParams(schema types.OperatorSchema, rawParams map[string]
 		}
 	}
 
+	// Reject undeclared parameters
+	for k := range params {
+		if _, declared := schema.Params[k]; !declared {
+			return nil, fmt.Errorf("unknown parameter %q for operator %q", k, schema.Name)
+		}
+	}
+
 	return params, nil
 }
 

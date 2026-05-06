@@ -35,7 +35,6 @@
           "item_output": ["item_id", "item_score"]
         },
         "sources": ["recall_idx_A1", "recall_rt_B2"],
-        "dedup_by": "item_id",
         "strategy": "union"
       }
     },
