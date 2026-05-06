@@ -272,6 +272,26 @@ class TestControlFlowValidation:
         with pytest.raises(ValueError, match="duplicate else_"):
             flow.else_()
 
+    def test_empty_if_condition_raises(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["z"])
+        with pytest.raises(ValueError, match="if_ condition must not be empty"):
+            flow.if_("")
+
+    def test_whitespace_if_condition_raises(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["z"])
+        with pytest.raises(ValueError, match="if_ condition must not be empty"):
+            flow.if_("   ")
+
+    def test_empty_elseif_condition_raises(self):
+        flow = Flow(name="bad", common_input=["x"], common_output=["z"])
+        flow.if_("{{x}} ~= nil")
+        flow._add_op("transform_by_lua",
+                      common_input=["x"], common_output=["z"],
+                      lua_script="function f() return x end",
+                      function_for_common="f", function_for_item="")
+        with pytest.raises(ValueError, match="elseif_ condition must not be empty"):
+            flow.elseif_("")
+
 
 class TestUnderscorePrefix:
     def test_underscore_in_flow_common_output_rejected(self):

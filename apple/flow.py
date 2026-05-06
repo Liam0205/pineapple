@@ -161,6 +161,8 @@ class _FlowBase:
 
     def if_(self, condition: str) -> _FlowBase:
         """Start an if block."""
+        if not condition or not condition.strip():
+            raise ValueError("if_ condition must not be empty")
         parent_skips = self._active_skip_fields()
         self._ctrl_counter += 1
         block = ControlBlock(block_id=self._ctrl_counter)
@@ -185,6 +187,8 @@ class _FlowBase:
 
     def elseif_(self, condition: str) -> _FlowBase:
         """Add an elseif branch."""
+        if not condition or not condition.strip():
+            raise ValueError("elseif_ condition must not be empty")
         if not self._ctrl_stack:
             raise ValueError("elseif_ without matching if_")
         block = self._ctrl_stack[-1]

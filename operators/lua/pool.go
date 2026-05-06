@@ -123,12 +123,21 @@ func (sp *statePool) Borrow() *glua.LState {
 
 // Return cleans up non-baseline globals and puts the state back in the pool.
 func (sp *statePool) Return(L *glua.LState) {
-	var snap map[string]glua.LValue
-	if v, ok := sp.snapshots.LoadAndDelete(L); ok {
-		snap = v.(map[string]glua.LValue)
+	sp.mu.Lock()
+	closed := sp.closed
+	sp.mu.Unlock()
+
+	if closed {
+		sp.snapshots.Delete(L)
+	} else {
+		var snap map[string]glua.LValue
+		if v, ok := sp.snapshots.LoadAndDelete(L); ok {
+			snap = v.(map[string]glua.LValue)
+		}
+		resetToBaseline(L, sp.baseline, snap)
+		sp.pool.Put(L)
 	}
-	resetToBaseline(L, sp.baseline, snap)
-	sp.pool.Put(L)
+
 	atomic.AddInt64(&sp.returnCount, 1)
 	atomic.AddInt64(&sp.activeCount, -1)
 	if sp.mReturn != nil {

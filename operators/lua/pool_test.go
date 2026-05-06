@@ -227,3 +227,23 @@ func TestBorrowAfterCloseReturnsNil(t *testing.T) {
 		t.Errorf("expected nil from Borrow after Close (pool.New path), got %v", L2)
 	}
 }
+
+func TestReturnAfterCloseNoPanic(t *testing.T) {
+	sp, err := newStatePool(`function f() return 1 end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	L := sp.Borrow()
+	sp.Close()
+
+	// Return after Close should not panic or corrupt state.
+	sp.Return(L)
+
+	if atomic.LoadInt64(&sp.returnCount) != 1 {
+		t.Errorf("expected returnCount=1, got %d", atomic.LoadInt64(&sp.returnCount))
+	}
+	if atomic.LoadInt64(&sp.activeCount) != 0 {
+		t.Errorf("expected activeCount=0, got %d", atomic.LoadInt64(&sp.activeCount))
+	}
+}
