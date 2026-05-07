@@ -224,7 +224,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 				if err != nil {
 					outputJSON = []byte(fmt.Sprintf("%v", outputSnapshot))
 				}
-				log.Printf("[pine:debug] operator=%q duration=%v\n  input: %s\n  output: %s",
+				log.Printf("[pine-debug] operator=%q duration=%v input=%s output=%s",
 					cop.Name, duration, inputJSON, outputJSON)
 			}
 
