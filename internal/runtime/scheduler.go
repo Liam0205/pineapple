@@ -216,6 +216,8 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 			var outputSnapshot map[string]any
 			if cop.Config.Debug {
 				outputSnapshot = snapshotOutput(output)
+				inputSize := input.ItemCount()
+				outputSize := inputSize + len(output.GetAddedItems()) - len(output.GetRemovedItems())
 				inputJSON, err := json.Marshal(inputSnapshot)
 				if err != nil {
 					inputJSON = []byte(fmt.Sprintf("%v", inputSnapshot))
@@ -224,8 +226,8 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 				if err != nil {
 					outputJSON = []byte(fmt.Sprintf("%v", outputSnapshot))
 				}
-				log.Printf("[pine-debug] operator=%q duration=%v input=%s output=%s",
-					cop.Name, duration, inputJSON, outputJSON)
+				log.Printf("[pine-debug] operator=%q duration=%v input_size=%d output_size=%d input=%s output=%s",
+					cop.Name, duration, inputSize, outputSize, inputJSON, outputJSON)
 			}
 
 			// Apply output — frame methods are concurrency-safe.
@@ -301,8 +303,9 @@ func snapshotInput(in *types.OperatorInput) map[string]any {
 		snap["common"] = common
 	}
 
-	// Item fields
+	// Item fields — omit if every row is empty (no item_input declared)
 	if in.ItemCount() > 0 {
+		hasData := false
 		items := make([]map[string]any, in.ItemCount())
 		for i := 0; i < in.ItemCount(); i++ {
 			row := make(map[string]any)
@@ -310,8 +313,13 @@ func snapshotInput(in *types.OperatorInput) map[string]any {
 				row[k] = in.Item(i, k)
 			}
 			items[i] = row
+			if len(row) > 0 {
+				hasData = true
+			}
 		}
-		snap["items"] = items
+		if hasData {
+			snap["items"] = items
+		}
 	}
 
 	return snap
