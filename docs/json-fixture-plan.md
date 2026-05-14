@@ -15,19 +15,20 @@
 - [x] 识别哪些测试可以转为 fixture
 
 ### Phase 2: JSON fixture 格式设计与迁移
-- [ ] 设计 fixture JSON schema（config + input + expected_output）
-- [ ] 编写 Go test runner 加载 fixture 文件
-- [ ] 逐算子迁移测试为 fixture 形式
-- [ ] 保留原有 Go 测试作为回归保护
+- [x] 设计 fixture JSON schema（config + input + expected_output）
+- [x] 编写 Go test runner 加载 fixture 文件
+- [x] 逐算子迁移测试为 fixture 形式（Batch 1: 10 纯计算算子，Batch 2: Lua）
+- [x] 保留原有 Go 测试作为回归保护
+- [x] Batch 3 跳过（Redis/HTTP/Resource 依赖、非确定性）
 
 ### Phase 3: Go 引擎适配
-- [ ] 确保引擎支持 fixture runner（单算子隔离执行模式）
-- [ ] 验证原有测试行为不变
-- [ ] 验证 fixture 测试等价性
+- [x] 确保引擎支持 fixture runner（单算子隔离执行模式）
+- [x] 验证原有测试行为不变（go test ./... 全部通过）
+- [x] 验证 fixture 测试等价性（44 个 fixture 用例全部通过）
 
 ### Phase 4: 整理
-- [ ] 项目结构整理（fixture 目录、runner 位置）
-- [ ] 文档更新
+- [x] 项目结构整理（fixture 目录、runner 位置）
+- [x] 文档更新
 
 ### Phase 5: Java-Pine 开发
 - [ ] Java 项目初始化
@@ -38,7 +39,8 @@
 
 ## 当前进度
 
-Phase 1 完成，进入 Phase 2。
+Phase 1-4 完成。Go 端 JSON fixture 测试系统已就绪（11 个算子，44 个用例）。
+下一步：Phase 5 Java-Pine 开发。
 
 ---
 
