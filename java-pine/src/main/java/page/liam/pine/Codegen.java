@@ -21,10 +21,12 @@ public class Codegen {
     public static void main(String[] args) throws Exception {
         String schemaPath = "schema.json";
         String outputDir = "apple_generated";
+        String docDir = "";
 
         for (int i = 0; i < args.length - 1; i++) {
             if ("-schema".equals(args[i])) schemaPath = args[++i];
             else if ("-output".equals(args[i])) outputDir = args[++i];
+            else if ("-doc-dir".equals(args[i])) docDir = args[++i];
         }
 
         List<OperatorSchema> schemas = mapper.readValue(
@@ -34,6 +36,11 @@ public class Codegen {
         generateOperatorsPy(schemas, outputDir);
         generateInitPy(schemas, outputDir);
         System.out.printf("generated %d operators in %s%n", schemas.size(), outputDir);
+
+        if (!docDir.isEmpty()) {
+            generateDocs(schemas, docDir);
+            System.out.printf("generated %d operator docs in %s%n", schemas.size(), docDir);
+        }
     }
 
     private static void generateOperatorsPy(List<OperatorSchema> schemas, String outputDir) throws IOException {
@@ -180,6 +187,72 @@ public class Codegen {
             return Double.toString(d);
         }
         return "\"" + v + "\"";
+    }
+
+    private static void generateDocs(List<OperatorSchema> schemas, String docDir) throws IOException {
+        Files.createDirectories(Paths.get(docDir));
+
+        Map<String, List<String[]>> typeOps = new TreeMap<>();
+
+        for (OperatorSchema schema : schemas) {
+            Path path = Paths.get(docDir, schema.name + ".md");
+            try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
+                String type = schema.type != null ? schema.type : "Other";
+                String desc = schema.description != null ? schema.description : "";
+
+                w.printf("# %s%n%n", schema.name);
+                w.printf("**Type**: %s%n%n", type);
+                w.printf("%s%n%n", desc);
+                w.println("## Parameters");
+                w.println();
+                w.println("| Name | Type | Required | Default | Description |");
+                w.println("|------|------|----------|---------|-------------|");
+
+                List<String> paramNames = new ArrayList<>(schema.params.keySet());
+                Collections.sort(paramNames);
+                for (String pName : paramNames) {
+                    ParamSpec spec = schema.params.get(pName);
+                    String defVal = spec.defaultValue != null ? "`" + spec.defaultValue + "`" : "-";
+                    String pdesc = spec.description != null ? spec.description : "";
+                    w.printf("| %s | %s | %s | %s | %s |%n",
+                            pName, spec.type, spec.required ? "Yes" : "No", defVal, pdesc);
+                }
+
+                w.println();
+                w.println("## DSL Usage");
+                w.println();
+                w.println("```python");
+                w.printf("flow.%s(%n", schema.name);
+                for (String pName : paramNames) {
+                    w.printf("    %s=...,%n", pName);
+                }
+                w.println("    common_input=[...],");
+                w.println("    item_input=[...],");
+                w.println("    item_output=[...],");
+                w.println(")");
+                w.println("```");
+
+                typeOps.computeIfAbsent(type, k -> new ArrayList<>())
+                        .add(new String[]{schema.name, desc});
+            }
+        }
+
+        // Generate index README.md
+        Path idxPath = Paths.get(docDir, "README.md");
+        try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(idxPath))) {
+            w.println("# Operator Reference");
+            w.println();
+            w.println("> Auto-generated from pine operator schema. Do not edit manually.");
+            for (Map.Entry<String, List<String[]>> entry : typeOps.entrySet()) {
+                w.println();
+                w.printf("## %s%n%n", entry.getKey());
+                w.println("| Operator | Description |");
+                w.println("|----------|-------------|");
+                for (String[] op : entry.getValue()) {
+                    w.printf("| [%s](%s.md) | %s |%n", op[0], op[0], op[1]);
+                }
+            }
+        }
     }
 
     // Schema model classes

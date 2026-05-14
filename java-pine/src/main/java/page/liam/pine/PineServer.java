@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class PineServer {
@@ -21,6 +22,10 @@ public class PineServer {
     private final int port;
     private HttpServer httpServer;
     private ScheduledExecutorService watcherExecutor;
+
+    private final AtomicLong reloadCount = new AtomicLong();
+    private final AtomicLong reloadErrorCount = new AtomicLong();
+    private volatile long lastReloadDurationNs;
 
     private static class Snapshot {
         final Engine engine;
@@ -47,6 +52,7 @@ public class PineServer {
         httpServer.createContext("/health", this::handleHealth);
         httpServer.createContext("/execute", this::handleExecute);
         httpServer.createContext("/stats", this::handleStats);
+        httpServer.createContext("/dag", this::handleDAG);
 
         httpServer.start();
 
@@ -64,12 +70,15 @@ public class PineServer {
     }
 
     private void loadConfig(byte[] configData) throws Exception {
+        long start = System.nanoTime();
         ResourceManager rm = new ResourceManager();
         rm.loadFromConfig(configData);
         rm.start();
 
         Engine engine = Engine.create(configData, rm);
         snapshot.set(new Snapshot(engine, rm));
+        lastReloadDurationNs = System.nanoTime() - start;
+        reloadCount.incrementAndGet();
     }
 
     private volatile long lastModified = 0;
@@ -83,6 +92,7 @@ public class PineServer {
                 loadConfig(data);
             }
         } catch (Exception e) {
+            reloadErrorCount.incrementAndGet();
             System.err.println("[pine-server] reload failed: " + e.getMessage());
         }
     }
@@ -136,9 +146,63 @@ public class PineServer {
             return;
         }
         Snapshot snap = snapshot.get();
-        Map<String, Object> stats = new LinkedHashMap<>();
-        stats.put("engine_loaded", snap != null);
-        sendResponse(exchange, 200, stats);
+        Map<String, Object> resp = new LinkedHashMap<>();
+        if (snap != null) {
+            resp.put("operators", snap.engine.stats());
+            resp.put("scheduler", snap.engine.schedulerStats());
+            Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
+            if (custom != null) {
+                resp.put("operator_detail", custom);
+            }
+        }
+        resp.put("server", serverStats());
+        sendResponse(exchange, 200, resp);
+    }
+
+    private void handleDAG(HttpExchange exchange) throws IOException {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+            sendResponse(exchange, 405, Map.of("error", "method not allowed"));
+            return;
+        }
+
+        Snapshot snap = snapshot.get();
+        if (snap == null) {
+            sendResponse(exchange, 503, Map.of("error", "engine not loaded"));
+            return;
+        }
+
+        String query = exchange.getRequestURI().getQuery();
+        String format = "dot";
+        int collapse = 0;
+        if (query != null) {
+            for (String param : query.split("&")) {
+                String[] kv = param.split("=", 2);
+                if (kv.length == 2) {
+                    if ("format".equals(kv[0])) format = kv[1];
+                    else if ("collapse".equals(kv[0])) {
+                        try { collapse = Integer.parseInt(kv[1]); } catch (NumberFormatException ignored) {}
+                    }
+                }
+            }
+        }
+
+        String output = snap.engine.renderDAG(format, collapse);
+
+        String contentType = "dot".equals(format) ? "text/vnd.graphviz" : "text/plain";
+        byte[] responseBytes = output.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", contentType + "; charset=utf-8");
+        exchange.sendResponseHeaders(200, responseBytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBytes);
+        }
+    }
+
+    private Map<String, Object> serverStats() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("reload_count", reloadCount.get());
+        m.put("reload_error_count", reloadErrorCount.get());
+        m.put("last_reload_duration_ns", lastReloadDurationNs);
+        return m;
     }
 
     private void sendResponse(HttpExchange exchange, int status, Object body) throws IOException {

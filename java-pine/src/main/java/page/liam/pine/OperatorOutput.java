@@ -8,6 +8,15 @@ public class OperatorOutput {
     private List<Map<String, Object>> addedItems;
     private Set<Integer> removedItems;
     private List<Integer> itemOrder;
+    private Exception warning;
+
+    public void setWarning(Exception w) {
+        this.warning = w;
+    }
+
+    public Exception getWarning() {
+        return warning;
+    }
 
     public void setCommon(String field, Object value) {
         if (commonWrites == null) {
