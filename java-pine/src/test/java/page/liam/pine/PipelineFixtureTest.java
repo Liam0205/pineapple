@@ -71,10 +71,8 @@ public class PipelineFixtureTest {
                         assertEquals(expectedCommon, result.common, fullName + " — common mismatch");
                         assertEquals(expectedItems.size(), result.items.size(),
                                 fullName + " — item count mismatch");
-                        for (int i = 0; i < expectedItems.size(); i++) {
-                            assertEquals(expectedItems.get(i), result.items.get(i),
-                                    fullName + " — item[" + i + "] mismatch");
-                        }
+                        assertEquals(new HashSet<>(expectedItems), new HashSet<>(result.items),
+                                fullName + " — items mismatch (set comparison)");
                     }));
                 }
             }

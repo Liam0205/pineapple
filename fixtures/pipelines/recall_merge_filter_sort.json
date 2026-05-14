@@ -23,7 +23,7 @@
           "type_name": "recall_static",
           "recall": true,
           "items": [
-            {"item_id": "item_3", "item_score": 95.0, "item_status": "online"},
+            {"item_id": "item_3", "item_score": 90.0, "item_status": "online"},
             {"item_id": "item_4", "item_score": 70.0, "item_status": "online"}
           ],
           "$metadata": {

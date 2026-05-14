@@ -3,6 +3,8 @@ package page.liam.pine;
 import page.liam.pine.operators.AllOperators;
 
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class Engine {
     private final List<CompiledOperator> operators;
@@ -85,7 +87,6 @@ public class Engine {
             throw new IllegalArgumentException("request common must not be null");
         }
 
-        // Validate common inputs
         for (String field : contract.commonInput) {
             if (!common.containsKey(field)) {
                 throw new IllegalArgumentException("missing required common input field \"" + field + "\"");
@@ -93,55 +94,94 @@ public class Engine {
         }
 
         DataFrame frame = new DataFrame(common, items);
+        int n = operators.size();
 
-        // Execute in topological order
-        List<Integer> order = dag.topologicalOrder();
-        for (int idx : order) {
-            CompiledOperator cop = operators.get(idx);
-            Config.OperatorConfig opCfg = cop.config;
+        // Per-node latch: signaled after the node's output has been applied to the frame.
+        CountDownLatch[] applied = new CountDownLatch[n];
+        for (int i = 0; i < n; i++) {
+            applied[i] = new CountDownLatch(1);
+        }
 
-            // Evaluate skip
-            boolean skipped = false;
-            for (String skipField : opCfg.skip) {
-                Object skipVal = frame.common(skipField);
-                if (skipVal != null && !Boolean.FALSE.equals(skipVal)) {
-                    skipped = true;
-                    break;
+        AtomicReference<Exception> fatalError = new AtomicReference<>();
+        ForkJoinPool pool = ForkJoinPool.commonPool();
+        CountDownLatch allDone = new CountDownLatch(n);
+
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            pool.execute(() -> {
+                try {
+                    DAG.Node node = dag.nodes.get(idx);
+                    CompiledOperator cop = operators.get(idx);
+                    Config.OperatorConfig opCfg = cop.config;
+
+                    // Wait for all DAG predecessors to have applied their output
+                    for (int pred : node.preds) {
+                        applied[pred].await();
+                        if (fatalError.get() != null) return;
+                    }
+
+                    if (fatalError.get() != null) return;
+
+                    // Evaluate skip
+                    boolean skipped = false;
+                    for (String skipField : opCfg.skip) {
+                        Object skipVal = frame.common(skipField);
+                        if (skipVal != null && !Boolean.FALSE.equals(skipVal)) {
+                            skipped = true;
+                            break;
+                        }
+                    }
+
+                    if (skipped) return;
+
+                    // Build input
+                    List<String> commonInput = new ArrayList<>(opCfg.metadata.commonInput);
+                    for (String skipField : opCfg.skip) {
+                        commonInput.remove(skipField);
+                    }
+
+                    OperatorInput input = frame.buildInput(
+                            commonInput,
+                            opCfg.metadata.itemInput,
+                            opCfg.commonDefaults,
+                            opCfg.itemDefaults
+                    );
+
+                    // Inject resource provider
+                    if (cop.instance instanceof ResourceAware) {
+                        if (resourceProvider == null) {
+                            throw new IllegalStateException(
+                                    "operator \"" + cop.name + "\" implements ResourceAware but no ResourceProvider was supplied");
+                        }
+                        ((ResourceAware) cop.instance).setResourceProvider(resourceProvider);
+                    }
+
+                    // Execute
+                    OperatorOutput output;
+                    if (opCfg.dataParallel > 1) {
+                        output = ParallelExecutor.execute(cop.instance, input, opCfg.dataParallel);
+                    } else {
+                        output = new OperatorOutput();
+                        cop.instance.execute(input, output);
+                    }
+
+                    // Apply output
+                    frame.applyOutput(output, cop.name, opCfg.recall);
+
+                } catch (Exception e) {
+                    fatalError.compareAndSet(null, e);
+                } finally {
+                    applied[idx].countDown();
+                    allDone.countDown();
                 }
-            }
-            if (skipped) continue;
+            });
+        }
 
-            // Build input (filter out skip fields from commonInput)
-            List<String> commonInput = new ArrayList<>(opCfg.metadata.commonInput);
-            for (String skipField : opCfg.skip) {
-                commonInput.remove(skipField);
-            }
+        allDone.await();
 
-            OperatorInput input = frame.buildInput(
-                    commonInput,
-                    opCfg.metadata.itemInput,
-                    opCfg.commonDefaults,
-                    opCfg.itemDefaults
-            );
-
-            // Inject resource provider if operator needs it
-            if (cop.instance instanceof ResourceAware) {
-                if (resourceProvider == null) {
-                    throw new IllegalStateException(
-                            "operator \"" + cop.name + "\" implements ResourceAware but no ResourceProvider was supplied to the engine");
-                }
-                ((ResourceAware) cop.instance).setResourceProvider(resourceProvider);
-            }
-
-            OperatorOutput output;
-            if (opCfg.dataParallel > 1) {
-                output = ParallelExecutor.execute(cop.instance, input, opCfg.dataParallel);
-            } else {
-                output = new OperatorOutput();
-                cop.instance.execute(input, output);
-            }
-
-            frame.applyOutput(output, cop.name, opCfg.recall);
+        Exception err = fatalError.get();
+        if (err != null) {
+            throw err;
         }
 
         // Project result
