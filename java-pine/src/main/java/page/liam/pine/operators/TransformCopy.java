@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class TransformCopy extends AbstractOperator {
+public class TransformCopy extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
     private String direction;
 
     @Override

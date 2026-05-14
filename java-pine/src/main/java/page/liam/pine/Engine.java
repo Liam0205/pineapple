@@ -47,6 +47,25 @@ public class Engine {
                 );
             }
 
+            // Validate data_parallel constraints
+            if (opCfg.dataParallel < 0) {
+                throw new IllegalArgumentException("operator \"" + name + "\": data_parallel must be >= 1, got " + opCfg.dataParallel);
+            }
+            if (opCfg.dataParallel == 0) {
+                opCfg.dataParallel = 1;
+            }
+            if (opCfg.dataParallel > 1) {
+                if (opType != OperatorType.TRANSFORM) {
+                    throw new IllegalArgumentException("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " is only supported for Transform operators");
+                }
+                if (!opCfg.metadata.commonOutput.isEmpty()) {
+                    throw new IllegalArgumentException("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires empty common_output");
+                }
+                if (!(op instanceof ConcurrentSafe)) {
+                    throw new IllegalArgumentException("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires ConcurrentSafe");
+                }
+            }
+
             compiledOps.add(new CompiledOperator(name, op, opCfg));
         }
 
@@ -98,8 +117,13 @@ public class Engine {
                     opCfg.itemDefaults
             );
 
-            OperatorOutput output = new OperatorOutput();
-            cop.instance.execute(input, output);
+            OperatorOutput output;
+            if (opCfg.dataParallel > 1) {
+                output = ParallelExecutor.execute(cop.instance, input, opCfg.dataParallel);
+            } else {
+                output = new OperatorOutput();
+                cop.instance.execute(input, output);
+            }
 
             frame.applyOutput(output, cop.name, opCfg.recall);
         }
