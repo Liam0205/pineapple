@@ -8,14 +8,21 @@ public class Engine {
     private final List<CompiledOperator> operators;
     private final DAG dag;
     private final Config.FlowContract contract;
+    private final ResourceProvider resourceProvider;
 
-    private Engine(List<CompiledOperator> operators, DAG dag, Config.FlowContract contract) {
+    private Engine(List<CompiledOperator> operators, DAG dag, Config.FlowContract contract,
+                   ResourceProvider resourceProvider) {
         this.operators = operators;
         this.dag = dag;
         this.contract = contract;
+        this.resourceProvider = resourceProvider;
     }
 
     public static Engine create(byte[] jsonConfig) throws Exception {
+        return create(jsonConfig, null);
+    }
+
+    public static Engine create(byte[] jsonConfig, ResourceProvider resources) throws Exception {
         AllOperators.ensureRegistered();
         Config cfg = Config.load(jsonConfig);
         Config.ExpandResult expanded = cfg.expandOperatorSequenceWithSubFlows();
@@ -70,7 +77,7 @@ public class Engine {
         }
 
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
-        return new Engine(compiledOps, dag, cfg.flowContract);
+        return new Engine(compiledOps, dag, cfg.flowContract, resources);
     }
 
     public Result execute(Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
@@ -116,6 +123,15 @@ public class Engine {
                     opCfg.commonDefaults,
                     opCfg.itemDefaults
             );
+
+            // Inject resource provider if operator needs it
+            if (cop.instance instanceof ResourceAware) {
+                if (resourceProvider == null) {
+                    throw new IllegalStateException(
+                            "operator \"" + cop.name + "\" implements ResourceAware but no ResourceProvider was supplied to the engine");
+                }
+                ((ResourceAware) cop.instance).setResourceProvider(resourceProvider);
+            }
 
             OperatorOutput output;
             if (opCfg.dataParallel > 1) {
