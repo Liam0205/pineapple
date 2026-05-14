@@ -40,9 +40,9 @@
 - [x] 设计 pipeline fixture schema（config + request → expected result）
 - [x] Pipeline fixture runner（Java `PipelineFixtureTest`，动态加载 `fixtures/pipelines/*.json`）
 - [x] 首个 pipeline fixture: `transform_then_filter.json`（transform_copy + filter_truncate，2 cases）
-- [ ] Go pipeline fixture runner（复用 Engine + fixture JSON）
+- [x] Go pipeline fixture runner（`fixtures/pipelines/pipeline_fixture_test.go`，复用 Engine + fixture JSON）
+- [x] 覆盖场景：recall → merge → filter → sort、skip/branch（Lua 控制 flag）、barrier（normalize + paginate）、嵌套 SubFlow
 - [ ] 从现有 E2E 测试迁移更多 pipeline fixture
-- [ ] 覆盖场景：recall → transform → filter → reorder、skip/branch、barrier 语义
 
 ### Phase 3: Java 引擎核心（进行中）
 
@@ -50,8 +50,8 @@
 - [x] DAG 构建（拓扑排序、依赖推导：field-level + row_dependency + barrier + transitive reduction）
 - [x] DataFrame 实现（common/items 状态管理，BuildInput with defaults，ApplyOutput）
 - [x] Engine（按拓扑序执行算子，处理 skip/branch control）
-- [x] Pipeline fixture 通过（2 cases）
-- [ ] 更多 pipeline fixture 覆盖复杂场景（recall、skip/branch、barrier、多 SubFlow）
+- [x] Pipeline fixture 通过（9 cases，5 fixtures cross-validated Go/Java）
+- [ ] 更多 pipeline fixture 覆盖复杂场景（Lua common→item 交叉、多 recall source 分支）
 
 ### Phase 4: data_parallel 与并发
 
@@ -88,20 +88,20 @@
 
 ## 当前进度
 
-Phase 1 完成，Phase 2-3 进行中。
+Phase 1 完成，Phase 2-3 大部分完成。
 
-- Go 端：算子 fixture runner + 11 个 fixture 文件，44 用例
-- Java 端：引擎核心骨架完成（Config → DAG → DataFrame → Engine），46 用例通过
-  - 44 算子级 fixture + 2 pipeline 级 fixture
+- Go 端：算子 fixture runner（11 文件 44 用例）+ pipeline fixture runner（5 文件 9 用例）
+- Java 端：引擎核心完成（Config → DAG → DataFrame → Engine），55 用例通过
+  - 44 算子级 fixture + 9 pipeline 级 fixture（含 Lua、recall、skip/branch、barrier、嵌套 SubFlow）
+  - Go/Java cross-validation：同一 fixture 两端均通过
 - CI：java-test job 已配置
 - Pipeline fixture schema: `fixtures/pipelines/*.json`（config + cases[request → expected]）
 
 待完成：
-- Go pipeline fixture runner（cross-validation）
-- 更多 pipeline fixture（recall、skip/branch、barrier、Lua、嵌套 SubFlow）
-- 复杂场景验证 Java 引擎正确性
+- 从现有 E2E 测试迁移更多 pipeline fixture
+- Phase 4（data_parallel）
 
-下一步：补全 pipeline fixture 覆盖，然后 Phase 4（data_parallel）。
+下一步：Phase 4（data_parallel 与并发）。
 
 ---
 

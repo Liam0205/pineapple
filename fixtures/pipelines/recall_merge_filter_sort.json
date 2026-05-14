@@ -1,0 +1,105 @@
+{
+  "name": "recall → merge → filter → sort (full pipeline)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "recall_hot": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "item_1", "item_score": 80.0, "item_status": "online"},
+            {"item_id": "item_2", "item_score": 60.0, "item_status": "offline"},
+            {"item_id": "item_3", "item_score": 90.0, "item_status": "online"}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_score", "item_status"]
+          }
+        },
+        "recall_new": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "item_3", "item_score": 95.0, "item_status": "online"},
+            {"item_id": "item_4", "item_score": 70.0, "item_status": "online"}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_score", "item_status"]
+          }
+        },
+        "merge_step": {
+          "type_name": "merge_dedup",
+          "sources": ["recall_hot", "recall_new"],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_id", "_source"],
+            "item_output": ["item_id", "item_score", "item_status"]
+          }
+        },
+        "filter_offline": {
+          "type_name": "filter_condition",
+          "value": "offline",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_status"],
+            "item_output": []
+          }
+        },
+        "sort_by_score": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "recall_stage": {
+          "pipeline": ["recall_hot", "recall_new"]
+        },
+        "process_stage": {
+          "pipeline": ["merge_step", "filter_offline", "sort_by_score"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["recall_stage", "process_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id", "item_score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "recall + dedup + filter offline + sort desc",
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "item_3", "item_score": 90.0},
+          {"item_id": "item_1", "item_score": 80.0},
+          {"item_id": "item_4", "item_score": 70.0}
+        ]
+      }
+    }
+  ]
+}
