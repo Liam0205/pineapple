@@ -6,19 +6,80 @@ on:
     paths-ignore:
       - "llmdoc/**"
 
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
-  issues: write
+  contents: read
   pull-requests: write
   id-token: write
 
 jobs:
-  pr-review:
-    uses: Lightspeed-Intelligence/agentic-workflow-template/.github/workflows/pr-review.yml@main
-    secrets:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-      FEISHU_WEBHOOK_TOKEN: ${{ secrets.FEISHU_WEBHOOK_TOKEN }}
-    with:
-      use_feishu_notify: true
+  review:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || github.token }}
+
+      - name: Install Claude Code CLI
+        id: setup_claude
+        run: |
+          CLAUDE_INSTALL_DIR="$RUNNER_TEMP/claude-code"
+          rm -rf "$CLAUDE_INSTALL_DIR"
+          npm install --prefix "$CLAUDE_INSTALL_DIR" @anthropic-ai/claude-code@2.1.80
+          CLAUDE_CODE_PATH="$CLAUDE_INSTALL_DIR/node_modules/.bin/claude"
+          echo "path=$CLAUDE_CODE_PATH" >> $GITHUB_OUTPUT
+          "$CLAUDE_CODE_PATH" --version
+
+      - name: PR Review with Claude
+        id: review
+        uses: anthropics/claude-code-action@e7b588b6eaa5263c2e7c6c7b34a29e190d32ee68
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          DISABLE_AUTOUPDATER: "1"
+        with:
+          github_token: ${{ github.token }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          use_sticky_comment: true
+          path_to_claude_code_executable: ${{ steps.setup_claude.outputs.path }}
+          prompt: |
+            审查 PR #${{ github.event.pull_request.number }}。
+            Title: ${{ github.event.pull_request.title }}
+            Author: ${{ github.event.pull_request.user.login }}
+
+            步骤：
+            1. 运行 `gh pr diff ${{ github.event.pull_request.number }}` 获取变更
+            2. 阅读相关代码上下文
+            3. 使用 `gh pr comment ${{ github.event.pull_request.number }} --body "..."` 发表审查评论
+            4. 发表评论后，立即产出 structured JSON 结果并结束。不要继续读取代码或做额外操作。
+
+            评论格式参考 .claude/skills/pr-review/SKILL.md。
+            代码链接使用 https://github.com/${{ github.repository }}/blob/${{ github.event.pull_request.head.sha }}/... 格式。
+          claude_args: |
+            --model opus --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
+            --json-schema '{"type":"object","properties":{"description":{"type":"string","description":"审查结论一句话摘要"},"conclusion":{"type":"string","enum":["APPROVE","REQUEST_CHANGES","COMMENT"],"description":"审查结论"},"critical_count":{"type":"number","description":"阻塞问题数量"},"important_count":{"type":"number","description":"重要建议数量"},"suggestion_count":{"type":"number","description":"小问题数量"}},"required":["description","conclusion","critical_count","important_count","suggestion_count"]}'
+
+      - name: Feishu Notification
+        if: always() && steps.review.outputs.structured_output
+        run: |
+          STRUCTURED_OUTPUT='${{ steps.review.outputs.structured_output }}'
+          CONCLUSION=$(echo "$STRUCTURED_OUTPUT" | jq -r '.conclusion // "UNKNOWN"')
+          DESCRIPTION=$(echo "$STRUCTURED_OUTPUT" | jq -r '.description // "审查完成"')
+
+          STATUS="info"
+          if [ "$CONCLUSION" = "APPROVE" ]; then STATUS="success"
+          elif [ "$CONCLUSION" = "REQUEST_CHANGES" ]; then STATUS="warning"
+          fi
+
+          WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/${{ secrets.FEISHU_WEBHOOK_TOKEN }}"
+          jq -n \
+            --arg title "PR 审查: $CONCLUSION" \
+            --arg content "$DESCRIPTION\n\nPR: ${{ github.event.pull_request.html_url }}" \
+            '{"msg_type":"text","content":{"text":("\($title)\n\($content)")}}' | \
+          curl -s -X POST -H "Content-Type: application/json" -d @- "$WEBHOOK_URL" || true
