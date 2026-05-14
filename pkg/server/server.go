@@ -158,7 +158,7 @@ func (s *Server) run(cfg Config) error {
 
 	// Apply HTTP metrics as innermost middleware (measures handler duration
 	// excluding user middleware overhead).
-	var handler http.Handler = httpMetricsMiddleware(mp, mux)
+	handler := httpMetricsMiddleware(mp, mux)
 
 	// Apply user middlewares (outer-to-inner: first middleware sees request first)
 	for i := len(cfg.Middlewares) - 1; i >= 0; i-- {
