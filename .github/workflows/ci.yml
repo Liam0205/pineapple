@@ -2,7 +2,31 @@ name: CI
 
 on:
   push:
+    branches: [master]
+    tags: ["v*"]
+    paths-ignore:
+      - ".claude/**"
+      - ".github/workflows/agentic-*.yml"
+      - "apple_generated/**"
+      - "blog/**"
+      - "doc/**"
+      - "**/.gitignore"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "LICENSE"
+      - "README.md"
   pull_request:
+    paths-ignore:
+      - ".claude/**"
+      - ".github/workflows/agentic-*.yml"
+      - "apple_generated/**"
+      - "blog/**"
+      - "doc/**"
+      - "**/.gitignore"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "LICENSE"
+      - "README.md"
 
 jobs:
   go-lint:

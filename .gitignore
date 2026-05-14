@@ -31,9 +31,6 @@ build/
 *~
 .DS_Store
 
-# Claude Code
-.claude/
-
 # Liam
 demo.py
 design_doc/ref_dragonfly_dsl
