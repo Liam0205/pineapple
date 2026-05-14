@@ -23,14 +23,16 @@ func normalizePath(path string) string {
 
 func statusBucket(code int) string {
 	switch {
-	case code >= 200 && code < 300:
-		return "2xx"
-	case code >= 300 && code < 400:
-		return "3xx"
-	case code >= 400 && code < 500:
-		return "4xx"
-	default:
+	case code >= 500:
 		return "5xx"
+	case code >= 400:
+		return "4xx"
+	case code >= 300:
+		return "3xx"
+	case code >= 200:
+		return "2xx"
+	default:
+		return "other"
 	}
 }
 
@@ -42,6 +44,10 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 func httpMetricsMiddleware(mp metrics.Provider, next http.Handler) http.Handler {

@@ -67,8 +67,9 @@ func NewEngineMetrics(p metrics.Provider) *EngineMetrics {
 		DAGOpsExecuted: p.NewHistogram(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{
 				Name: "pine_dag_operators_executed",
-				Help: "Number of operators executed (not skipped) per DAG run.",
+				Help: "Number of operators executed (not skipped or cancelled) per DAG run.",
 			},
+			Buckets: []float64{1, 5, 10, 20, 50, 100, 200},
 		}),
 	}
 }
