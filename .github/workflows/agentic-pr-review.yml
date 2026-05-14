@@ -3,6 +3,8 @@ name: Agentic PR Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - "llmdoc/**"
 
 permissions:
   contents: write

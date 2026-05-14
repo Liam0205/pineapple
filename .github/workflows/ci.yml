@@ -6,9 +6,10 @@ on:
     tags: ["v*"]
     paths-ignore:
       - ".claude/**"
-      - ".github/workflows/**"
+      - ".github/workflows/agentic-*.yml"
       - "apple_generated/**"
       - "blog/**"
+      - "doc/**"
       - "**/.gitignore"
       - "AGENTS.md"
       - "CLAUDE.md"
@@ -17,9 +18,10 @@ on:
   pull_request:
     paths-ignore:
       - ".claude/**"
-      - ".github/workflows/**"
+      - ".github/workflows/agentic-*.yml"
       - "apple_generated/**"
       - "blog/**"
+      - "doc/**"
       - "**/.gitignore"
       - "AGENTS.md"
       - "CLAUDE.md"
