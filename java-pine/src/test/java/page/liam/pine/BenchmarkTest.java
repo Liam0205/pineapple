@@ -92,13 +92,13 @@ public class BenchmarkTest {
         byte[] configBytes = mapper.writeValueAsBytes(root.get("config"));
 
         for (int i = 0; i < WARMUP; i++) {
-            Engine.create(configBytes, null);
+            Engine.create(configBytes);
         }
 
         long[] durations = new long[ITERATIONS];
         for (int i = 0; i < ITERATIONS; i++) {
             long start = System.nanoTime();
-            Engine engine = Engine.create(configBytes, null);
+            Engine engine = Engine.create(configBytes);
             durations[i] = System.nanoTime() - start;
             assertNotNull(engine);
         }

@@ -18,6 +18,11 @@ public class AllOperators {
         Registry.register("recall_resource", OperatorType.RECALL, RecallResource::new);
         Registry.register("transform_by_lua", OperatorType.TRANSFORM, TransformByLua::new);
         Registry.register("transform_resource_lookup", OperatorType.TRANSFORM, TransformResourceLookup::new);
+        Registry.register("observe_log", OperatorType.OBSERVE, ObserveLog::new);
+        Registry.register("reorder_shuffle_by_salt", OperatorType.REORDER, ReorderShuffle::new);
+        Registry.register("transform_redis_get", OperatorType.TRANSFORM, TransformRedisGet::new);
+        Registry.register("transform_redis_set", OperatorType.TRANSFORM, TransformRedisSet::new);
+        Registry.register("transform_by_remote_pineapple", OperatorType.TRANSFORM, TransformRemotePineapple::new);
     }
 
     public static void ensureRegistered() {

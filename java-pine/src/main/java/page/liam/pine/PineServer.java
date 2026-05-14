@@ -20,12 +20,17 @@ public class PineServer {
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
     private final String configPath;
     private final int port;
+    private final page.liam.pine.metrics.Provider metricsProvider;
     private HttpServer httpServer;
     private ScheduledExecutorService watcherExecutor;
 
     private final AtomicLong reloadCount = new AtomicLong();
     private final AtomicLong reloadErrorCount = new AtomicLong();
     private volatile long lastReloadDurationNs;
+
+    private page.liam.pine.metrics.Counter reloadTotal;
+    private page.liam.pine.metrics.Counter reloadErrorTotal;
+    private page.liam.pine.metrics.Histogram reloadDuration;
 
     private static class Snapshot {
         final Engine engine;
@@ -37,8 +42,21 @@ public class PineServer {
     }
 
     public PineServer(String configPath, int port) {
+        this(configPath, port, null);
+    }
+
+    public PineServer(String configPath, int port, page.liam.pine.metrics.Provider metricsProvider) {
         this.configPath = configPath;
         this.port = port;
+        this.metricsProvider = metricsProvider;
+        if (metricsProvider != null) {
+            reloadTotal = metricsProvider.newCounter(
+                    new page.liam.pine.metrics.MetricOpts("pine_config_reload_total", "Config reload count"));
+            reloadErrorTotal = metricsProvider.newCounter(
+                    new page.liam.pine.metrics.MetricOpts("pine_config_reload_errors_total", "Config reload error count"));
+            reloadDuration = metricsProvider.newHistogram(
+                    new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration", null));
+        }
     }
 
     public void start() throws Exception {
@@ -49,15 +67,63 @@ public class PineServer {
         httpServer.setExecutor(Executors.newFixedThreadPool(
                 Runtime.getRuntime().availableProcessors() * 2));
 
-        httpServer.createContext("/health", this::handleHealth);
-        httpServer.createContext("/execute", this::handleExecute);
-        httpServer.createContext("/stats", this::handleStats);
-        httpServer.createContext("/dag", this::handleDAG);
+        httpServer.createContext("/health", wrapHandler("/health", this::handleHealth));
+        httpServer.createContext("/execute", wrapHandler("/execute", this::handleExecute));
+        httpServer.createContext("/stats", wrapHandler("/stats", this::handleStats));
+        httpServer.createContext("/dag", wrapHandler("/dag", this::handleDAG));
 
         httpServer.start();
 
         watcherExecutor = Executors.newSingleThreadScheduledExecutor();
         watcherExecutor.scheduleAtFixedRate(this::checkReload, 2, 2, TimeUnit.SECONDS);
+    }
+
+    @FunctionalInterface
+    public interface Middleware {
+        com.sun.net.httpserver.HttpHandler wrap(com.sun.net.httpserver.HttpHandler next);
+    }
+
+    private List<Middleware> middlewares = new ArrayList<>();
+
+    public void addMiddleware(Middleware mw) {
+        this.middlewares.add(mw);
+    }
+
+    private com.sun.net.httpserver.HttpHandler wrapHandler(String path, com.sun.net.httpserver.HttpHandler handler) {
+        com.sun.net.httpserver.HttpHandler wrapped = handler;
+        // HTTP metrics (innermost)
+        if (metricsProvider != null) {
+            wrapped = httpMetricsMiddleware(path, wrapped);
+        }
+        // User middlewares (outer to inner)
+        for (int i = middlewares.size() - 1; i >= 0; i--) {
+            wrapped = middlewares.get(i).wrap(wrapped);
+        }
+        return wrapped;
+    }
+
+    private page.liam.pine.metrics.Counter httpRequestsTotal;
+    private page.liam.pine.metrics.Histogram httpRequestDuration;
+
+    private com.sun.net.httpserver.HttpHandler httpMetricsMiddleware(String path, com.sun.net.httpserver.HttpHandler next) {
+        if (httpRequestsTotal == null) {
+            httpRequestsTotal = metricsProvider.newCounter(
+                    new page.liam.pine.metrics.MetricOpts("pine_http_requests_total", "HTTP request count", "method", "path", "status"));
+            httpRequestDuration = metricsProvider.newHistogram(
+                    new page.liam.pine.metrics.HistogramOpts("pine_http_request_duration_seconds", "HTTP request duration", null, "method", "path"));
+        }
+        return exchange -> {
+            long start = System.nanoTime();
+            try {
+                next.handle(exchange);
+            } finally {
+                double duration = (System.nanoTime() - start) / 1_000_000_000.0;
+                String method = exchange.getRequestMethod();
+                String status = String.valueOf(exchange.getResponseCode());
+                httpRequestsTotal.with(method, path, status).inc();
+                httpRequestDuration.with(method, path).observe(duration);
+            }
+        };
     }
 
     public void stop() {
@@ -79,6 +145,10 @@ public class PineServer {
         snapshot.set(new Snapshot(engine, rm));
         lastReloadDurationNs = System.nanoTime() - start;
         reloadCount.incrementAndGet();
+        if (reloadTotal != null) {
+            reloadTotal.inc();
+            reloadDuration.observe(lastReloadDurationNs / 1_000_000_000.0);
+        }
     }
 
     private volatile long lastModified = 0;
@@ -93,6 +163,7 @@ public class PineServer {
             }
         } catch (Exception e) {
             reloadErrorCount.incrementAndGet();
+            if (reloadErrorTotal != null) reloadErrorTotal.inc();
             System.err.println("[pine-server] reload failed: " + e.getMessage());
         }
     }
@@ -131,6 +202,20 @@ public class PineServer {
             Map<String, Object> resp = new LinkedHashMap<>();
             resp.put("common", result.common);
             resp.put("items", result.items);
+
+            Object returnTrace = req.get("_return_trace");
+            if (Boolean.TRUE.equals(returnTrace) && result.trace != null) {
+                List<Map<String, Object>> traceList = new ArrayList<>();
+                for (OpTrace t : result.trace) {
+                    Map<String, Object> tm = new LinkedHashMap<>();
+                    tm.put("name", t.name);
+                    tm.put("duration_ns", t.durationNs);
+                    tm.put("skipped", t.skipped);
+                    traceList.add(tm);
+                }
+                resp.put("trace", traceList);
+            }
+
             sendResponse(exchange, 200, resp);
 
         } catch (IllegalArgumentException e) {

@@ -4,7 +4,7 @@ import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class DataFrame {
+public class DataFrame implements Frame {
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private Map<String, Object> common;
     private List<Map<String, Object>> items;

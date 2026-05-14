@@ -9,7 +9,7 @@ public class Registry {
 
     public static void register(String name, OperatorType type, Supplier<Operator> factory) {
         if (operators.containsKey(name)) {
-            throw new IllegalStateException("operator already registered: " + name);
+            throw new PineErrors.RegistryError(name, "already registered");
         }
         operators.put(name, new OperatorEntry(type, factory));
     }
@@ -17,7 +17,7 @@ public class Registry {
     public static Operator buildOperator(String typeName, Map<String, Object> params) throws Exception {
         OperatorEntry entry = operators.get(typeName);
         if (entry == null) {
-            throw new IllegalArgumentException("unknown operator: " + typeName);
+            throw new PineErrors.RegistryError(typeName, "unknown operator type");
         }
         Operator op = entry.factory.get();
         op.init(params);

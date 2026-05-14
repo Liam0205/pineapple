@@ -22,11 +22,13 @@ public class Codegen {
         String schemaPath = "schema.json";
         String outputDir = "apple_generated";
         String docDir = "";
+        String resourceSchemaPath = "";
 
         for (int i = 0; i < args.length - 1; i++) {
             if ("-schema".equals(args[i])) schemaPath = args[++i];
             else if ("-output".equals(args[i])) outputDir = args[++i];
             else if ("-doc-dir".equals(args[i])) docDir = args[++i];
+            else if ("-resource-schema".equals(args[i])) resourceSchemaPath = args[++i];
         }
 
         List<OperatorSchema> schemas = mapper.readValue(
@@ -36,6 +38,14 @@ public class Codegen {
         generateOperatorsPy(schemas, outputDir);
         generateInitPy(schemas, outputDir);
         System.out.printf("generated %d operators in %s%n", schemas.size(), outputDir);
+
+        if (!resourceSchemaPath.isEmpty()) {
+            List<ResourceSchema> resourceSchemas = mapper.readValue(
+                    new File(resourceSchemaPath),
+                    new TypeReference<List<ResourceSchema>>() {});
+            generateResourcesPy(resourceSchemas, outputDir);
+            System.out.printf("generated %d resources in %s%n", resourceSchemas.size(), outputDir);
+        }
 
         if (!docDir.isEmpty()) {
             generateDocs(schemas, docDir);
@@ -286,5 +296,82 @@ public class Codegen {
         public void setDefault(Object defaultValue) { this.defaultValue = defaultValue; }
         @com.fasterxml.jackson.annotation.JsonProperty("Description")
         public void setDescription(String description) { this.description = description; }
+    }
+
+    public static class ResourceSchema {
+        public String name;
+        public String description;
+        public int defaultInterval;
+        public Map<String, ParamSpec> params = Collections.emptyMap();
+
+        @com.fasterxml.jackson.annotation.JsonProperty("Name")
+        public void setName(String name) { this.name = name; }
+        @com.fasterxml.jackson.annotation.JsonProperty("Description")
+        public void setDescription(String description) { this.description = description; }
+        @com.fasterxml.jackson.annotation.JsonProperty("DefaultInterval")
+        public void setDefaultInterval(int defaultInterval) { this.defaultInterval = defaultInterval; }
+        @com.fasterxml.jackson.annotation.JsonProperty("Params")
+        public void setParams(Map<String, ParamSpec> params) { this.params = params != null ? params : Collections.emptyMap(); }
+    }
+
+    private static void generateResourcesPy(List<ResourceSchema> schemas, String outputDir) throws IOException {
+        Path path = Paths.get(outputDir, "resources.py");
+        try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
+            w.println("# auto-generated from pine resource schema — DO NOT EDIT");
+            w.println("from __future__ import annotations");
+            w.println("from typing import Any");
+            w.println("from apple.base import BaseResource");
+            w.println();
+
+            for (ResourceSchema schema : schemas) {
+                String className = toCamelCase(schema.name) + "Resource";
+                w.println();
+                w.printf("class %s(BaseResource):%n", className);
+                w.printf("    \"\"\"Resource: %s\"\"\"%n", schema.name);
+                w.printf("    _name = \"%s\"%n", schema.name);
+                w.printf("    _default_interval = %d%n", schema.defaultInterval);
+
+                List<String> paramNames = new ArrayList<>(schema.params.keySet());
+                Collections.sort(paramNames);
+
+                w.println();
+                w.println("    def __call__(");
+                w.println("        self,");
+                w.println("        *,");
+                for (String pName : paramNames) {
+                    ParamSpec spec = schema.params.get(pName);
+                    String pyType = toPythonType(spec.type);
+                    String pyDefault = spec.defaultValue != null ? toPythonLiteral(spec.defaultValue)
+                            : (spec.required ? "..." : toPythonDefault(spec.type));
+                    w.printf("        %s: %s = %s,%n", pName, pyType, pyDefault);
+                }
+                w.println("        interval: int = 0,");
+                w.println("    ) -> BaseResource:");
+                w.println("        params = {");
+                for (String pName : paramNames) {
+                    w.printf("            \"%s\": %s,%n", pName, pName);
+                }
+                w.println("        }");
+                w.println("        return self._build(params, interval)");
+                w.println();
+            }
+        }
+
+        // Generate resources_init.py
+        Path initPath = Paths.get(outputDir, "resources_init.py");
+        try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(initPath))) {
+            w.println("# auto-generated — DO NOT EDIT");
+            w.println("from .resources import (");
+            for (ResourceSchema schema : schemas) {
+                w.printf("    %sResource,%n", toCamelCase(schema.name));
+            }
+            w.println(")");
+            w.println();
+            w.println("__all__ = [");
+            for (ResourceSchema schema : schemas) {
+                w.printf("    \"%sResource\",%n", toCamelCase(schema.name));
+            }
+            w.println("]");
+        }
     }
 }

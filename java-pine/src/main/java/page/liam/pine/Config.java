@@ -17,6 +17,9 @@ public class Config {
     ));
 
     public String pineappleVersion;
+    public String logPrefix = "";
+    public boolean debug;
+    public String storageMode = "row";
     public PipelineConfig pipelineConfig;
     public Map<String, SubFlowRef> pipelineGroup;
     public FlowContract flowContract;
@@ -25,6 +28,9 @@ public class Config {
         JsonNode root = mapper.readTree(json);
         Config cfg = new Config();
         cfg.pineappleVersion = root.has("_PINEAPPLE_VERSION") ? root.get("_PINEAPPLE_VERSION").asText() : "";
+        cfg.logPrefix = root.has("log_prefix") ? root.get("log_prefix").asText() : "";
+        cfg.debug = root.has("debug") && root.get("debug").asBoolean();
+        cfg.storageMode = root.has("storage_mode") ? root.get("storage_mode").asText() : "row";
 
         // Parse flow_contract
         cfg.flowContract = new FlowContract();
@@ -276,7 +282,7 @@ public class Config {
         }
     }
 
-    public static class ConfigException extends Exception {
+    public static class ConfigException extends PineErrors.ConfigError {
         public ConfigException(String message) {
             super(message);
         }

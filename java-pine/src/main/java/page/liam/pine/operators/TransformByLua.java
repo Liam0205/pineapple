@@ -1,17 +1,21 @@
 package page.liam.pine.operators;
 
-import page.liam.pine.AbstractOperator;
-import page.liam.pine.OperatorInput;
-import page.liam.pine.OperatorOutput;
+import page.liam.pine.*;
+import page.liam.pine.metrics.Counter;
+import page.liam.pine.metrics.Gauge;
 import org.luaj.vm2.*;
+import org.luaj.vm2.lib.*;
 import org.luaj.vm2.lib.jse.JsePlatform;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class TransformByLua extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
+public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider {
     private String script;
     private String funcName;
     private boolean isItemMode;
+    private LuaPool pool;
 
     @Override
     public void init(Map<String, Object> params) throws Exception {
@@ -35,24 +39,40 @@ public class TransformByLua extends AbstractOperator implements page.liam.pine.C
         }
 
         // Validate script compiles
-        Globals globals = JsePlatform.standardGlobals();
-        globals.load(script).call();
+        Globals g = createSandboxedGlobals();
+        g.load(script).call();
+
+        pool = new LuaPool();
     }
 
     @Override
     public void execute(OperatorInput input, OperatorOutput output) throws Exception {
-        Globals globals = JsePlatform.standardGlobals();
-        globals.load(script).call();
+        Globals globals = pool.borrow();
+        try {
+            globals.load(script).call();
 
-        if (isItemMode) {
-            executeForItem(globals, input, output);
-        } else {
-            executeForCommon(globals, input, output);
+            if (isItemMode) {
+                executeForItem(globals, input, output);
+            } else {
+                executeForCommon(globals, input, output);
+            }
+        } finally {
+            pool.returnState(globals);
         }
     }
 
+    @Override
+    public Map<String, Long> operatorStats() {
+        if (pool == null) return null;
+        return Map.of(
+                "borrow_count", pool.borrowCount.get(),
+                "return_count", pool.returnCount.get(),
+                "create_count", pool.createCount.get(),
+                "active_count", pool.activeCount.get()
+        );
+    }
+
     private void executeForItem(Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
-        // Set common globals once
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
         }
@@ -66,13 +86,10 @@ public class TransformByLua extends AbstractOperator implements page.liam.pine.C
         int n = input.itemCount();
 
         for (int i = 0; i < n; i++) {
-            // Set item globals for this item
             for (String field : itemInput) {
                 globals.set(field, toLua(input.item(i, field)));
             }
-
             Varargs results = fn.invoke(LuaValue.NONE);
-
             for (int j = 0; j < nret; j++) {
                 Object val = toJava(results.arg(j + 1));
                 output.setItem(i, itemOutput.get(j), val);
@@ -81,12 +98,10 @@ public class TransformByLua extends AbstractOperator implements page.liam.pine.C
     }
 
     private void executeForCommon(Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
-        // Set common globals as scalars
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
         }
 
-        // Set item fields as 1-indexed Lua tables
         int n = input.itemCount();
         for (String field : itemInput) {
             LuaTable tbl = new LuaTable();
@@ -103,11 +118,24 @@ public class TransformByLua extends AbstractOperator implements page.liam.pine.C
 
         int nret = commonOutput.size();
         Varargs results = fn.invoke(LuaValue.NONE);
-
         for (int j = 0; j < nret; j++) {
             Object val = toJava(results.arg(j + 1));
             output.setCommon(commonOutput.get(j), val);
         }
+    }
+
+    private static Globals createSandboxedGlobals() {
+        Globals globals = JsePlatform.standardGlobals();
+        // Remove dangerous functions (sandbox)
+        globals.set("dofile", LuaValue.NIL);
+        globals.set("loadfile", LuaValue.NIL);
+        globals.set("io", LuaValue.NIL);
+        globals.set("os", LuaValue.NIL);
+        globals.set("luajava", LuaValue.NIL);
+        globals.set("debug", LuaValue.NIL);
+        globals.set("require", LuaValue.NIL);
+        globals.set("package", LuaValue.NIL);
+        return globals;
     }
 
     private static LuaValue toLua(Object v) {
@@ -124,5 +152,30 @@ public class TransformByLua extends AbstractOperator implements page.liam.pine.C
         if (v.isnumber()) return v.todouble();
         if (v.isstring()) return v.tojstring();
         return v.tojstring();
+    }
+
+    static class LuaPool {
+        private final ConcurrentLinkedQueue<Globals> pool = new ConcurrentLinkedQueue<>();
+        final AtomicLong borrowCount = new AtomicLong();
+        final AtomicLong returnCount = new AtomicLong();
+        final AtomicLong createCount = new AtomicLong();
+        final AtomicLong activeCount = new AtomicLong();
+
+        Globals borrow() {
+            borrowCount.incrementAndGet();
+            activeCount.incrementAndGet();
+            Globals g = pool.poll();
+            if (g == null) {
+                createCount.incrementAndGet();
+                g = createSandboxedGlobals();
+            }
+            return g;
+        }
+
+        void returnState(Globals g) {
+            returnCount.incrementAndGet();
+            activeCount.decrementAndGet();
+            pool.offer(g);
+        }
     }
 }

@@ -16,35 +16,97 @@ public class Engine {
     private final ResourceProvider resourceProvider;
     private final Stats stats;
     private final EngineMetrics engineMetrics;
+    private final String storageMode;
 
     private Engine(List<CompiledOperator> operators, DAG dag, Config.FlowContract contract,
-                   ResourceProvider resourceProvider, Stats stats, EngineMetrics engineMetrics) {
+                   ResourceProvider resourceProvider, Stats stats, EngineMetrics engineMetrics, String storageMode) {
         this.operators = operators;
         this.dag = dag;
         this.contract = contract;
         this.resourceProvider = resourceProvider;
         this.stats = stats;
         this.engineMetrics = engineMetrics;
+        this.storageMode = storageMode;
     }
 
-    public static Engine create(byte[] jsonConfig) throws Exception {
-        return create(jsonConfig, null, null);
+    // --- Option pattern ---
+
+    @FunctionalInterface
+    public interface Option {
+        void apply(EngineOptions opts);
+    }
+
+    public static class EngineOptions {
+        Provider metricsProvider;
+        ResourceProvider resources;
+        String logPrefix;
+        Boolean debug;
+    }
+
+    public static Option withMetrics(Provider provider) {
+        return opts -> opts.metricsProvider = provider;
+    }
+
+    public static Option withResources(ResourceProvider resources) {
+        return opts -> opts.resources = resources;
+    }
+
+    public static Option withLogPrefix(String prefix) {
+        return opts -> opts.logPrefix = prefix;
+    }
+
+    public static Option withDebug(boolean debug) {
+        return opts -> opts.debug = debug;
+    }
+
+    // --- Factory methods ---
+
+    public static Engine create(byte[] jsonConfig, Option... options) throws Exception {
+        EngineOptions eo = new EngineOptions();
+        for (Option opt : options) {
+            opt.apply(eo);
+        }
+        return createInternal(jsonConfig, eo);
     }
 
     public static Engine create(byte[] jsonConfig, ResourceProvider resources) throws Exception {
-        return create(jsonConfig, resources, null);
+        EngineOptions eo = new EngineOptions();
+        eo.resources = resources;
+        return createInternal(jsonConfig, eo);
     }
 
     public static Engine create(byte[] jsonConfig, ResourceProvider resources, Provider metricsProvider) throws Exception {
+        EngineOptions eo = new EngineOptions();
+        eo.resources = resources;
+        eo.metricsProvider = metricsProvider;
+        return createInternal(jsonConfig, eo);
+    }
+
+    private static Engine createInternal(byte[] jsonConfig, EngineOptions eo) throws Exception {
         AllOperators.ensureRegistered();
         Config cfg = Config.load(jsonConfig);
         Config.ExpandResult expanded = cfg.expandOperatorSequenceWithSubFlows();
         List<String> sequence = expanded.sequence;
         Map<String, String> opToSubFlow = expanded.opToSubFlow;
 
+        validateSourcesOrder(sequence, cfg.pipelineConfig.operators);
+
+        // Resolve log_prefix: Option > JSON config
+        String logPrefix = eo.logPrefix != null ? eo.logPrefix : cfg.logPrefix;
+        if (!logPrefix.isEmpty()) {
+            System.setProperty("pine.log.prefix", logPrefix);
+        }
+
+        // Resolve global debug: Option > JSON config
+        boolean globalDebug = eo.debug != null ? eo.debug : cfg.debug;
+
         List<CompiledOperator> compiledOps = new ArrayList<>(sequence.size());
         for (String name : sequence) {
             Config.OperatorConfig opCfg = cfg.pipelineConfig.operators.get(name);
+
+            if (globalDebug && !opCfg.debug) {
+                opCfg.debug = true;
+            }
 
             Operator op = Registry.buildOperator(opCfg.typeName, opCfg.rawParams);
             OperatorType opType = Registry.getType(opCfg.typeName);
@@ -90,22 +152,22 @@ public class Engine {
 
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
         Stats stats = new Stats();
-        EngineMetrics em = metricsProvider != null ? new EngineMetrics(metricsProvider) : null;
-        return new Engine(compiledOps, dag, cfg.flowContract, resources, stats, em);
+        EngineMetrics em = eo.metricsProvider != null ? new EngineMetrics(eo.metricsProvider) : null;
+        return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode);
     }
 
     public Result execute(Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
         if (common == null) {
-            throw new IllegalArgumentException("request common must not be null");
+            throw new PineErrors.ValidationError("request common must not be null");
         }
 
         for (String field : contract.commonInput) {
             if (!common.containsKey(field)) {
-                throw new IllegalArgumentException("missing required common input field \"" + field + "\"");
+                throw new PineErrors.ValidationError("missing required common input field \"" + field + "\"");
             }
         }
 
-        DataFrame frame = new DataFrame(common, items);
+        Frame frame = Frame.create(storageMode, common, items);
         int n = operators.size();
 
         long dagStart = System.nanoTime();
@@ -129,6 +191,7 @@ public class Engine {
         for (int i = 0; i < n; i++) {
             final int idx = i;
             pool.execute(() -> {
+                String opName = operators.get(idx).name;
                 try {
                     DAG.Node node = dag.nodes.get(idx);
                     CompiledOperator cop = operators.get(idx);
@@ -225,7 +288,8 @@ public class Engine {
                             engineMetrics.opErrorTotal.with(cop.name).inc();
                             engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
                         }
-                        fatalError.compareAndSet(null, execErr);
+                        fatalError.compareAndSet(null,
+                                new PineErrors.ExecutionError(cop.name, execErr));
                         return;
                     }
 
@@ -251,7 +315,11 @@ public class Engine {
                     }
 
                 } catch (Exception e) {
-                    fatalError.compareAndSet(null, e);
+                    fatalError.compareAndSet(null,
+                            new PineErrors.ExecutionError(opName, e));
+                } catch (Error e) {
+                    fatalError.compareAndSet(null,
+                            new PineErrors.PanicError(opName, e));
                 } finally {
                     applied[idx].countDown();
                     allDone.countDown();
@@ -403,6 +471,22 @@ public class Engine {
             this.items = items;
             this.warnings = warnings;
             this.trace = trace;
+        }
+    }
+
+    private static void validateSourcesOrder(List<String> sequence, Map<String, Config.OperatorConfig> operators) {
+        Set<String> seen = new HashSet<>();
+        for (String name : sequence) {
+            Config.OperatorConfig opCfg = operators.get(name);
+            if (opCfg != null) {
+                for (String src : opCfg.sources) {
+                    if (!seen.contains(src)) {
+                        throw new IllegalArgumentException(
+                                "operator \"" + name + "\": sources references \"" + src + "\" which appears later in the sequence (forward reference)");
+                    }
+                }
+            }
+            seen.add(name);
         }
     }
 }
