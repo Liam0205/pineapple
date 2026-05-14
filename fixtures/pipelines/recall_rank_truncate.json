@@ -1,0 +1,95 @@
+{
+  "name": "recall → lua scoring → sort → truncate (recommendation pipeline)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "recall_candidates": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "video_1", "item_ctr": 0.05, "item_dur": 120.0},
+            {"item_id": "video_2", "item_ctr": 0.12, "item_dur": 60.0},
+            {"item_id": "video_3", "item_ctr": 0.08, "item_dur": 300.0},
+            {"item_id": "video_4", "item_ctr": 0.20, "item_dur": 45.0},
+            {"item_id": "video_5", "item_ctr": 0.03, "item_dur": 180.0}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_ctr", "item_dur"]
+          }
+        },
+        "compute_rank_score": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function rank()\n  return item_ctr * 1000 + item_dur * 0.01\nend",
+          "function_for_item": "rank",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_ctr", "item_dur"],
+            "item_output": ["rank_score"]
+          }
+        },
+        "sort_by_rank": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["rank_score"],
+            "item_output": []
+          }
+        },
+        "top3": {
+          "type_name": "filter_truncate",
+          "top_n": 3,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "recall_stage": {
+          "pipeline": ["recall_candidates"]
+        },
+        "rank_stage": {
+          "pipeline": ["compute_rank_score", "sort_by_rank", "top3"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["recall_stage", "rank_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id", "rank_score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "recall 5 videos, rank by ctr*1000+dur*0.01, keep top 3",
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "video_4", "rank_score": 200.45},
+          {"item_id": "video_2", "rank_score": 120.6},
+          {"item_id": "video_3", "rank_score": 83.0}
+        ]
+      }
+    }
+  ]
+}
