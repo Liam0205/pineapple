@@ -156,8 +156,11 @@ func (s *Server) run(cfg Config) error {
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/dag", s.handleDAG)
 
-	// Apply middlewares (outer-to-inner: first middleware sees request first)
-	var handler http.Handler = mux
+	// Apply HTTP metrics as innermost middleware (measures handler duration
+	// excluding user middleware overhead).
+	handler := httpMetricsMiddleware(mp, mux)
+
+	// Apply user middlewares (outer-to-inner: first middleware sees request first)
 	for i := len(cfg.Middlewares) - 1; i >= 0; i-- {
 		handler = cfg.Middlewares[i](handler)
 	}
