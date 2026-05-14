@@ -53,11 +53,11 @@
 - [x] Pipeline fixture 通过（19 cases，9 fixtures cross-validated Go/Java）
 - [x] 复杂场景验证：Lua common→item 交叉、多 recall source、conditional skip、multi-skip
 
-### Phase 4: data_parallel 与并发
+### Phase 4: data_parallel 与并发 ✅
 
-- [ ] data_parallel > 1 时的 item 分片并行执行
-- [ ] 确保等价性（Go 和 Java 对同一输入产生相同输出）
-- [ ] 并发安全性保证
+- [x] data_parallel > 1 时的 item 分片并行执行（`ParallelExecutor` + `ForkJoinPool`）
+- [x] 确保等价性（Go 和 Java 对同一输入产生相同输出，fixture cross-validated）
+- [x] 并发安全性保证（`ConcurrentSafe` marker interface，Engine 启动时 validate）
 
 ### Phase 5: Resource 管理
 
@@ -88,20 +88,17 @@
 
 ## 当前进度
 
-Phase 1 完成，Phase 2-3 完成。
+Phase 1-4 完成。
 
-- Go 端：算子 fixture runner（11 文件 44 用例）+ pipeline fixture runner（9 文件 19 用例）
-- Java 端：引擎核心完成（Config → DAG → DataFrame → Engine），63 用例通过
-  - 44 算子级 fixture + 19 pipeline 级 fixture
-  - 覆盖场景：recall+merge+filter+sort、skip/branch(Lua flag)、barrier(normalize+paginate)、嵌套 SubFlow、common↔item 交叉、推荐 pipeline(recall+Lua rank)、多 skip flag、conditional sort(Lua E2E 迁移)
+- Go 端：算子 fixture runner（11 文件 44 用例）+ pipeline fixture runner（11 文件 23 用例）
+- Java 端：引擎完成（Config → DAG → DataFrame → Engine → data_parallel），67 用例通过
+  - 44 算子级 fixture + 23 pipeline 级 fixture（含 data_parallel 验证）
+  - 覆盖场景：recall+merge+filter+sort、skip/branch(Lua flag)、barrier(normalize+paginate)、嵌套 SubFlow、common↔item 交叉、推荐 pipeline、多 skip flag、conditional sort、data_parallel
   - Go/Java cross-validation：同一 fixture 两端均通过
 - CI：java-test job 已配置
 - Pipeline fixture schema: `fixtures/pipelines/*.json`（config + cases[request → expected]）
 
-待完成：
-- Phase 4（data_parallel 与并发）
-
-下一步：Phase 4（data_parallel 与并发）。
+下一步：Phase 5（Resource 管理）。
 
 ---
 
