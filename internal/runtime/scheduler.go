@@ -51,6 +51,8 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	dagStart := time.Now()
+
 	if stats != nil {
 		stats.RecordRun()
 	}
@@ -285,6 +287,23 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 		if t.Name != "" {
 			filtered = append(filtered, t)
 		}
+	}
+
+	if em != nil {
+		dagDuration := time.Since(dagStart)
+		em.DAGExecDuration.Observe(metrics.DurationSeconds(dagDuration))
+		if fatalErr != nil {
+			em.DAGExecTotal.With("error").Inc()
+		} else {
+			em.DAGExecTotal.With("success").Inc()
+		}
+		var executed int
+		for _, t := range filtered {
+			if !t.Skipped {
+				executed++
+			}
+		}
+		em.DAGOpsExecuted.Observe(float64(executed))
 	}
 
 	return warnings, filtered, fatalErr
