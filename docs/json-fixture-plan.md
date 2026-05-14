@@ -31,16 +31,17 @@
 - [x] 文档更新
 
 ### Phase 5: Java-Pine 开发
-- [ ] Java 项目初始化
-- [ ] 核心数据模型（OperatorInput/Output, Common/Items）
-- [ ] Operator 接口 + Registry
-- [ ] 逐算子实现（共享 fixture 验证）
+- [x] Java 项目初始化（Maven, JDK 11+）
+- [x] 核心数据模型（OperatorInput/Output, Common/Items）
+- [x] Operator 接口 + Registry
+- [x] 逐算子实现（10 个纯计算算子，共享 fixture 验证通过）
 - [ ] CI cross-validation
+- [ ] transform_by_lua（需 LuaJ 依赖）
 
 ## 当前进度
 
-Phase 1-4 完成。Go 端 JSON fixture 测试系统已就绪（11 个算子，44 个用例）。
-下一步：Phase 5 Java-Pine 开发。
+Phase 1-5 基本完成。Go 和 Java 双端共享 36 个 fixture 用例全部通过。
+剩余：CI cross-validation 配置、Lua 算子 Java 实现。
 
 ---
 
