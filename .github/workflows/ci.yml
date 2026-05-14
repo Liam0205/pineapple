@@ -4,7 +4,25 @@ on:
   push:
     branches: [master]
     tags: ["v*"]
+    paths-ignore:
+      - ".claude/**"
+      - ".github/workflows/**"
+      - "apple_generated/**"
+      - "blog/**"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "LICENSE"
+      - "README.md"
   pull_request:
+    paths-ignore:
+      - ".claude/**"
+      - ".github/workflows/**"
+      - "apple_generated/**"
+      - "blog/**"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "LICENSE"
+      - "README.md"
 
 jobs:
   go-lint:
