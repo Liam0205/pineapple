@@ -1,0 +1,83 @@
+{
+  "operator": "reorder_sort",
+  "cases": [
+    {
+      "name": "descending sort by score",
+      "params": { "order": "desc" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["score"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "a", "score": 10.0 },
+          { "item_id": "b", "score": 30.0 },
+          { "item_id": "c", "score": 20.0 }
+        ]
+      },
+      "expected": {
+        "item_order": [1, 2, 0]
+      }
+    },
+    {
+      "name": "ascending sort by score",
+      "params": { "order": "asc" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["score"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "a", "score": 30.0 },
+          { "item_id": "b", "score": 10.0 },
+          { "item_id": "c", "score": 20.0 }
+        ]
+      },
+      "expected": {
+        "item_order": [1, 2, 0]
+      }
+    },
+    {
+      "name": "empty items list",
+      "params": { "order": "desc" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["score"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": []
+      },
+      "expected": {}
+    },
+    {
+      "name": "integer score values",
+      "params": { "order": "desc" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["score"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "score": 5 },
+          { "score": 15 },
+          { "score": 10 }
+        ]
+      },
+      "expected": {
+        "item_order": [1, 2, 0]
+      }
+    }
+  ]
+}
