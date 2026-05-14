@@ -43,6 +43,7 @@ type fixtureExpected struct {
 	Items          []map[string]any `json:"items"`
 	AddedItems     []map[string]any `json:"added_items"`
 	RemovedIndices []int            `json:"removed_indices"`
+	ItemOrder      []int            `json:"item_order"`
 	Warnings       []string         `json:"warnings"`
 }
 
@@ -160,6 +161,19 @@ func runFixtureCase(t *testing.T, operatorName string, tc fixtureCase) {
 			}
 			if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", expectedVal) {
 				t.Errorf("common_writes[%q] = %v, expected %v", key, got, expectedVal)
+			}
+		}
+	}
+
+	// Validate item order (Reorder)
+	if tc.Expected.ItemOrder != nil {
+		order := output.GetItemOrder()
+		if len(order) != len(tc.Expected.ItemOrder) {
+			t.Fatalf("item_order: got %d entries, expected %d", len(order), len(tc.Expected.ItemOrder))
+		}
+		for i, expected := range tc.Expected.ItemOrder {
+			if order[i] != expected {
+				t.Errorf("item_order[%d] = %d, expected %d", i, order[i], expected)
 			}
 		}
 	}
