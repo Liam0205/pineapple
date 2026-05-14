@@ -1,17 +1,4 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/lint-on-stop.sh",
-            "timeout": 60
-          }
-        ]
-      }
-    ]
-  },
+  "hooks": {},
   "enabledPlugins": {}
 }
