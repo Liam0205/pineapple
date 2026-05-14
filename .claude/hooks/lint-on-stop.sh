@@ -1,6 +1,10 @@
 #!/bin/bash
 set -uo pipefail
 
+if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  exit 0
+fi
+
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
 # Activate project venv if present (provides ruff, etc.)
