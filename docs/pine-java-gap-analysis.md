@@ -278,41 +278,65 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 | # | 决策 | 备注 |
 |---|------|------|
-| 4 | 修 Go 侧 | Go `http.Error` plain text 是疏忽，应对齐 Java 全 JSON。已记录 `.llmdoc-tmp/go-server-plain-text-error-fix.md` |
+| 1 | 修 Java | setWarning 改为 first-wins |
+| 2 | 修 Java | 改用 `Double.toString()` + 整数检测 |
+| 3 | 修 Java | `params` → `_params` |
+| 4 | 修 Go | Go `http.Error` plain text 是疏忽。已记录 `.llmdoc-tmp/go-server-pending-fixes.md` |
+| 5 | 修 Java | 加 `statusBucket()` 桶化 |
+| 6 | 修 Java | TransformByLua 补 MetricsAware 接口 |
 | 7 | 已接受 | Java 有意超前实现 `fail_on_error`，待 Go 侧补齐 |
-| 14 | 已接受 | JSON 输入场景所有数字均为 float64，两侧行为一致 |
+| 8 | 接受 + 登记 Go | Java 413 更合理。Go 侧待修，已记录 `.llmdoc-tmp/go-server-pending-fixes.md` |
+| 9 | 已接受 | 配置来源差异不冲突 |
+| 10 | 修 Java | 补与 Go 相同的显式 histogram 桶 |
+| 11 | 修 Java + 登记 Go | 两侧都有 spurious reload。Go 侧已记录 `.llmdoc-tmp/go-server-pending-fixes.md` |
+| 12 | 修 Java | lastReloadDurationNs 仅成功路径记录 |
+| 13 | 修 Java | `__init__.py` 改为逐行 import 对齐 Go |
+| 14 | 已接受 | JSON 输入场景两侧行为一致 |
+| 15 | 修 Java | AddItem 补 validateValue |
+| 16 | 修 Java | Lua pool 补 baseline 快照/恢复 |
+| 17/18 | 修 Java | 写工具库复刻 Go `fmt.Sprint`/`FormatFloat` 格式化 |
+| 19 | 修 Java | `Long.compareUnsigned` |
+| 20 | 修 Java | 算子加注释 + 写注释解析器 + Codegen 集成 |
+| 21 | 修 Java | 对齐 string escape |
+| 22-26 | 暂不修 | 平台限制 |
+| 27 | 已接受 | Java 仅 GET 更严格，无害 |
 | 28 | 已接受 | 排序稳定性差异不影响业务 |
+| 29 | 已接受 | LuaJ Globals 无显式 close，GC 回收 |
+| 30 | 修 Java | 顺手对齐 header 注释措辞 |
+| 31 | 修 Java | `int` → `long` |
 | 32 | 已接受 | Redis SMEMBERS 本身无序 |
 | 33 | 已接受 | collapse=0 功能等价 |
 | 34 | 已接受 | 设计差异：Go per-request context vs Java per-engine field |
 
 ### 待修项汇总
 
-**修 Java 侧：**
+**修 Java 侧（20 项）：**
 - #1 setWarning first-wins（1 行）
-- #2 filter_condition 精度（~5 行）
+- #2 filter_condition 精度 → `Double.toString()`（~5 行）
 - #3 Codegen `_params`（3 处替换）
 - #5 HTTP metrics label 桶化（~15 行）
 - #6 TransformByLua 补 MetricsAware（~20 行）
-- #8 Body 超限状态码（待定方向）
-- #9 Body size 配置来源（待定方向）
 - #10 HTTP histogram 桶（低）
-- #11 热加载 spurious reload（低，两侧）
+- #11 热加载 spurious reload（低）
 - #12 lastReloadDurationNs 失败路径（1 行）
 - #13 `__init__.py` import 格式（~10 行）
 - #15 AddItem validateValue（~10 行）
 - #16 Lua pool baseline 恢复（中等）
-- #17 resource_lookup 大浮点格式（~5 行）
-- #18 redis_get key suffix 大浮点（~5 行）
-- #19 reorder_shuffle unsigned tie-breaking（1 行）
-- #20 Codegen Metadata Contract 文档节（中等）
+- #17/18 Go 格式化工具库 + resource_lookup/redis_get 对齐（中等）
+- #19 reorder_shuffle `Long.compareUnsigned`（1 行）
+- #20 Codegen Metadata Contract 文档节：算子注释 + 解析器（中等）
 - #21 Codegen string escape（低）
-- #29 Lua pool Close 关闭 Globals（低）
+- #30 `__init__.py` header 注释（1 行）
+- #31 Body size `int` → `long`（低）
 
-**修 Go 侧：**
+**修 Go 侧（3 项，已记录 `.llmdoc-tmp/go-server-pending-fixes.md`）：**
 - #4 Server 错误响应格式 plain text → JSON
+- #8 Body 超限状态码 400 → 413
+- #11 热加载 spurious reload
 
-**平台限制（暂不修）：** #22-26
+**已接受（9 项）：** #7, #9, #14, #27, #28, #29, #32, #33, #34
+
+**平台限制（5 项）：** #22-26
 
 ## 技术说明
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ
