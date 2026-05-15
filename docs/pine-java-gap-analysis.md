@@ -131,7 +131,7 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | 11 | Lua context 取消 | `L.SetContext(ctx)` 指令边界中断 | LuaJ 无 context — 死循环无法取消 | ⬜ 平台限制 |
 | 12 | ParallelExecutor panic 恢复 | 每 shard 有 panic recovery | 不 catch Error，shard Error 崩溃 ForkJoinPool | ✅ catch Throwable |
 | 13 | ColumnFrame validateValue | 写入时校验值类型合法性 | 无校验 — 可存不可序列化 Object | ✅ |
-| 14 | trace 缺 input/output 快照 | 包含 input_snapshot + output_snapshot | 只有 name/duration/skipped | ⬜ debug-only 功能，后续增强 |
+| 14 | trace 缺 input/output 快照 | 包含 input_snapshot + output_snapshot | 只有 name/duration/skipped | ✅ |
 | 15 | graceful shutdown | Shutdown(ctx) 等待 in-flight 完成 | shutdownNow() 直接杀线程 | ✅ stop(5) 已等待 |
 | 16 | /dag collapse 参数校验 | 非法值返回 400 | parseInt 失败静默 collapse=0 | ✅ |
 | 17 | reload 失败资源泄漏 | 新 RM 失败时 Stop() | exception 后已 start 的 RM 无 finally stop | ✅ try-finally |
@@ -145,15 +145,15 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | 20 | recall_static init 校验 | Go Init 时验证 items 类型；Java 延迟到 Execute | ✅ |
 | 21 | filter_truncate topN 宽度 | Go int64；Java int (2^31) | ✅ long |
 | 22 | filter_condition null 格式 | Go `<nil>` vs Java `"null"` — 内部一致但跨运行时不同 | ✅ `<nil>` |
-| 23 | redis_set 多余参数 | Java 有 fail_on_error 但 Go Schema 无 | ⬜ 有意超前 |
+| 23 | redis_set 多余参数 | Java 有 fail_on_error 但 Go Schema 无 | ⬜ 有意超前，待 Go 补齐 |
 | 24 | Schema type 字符串 | redis_db/ttl: Go `"int"` vs Java `"int64"` | ✅ |
 | 25 | exportSchemaJSON key case | Go PascalCase, Java lowercase | ✅ PascalCase |
-| 26 | Codegen 模板差异 | `_apply` vs `_build`；kwargs 差异 | ⬜ 独立实现 |
+| 26 | Codegen 模板差异 | `_apply` + item_defaults/common_defaults/row_dependency/debug/name | `_build` + 仅基本 kwargs | ✅ |
 | 27 | buildOperator 空 Schema bypass | Java 对无 params 算子跳过校验 | ✅ 始终校验 |
 | 28 | observe_log 输出目标 | Go log.Printf；Java System.out.printf | ✅ stderr |
 | 29 | EngineMetrics nil 风格 | Go Nop provider；Java null+条件检查 | ⬜ 风格差异 |
-| 30 | logOnce 缺失 | Go sync.Once；Java 无幂等保护 | ⬜ 影响可忽略 |
-| 31 | ResourceProvider.Get 语义 | Go (any,bool)；Java nullable 无法区分 nil vs 不存在 | ⬜ 接口设计差异 |
+| 30 | logOnce 缺失 | Go sync.Once；Java volatile+synchronized 幂等保护 | ✅ |
+| 31 | ResourceProvider.Get 语义 | Go (any,bool)；Java GetResult(value, exists) | ✅ |
 
 ## 技术说明
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ

@@ -158,11 +158,16 @@ public class Codegen {
                 w.println("        common_output: list[str] | None = None,");
                 w.println("        item_input: list[str] | None = None,");
                 w.println("        item_output: list[str] | None = None,");
+                w.println("        item_defaults: dict | None = None,");
+                w.println("        common_defaults: dict | None = None,");
                 boolean isRecall = "recall".equalsIgnoreCase(schema.type);
                 if (isRecall) {
                     w.println("        recall: bool = True,");
                 }
-                w.println("    ) -> BaseOp:");
+                w.println("        row_dependency: bool = False,");
+                w.println("        debug: bool = False,");
+                w.println("        name: str | None = None,");
+                w.printf("    ) -> \"%sOp\":%n", className);
                 w.println("        params = {");
                 for (String pName : paramNames) {
                     ParamSpec spec = schema.params.get(pName);
@@ -179,8 +184,21 @@ public class Codegen {
                     w.printf("        if %s is not None:%n", pName);
                     w.printf("            params[\"%s\"] = %s%n", pName, pName);
                 }
-                w.printf("        return self._build(params, common_input, common_output, item_input, item_output%s)%n",
-                        isRecall ? ", recall=recall" : "");
+                w.println("        return self._apply(");
+                w.println("            params=params,");
+                w.println("            common_input=common_input,");
+                w.println("            common_output=common_output,");
+                w.println("            item_input=item_input,");
+                w.println("            item_output=item_output,");
+                w.println("            item_defaults=item_defaults,");
+                w.println("            common_defaults=common_defaults,");
+                if (isRecall) {
+                    w.println("            recall=True,");
+                }
+                w.println("            row_dependency=row_dependency,");
+                w.println("            debug=debug,");
+                w.println("            name=name or \"\",");
+                w.println("        )");
                 w.println();
             }
         }

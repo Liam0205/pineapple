@@ -195,15 +195,15 @@ public class ResourceManager implements ResourceProvider {
     /**
      * Returns the current value for a named resource.
      * Lock-free read via volatile field.
-     * Returns null if the resource does not exist or is not yet loaded.
+     * Returns GetResult(null, false) if the resource does not exist or is not yet loaded.
      */
     @Override
-    public Object get(String name) {
+    public GetResult get(String name) {
         ManagedResource r = resources.get(name);
         if (r == null || !r.loaded) {
-            return null;
+            return new GetResult(null, false);
         }
-        return r.value;
+        return new GetResult(r.value, true);
     }
 
     /**

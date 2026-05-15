@@ -34,10 +34,11 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
         if (resourceProvider == null) {
             throw new IllegalStateException("transform_resource_lookup: no resource provider");
         }
-        Object raw = resourceProvider.get(resourceName);
-        if (raw == null) {
+        ResourceProvider.GetResult result = resourceProvider.get(resourceName);
+        if (!result.exists()) {
             throw new IllegalStateException("transform_resource_lookup: resource \"" + resourceName + "\" not found");
         }
+        Object raw = result.value();
         if (!(raw instanceof Map)) {
             throw new IllegalStateException("transform_resource_lookup: resource \"" + resourceName + "\" is not a Map");
         }

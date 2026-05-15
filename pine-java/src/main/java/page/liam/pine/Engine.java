@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Engine {
+    private static volatile boolean logPrefixSet = false;
+
     private final List<CompiledOperator> operators;
     private final DAG dag;
     private final Config.FlowContract contract;
@@ -91,10 +93,15 @@ public class Engine {
 
         validateSourcesOrder(sequence, cfg.pipelineConfig.operators);
 
-        // Resolve log_prefix: Option > JSON config
+        // Resolve log_prefix: Option > JSON config (set once only, like Go's sync.Once)
         String logPrefix = eo.logPrefix != null ? eo.logPrefix : cfg.logPrefix;
-        if (!logPrefix.isEmpty()) {
-            System.setProperty("pine.log.prefix", logPrefix);
+        if (!logPrefix.isEmpty() && !logPrefixSet) {
+            synchronized (Engine.class) {
+                if (!logPrefixSet) {
+                    System.setProperty("pine.log.prefix", logPrefix);
+                    logPrefixSet = true;
+                }
+            }
         }
 
         // Resolve global debug: Option > JSON config

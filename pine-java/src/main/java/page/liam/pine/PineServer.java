@@ -236,6 +236,12 @@ public class PineServer {
                     tm.put("name", t.name);
                     tm.put("duration_ms", t.durationNs / 1_000_000.0);
                     tm.put("skipped", t.skipped);
+                    if (t.inputSnapshot != null) {
+                        tm.put("input_snapshot", t.inputSnapshot);
+                    }
+                    if (t.outputSnapshot != null) {
+                        tm.put("output_snapshot", t.outputSnapshot);
+                    }
                     traceList.add(tm);
                 }
                 resp.put("trace", traceList);

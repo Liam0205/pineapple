@@ -25,11 +25,12 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
         if (resourceProvider == null) {
             throw new IllegalStateException("recall_resource: no resource provider");
         }
-        Object raw = resourceProvider.get(resourceName);
-        if (raw == null) {
+        ResourceProvider.GetResult result = resourceProvider.get(resourceName);
+        if (!result.exists()) {
             throw new IllegalStateException("recall_resource: resource \"" + resourceName + "\" not found");
         }
 
+        Object raw = result.value();
         List<?> items;
         if (raw instanceof List) {
             items = (List<?>) raw;
