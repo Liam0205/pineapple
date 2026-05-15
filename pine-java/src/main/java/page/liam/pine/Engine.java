@@ -300,7 +300,7 @@ public class Engine {
                     Exception execErr = null;
                     try {
                         if (opCfg.dataParallel > 1) {
-                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, opCfg.dataParallel);
+                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, opCfg.dataParallel, cop.name);
                         } else {
                             output = new OperatorOutput();
                             cop.instance.execute(cancellationToken, input, output);
@@ -319,7 +319,7 @@ public class Engine {
                         if (opType != null) {
                             String violation = opType.validateOutput(output);
                             if (violation != null) {
-                                execErr = new IllegalStateException("type violation: " + violation);
+                                execErr = new PineErrors.OperatorException("type violation: " + violation);
                             }
                         }
                     }

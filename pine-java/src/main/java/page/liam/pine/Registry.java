@@ -87,7 +87,11 @@ public class Registry {
         Map<String, Object> params = validateAndExtractParams(entry.schema, rawParams);
 
         Operator op = entry.factory.get();
-        op.init(params);
+        try {
+            op.init(params);
+        } catch (Exception e) {
+            throw new PineErrors.RegistryError(typeName, "Init failed: " + e.getMessage());
+        }
         return op;
     }
 

@@ -649,6 +649,43 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 - M2: TransformByLua debug log 改用 `commonInput.size()` 计数 metadata 声明字段
 - M3: TransformByLua item 循环中 catch LuaError 包装 `"lua: item[N]: message"` 含索引
 
+## 第十二轮审计 (2026-05-15)
+
+### 第十一轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 ApplyOutput → ExecutionError | ✓ 确认修复 |
+| M1 warnings operator 前缀 | ✓ 确认修复 |
+| M2 TransformByLua debug commonInput.size() | ✓ 确认修复 |
+| M3 TransformByLua item 索引 | ✓ 确认修复 |
+
+### 新发现
+
+经深度边界审计（Config/DataFrame/Frame/Registry/OperatorType），确认 3 项差异 + 1 项措辞。
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | Type violation 错误归类为 PanicError | `scheduler.go:172` — `fmt.Errorf("type violation: ...")` 是普通 error → ExecutionError | `Engine.java:322` — `new IllegalStateException(...)` (RuntimeException) → PanicError | ✅ 改为 OperatorException |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | ParallelExecutor PanicError 用 "parallel-shard" 占位名 | Go 传入 `cop.Name`；Java API 不接收算子名 | ✅ 添加 operatorName 参数 |
+| L2 | Init 错误未包装 RegistryError | Go `BuildOperator` 包装为 `RegistryError{Init failed: ...}`；Java 直接抛原始异常 | ✅ try-catch 包装 |
+| L3 | ValidateOutput 消息格式（大小写/逗号） | Go: `"operator type Recall must not call [SetCommon SetItem]"`；Java: `"... recall ... [SetCommon, SetItem]"` | ✅ |
+
+### 第十二轮决策
+
+全部 4 项修复 Java 侧：
+- M1: type violation 改用 OperatorException（被 catch 归为 ExecutionError）
+- L1: ParallelExecutor.execute 添加 operatorName 参数
+- L2: Registry.buildOperator 包装 Init 异常为 RegistryError
+- L3: ValidateOutput 消息用首字母大写类型名 + 空格分隔 violations
+
 ## 第八轮审计 (2026-05-15)
 
 ### 第七轮修复复验
