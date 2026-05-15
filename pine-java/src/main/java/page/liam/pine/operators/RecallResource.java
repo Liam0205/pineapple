@@ -26,7 +26,7 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (resourceProvider == null) {
             throw new IllegalStateException("recall_resource: no resource provider");
         }

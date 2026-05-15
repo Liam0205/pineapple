@@ -1,5 +1,7 @@
 package page.liam.pine;
 
+import java.util.List;
+
 /**
  * Replicates Go fmt.Sprint / strconv.FormatFloat / fmt.Sprintf("%g",...) formatting
  * for cross-runtime string consistency.
@@ -14,6 +16,7 @@ public final class GoFormat {
      * - Integer-valued float -> no decimal ("1" not "1.0")
      * - Other float -> shortest representation matching Go %v (e.g. "1e+20" not "1.0E20")
      * - String -> as-is
+     * - List/Array -> "[a b c]" (space-separated, no commas)
      * - Other -> toString()
      */
     public static String sprint(Object v) {
@@ -29,18 +32,47 @@ public final class GoFormat {
             }
             return formatG(d);
         }
+        if (v instanceof List) {
+            List<?> list = (List<?>) v;
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < list.size(); i++) {
+                if (i > 0) sb.append(" ");
+                sb.append(sprint(list.get(i)));
+            }
+            sb.append("]");
+            return sb.toString();
+        }
+        if (v.getClass().isArray()) {
+            Object[] arr = toObjectArray(v);
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < arr.length; i++) {
+                if (i > 0) sb.append(" ");
+                sb.append(sprint(arr[i]));
+            }
+            sb.append("]");
+            return sb.toString();
+        }
         return v.toString();
     }
 
     /**
      * Replicates Go's strconv.FormatFloat(d, 'f', -1, 64).
      * Always uses decimal notation (no scientific notation).
+     * Uses Double.toString for shortest round-trip representation.
      */
     public static String formatFloatF(double d) {
         if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e18) {
             return Long.toString((long) d);
         }
-        return new java.math.BigDecimal(d).stripTrailingZeros().toPlainString();
+        // Double.toString gives shortest round-trip, but may use scientific notation.
+        // Convert to plain decimal form (no 'E').
+        String s = Double.toString(d);
+        if (!s.contains("E") && !s.contains("e")) {
+            return s;
+        }
+        // Has scientific notation — convert to plain decimal using BigDecimal(String)
+        // Note: new BigDecimal(String) is exact; new BigDecimal(double) introduces binary error.
+        return new java.math.BigDecimal(s).stripTrailingZeros().toPlainString();
     }
 
     /**
@@ -51,7 +83,9 @@ public final class GoFormat {
      */
     public static String formatG(double d) {
         if (d == 0) return "0";
-        if (Double.isInfinite(d) || Double.isNaN(d)) return Double.toString(d);
+        if (Double.isNaN(d)) return "NaN";
+        if (d == Double.POSITIVE_INFINITY) return "+Inf";
+        if (d == Double.NEGATIVE_INFINITY) return "-Inf";
 
         String s = Double.toString(d);
 
@@ -60,6 +94,17 @@ public final class GoFormat {
             int eIdx = s.indexOf('e');
             String mantissa = s.substring(0, eIdx);
             String expPart = s.substring(eIdx + 1);
+
+            // Parse exponent value
+            int expValue = Integer.parseInt(expPart);
+
+            // Go uses scientific when exponent < -4 OR integer part would have > 6 digits.
+            // In this branch, Java only gives scientific for exp <= -4 or exp >= 7.
+            // Only exp == -4 (and theoretically -3 to 5) should convert to decimal.
+            if (expValue >= -4 && expValue <= 5) {
+                return new java.math.BigDecimal(Double.toString(d)).stripTrailingZeros().toPlainString();
+            }
+
             if (mantissa.contains(".")) {
                 mantissa = mantissa.replaceAll("0+$", "").replaceAll("\\.$", "");
             }
@@ -88,14 +133,14 @@ public final class GoFormat {
             while (lastNonZero > 0 && allDigits.charAt(lastNonZero) == '0') lastNonZero--;
             allDigits = allDigits.substring(0, lastNonZero + 1);
             int exp = intPartLen - 1;
-            String mantissa;
+            String mantissaResult;
             if (allDigits.length() == 1) {
-                mantissa = allDigits;
+                mantissaResult = allDigits;
             } else {
-                mantissa = allDigits.charAt(0) + "." + allDigits.substring(1);
+                mantissaResult = allDigits.charAt(0) + "." + allDigits.substring(1);
             }
             String expStr = exp < 10 ? "0" + exp : String.valueOf(exp);
-            String result = mantissa + "e+" + expStr;
+            String result = mantissaResult + "e+" + expStr;
             return negative ? "-" + result : result;
         }
 
@@ -104,5 +149,47 @@ public final class GoFormat {
             s = s.replaceAll("0+$", "").replaceAll("\\.$", "");
         }
         return s;
+    }
+
+    /**
+     * Converts primitive arrays to Object arrays for sprint formatting.
+     */
+    private static Object[] toObjectArray(Object arr) {
+        if (arr instanceof Object[]) return (Object[]) arr;
+        if (arr instanceof int[]) {
+            int[] a = (int[]) arr;
+            Object[] result = new Object[a.length];
+            for (int i = 0; i < a.length; i++) result[i] = a[i];
+            return result;
+        }
+        if (arr instanceof long[]) {
+            long[] a = (long[]) arr;
+            Object[] result = new Object[a.length];
+            for (int i = 0; i < a.length; i++) result[i] = a[i];
+            return result;
+        }
+        if (arr instanceof double[]) {
+            double[] a = (double[]) arr;
+            Object[] result = new Object[a.length];
+            for (int i = 0; i < a.length; i++) result[i] = a[i];
+            return result;
+        }
+        if (arr instanceof float[]) {
+            float[] a = (float[]) arr;
+            Object[] result = new Object[a.length];
+            for (int i = 0; i < a.length; i++) result[i] = a[i];
+            return result;
+        }
+        if (arr instanceof boolean[]) {
+            boolean[] a = (boolean[]) arr;
+            Object[] result = new Object[a.length];
+            for (int i = 0; i < a.length; i++) result[i] = a[i];
+            return result;
+        }
+        // Fallback for other primitive array types
+        int len = java.lang.reflect.Array.getLength(arr);
+        Object[] result = new Object[len];
+        for (int i = 0; i < len; i++) result[i] = java.lang.reflect.Array.get(arr, i);
+        return result;
     }
 }

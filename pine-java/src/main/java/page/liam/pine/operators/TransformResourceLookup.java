@@ -37,7 +37,7 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
 
     @Override
     @SuppressWarnings("unchecked")
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (resourceProvider == null) {
             throw new IllegalStateException("transform_resource_lookup: no resource provider");
         }

@@ -8,7 +8,7 @@ public class ParallelExecutor {
 
     private ParallelExecutor() {}
 
-    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism) throws Exception {
+    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism) throws PineErrors.OperatorException {
         int total = input.itemCount();
         if (parallelism <= 1 || total == 0) {
             OperatorOutput output = new OperatorOutput();
@@ -58,9 +58,18 @@ public class ParallelExecutor {
                     OperatorOutput out = new OperatorOutput();
                     op.execute(shardToken, shard, out);
                     return out;
+                } catch (PineErrors.OperatorException e) {
+                    if (firstError.compareAndSet(null, e)) {
+                        shardToken.cancel();
+                    }
+                    return null;
+                } catch (RuntimeException e) {
+                    if (firstError.compareAndSet(null, e)) {
+                        shardToken.cancel();
+                    }
+                    return null;
                 } catch (Throwable t) {
-                    Exception ex = t instanceof Exception ? (Exception) t
-                            : new PineErrors.PanicError("parallel-shard", t);
+                    Exception ex = new PineErrors.PanicError("parallel-shard", t);
                     if (firstError.compareAndSet(null, ex)) {
                         shardToken.cancel();
                     }
@@ -85,6 +94,11 @@ public class ParallelExecutor {
                 if (out.getWarning() != null) {
                     merged.setWarning(out.getWarning());
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (firstError.compareAndSet(null, new PineErrors.OperatorException("parallel execution interrupted", e))) {
+                    shardToken.cancel();
+                }
             } catch (ExecutionException e) {
                 Exception cause = e.getCause() instanceof Exception
                         ? (Exception) e.getCause()
@@ -99,7 +113,14 @@ public class ParallelExecutor {
         }
 
         if (firstError.get() != null) {
-            throw firstError.get();
+            Exception err = firstError.get();
+            if (err instanceof PineErrors.OperatorException) {
+                throw (PineErrors.OperatorException) err;
+            }
+            if (err instanceof RuntimeException) {
+                throw (RuntimeException) err;
+            }
+            throw new PineErrors.OperatorException(err.getMessage(), err);
         }
         return merged;
     }

@@ -539,35 +539,154 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 | # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
 |---|--------|---------|-----------|----------|
-| H1 | 调度器 PanicError 身份保留 | `scheduler.go:197` — PanicError 直接作为 fatalErr，不包装 ExecutionError | `Engine.java:322` — 所有 exception 统一包装 ExecutionError，PanicError 身份丢失 | ⬜ |
-| H2 | ParallelExecutor shardToken 不继承 parent 取消 | `parallel.go:82` — `context.WithCancel(ctx)` 子级自动继承 | `ParallelExecutor.java:44,51` — shardToken 独立，已运行 shard 无法感知 parent 取消 | ⬜ |
-| H3 | Execute API 无外部取消能力 | `pine.go:180` — `Execute(ctx, req)` 接受调用方 context | `Engine.java:174` — `execute(Map, List)` 无 token 参数 | ⬜ |
-| H4 | ResourceAware 并发 data race | 资源通过 `context.Context` 传递，无共享可变状态 | `Engine.java:274-279` — 每次请求在共享实例上 setResourceProvider()，非 volatile 字段并发写 | ⬜ |
-| H5 | redis_set 非致命路径缺 SetWarning | `redis_set.go:147` — `out.SetWarning(...)` | `TransformRedisSet.java:108` — 仅 stderr，无 setWarning | ⬜ |
-| H6 | redis_set failOnError=true 缺前缀包装 | `redis_set.go:145` — `fmt.Errorf("transform_redis_set: ...")` | `TransformRedisSet.java:106` — 直接 `throw e` 无前缀 | ⬜ |
-| H7 | ValidationError 响应体 schema 不一致 | 返回完整结构 `{common:null, items:null, error:"..."}` | 返回精简 `{error:"..."}` | ⬜ |
-| H8 | /health 方法检查不一致 | 无方法检查，任何 method 返回 200 | 仅 GET，其余 405 | ⬜ |
+| H1 | 调度器 PanicError 身份保留 | `scheduler.go:197` — PanicError 直接作为 fatalErr，不包装 ExecutionError | `Engine.java:322` — 所有 exception 统一包装 ExecutionError，PanicError 身份丢失 | ✅ |
+| H2 | ParallelExecutor shardToken 不继承 parent 取消 | `parallel.go:82` — `context.WithCancel(ctx)` 子级自动继承 | `ParallelExecutor.java:44,51` — shardToken 独立，已运行 shard 无法感知 parent 取消 | ✅ |
+| H3 | Execute API 无外部取消能力 | `pine.go:180` — `Execute(ctx, req)` 接受调用方 context | `Engine.java:174` — `execute(Map, List)` 无 token 参数 | ✅ |
+| H4 | ResourceAware 并发 data race | 资源通过 `context.Context` 传递，无共享可变状态 | `Engine.java:274-279` — 每次请求在共享实例上 setResourceProvider()，非 volatile 字段并发写 | ✅ |
+| H5 | redis_set 非致命路径缺 SetWarning | `redis_set.go:147` — `out.SetWarning(...)` | `TransformRedisSet.java:108` — 仅 stderr，无 setWarning | ✅ |
+| H6 | redis_set failOnError=true 缺前缀包装 | `redis_set.go:145` — `fmt.Errorf("transform_redis_set: ...")` | `TransformRedisSet.java:106` — 直接 `throw e` 无前缀 | ✅ |
+| H7 | ValidationError 响应体 schema 不一致 | 返回完整结构 `{common:null, items:null, error:"..."}` | 返回精简 `{error:"..."}` | ✅ |
+| H8 | /health 方法检查不一致 | 无方法检查，任何 method 返回 200 | 仅 GET，其余 405 | ✅ 已接受 |
 
 #### 🟡 MEDIUM 严重度
 
 | # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
 |---|--------|---------|-----------|----------|
-| M1 | reorder_shuffle anyToString 整数值 float fast-path | `%g` 统一格式化 → `"1e+06"` | `Long.toString` fast-path → `"1000000"` | ⬜ |
-| M2 | validateSourcesOrder 错误类型 | → `*ValidationError` | → `PineErrors.ConfigError` | ⬜ |
-| M3 | validateDataParallel 错误类型 | → `*ValidationError` | → `IllegalArgumentException` | ⬜ |
-| M4 | ParallelExecutor Throwable 包装类型 | panic → `PanicError{stack}` | non-Exception Throwable → `ExecutionError` (应为 PanicError) | ⬜ |
-| M5 | /dag 端点格式验证缺失 | 无效 format → 返回错误 | 静默回退 DOT | ⬜ |
-| M6 | max_request_body_size intValue 截断 | int64 完整 | `intValue()` 截断后赋 long | ⬜ |
-| M7 | lastReloadDurationNs 初始值 | 保持 0（初始 load 不算 reload） | 设为初始加载耗时 | ⬜ |
-| M8 | PanicError 详细日志缺失 | server 用 `DetailedError()` 记录 stack | 不记录 | ⬜ |
-| M9 | execute 响应 JSON 字段顺序 | warnings→trace→error | warnings→error→trace | ⬜ |
+| M1 | reorder_shuffle anyToString 整数值 float fast-path | `%g` 统一格式化 → `"1e+06"` | `Long.toString` fast-path → `"1000000"` | ✅ |
+| M2 | validateSourcesOrder 错误类型 | → `*ValidationError` | → `PineErrors.ConfigError` | ✅ |
+| M3 | validateDataParallel 错误类型 | → `*ValidationError` | → `IllegalArgumentException` | ✅ |
+| M4 | ParallelExecutor Throwable 包装类型 | panic → `PanicError{stack}` | non-Exception Throwable → `ExecutionError` (应为 PanicError) | ✅ |
+| M5 | /dag 端点格式验证缺失 | 无效 format → 返回错误 | 静默回退 DOT | ✅ |
+| M6 | max_request_body_size intValue 截断 | int64 完整 | `intValue()` 截断后赋 long | ✅ |
+| M7 | lastReloadDurationNs 初始值 | 保持 0（初始 load 不算 reload） | 设为初始加载耗时 | ✅ |
+| M8 | PanicError 详细日志缺失 | server 用 `DetailedError()` 记录 stack | 不记录 | ✅ |
+| M9 | execute 响应 JSON 字段顺序 | warnings→trace→error | warnings→error→trace | ✅ |
 
 #### 🟢 LOW 严重度
 
 | # | 差异点 | 修复状态 |
 |---|--------|----------|
 | L1 | awaitWithCancel 5ms 轮询 vs ctx.Done O(1) | ⬜ 已接受（平台限制）|
-| L2 | fail_on_error 解析风格 (Boolean vs "true" string) | ⬜ |
+| L2 | fail_on_error 解析风格 (Boolean vs "true" string) | ✅ |
 | L3 | Lua 池回收策略差异 | ⬜ 已接受 |
 | L4 | Go writeJSON 尾部换行 | ⬜ 已接受 |
+
+### 第八轮决策
+
+所有 17 项已在 commit `65f3fd1` 中修复：
+- H1-H7, M1-M9, L2：修 Java
+- H8：已接受（Java 限 GET 更严格）
+- L1, L3, L4：已接受（平台差异）
+
+## 第九轮审计 (2026-05-15)
+
+### 第八轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 PanicError 身份保留 | ✓ 确认修复 |
+| H2 shardToken 继承 parent | ✓ 确认修复 |
+| H3 execute(CancellationToken) 重载 | ✓ 确认修复 |
+| H4 ResourceAware 注入时机 | ✓ 确认修复 |
+| H5/H6 redis_set warning+前缀 | ✓ 确认修复 |
+| H7 ValidationError 完整响应 | ⚠️ 修复了结构（common+items+error），但发现 null vs empty 差异（新 H5）和缺 "pine:" 前缀（新 H6）|
+| M1 anyToString fast-path | ✓ 确认修复 |
+| GoFormat.sprint ≥1e6 转科学记号 | ✓ 确认修复；但发现小数方向 [1e-4,1e-3) 仍有问题（新 H1）|
+
+### 新发现
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | GoFormat.formatG 小数科学记号阈值 [1e-4, 1e-3) | `%g(0.0001)` = `"0.0001"` (Go 仅 exponent < -4 用科学记号) | `Double.toString(0.0001)` = `"1.0E-4"` → 进入科学分支 → `"1e-04"` | ⬜ |
+| H2 | GoFormat.formatFloatF 非整数精度错误 | `FormatFloat(0.1,'f',-1,64)` = `"0.1"` (shortest round-trip) | `BigDecimal(0.1).toPlainString()` = `"0.1000...055..."` (exact binary) | ⬜ |
+| H3 | TransformRedisSet.toStringList 格式化 | `fmt.Sprint(nil)` = `"<nil>"`; `fmt.Sprint(1e6)` = `"1e+06"` | `String.valueOf(null)` = `"null"`; `String.valueOf(1e6)` = `"1000000.0"` | ⬜ |
+| H4 | Server: 畸形 JSON Body → 500 (应为 400) | JSON 解析失败 → 400 `{"error":"invalid request: ..."}` | `JsonProcessingException` 被 `catch(Exception)` → 500 | ⬜ |
+| H5 | Server: ValidationError 响应 common/items null vs empty | `{"common":null,"items":null,"error":"pine: ..."}` | `{"common":{},"items":[],"error":"..."}` | ⬜ |
+| H6 | 全局错误消息缺 "pine:" 前缀 | `"pine: validation error: ..."`, `"pine: execution error in ..."` | 无前缀，直接裸消息 | ⬜ |
+| H7 | Engine: allDone.await() 无超时保护 | context.Context 天然支持 timeout；goroutine select 快速退出 | `allDone.await()` 无限阻塞，算子挂起 → 线程永不返回 | ⬜ |
+| H8 | transform_by_lua: 无法中断单次 Lua 调用 | `L.SetContext(ctx)` 每条指令边界检查取消 | 仅 item 循环间隙检查 token；common 模式完全不检查 | ⬜ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | GoFormat.formatG: Infinity 格式 | `"+Inf"` / `"-Inf"` | `"Infinity"` / `"-Infinity"` | ⬜ |
+| M2 | GoFormat.sprint: List 格式 | `fmt.Sprint([]string{"a","b"})` = `"[a b]"` | `list.toString()` = `"[a, b]"` | ⬜ |
+| M3 | Server: /health 方法限制 | 接受任何 HTTP 方法 | 仅 GET，其他 405 | ⬜ |
+| M4 | reorder_sort 排序稳定性 | `sort.Slice` 不稳定 | `Arrays.sort` TimSort 稳定 | ⬜ |
+| M5 | awaitWithCancel 5ms 轮询延迟 | goroutine select 零延迟 | 每前驱完成后最多 5ms 延迟，深度 DAG 累加 | ⬜ |
+| M6 | 外部取消不能终止前驱等待 | `select {case <-ctx.Done()}` 立即退出 | awaitWithCancel 不检查外部 token | ⬜ |
+| M7 | PanicError 语义范围差异 | 所有 panic (含 NPE) → PanicError | 仅 Error → PanicError；RuntimeException → ExecutionError | ⬜ |
+| M8 | transform_by_remote_pineapple SSRF TOCTOU | DNS 检查在 TCP DialContext 层 | 检查与连接有时间窗口 | ⬜ |
+| M9 | transform_by_lua debug 日志泄漏 | 输出字段计数摘要 | 输出完整 common 数据 map | ⬜ |
+| M10 | Server: JSON 响应尾部 `\n` | `json.Encoder.Encode` 追加 `\n` | 无尾部换行 | ⬜ |
+| M11 | Server: /dag collapse 错误消息不一致 | 统一 `"collapse must be a non-negative integer"` | 两条独立路径，消息文本不同 | ⬜ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 修复状态 |
+|---|--------|----------|
+| L1 | transform_by_lua 沙箱多加载 PackageLib（入口已抹除） | ⬜ 已接受 |
+| L2 | transform_by_lua pool 关闭：Go 显式 close vs Java GC | ⬜ 已接受 |
+| L3 | observe_log JSON key 排序（Go 字母序 vs Java 插入序） | ⬜ |
+| L4 | observe_log 输出目标（Go log.Printf vs Java System.err） | ⬜ 已接受 |
+| L5 | ColumnFrame validateValue 错误不含字段名 | ⬜ |
+| L6 | applyOutput 错误消息缺上下文分层 | ⬜ |
+| L7 | transform_redis_set toStringList 对非 List 类型更宽松 | ⬜ |
+| L8 | Codegen __init__.py import 排序可能因 locale 不同 | ⬜ |
+| L9 | Codegen 控制字符 escape 格式微差 (`\x00` vs `\0`) | ⬜ |
+
+### 第九轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| H1 | 修 Java | formatG 检测 exponent=-4 时转回十进制 |
+| H2 | 修 Java | formatFloatF 改用 Double.toString + 剥离科学记号 |
+| H3 | 修 Java | toStringList 改用 GoFormat.sprint(elem) |
+| H4 | 修 Java | 加 catch JsonProcessingException → 400 |
+| H5 | 修 Java | ValidationError 路径 common=null, items=null |
+| H6 | 修 Java | 错误类型 getMessage() override 加 "pine:" 前缀 |
+| H7 | 修 Java | allDone.await → CompletableFuture（联动 M5/M6）|
+| H8 | 已接受 | LuaJ 平台限制，无指令级中断 |
+| M1 | 修 Java | Infinity → "+Inf"/"-Inf"；NaN → "NaN" |
+| M2 | 修 Java | List → "[a b]" 格式（空格分隔无逗号）|
+| M3 | 已接受 | Java 限 GET 更严格，无害 |
+| M4 | 已接受 | 排序稳定性不影响业务 |
+| M5 | 修 Java | 方案 1：CompletableFuture 替代 CountDownLatch，零延迟唤醒 |
+| M6 | 修 Java | 联动 M5，CompletableFuture.orTimeout + token check |
+| M7 | 修 Java | 方案 B：新增 OperatorException checked exception，改 Operator 接口签名，18 个算子 throws 声明；其余 RuntimeException → PanicError |
+| M8 | 已接受 | 平台限制（Java HttpClient 无 dial-time hook）|
+| M9 | 修 Java | debug 日志改为输出字段计数摘要，不泄漏数据 |
+| M10 | 已接受 | 尾部换行无实质影响 |
+| M11 | 修 Java | 统一为 "collapse must be a non-negative integer" |
+| L1-L9 | 暂不修 | 已接受或低优先级 |
+
+### 待修项汇总
+
+**修 Java 侧（14 项）：**
+
+格式化修复（H1/H2/M1/M2）：
+- GoFormat.formatG：小数 [1e-4,1e-3) 转十进制；Infinity→"+Inf"/"-Inf"
+- GoFormat.formatFloatF：BigDecimal → Double.toString 剥离科学记号
+- GoFormat.sprint：List 格式 "[a b]"（空格分隔）
+
+算子修复（H3/M9）：
+- TransformRedisSet.toStringList → GoFormat.sprint
+- TransformByLua debug 日志 → 字段计数摘要
+
+Server 修复（H4/H5/M11）：
+- catch JsonProcessingException → 400
+- ValidationError 路径 common=null, items=null
+- /dag collapse 错误消息统一
+
+错误体系重构（H6/M7）：
+- PineErrors 各类型加 "pine:" 前缀
+- 新增 OperatorException + 改 Operator 接口 + 18 算子 throws
+
+调度器重构（H7/M5/M6）：
+- CountDownLatch → CompletableFuture
+- 外部 token cancel 联动
+- allDone 超时保护
 

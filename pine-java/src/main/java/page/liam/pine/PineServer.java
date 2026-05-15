@@ -284,10 +284,12 @@ public class PineServer {
 
             sendResponse(exchange, result.error != null ? 500 : 200, resp);
 
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            sendResponse(exchange, 400, Map.of("error", "invalid request: " + e.getMessage()));
         } catch (IllegalArgumentException e) {
             Map<String, Object> errResp = new LinkedHashMap<>();
-            errResp.put("common", Collections.emptyMap());
-            errResp.put("items", Collections.emptyList());
+            errResp.put("common", null);
+            errResp.put("items", null);
             errResp.put("error", e.getMessage());
             sendResponse(exchange, 400, errResp);
         } catch (Exception e) {
@@ -339,11 +341,11 @@ public class PineServer {
                     else if ("collapse".equals(kv[0])) {
                         try { collapse = Integer.parseInt(kv[1]); }
                         catch (NumberFormatException e) {
-                            sendResponse(exchange, 400, Map.of("error", "invalid collapse value"));
+                            sendResponse(exchange, 400, Map.of("error", "collapse must be a non-negative integer"));
                             return;
                         }
                         if (collapse < 0) {
-                            sendResponse(exchange, 400, Map.of("error", "collapse must be >= 0"));
+                            sendResponse(exchange, 400, Map.of("error", "collapse must be a non-negative integer"));
                             return;
                         }
                     }

@@ -50,7 +50,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         String resultField = commonOutput.get(0);
         String cacheHitField = commonOutput.get(1);
 
@@ -97,11 +97,11 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
                     throw new IllegalArgumentException("transform_redis_get: unsupported data_type \"" + dataType + "\"");
             }
         } catch (IllegalArgumentException e) {
-            throw e;
+            throw new PineErrors.OperatorException(e.getMessage(), e);
         } catch (Exception e) {
             output.setWarning(e);
             if (failOnError) {
-                throw new RuntimeException("transform_redis_get: " + key + ": " + e.getMessage(), e);
+                throw new PineErrors.OperatorException("transform_redis_get: " + key + ": " + e.getMessage(), e);
             }
             output.setCommon(cacheHitField, false);
         }

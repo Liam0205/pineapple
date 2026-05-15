@@ -51,7 +51,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (pool == null) return;
 
         int n = commonInput.size();
@@ -100,10 +100,10 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                     throw new IllegalArgumentException("transform_redis_set: unsupported data_type \"" + dataType + "\"");
             }
         } catch (IllegalArgumentException e) {
-            throw e;
+            throw new PineErrors.OperatorException(e.getMessage(), e);
         } catch (Exception e) {
             if (failOnError) {
-                throw new RuntimeException("transform_redis_set: write key " + key + ": " + e.getMessage(), e);
+                throw new PineErrors.OperatorException("transform_redis_set: write key " + key + ": " + e.getMessage(), e);
             }
             System.err.printf("transform_redis_set: write key %s: %s%n", key, e.getMessage());
             output.setWarning(new Exception("transform_redis_set: write key " + key + ": " + e.getMessage(), e));
@@ -113,7 +113,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
     @SuppressWarnings("unchecked")
     private static List<String> toStringList(Object v) {
         if (v instanceof List) {
-            return ((List<?>) v).stream().map(String::valueOf).collect(Collectors.toList());
+            return ((List<?>) v).stream().map(GoFormat::sprint).collect(Collectors.toList());
         }
         return null;
     }
