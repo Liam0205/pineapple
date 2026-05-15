@@ -27,6 +27,9 @@ public final class GoFormat {
             if (v instanceof Long || v instanceof Integer) {
                 return Long.toString(((Number) v).longValue());
             }
+            if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
+                return "-0";
+            }
             if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e6) {
                 return Long.toString((long) d);
             }

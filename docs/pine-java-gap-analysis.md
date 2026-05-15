@@ -686,6 +686,62 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 - L2: Registry.buildOperator 包装 Init 异常为 RegistryError
 - L3: ValidateOutput 消息用首字母大写类型名 + 空格分隔 violations
 
+## 第十三轮审计 (2026-05-15)
+
+### 第十二轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| M1 type violation → OperatorException | ✓ 确认修复 |
+| L1 ParallelExecutor operatorName 参数 | ✓ 确认修复 |
+| L2 Registry.buildOperator Init → RegistryError | ✓ 确认修复 |
+| L3 ValidateOutput 消息格式对齐 | ✓ 确认修复 |
+
+### 全量复验摘要
+
+三组并行独立审计（Engine/调度器/Registry、全部 18 算子、Server/Codegen/Config/Frame）。**前轮全部修复项验证通过**，无回归。
+
+### 新发现
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | TransformResourceLookup 抛 IllegalStateException → PanicError | `resource_lookup.go:67-77` — `return fmt.Errorf(...)` → ExecutionError | `TransformResourceLookup.java:42,46,50` — `throw new IllegalStateException(...)` → PanicError | ✅ |
+| M2 | TransformRemotePineapple JSON unmarshal 绕过 handleError | `remote_pineapple.go:204` — unmarshal 错误经 `handleError` 尊重 failOnError | `TransformRemotePineapple.java:146` — 直接 `throw OperatorException`，忽略 failOnError=false | ✅ |
+| M3 | GoFormat.sprint(-0.0) 返回 "0" | Go `fmt.Sprint(float64(-0))` = `"-0"`（%g 保留符号位） | Java 整数快速路径 `d == Math.floor(d)` 拦截 → `Long.toString(0)` = `"0"` | ✅ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | 调度器缺 per-operator debug 日志 | Go `scheduler.go:231` 输出 `[pine-debug] operator=... duration=... input_size=... output_size=...`；Java 仅有 trace snapshot | ✅ |
+| L2 | TransformByLua 错误前缀 "lua error:" vs "lua:" | Go: `"lua: item[N]: msg"`；Java: `"lua error: msg"` | ✅ |
+| L3 | TransformRedisGet warning 消息格式 | Go: `"transform_redis_get: SMembers(key): err"` 结构化；Java: 传入原始 exception | ✅ |
+| L4 | TransformRedisSet 非 list 值静默跳过无日志 | Go `log.Printf("value for key X is not []string")`；Java 无输出 | ✅ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| Codegen float literal 外部 JSON 模式差异 | 仅影响外部 schema compat 模式，注册模式一致 |
+| Codegen string escape \x00 vs \0 | 均为合法 Python escape |
+| Server trace duration_ms 精度 | 亚微秒差异，实际不可观测 |
+| Server JSON 尾部换行 | 标准 JSON 解析器兼容 |
+| 各 Registry/Config 错误消息措辞差异 | 仅开发者可见，非 wire 格式 |
+
+### 第十三轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| M1 | 修 Java | TransformResourceLookup: 3x IllegalStateException → OperatorException |
+| M2 | 修 Java | TransformRemotePineapple: JSON unmarshal 错误走 handleError 尊重 failOnError |
+| M3 | 修 Java | GoFormat.sprint: 整数快速路径前添加 -0.0 检测 |
+| L1 | 修 Java | Engine: 添加 per-operator debug 日志 (duration/input_size/output_size/JSON) |
+| L2 | 修 Java | TransformByLua: 错误前缀 "lua error:" → "lua:" |
+| L3 | 修 Java | TransformRedisGet: warning 消息结构化 (SMembers/LRange/Get + key) |
+| L4 | 修 Java | TransformRedisSet: set/list case 非列表值增加 stderr 日志 |
+
 ## 第八轮审计 (2026-05-15)
 
 ### 第七轮修复复验

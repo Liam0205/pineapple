@@ -66,7 +66,10 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
             switch (dataType) {
                 case "set": {
                     List<String> members = toStringList(value);
-                    if (members == null || members.isEmpty()) return;
+                    if (members == null || members.isEmpty()) {
+                        if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
+                        return;
+                    }
                     Pipeline pipe = jedis.pipelined();
                     pipe.del(key);
                     pipe.sadd(key, members.toArray(new String[0]));
@@ -76,7 +79,10 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                 }
                 case "list": {
                     List<String> members = toStringList(value);
-                    if (members == null || members.isEmpty()) return;
+                    if (members == null || members.isEmpty()) {
+                        if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
+                        return;
+                    }
                     Pipeline pipe = jedis.pipelined();
                     pipe.del(key);
                     pipe.rpush(key, members.toArray(new String[0]));

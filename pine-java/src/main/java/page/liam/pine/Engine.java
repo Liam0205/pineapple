@@ -360,6 +360,12 @@ public class Engine {
                     Map<String, Object> outputSnapshot = null;
                     if (opCfg.debug) {
                         outputSnapshot = snapshotOutput(output);
+                        int inputSize = input.itemCount();
+                        int outputSize = inputSize + output.getAddedItems().size() - output.getRemovedItems().size();
+                        String inputJson = inputSnapshot != null ? toJson(inputSnapshot) : "{}";
+                        String outputJson = toJson(outputSnapshot);
+                        System.err.printf("[pine-debug] operator=\"%s\" duration=%s input_size=%d output_size=%d input=%s output=%s%n",
+                                cop.name, formatDuration(duration), inputSize, outputSize, inputJson, outputJson);
                     }
 
                     // Apply output
@@ -516,6 +522,23 @@ public class Engine {
             snap.put("removed_items", new ArrayList<>(out.getRemovedItems()));
         }
         return snap;
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper debugMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private static String toJson(Object obj) {
+        try {
+            return debugMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return String.valueOf(obj);
+        }
+    }
+
+    private static String formatDuration(long nanos) {
+        if (nanos < 1_000_000) {
+            return (nanos / 1000.0) + "µs";
+        }
+        return (nanos / 1_000_000.0) + "ms";
     }
 
     // --- Inner types ---

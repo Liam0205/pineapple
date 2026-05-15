@@ -104,7 +104,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 executeForCommon(globals, input, output);
             }
         } catch (LuaError e) {
-            throw new PineErrors.OperatorException("lua error: " + e.getMessage(), e);
+            throw new PineErrors.OperatorException("lua: " + e.getMessage(), e);
         } catch (PineErrors.OperatorException e) {
             throw e;
         } catch (Exception e) {
