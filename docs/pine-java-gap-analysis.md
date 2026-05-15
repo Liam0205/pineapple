@@ -970,3 +970,48 @@ Server 修复（H4/H5/M11）：
 | M4 | 修 Java | Engine.applyOutput: 去掉多余 OperatorException 包装层 |
 | 附带 | 修 Java | RecallResource: 错误消息加 item 索引和实际类型 |
 | 附带 | 修 Java | TransformRedisGet: failOnError 错误消息加 Redis 命令名 |
+
+## 第十五轮审计 (2026-05-15)
+
+### 第十四轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 GoFormat.formatFloatF(-0.0) | ✓ rawLongBits 检查在快捷路径前 |
+| M1 ReorderSort 错误消息上下文 | ✓ 含算子前缀+索引+字段名 |
+| M2 TransformRedisSet 异常类型 | ✓ OperatorException |
+| M3 TransformByLua debug nonNil | ✓ 仅遍历 commonInput |
+| M4 Engine.applyOutput 包装层级 | ✓ 单层包装 |
+| RecallResource 错误消息 | ✓ 含 item 索引+类型 |
+| TransformRedisGet failOnError 命令名 | ✓ 含 SMembers/LRange/Get |
+
+### 全量复验摘要
+
+三组并行独立审计（Engine/GoFormat/Registry、全部 18 算子、Server/Codegen/Config/Frame）。**前轮全部修复项验证通过**，无回归。execute() 路径 OperatorException 迁移已完成。
+
+### 新发现
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | GoFormat.formatFloatF(±Infinity) | `strconv.FormatFloat(+Inf,'f',-1,64)` = `"+Inf"` | `Double.toString(Infinity)` = `"Infinity"` (`GoFormat.java:75`) | ⬜ |
+| M2 | TransformNormalize 错误消息缺上下文 | `"transform_normalize: item[%d].%s: %w"` (`normalize.go:67`) | `"cannot convert ... to double"` 无算子前缀/索引/字段名 (`TransformNormalize.java:40,60`) | ⬜ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| Server /execute ValidationError 响应字段集 | Go omitempty 也省略空字段，wire 等效 |
+| TransformRedisSet failOnError=true 日志行为 | Go 额外 log.Printf，仅影响日志 |
+| TransformRedisSet/RemotePineapple setWarning 异常类型 | Go error vs Java Exception/RuntimeException，消息等效 |
+| Registry/Config 消息文本措辞 | 开发者可见，非 wire 格式 |
+| trace duration_ms 精度 | 亚微秒差异不可观测 |
+| Codegen string escape | 均为合法 Python escape |
+
+### 第十五轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| M1 | 暂不修 | formatFloatF Infinity 路径遗漏 |
+| M2 | 暂不修 | TransformNormalize 同 R14 ReorderSort 模式 |
