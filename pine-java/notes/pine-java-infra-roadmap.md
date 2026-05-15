@@ -117,14 +117,15 @@ Engine engine = Engine.create(jsonConfig);
 
 ## 优先级
 
-| 优先级 | 事项 | 理由 |
-|--------|------|------|
-| P0 | 版本同步 + bump 脚本覆盖 Java | 发版前置条件 |
-| P0 | 发版管线（GitHub Packages → release.yml） | 没有 artifact 其他一切无意义 |
-| P1 | Server handler 测试 + Integration E2E | 当前 Java 测试仅覆盖 fixture，server 层零覆盖 |
-| P1 | Coverage artifact (Jacoco) | 与 Go 侧对等的质量可见性 |
-| P2 | 丰富 fixture（错误路径 + 边界值 + GoFormat） | 加强 cross-validation 信心 |
-| P2 | 输出字节级 cross-validation | 从"各自通过"升级为"产出一致" |
-| P3 | Java lint (spotbugs/checkstyle) | 代码质量基线 |
-| P3 | Fuzz (Jazzer) | Go 有 4 个 target，Java 至少覆盖 Config 解析 |
-| P3 | 端到端下游示例 | Apple DSL → JSON → Java Engine |
+| 优先级 | 事项 | 状态 | 理由 |
+|--------|------|------|------|
+| P0 | 版本同步 + bump 脚本覆盖 Java | ✅ 完成 | 发版前置条件 |
+| P0 | 发版管线（GitHub Packages → release.yml） | ✅ 完成 | 没有 artifact 其他一切无意义 |
+| P1 | Server handler 测试 + Integration E2E | ✅ 完成 | 当前 Java 测试仅覆盖 fixture，server 层零覆盖 |
+| P1 | Coverage artifact (Jacoco) | ✅ 完成 | 与 Go 侧对等的质量可见性 |
+| P2 | 丰富 fixture（错误路径 + 边界值 + GoFormat） | ✅ 完成 | 加强 cross-validation 信心 |
+| P2 | 输出字节级 cross-validation | — | 从"各自通过"升级为"产出一致"（未纳入本轮） |
+| P3 | Java lint (checkstyle) | ✅ 完成 | 代码质量基线 |
+| P3 | Fuzz (Jazzer) | ✅ 完成 | Go 有 4 个 target，Java 3 个（Config/DAG/Engine） |
+| P3 | 端到端下游示例 | ✅ 完成 | QuickStart.java |
+| — | CI concurrency control | ✅ 完成 | 同分支前序 run 自动取消 |
