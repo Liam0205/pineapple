@@ -9,6 +9,14 @@ import redis.clients.jedis.Pipeline;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Operator: transform_redis_set
+ * Metadata contract
+ *   CommonInput:  [<key_suffix_fields...>, <value_field>]
+ *   CommonOutput: []
+ *   ItemInput:    []
+ *   ItemOutput:   []
+ */
 public class TransformRedisSet extends AbstractOperator implements ConcurrentSafe {
     private JedisPool pool;
     private String keyPrefix;

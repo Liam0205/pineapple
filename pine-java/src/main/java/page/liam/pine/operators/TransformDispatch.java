@@ -7,6 +7,14 @@ import page.liam.pine.OperatorOutput;
 
 import java.util.Map;
 
+/**
+ * Operator: transform_dispatch
+ * Metadata contract
+ *   CommonInput:  [<common_field>]
+ *   CommonOutput: []
+ *   ItemInput:    []
+ *   ItemOutput:   [<item_field>]
+ */
 public class TransformDispatch extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
     @Override
     public void init(Map<String, Object> params) {}

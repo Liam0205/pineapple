@@ -7,6 +7,14 @@ import page.liam.pine.OperatorOutput;
 
 import java.util.Map;
 
+/**
+ * Operator: filter_truncate
+ * Metadata contract
+ *   CommonInput:  []
+ *   CommonOutput: []
+ *   ItemInput:    []
+ *   ItemOutput:   []
+ */
 public class FilterTruncate extends AbstractOperator {
     private long topN;
 

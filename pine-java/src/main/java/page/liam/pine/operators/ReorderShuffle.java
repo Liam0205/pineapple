@@ -5,6 +5,14 @@ import page.liam.pine.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+/**
+ * Operator: reorder_shuffle_by_salt
+ * Metadata contract
+ *   CommonInput:  [<salt_fields...>]
+ *   CommonOutput: []
+ *   ItemInput:    [<item_key_field>]
+ *   ItemOutput:   []
+ */
 public class ReorderShuffle extends AbstractOperator {
 
     @Override
@@ -39,7 +47,7 @@ public class ReorderShuffle extends AbstractOperator {
         Arrays.sort(indices, (a, b) -> {
             int cmp = Double.compare(ranks[a], ranks[b]);
             if (cmp != 0) return cmp;
-            return Long.compare(ids[a], ids[b]);
+            return Long.compareUnsigned(ids[a], ids[b]);
         });
 
         List<Integer> order = new ArrayList<>(n);
