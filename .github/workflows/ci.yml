@@ -30,6 +30,10 @@ on:
       - "LICENSE"
       - "README.md"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != 'master' }}
+
 jobs:
   go-lint:
     runs-on: ubuntu-latest
@@ -49,6 +53,20 @@ jobs:
           python-version: "3.13"
       - run: pip install ruff
       - run: ruff check apple/
+
+  java-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pine-java
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+      - run: mvn checkstyle:check -B
 
   go-test:
     runs-on: ubuntu-latest
