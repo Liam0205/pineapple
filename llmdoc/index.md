@@ -12,7 +12,7 @@
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`、`debug`）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）、Pine-Java 完整功能对等描述（18 算子、Option pattern、ColumnFrame、结构化错误、CancellationToken 取消传播、DebugAware/MetricsAware 注入、Lua 池化沙箱 baseline snapshot/restore、GoFormat 跨运行时格式兼容、Server/Codegen、Javadoc metadata contract 解析）。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`、`debug`）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）、Pine-Java 完整功能对等描述（18 算子、Option pattern、ColumnFrame、结构化错误、CancellationToken 取消传播、DebugAware/MetricsAware 注入、Lua 池化沙箱 baseline snapshot/restore、GoFormat 跨运行时格式兼容、Server/Codegen、ResourceRegistry codegen-time schema 导出、Javadoc metadata contract 解析）。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
 
 ## guides/
@@ -64,3 +64,4 @@
 - `llmdoc/memory/reflections/pine-java-full-implementation.md` — Pine-Java 从零到 Schema 独立的完整实现复盘，记录双独立源决策、cancelLatch 模式、命名延迟成本、三层交叉验证架构。
 - `llmdoc/memory/reflections/pine-java-audit-parity-rounds-3-4.md` — Pine-Java 第三/四轮 Go-parity 审计复盘，记录 CancellationToken、DebugAware/MetricsAware 注入、NopProvider、Lua pool 目标清理策略、"accepted design difference"流程教训。
 - `llmdoc/memory/reflections/pine-java-audit-round5-fixes.md` — Pine-Java 第五轮（最终）Go-parity 审计复盘，记录 34 项差异处理（20 fix Java/3 fix Go/9 accepted/5 platform）、Lua pool baseline snapshot 策略演进、GoFormat 跨算子抽象、独立重审发现第四轮回归的教训。
+- `llmdoc/memory/reflections/pine-java-audit-round6-fixes.md` — Pine-Java 第六轮 Go-parity 审计复盘，记录 19 项差异处理（14 fix Java/3 fix Go/2 accepted）、GoFormat 统一为跨算子格式化单一事实源、ResourceRegistry codegen-time 模式、前轮"已验证"项回归教训。
