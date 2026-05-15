@@ -136,18 +136,18 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         List<Map<String, Object>> respItems = (List<Map<String, Object>>) result.getOrDefault("items", Collections.emptyList());
 
         for (int i = 0; i < commonOutput.size() && i < cResp.size(); i++) {
-            Object val = respCommon.get(cResp.get(i));
-            if (val != null) {
-                output.setCommon(commonOutput.get(i), val);
+            String remoteField = cResp.get(i);
+            if (respCommon.containsKey(remoteField)) {
+                output.setCommon(commonOutput.get(i), respCommon.get(remoteField));
             }
         }
 
         for (int j = 0; j < input.itemCount() && j < respItems.size(); j++) {
             Map<String, Object> respItem = respItems.get(j);
             for (int i = 0; i < itemOutput.size() && i < iResp.size(); i++) {
-                Object val = respItem.get(iResp.get(i));
-                if (val != null) {
-                    output.setItem(j, itemOutput.get(i), val);
+                String remoteField = iResp.get(i);
+                if (respItem.containsKey(remoteField)) {
+                    output.setItem(j, itemOutput.get(i), respItem.get(remoteField));
                 }
             }
         }

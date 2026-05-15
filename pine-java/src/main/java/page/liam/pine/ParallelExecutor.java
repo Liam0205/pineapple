@@ -50,9 +50,17 @@ public class ParallelExecutor {
         for (OperatorInput shard : shards) {
             futures.add(pool.submit(() -> {
                 if (cancelled.get()) return null;
-                OperatorOutput out = new OperatorOutput();
-                op.execute(shard, out);
-                return out;
+                try {
+                    OperatorOutput out = new OperatorOutput();
+                    op.execute(shard, out);
+                    return out;
+                } catch (Throwable t) {
+                    if (firstError.compareAndSet(null, t instanceof Exception ? (Exception) t
+                            : new RuntimeException("panic in shard", t))) {
+                        cancelled.set(true);
+                    }
+                    return null;
+                }
             }));
         }
 

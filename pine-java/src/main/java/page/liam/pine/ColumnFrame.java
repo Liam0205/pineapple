@@ -116,6 +116,7 @@ public class ColumnFrame implements Frame {
         try {
             // 1. Common writes
             for (Map.Entry<String, Object> entry : out.getCommonWrites().entrySet()) {
+                validateValue(entry.getValue());
                 common.put(entry.getKey(), entry.getValue());
             }
 
@@ -128,6 +129,7 @@ public class ColumnFrame implements Frame {
                 for (Map.Entry<String, Object> fe : entry.getValue().entrySet()) {
                     String field = fe.getKey();
                     Object value = fe.getValue();
+                    validateValue(value);
                     Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
                     if (col.length < rowCount) {
                         col = Arrays.copyOf(col, rowCount);
@@ -265,5 +267,15 @@ public class ColumnFrame implements Frame {
         } finally {
             rwLock.readLock().unlock();
         }
+    }
+
+    private static void validateValue(Object v) {
+        if (v == null) return;
+        if (v instanceof String) return;
+        if (v instanceof Number) return;
+        if (v instanceof Boolean) return;
+        if (v instanceof Map) return;
+        if (v instanceof List) return;
+        throw new RuntimeException("unsupported value type: " + v.getClass().getName());
     }
 }

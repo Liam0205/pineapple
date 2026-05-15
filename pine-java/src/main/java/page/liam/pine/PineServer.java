@@ -61,7 +61,7 @@ public class PineServer {
 
     public void start() throws Exception {
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
-        loadConfig(configData);
+        loadConfig(configData); // initial load — not counted as reload
 
         httpServer = HttpServer.create(new InetSocketAddress(port), 0);
         httpServer.setExecutor(Executors.newFixedThreadPool(
@@ -131,7 +131,7 @@ public class PineServer {
             watcherExecutor.shutdownNow();
         }
         if (httpServer != null) {
-            httpServer.stop(5);
+            httpServer.stop(5); // waits up to 5s for in-flight exchanges to complete
         }
     }
 
@@ -140,13 +140,20 @@ public class PineServer {
         ResourceManager rm = new ResourceManager();
         rm.loadFromConfig(configData);
         rm.start();
-
-        Engine engine = Engine.create(configData, rm);
-        Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
-        if (old != null && old.resources instanceof ResourceManager) {
-            ((ResourceManager) old.resources).stop();
+        try {
+            Engine engine = Engine.create(configData, rm);
+            Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
+            if (old != null && old.resources instanceof ResourceManager) {
+                ((ResourceManager) old.resources).stop();
+            }
+        } catch (Exception e) {
+            rm.stop();
+            throw e;
         }
         lastReloadDurationNs = System.nanoTime() - start;
+    }
+
+    private void recordReload() {
         reloadCount.incrementAndGet();
         if (reloadTotal != null) {
             reloadTotal.inc();
@@ -163,6 +170,7 @@ public class PineServer {
                 lastModified = mod;
                 byte[] data = Files.readAllBytes(Paths.get(configPath));
                 loadConfig(data);
+                recordReload();
             }
         } catch (Exception e) {
             reloadErrorCount.incrementAndGet();
@@ -179,6 +187,8 @@ public class PineServer {
         sendResponse(exchange, 200, Map.of("status", "ok"));
     }
 
+    private static final int MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
+
     private void handleExecute(HttpExchange exchange) throws IOException {
         if (!"POST".equals(exchange.getRequestMethod())) {
             sendResponse(exchange, 405, Map.of("error", "method not allowed"));
@@ -193,6 +203,10 @@ public class PineServer {
 
         try {
             byte[] body = exchange.getRequestBody().readAllBytes();
+            if (body.length > MAX_REQUEST_BODY_BYTES) {
+                sendResponse(exchange, 413, Map.of("error", "request body too large"));
+                return;
+            }
             Map<String, Object> req = mapper.readValue(body, new TypeReference<>() {});
 
             @SuppressWarnings("unchecked")
@@ -207,12 +221,9 @@ public class PineServer {
             resp.put("items", result.items);
 
             if (result.warnings != null && !result.warnings.isEmpty()) {
-                List<Map<String, Object>> warnList = new ArrayList<>();
+                List<String> warnList = new ArrayList<>();
                 for (Engine.Warning w : result.warnings) {
-                    Map<String, Object> wm = new LinkedHashMap<>();
-                    wm.put("operator", w.operator);
-                    wm.put("message", w.err.getMessage());
-                    warnList.add(wm);
+                    warnList.add(w.err.getMessage());
                 }
                 resp.put("warnings", warnList);
             }
@@ -223,7 +234,7 @@ public class PineServer {
                 for (OpTrace t : result.trace) {
                     Map<String, Object> tm = new LinkedHashMap<>();
                     tm.put("name", t.name);
-                    tm.put("duration_ns", t.durationNs);
+                    tm.put("duration_ms", t.durationNs / 1_000_000.0);
                     tm.put("skipped", t.skipped);
                     traceList.add(tm);
                 }
@@ -279,7 +290,11 @@ public class PineServer {
                 if (kv.length == 2) {
                     if ("format".equals(kv[0])) format = kv[1];
                     else if ("collapse".equals(kv[0])) {
-                        try { collapse = Integer.parseInt(kv[1]); } catch (NumberFormatException ignored) {}
+                        try { collapse = Integer.parseInt(kv[1]); }
+                        catch (NumberFormatException e) {
+                            sendResponse(exchange, 400, Map.of("error", "invalid collapse value"));
+                            return;
+                        }
                     }
                 }
             }

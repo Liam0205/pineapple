@@ -105,9 +105,61 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 13. #12 TransformByLua 沙箱
 14. #13 ReorderSort 稳定性 — **不修复**（引擎不依赖排序稳定性假设）
 
+## 第三轮深度审计 (2026-05-15)
+
+前两轮差异已全部修复验证（10/10 verified）。以下为第三轮逐文件对比发现的新差异。
+
+### 🔴 HIGH 严重度（wire 不兼容或正确性影响）
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| 1 | merge_dedup key 比较语义 | `map[any]struct{}` 原生类型相等（type+value） | `String.valueOf(key)` 字符串化比较 — int(1) 和 float(1.0) 可能不同 | ✅ normalizeKey → Double |
+| 2 | /execute trace duration 字段 | `duration_ms` (float64, 毫秒) | `duration_ns` (long, 纳秒) — wire 不兼容 | ✅ |
+| 3 | /execute warnings 格式 | `[]string` 平铺字符串 | `[{operator, message}]` 结构化对象 — wire 不兼容 | ✅ |
+| 4 | HTTP body size 无上限 | `MaxBytesReader` 10MB 默认 | 无限制 readAllBytes() — OOM 风险 | ✅ 10MB 限制 |
+| 5 | HTTP 超时缺失 | Read/Write/Idle timeout 可配 | com.sun.net.httpserver 无超时 — slowloris | ⬜ 平台限制 |
+| 6 | Item input 契约校验缺失 | Execute 前校验 item 字段满足 contract.ItemInput | 不校验，缺失字段静默通过 | ✅ |
+
+### 🟡 MEDIUM 严重度（功能/安全差异）
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| 7 | remote_pineapple null 传播 | key 存在即写入（含 null 值） | `val != null` 才写入 — 显式 null 丢失 | ✅ containsKey |
+| 8 | redis_get null key suffix | `fmt.Sprint(nil)` → `"<nil>"` | `v != null ? v : ""` → 空串 — 命中不同 key | ✅ sprintValue |
+| 9 | reorder_shuffle float 格式 | `%g` (如 `1e+08`) | `Double.toString` (如 `1.0E8`) — 大数哈希不同 | ✅ formatFloatG |
+| 10 | Lua sandbox 松散 | SkipOpenLibs+仅 base/table/string/math | standardGlobals() 减法 — coroutine 等残留 | ✅ 白名单模式 |
+| 11 | Lua context 取消 | `L.SetContext(ctx)` 指令边界中断 | LuaJ 无 context — 死循环无法取消 | ⬜ 平台限制 |
+| 12 | ParallelExecutor panic 恢复 | 每 shard 有 panic recovery | 不 catch Error，shard Error 崩溃 ForkJoinPool | ✅ catch Throwable |
+| 13 | ColumnFrame validateValue | 写入时校验值类型合法性 | 无校验 — 可存不可序列化 Object | ✅ |
+| 14 | trace 缺 input/output 快照 | 包含 input_snapshot + output_snapshot | 只有 name/duration/skipped | ⬜ debug-only 功能，后续增强 |
+| 15 | graceful shutdown | Shutdown(ctx) 等待 in-flight 完成 | shutdownNow() 直接杀线程 | ✅ stop(5) 已等待 |
+| 16 | /dag collapse 参数校验 | 非法值返回 400 | parseInt 失败静默 collapse=0 | ✅ |
+| 17 | reload 失败资源泄漏 | 新 RM 失败时 Stop() | exception 后已 start 的 RM 无 finally stop | ✅ try-finally |
+| 18 | reloadCount 语义 | 首次加载不计入 reload | 首次 loadConfig 使 reloadCount=1 | ✅ |
+| 19 | cancelLatch 5ms 延迟 | context.Cancel() 立即唤醒 | polling awaitWithCancel 5ms 周期 | ⬜ 平台限制 |
+
+### 🟢 LOW 严重度（次要差异）
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| 20 | recall_static init 校验 | Go Init 时验证 items 类型；Java 延迟到 Execute | ⬜ |
+| 21 | filter_truncate topN 宽度 | Go int64；Java int (2^31) | ⬜ |
+| 22 | filter_condition null 格式 | Go `<nil>` vs Java `"null"` — 内部一致但跨运行时不同 | ⬜ |
+| 23 | redis_set 多余参数 | Java 有 fail_on_error 但 Go Schema 无 | ⬜ |
+| 24 | Schema type 字符串 | redis_db/ttl: Go `"int"` vs Java `"int64"` | ⬜ |
+| 25 | exportSchemaJSON key case | Go PascalCase, Java lowercase | ⬜ |
+| 26 | Codegen 模板差异 | `_apply` vs `_build`；kwargs 差异 | ⬜ |
+| 27 | buildOperator 空 Schema bypass | Java 对无 params 算子跳过校验 | ⬜ |
+| 28 | observe_log 输出目标 | Go log.Printf；Java System.out.printf | ⬜ |
+| 29 | EngineMetrics nil 风格 | Go Nop provider；Java null+条件检查 | ⬜ |
+| 30 | logOnce 缺失 | Go sync.Once；Java 无幂等保护 | ⬜ |
+| 31 | ResourceProvider.Get 语义 | Go (any,bool)；Java nullable 无法区分 nil vs 不存在 | ⬜ |
+
 ## 技术说明
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ
 - Go Server 基于 net/http 支持完整 middleware 链和超时；Java 用 JDK 内置 com.sun.net.httpserver
 - ColumnFrame 的 presence bitmap 用于区分 "字段不存在" vs "字段 = nil"
 - transform_by_remote_pineapple 包含完整 SSRF 防护 (私有 IP 检测, 安全拨号)
 - 结构化错误中 PanicError 区分 public Error() 和 DetailedError() (含 stack)
+- merge_dedup 在 Go 中利用 map[any] 的原生类型相等性；Java 需特殊处理以保持语义一致
+- /execute 响应格式（duration 单位、warnings 结构）是跨运行时客户端兼容性的关键契约点

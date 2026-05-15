@@ -22,13 +22,17 @@ public class MergeDedup extends AbstractOperator {
         String dedupBy = itemInput.get(0);
         Set<Object> seen = new LinkedHashSet<>();
         for (int i = 0; i < input.itemCount(); i++) {
-            Object key = input.item(i, dedupBy);
-            String keyStr = String.valueOf(key);
-            if (seen.contains(keyStr)) {
+            Object key = normalizeKey(input.item(i, dedupBy));
+            if (seen.contains(key)) {
                 output.removeItem(i);
             } else {
-                seen.add(keyStr);
+                seen.add(key);
             }
         }
+    }
+
+    private static Object normalizeKey(Object v) {
+        if (v instanceof Number) return ((Number) v).doubleValue();
+        return v;
     }
 }

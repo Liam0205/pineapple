@@ -167,6 +167,18 @@ public class Engine {
             }
         }
 
+        if (items != null && !items.isEmpty() && !contract.itemInput.isEmpty()) {
+            for (int i = 0; i < items.size(); i++) {
+                Map<String, Object> item = items.get(i);
+                for (String field : contract.itemInput) {
+                    if (!item.containsKey(field)) {
+                        throw new PineErrors.ValidationError(
+                                "item[" + i + "] missing required item input field \"" + field + "\"");
+                    }
+                }
+            }
+        }
+
         Frame frame = Frame.create(storageMode, common, items);
         int n = operators.size();
 

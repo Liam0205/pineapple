@@ -6,6 +6,7 @@ import page.liam.pine.metrics.Gauge;
 import org.luaj.vm2.*;
 import org.luaj.vm2.lib.*;
 import org.luaj.vm2.lib.jse.JsePlatform;
+import org.luaj.vm2.compiler.LuaC;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -126,14 +127,16 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     private static Globals createSandboxedGlobals() {
-        Globals globals = JsePlatform.standardGlobals();
-        // Remove dangerous functions (sandbox)
+        Globals globals = new Globals();
+        globals.load(new org.luaj.vm2.lib.BaseLib());
+        globals.load(new org.luaj.vm2.lib.PackageLib());
+        globals.load(new org.luaj.vm2.lib.TableLib());
+        globals.load(new org.luaj.vm2.lib.StringLib());
+        globals.load(new org.luaj.vm2.lib.MathLib());
+        LuaC.install(globals);
+        // Remove dangerous functions that BaseLib provides
         globals.set("dofile", LuaValue.NIL);
         globals.set("loadfile", LuaValue.NIL);
-        globals.set("io", LuaValue.NIL);
-        globals.set("os", LuaValue.NIL);
-        globals.set("luajava", LuaValue.NIL);
-        globals.set("debug", LuaValue.NIL);
         globals.set("require", LuaValue.NIL);
         globals.set("package", LuaValue.NIL);
         return globals;
