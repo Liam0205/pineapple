@@ -338,6 +338,77 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 **平台限制（5 项）：** #22-26
 
+## 第六轮审计 (2026-05-15)
+
+第五轮修复后全面独立重审。三个维度并行审计（Engine/DataFrame/Runtime、18 算子、Server/Codegen/Registry/Resource）。发现 19 项差异（含 5 项 HIGH）。
+
+### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| 1 | globalDebug 单向覆盖 | `WithDebug(false)` 覆盖所有算子为 false | `if (globalDebug && !opCfg.debug)` 仅 false→true | ⬜ |
+| 2 | filter_condition 大浮点格式 (>=1e15) | `%v` → `"1e+20"` | `Double.toString(1e20)` → `"1.0E20"` | ⬜ |
+| 3 | Registry.all() 排序 | 按名称字母序 | 按注册插入序 (LinkedHashMap) | ⬜ |
+| 4 | Codegen `__init__.py` 格式 | `—` (em dash) + 尾逗号 | `--` (double dash) + 无尾逗号 | ⬜ |
+| 5 | statusBucket >=600 | `code >= 500` → `"5xx"` 含 600+ | `[500,600)` → `"5xx"`，>=600 → `"other"` | ⬜ |
+
+### 🟡 MEDIUM 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| 6 | MetricsAware 注入条件 | Java `provider != null` 才注入；Go 始终注入 (NopProvider) | ⬜ |
+| 7 | applyOutput error duration | Go 不含 apply 时间；Java 含 apply 时间 | ⬜ |
+| 8 | TransformByLua Init 校验函数 | Go 延迟到 Execute；Java 在 Init 校验函数存在性 | ⬜ |
+| 9 | Codegen float 默认值格式化 | Go `%g`（6 位）；Java `Double.toString`（完整精度）| ⬜ |
+| 10 | reorder_shuffle anyToString | Go `%g`；Java 自实现 formatFloatG 基于 Double.toString 转换 | ⬜ |
+| 11 | Registry.Register 类型校验 | Go 校验 IsValidOperatorType 且 panic；Java 仅检查 null | ⬜ |
+| 12 | Codegen string escape 覆盖 | Go `%q` 全 Unicode；Java 仅 8 种显式转义 | ⬜ |
+| 13 | reload Histogram 桶 | Go 8 桶 [0.001..5.0]；Java reload histogram 传 null | ⬜ |
+| 14 | DAGVisualizer sanitizeMermaidID | Go 仅替换 `-.` 和空格；Java 替换全部非字母数字字符 | ⬜ |
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| 15 | OpTrace startTime 类型 | Go `time.Time` 绝对时间 vs Java `nanoTime` 相对 | ⬜ |
+| 16 | validateSourcesOrder 异常类型 | Java 用 IllegalArgumentException 非 ConfigError | ⬜ |
+| 17 | Codegen operators.py 空行/注释措辞 | 微差 | ⬜ |
+| 18 | Codegen resources.py 生成条件 | Go 当有资源时生成；Java 需 CLI 参数指定 | ⬜ |
+| 19 | ResourceManager.Stop 可重用 | Java 重置 started=false（可 restart）；Go 不重置 | ⬜ |
+
+### 之前已登记/已接受项复验
+
+| 项 | 原状态 | 复验结果 |
+|---|--------|---------|
+| Server 错误格式 text→JSON | 登记 Go 待修 | ✓ 仍存在 |
+| Body 超限 400→413 | 登记 Go 待修 | ✓ 仍存在 |
+| watchConfig spurious reload | 登记 Go 待修 | ✓ Go 仍有 |
+| redis_set fail_on_error | Go 侧待补 | ✓ 仍存在 |
+| Fetcher 缺 context | 平台限制 | ✓ |
+| Cancel 5ms 延迟 | 平台限制 | ✓ |
+| HTTP 超时缺失 | 平台限制 | ✓ |
+| merge_dedup key 归一化 | 已接受 | ✓ JSON 输入等价 |
+| reorder_sort 稳定性 | 已接受 | ✓ |
+| Partial result 设计 | 已接受 | ✓ |
+
+### 第五轮修复复验
+
+| 第五轮项 | 声称 ✅ | 本轮判定 |
+|----------|---------|----------|
+| #2 filter_condition 精度 | ✅ | ⚠️ `Double.toString(1e20)` = `"1.0E20"` 而非 Go 的 `"1e+20"`，>=1e15 仍有差异 |
+| #4 `__init__.py` 格式 | ✅ | ⚠️ header 字符 `--` vs `—`，`__all__` 缺尾逗号 |
+| #5 statusBucket | ✅ | ⚠️ >=600 分类不同 |
+| #10 reorder_shuffle formatFloatG | ✅ | ⚠️ 自实现 formatFloatG 与 Go %g 可能在边界值不同 |
+| #1 setWarning first-wins | ✅ | ✓ 确认修复 |
+| #3 Codegen _params | ✅ | ✓ 确认修复 |
+| #6 TransformByLua MetricsAware | ✅ | ✓ 确认修复 |
+| #15 DataFrame validateValue | ✅ | ✓ 确认修复 |
+| #16 Lua pool baseline | ✅ | ✓ 确认修复 |
+| #17/18 GoFormat | ✅ | ✓ 确认修复 |
+| #19 Long.compareUnsigned | ✅ | ✓ 确认修复 |
+| #20 Metadata Contract | ✅ | ✓ 确认修复 |
+| #31 maxRequestBodyBytes long | ✅ | ✓ 确认修复 |
+
 ## 技术说明
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ
 - Go Server 基于 net/http 支持完整 middleware 链和超时；Java 用 JDK 内置 com.sun.net.httpserver
