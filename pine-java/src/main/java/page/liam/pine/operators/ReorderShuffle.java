@@ -11,7 +11,7 @@ public class ReorderShuffle extends AbstractOperator {
     public void init(Map<String, Object> params) {}
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         int n = input.itemCount();
         if (n == 0) return;
 

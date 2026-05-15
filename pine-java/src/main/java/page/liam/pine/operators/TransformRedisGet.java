@@ -41,7 +41,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
         String resultField = commonOutput.get(0);
         String cacheHitField = commonOutput.get(1);
 

@@ -16,11 +16,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class PineServer {
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final int DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
     private final String configPath;
     private final int port;
     private final page.liam.pine.metrics.Provider metricsProvider;
+    private int maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES;
     private HttpServer httpServer;
     private ScheduledExecutorService watcherExecutor;
 
@@ -62,6 +64,20 @@ public class PineServer {
     public void start() throws Exception {
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
         loadConfig(configData); // initial load — not counted as reload
+
+        // Read max_request_body_size from config if present
+        try {
+            Map<String, Object> rawConfig = mapper.readValue(configData, new TypeReference<Map<String, Object>>() {});
+            Object bodySize = rawConfig.get("max_request_body_size");
+            if (bodySize instanceof Number) {
+                int size = ((Number) bodySize).intValue();
+                if (size > 0) {
+                    this.maxRequestBodyBytes = size;
+                }
+            }
+        } catch (Exception ignored) {
+            // If parsing fails for body size, keep default
+        }
 
         httpServer = HttpServer.create(new InetSocketAddress(port), 0);
         httpServer.setExecutor(Executors.newFixedThreadPool(
@@ -189,8 +205,6 @@ public class PineServer {
         sendResponse(exchange, 200, Map.of("status", "ok"));
     }
 
-    private static final int MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
-
     private void handleExecute(HttpExchange exchange) throws IOException {
         if (!"POST".equals(exchange.getRequestMethod())) {
             sendResponse(exchange, 405, Map.of("error", "method not allowed"));
@@ -204,7 +218,7 @@ public class PineServer {
         }
 
         try {
-            byte[] body = readLimitedBody(exchange.getRequestBody(), MAX_REQUEST_BODY_BYTES);
+            byte[] body = readLimitedBody(exchange.getRequestBody(), maxRequestBodyBytes);
             if (body == null) {
                 sendResponse(exchange, 413, Map.of("error", "request body too large"));
                 return;

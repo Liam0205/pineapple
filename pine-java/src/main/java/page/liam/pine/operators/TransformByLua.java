@@ -12,11 +12,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider {
+public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider, DebugAware {
     private String script;
     private String funcName;
     private boolean isItemMode;
     private LuaPool pool;
+    private String operatorName;
+    private boolean debug;
 
     @Override
     public void init(Map<String, Object> params) throws Exception {
@@ -50,12 +52,26 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void setDebug(String operatorName, boolean debug) {
+        this.operatorName = operatorName;
+        this.debug = debug;
+    }
+
+    @Override
+    public boolean isDebug() {
+        return debug;
+    }
+
+    @Override
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+        if (debug) {
+            System.err.println("[pine-debug] " + operatorName + " common_input=" + input.rawCommon());
+        }
         Globals globals = pool.borrow();
         java.util.Set<String> usedKeys = new java.util.HashSet<>();
         try {
             if (isItemMode) {
-                executeForItem(globals, input, output, usedKeys);
+                executeForItem(token, globals, input, output, usedKeys);
             } else {
                 executeForCommon(globals, input, output, usedKeys);
             }
@@ -75,7 +91,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         );
     }
 
-    private void executeForItem(Globals globals, OperatorInput input, OperatorOutput output, java.util.Set<String> usedKeys) throws Exception {
+    private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output, java.util.Set<String> usedKeys) throws Exception {
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
             usedKeys.add(field);
@@ -90,6 +106,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         int n = input.itemCount();
 
         for (int i = 0; i < n; i++) {
+            if (token.isCancelled()) break;
             for (String field : itemInput) {
                 globals.set(field, toLua(input.item(i, field)));
                 usedKeys.add(field);

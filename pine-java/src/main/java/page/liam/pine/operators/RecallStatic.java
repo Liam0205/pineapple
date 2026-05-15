@@ -1,6 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
+import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 
@@ -34,7 +35,7 @@ public class RecallStatic extends AbstractOperator {
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         for (Map<String, Object> item : items) {
             Map<String, Object> copy = new HashMap<>(item);
             output.addItem(copy);

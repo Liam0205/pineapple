@@ -18,7 +18,7 @@ public class ObserveLog extends AbstractOperator {
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
 
         if (!commonInput.isEmpty()) {

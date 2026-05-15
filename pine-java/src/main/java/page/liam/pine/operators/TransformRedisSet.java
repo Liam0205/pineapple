@@ -43,7 +43,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
         if (pool == null) return;
 
         int n = commonInput.size();

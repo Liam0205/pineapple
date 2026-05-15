@@ -67,7 +67,7 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
         List<String> cReq = commonReq.isEmpty() ? commonInput : commonReq;
         List<String> iReq = itemReq.isEmpty() ? itemInput : itemReq;
         List<String> cResp = commonResp.isEmpty() ? commonOutput : commonResp;
@@ -92,6 +92,8 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         reqBody.put("items", reqItems);
 
         byte[] body = mapper.writeValueAsBytes(reqBody);
+
+        if (token.isCancelled()) return;
 
         HttpRequest httpReq = HttpRequest.newBuilder()
                 .uri(URI.create(url))

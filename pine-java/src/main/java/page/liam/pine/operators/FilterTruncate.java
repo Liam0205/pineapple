@@ -1,6 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
+import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 
@@ -23,7 +24,7 @@ public class FilterTruncate extends AbstractOperator {
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         for (int i = (int) Math.min(topN, input.itemCount()); i < input.itemCount(); i++) {
             output.removeItem(i);
         }
