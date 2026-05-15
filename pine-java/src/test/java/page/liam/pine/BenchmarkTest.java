@@ -50,7 +50,7 @@ public class BenchmarkTest {
 
         cases.sort(Comparator.comparing(c -> c.name));
 
-        System.out.println("\n=== Java-Pine Pipeline Benchmark ===");
+        System.out.println("\n=== Pine-Java Pipeline Benchmark ===");
         System.out.printf("%-40s %10s %10s %10s%n", "fixture", "ops/sec", "avg(µs)", "p99(µs)");
         System.out.println("-".repeat(74));
 

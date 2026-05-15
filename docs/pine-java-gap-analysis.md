@@ -1,7 +1,7 @@
-# Java-Pine vs Go-Pine 功能差异分析
+# Pine-Java vs Pine-Go 功能差异分析
 
 ## 概述
-Java-Pine 是 Go-Pine (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 场景。当前已实现全部 18 个算子和核心引擎功能。以下记录截至 2026-05-15 的细粒度行为差异。
+Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 场景。当前已实现全部 18 个算子和核心引擎功能。以下记录截至 2026-05-15 的细粒度行为差异。
 
 ## 已对齐的功能
 - 并发 DAG 调度 (ForkJoinPool + CountDownLatch)

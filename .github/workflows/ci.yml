@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: java-pine
+        working-directory: pine-java
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v4
@@ -105,7 +105,7 @@ jobs:
     needs: java-test
     defaults:
       run:
-        working-directory: java-pine
+        working-directory: pine-java
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v4
@@ -119,10 +119,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "### Java-Pine Benchmark results"
+            echo "### Pine-Java Benchmark results"
             echo
             echo '```text'
-            grep -A 100 "=== Java-Pine Pipeline Benchmark ===" benchmark-java.txt || echo "No benchmark output"
+            grep -A 100 "=== Pine-Java Pipeline Benchmark ===" benchmark-java.txt || echo "No benchmark output"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -658,6 +658,70 @@ HTTP 端点为 `GET /dag`：
 12. **全局 debug 通过覆写逐算子配置生效。** 根级 `debug` 与 `pine.WithDebug(...)` 不引入独立执行分支，而是在 `NewEngine` 中统一改写每个算子的 `opCfg.Debug`；Go option 还必须保留“未设置”与“显式 false”两种状态区分。
 13. **SubFlow 只影响可视化分组，不影响执行语义。** `Node.SubFlow` 与 collapsed render 不能改变 DAG 的边、调度顺序或 hazard 推导；它们只是对既有执行图的聚合视图。
 
+## Pine-Java 功能对等
+
+`pine-java/` 提供完全对等的 JVM 运行时，共享同一 JSON 配置格式。
+
+### 对等覆盖范围
+
+Pine-Java 实现了与 Pine-Go 相同的核心架构：
+
+- **引擎编译流水线**：JSON 解析 → 算子序列展开（含 SubFlow）→ sources 前向引用校验（`Engine.validateSourcesOrder`）→ 算子实例构建 → DAG 推导
+- **Option pattern**：`Engine.create(jsonConfig, options...)` 接受 `withMetrics`、`withResources`、`withLogPrefix`、`withDebug` 四种 option，语义与 Go 的 `pine.NewEngine(jsonConfig, opts...)` 一致
+- **DAG 推导**：屏障边 + 数据冒险边 + 显式 sources 边 + 传递性归约 + 拓扑排序
+- **并发调度**：ForkJoinPool + CountDownLatch 信号量，语义等同 Go 侧的 per-operator goroutine + done channel 模型
+- **DataFrame**：`Frame` 接口抽象，`DataFrame`（行存）和 `ColumnFrame`（列存），通过 `storage_mode` 配置选择
+- **data_parallel**：`ParallelExecutor` 实现 Transform 级并行分片，要求 `ConcurrentSafe` 接口
+- **双通道观测**：`Stats` 原子统计 + `EngineMetrics` 可插拔 Provider（`metrics/Provider.java`），默认 `NopProvider`
+- **结构化错误**：5 种错误类型 — `ConfigError`、`RegistryError`、`ValidationError`、`ExecutionError`、`PanicError`（区分 `getMessage()` 外部安全信息与 `detailedError()` 内部栈信息）
+
+### Server 对等
+
+`PineServer` 提供：
+
+- `/health`、`/execute`、`/stats`、`/dag` 四个端点
+- 基于 `ScheduledExecutorService` 的配置热加载（2s 间隔检测文件变更）
+- 原子快照替换（`AtomicReference<Snapshot>` 封装 engine + resources）
+- Middleware 链（`Middleware` functional interface，外到内包装）
+- HTTP metrics middleware（`pine_http_requests_total`、`pine_http_request_duration_seconds`）
+- Reload metrics（`pine_config_reload_total`、`pine_config_reload_errors_total`、`pine_config_reload_duration_seconds`）
+- `_return_trace` 请求参数支持
+
+### Lua VM 池化与沙箱
+
+`TransformByLua` 使用 LuaJ（`org.luaj.vm2`）实现：
+
+- `ConcurrentLinkedQueue` 池化 Globals 实例
+- 沙箱：仅加载 `base`、`table`、`string`、`math`，移除 `io`、`os`、`debug`、`require`、`package`、`dofile`、`loadfile`
+
+### 算子全覆盖
+
+Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go `operators/all.go` 完全对齐：
+
+- Filter: `filter_condition`、`filter_truncate`、`filter_paginate`
+- Transform: `transform_copy`、`transform_dispatch`、`transform_normalize`、`transform_size`、`transform_by_lua`、`transform_resource_lookup`、`transform_redis_get`、`transform_redis_set`、`transform_by_remote_pineapple`
+- Recall: `recall_static`、`recall_resource`
+- Merge: `merge_dedup`
+- Reorder: `reorder_sort`、`reorder_shuffle_by_salt`
+- Observe: `observe_log`
+
+### 资源管理
+
+`ResourceManager` 实现：
+
+- `FetcherFactory` 全局注册表 + `Fetcher` 接口
+- 后台刷新（`ScheduledExecutorService`）
+- `validateDeps()` 校验算子声明的 `resource_name` 是否已注册
+
+### Codegen
+
+`Codegen.java` 读取 Go 导出的 Schema JSON，生成：
+
+- `operators.py` — 类型化算子 helper
+- `__init__.py` — 导出聚合
+- `resources.py` — 类型化资源 helper
+- `doc/operators/*.md` — 算子文档
+
 ## 检索指针
 
 - 引擎编译和请求生命周期：`pine.go`
@@ -677,3 +741,18 @@ HTTP 端点为 `GET /dag`：
 - 列存实现：`internal/dataframe/column_frame.go`
 - 算子分类和输出校验：`internal/types/operator.go`
 - 共享 request/result/trace/error 类型：`internal/types/`
+
+### Pine-Java 对等检索指针
+
+- 引擎编译和请求生命周期：`pine-java/src/.../Engine.java`
+- 配置解析：`pine-java/src/.../Config.java`
+- DAG 推导：`pine-java/src/.../DAG.java`
+- DAG 可视化：`pine-java/src/.../DAGVisualizer.java`
+- Frame 接口和工厂：`pine-java/src/.../Frame.java`
+- 行存实现：`pine-java/src/.../DataFrame.java`
+- 列存实现：`pine-java/src/.../ColumnFrame.java`
+- HTTP 服务：`pine-java/src/.../PineServer.java`
+- 可插拔指标接口：`pine-java/src/.../metrics/Provider.java`
+- 结构化错误：`pine-java/src/.../PineErrors.java`
+- 算子注册表：`pine-java/src/.../Registry.java`
+- Codegen：`pine-java/src/.../Codegen.java`
