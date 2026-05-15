@@ -1063,3 +1063,38 @@ Server 修复（H4/H5/M11）：
 |---|------|------|
 | M1 | 修 Java | LuaPool.borrow() 关闭返回 null + execute 检查抛 OperatorException |
 | M2 | 修 Java | renderDAG IllegalArgumentException → ValidationError |
+
+---
+
+## 第十七轮审计 (R17)
+
+**方法论**: 按差异类型分组交叉验证（错误消息措辞、类型信息完整性、skip 字段校验措辞），独立重新验证源码。
+
+**结果**: 0 HIGH / 0 MEDIUM / 6 LOW
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| L1 | RecallResource: no resource provider 缺 "in context" | `"no resource provider in context"` (`recall_resource.go:48`) | `"no resource provider"` | ✅ |
+| L2 | TransformResourceLookup: 同上 | `"no resource provider in context"` (`resource_lookup.go:68`) | `"no resource provider"` | ✅ |
+| L3 | RecallResource: 类型错误缺实际类型 | `"is %T, want []map[string]any"` (`recall_resource.go:77`) | `"is not a List"` | ✅ |
+| L4 | TransformResourceLookup: 类型错误缺实际类型 | `"is %T, want map[string]any"` (`resource_lookup.go:76`) | `"is not a Map"` | ✅ |
+| L5 | Config skip field: 起始字符校验消息 | `"must start with '_' (control fields are engine-internal)"` (`load.go:222`) | `"must start with underscore"` | ✅ |
+| L6 | Config skip field: common_input 关联校验消息 | `"must also appear in $metadata.common_input to ensure correct DAG ordering"` (`load.go:243`) | `"not found in $metadata.common_input"` | ✅ |
+
+### 第十七轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| L1-L6 | 全部修复 | 错误消息完全对齐 Go 侧措辞 |
+
+### 收敛总结
+
+| 轮次 | HIGH | MEDIUM | LOW | 说明 |
+|------|------|--------|-----|------|
+| R9   | 8    | 11     | -   | 首轮系统审计 |
+| R14  | 1    | 4      | -   | 独立重验 |
+| R15  | 0    | 2      | -   | 继续收敛 |
+| R16  | 0    | 2      | -   | 深度追查 |
+| R17  | 0    | 0      | 6   | 仅剩措辞级差异，全部修复 → **收敛完成** |
