@@ -219,7 +219,7 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | 1 | OperatorOutput.setWarning 语义 | "first wins"：后续调用被忽略 (`operator_io.go:109`) | "last wins"：每次调用覆盖 (`OperatorOutput.java:14`) | ⬜ |
 | 2 | filter_condition 数值格式精度 | `%v` 完整精度 `1.23456789`→`"1.23456789"` | `%g` 6 位有效数字 `1.23456789`→`"1.23457"` | ⬜ |
 | 3 | Codegen operators.py 本地变量名 | `_params`（避免遮蔽 kwarg） | `params`（遮蔽同名参数） | ⬜ |
-| 4 | Server 错误响应格式 | 405/503 用 plain text | 全部 JSON `{"error":"..."}` | ⬜ |
+| 4 | Server 错误响应格式 | 405/503 用 plain text | 全部 JSON `{"error":"..."}` | ⬜ 修 Go 侧 |
 | 5 | HTTP metrics status label | `statusBucket()` → `"2xx"/"5xx"` | `String.valueOf(code)` → `"200"/"500"` | ⬜ |
 | 6 | TransformByLua 缺 MetricsAware | Go LuaOp 实现 SetMetricsProvider | Java 未实现此接口 | ⬜ |
 | 7 | transform_redis_set Schema 不对称 | Go 无 `fail_on_error` | Java 有 `fail_on_error` | ⬜ 有意超前 |
@@ -234,7 +234,7 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | 11 | 热加载首次 spurious reload | 两侧都有 lastMod=0 导致首 tick 必触发 | ⬜ 两侧 |
 | 12 | lastReloadDurationNs 失败路径 | Go 仅成功时记录；Java 失败时也被覆写 | ⬜ |
 | 13 | `__init__.py` 生成格式 | Go 逐行 import；Java 分组 import | ⬜ |
-| 14 | merge_dedup key 等价性 | Go raw `any` 相等；Java normalizeKey→Double | ⬜ |
+| 14 | merge_dedup key 等价性 | Go raw `any` 相等；Java normalizeKey→Double | ⬜ 已接受 |
 | 15 | DataFrame AddItem 无 validateValue | Go 在 additions 调 validateValue；Java 跳过 | ⬜ |
 | 16 | Lua pool 重置策略 | Go baseline 快照/恢复；Java 仅 nil usedKeys | ⬜ |
 | 17 | resource_lookup 大浮点格式 | Go `FormatFloat('f')` vs Java `Double.toString()` | ⬜ |
@@ -273,6 +273,46 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | 第四轮 #6 Server body streaming | ✅ | ✓ 确认修复 |
 | 第四轮 #7 validateResourceDeps | ✅ | ✓ 确认修复 |
 | 第四轮 #8 Engine partial result | ✅ | ✓ 确认修复 |
+
+### 讨论决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| 4 | 修 Go 侧 | Go `http.Error` plain text 是疏忽，应对齐 Java 全 JSON。已记录 `.llmdoc-tmp/go-server-plain-text-error-fix.md` |
+| 7 | 已接受 | Java 有意超前实现 `fail_on_error`，待 Go 侧补齐 |
+| 14 | 已接受 | JSON 输入场景所有数字均为 float64，两侧行为一致 |
+| 28 | 已接受 | 排序稳定性差异不影响业务 |
+| 32 | 已接受 | Redis SMEMBERS 本身无序 |
+| 33 | 已接受 | collapse=0 功能等价 |
+| 34 | 已接受 | 设计差异：Go per-request context vs Java per-engine field |
+
+### 待修项汇总
+
+**修 Java 侧：**
+- #1 setWarning first-wins（1 行）
+- #2 filter_condition 精度（~5 行）
+- #3 Codegen `_params`（3 处替换）
+- #5 HTTP metrics label 桶化（~15 行）
+- #6 TransformByLua 补 MetricsAware（~20 行）
+- #8 Body 超限状态码（待定方向）
+- #9 Body size 配置来源（待定方向）
+- #10 HTTP histogram 桶（低）
+- #11 热加载 spurious reload（低，两侧）
+- #12 lastReloadDurationNs 失败路径（1 行）
+- #13 `__init__.py` import 格式（~10 行）
+- #15 AddItem validateValue（~10 行）
+- #16 Lua pool baseline 恢复（中等）
+- #17 resource_lookup 大浮点格式（~5 行）
+- #18 redis_get key suffix 大浮点（~5 行）
+- #19 reorder_shuffle unsigned tie-breaking（1 行）
+- #20 Codegen Metadata Contract 文档节（中等）
+- #21 Codegen string escape（低）
+- #29 Lua pool Close 关闭 Globals（低）
+
+**修 Go 侧：**
+- #4 Server 错误响应格式 plain text → JSON
+
+**平台限制（暂不修）：** #22-26
 
 ## 技术说明
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ
