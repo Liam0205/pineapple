@@ -9,6 +9,7 @@ Generic Redis write operator. Writes a value by key with optional TTL.
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | data_type | string | No | `"string"` | Redis data type: "set", "string", or "list". |
+| fail_on_error | bool | No | `False` | Return fatal error on Redis infrastructure failure instead of logging and continuing. |
 | key_prefix | string | Yes | - | Key prefix prepended to the suffix built from common_input fields. |
 | redis_addr | string | Yes | - | Redis server address (host:port). |
 | redis_db | int | No | `0` | Redis DB number. |
@@ -29,6 +30,7 @@ Generic Redis write operator. Writes a value by key with optional TTL.
 ```python
 flow.transform_redis_set(
     data_type=...,
+    fail_on_error=...,
     key_prefix=...,
     redis_addr=...,
     redis_db=...,

@@ -612,6 +612,7 @@ class TransformRedisSetOp(BaseOp):
     _name = "transform_redis_set"
     _params_schema = {
         "data_type": {"type": "string", "required": False, "default": "string"},
+        "fail_on_error": {"type": "bool", "required": False, "default": False},
         "key_prefix": {"type": "string", "required": True},
         "redis_addr": {"type": "string", "required": True},
         "redis_db": {"type": "int", "required": False, "default": 0},
@@ -623,6 +624,7 @@ class TransformRedisSetOp(BaseOp):
         self,
         *,
         data_type: str = "string",
+        fail_on_error: bool = False,
         key_prefix: str = ...,
         redis_addr: str = ...,
         redis_db: int = 0,
@@ -640,6 +642,7 @@ class TransformRedisSetOp(BaseOp):
     ) -> "TransformRedisSetOp":
         _params = {
             "data_type": data_type,
+            "fail_on_error": fail_on_error,
             "key_prefix": key_prefix,
             "redis_addr": redis_addr,
             "redis_db": redis_db,
