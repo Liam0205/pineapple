@@ -74,3 +74,4 @@
 - `llmdoc/memory/reflections/pine-java-parity-round-14.md` — Pine-Java 第十四轮 Go-parity 审计复盘，记录 GoFormat -0.0 三轮命中全部三条路径（formatG→sprint→formatFloatF）、OperatorException 迁移第五轮仍发现 IllegalArgumentException、Engine.applyOutput 双重包装（简化重构引入新 bug）。
 - `llmdoc/memory/reflections/pine-java-parity-round-15.md` — Pine-Java 第十五轮 Go-parity 审计复盘，记录 GoFormat.formatFloatF NaN/Infinity 显式守卫（同模块 edge case 第四轮重复验证）、TransformNormalize 错误消息格式对齐，以及审计收敛信号（0 HIGH/2 MEDIUM deferred）。
 - `llmdoc/memory/reflections/pine-java-parity-round-16.md` — Pine-Java 第十六轮 Go-parity 审计复盘，记录 TransformByLua pool.borrow() null 返回模式（Go error return 映射）、Engine.renderDAG ValidationError 类型迁移，以及 OperatorException 迁移七轮长尾总结与审计正式收敛。
+- `llmdoc/memory/reflections/pine-java-parity-round-17.md` — Pine-Java 第十七轮（最终轮）Go-parity 审计复盘，记录 6 项 LOW 错误消息措辞对齐（首个零 M/H 轮次），标志 parity 审计从行为修复完全过渡到措辞打磨，审计正式完结。
