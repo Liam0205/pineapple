@@ -37,7 +37,11 @@ public class TransformNormalize extends AbstractOperator {
 
         double[] vals = new double[n];
         for (int i = 0; i < n; i++) {
-            vals[i] = toDouble(input.item(i, field));
+            try {
+                vals[i] = toDouble(input.item(i, field));
+            } catch (PineErrors.OperatorException e) {
+                throw new PineErrors.OperatorException("transform_normalize: item[" + i + "]." + field + ": " + e.getMessage(), e);
+            }
         }
 
         double min = vals[0], max = vals[0];

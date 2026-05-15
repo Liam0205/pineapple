@@ -995,8 +995,8 @@ Server 修复（H4/H5/M11）：
 
 | # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
 |---|--------|---------|-----------|----------|
-| M1 | GoFormat.formatFloatF(±Infinity) | `strconv.FormatFloat(+Inf,'f',-1,64)` = `"+Inf"` | `Double.toString(Infinity)` = `"Infinity"` (`GoFormat.java:75`) | ⬜ |
-| M2 | TransformNormalize 错误消息缺上下文 | `"transform_normalize: item[%d].%s: %w"` (`normalize.go:67`) | `"cannot convert ... to double"` 无算子前缀/索引/字段名 (`TransformNormalize.java:40,60`) | ⬜ |
+| M1 | GoFormat.formatFloatF(±Infinity) | `strconv.FormatFloat(+Inf,'f',-1,64)` = `"+Inf"` | `Double.toString(Infinity)` = `"Infinity"` (`GoFormat.java:75`) | ✅ |
+| M2 | TransformNormalize 错误消息缺上下文 | `"transform_normalize: item[%d].%s: %w"` (`normalize.go:67`) | `"cannot convert ... to double"` 无算子前缀/索引/字段名 (`TransformNormalize.java:40,60`) | ✅ |
 
 ### 排除项
 
@@ -1013,5 +1013,5 @@ Server 修复（H4/H5/M11）：
 
 | # | 决策 | 备注 |
 |---|------|------|
-| M1 | 暂不修 | formatFloatF Infinity 路径遗漏 |
-| M2 | 暂不修 | TransformNormalize 同 R14 ReorderSort 模式 |
+| M1 | 修 Java | formatFloatF: NaN/±Infinity 显式守卫 |
+| M2 | 修 Java | TransformNormalize: 错误消息加算子前缀 + item 索引 + 字段名 |

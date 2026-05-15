@@ -67,6 +67,9 @@ public final class GoFormat {
         if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
             return "-0";
         }
+        if (Double.isNaN(d)) return "NaN";
+        if (d == Double.POSITIVE_INFINITY) return "+Inf";
+        if (d == Double.NEGATIVE_INFINITY) return "-Inf";
         if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e18) {
             return Long.toString((long) d);
         }
