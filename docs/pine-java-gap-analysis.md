@@ -522,6 +522,74 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 - OperatorOutput.SetWarning 的 first-wins/last-wins 影响 ParallelExecutor 多 shard warning 合并结果
 - Codegen `_params` vs `params` 不会导致运行时错误（Python 允许局部变量与参数同名），但产出代码不同导致 CI diff 失败
 
+## 第十轮审计 (2026-05-15)
+
+### 第九轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 GoFormat.formatG 小数阈值 [1e-4,1e-3) | ✓ 确认修复 |
+| H2 GoFormat.formatFloatF 非整数精度 | ✓ 确认修复 |
+| H3 TransformRedisSet.toStringList → GoFormat.sprint | ✓ 确认修复 |
+| H4 Server JSON Body → 400 | ✓ 确认修复 |
+| H5 ValidationError common/items null | ✓ 确认修复 |
+| H6 全局错误消息 "pine:" 前缀 | ⚠️ RegistryError 遗漏（新 H1）|
+| H7 CompletableFuture 调度器 | ✓ 确认修复 |
+| M1 GoFormat.sprint ≥1e6 formatG | ✓ 确认修复 |
+| M2 GoFormat.sprint Infinity → "+Inf"/"-Inf" | ✓ 确认修复 |
+| M5 CompletableFuture 零延迟 | ✓ 确认修复 |
+| M6 外部 token cancel 联动 | ✓ 确认修复 |
+| M7 OperatorException checked exception | ⚠️ RecallResource 遗漏（新 M2）|
+| M9 TransformByLua debug 日志 | ✓ 确认修复 |
+| M11 /dag collapse 消息统一 | ✓ 确认修复 |
+
+### 新发现
+
+经独立重审，排除前轮误报后确认 7 项有效差异。
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | RegistryError 缺 "pine:" 前缀 | `"pine: registry error [op]: msg"` (`errors.go:20`) | `"operator \"op\": msg"` (PineErrors.java:27) — 无 "pine:" 前缀，无 "registry error" 标签 | ✅ |
+| H2 | PanicError getMessage() 仅输出类名 | `"pine: panic in operator %q: %v"` 含完整 panic 值 | `"... " + getCause().getClass().getSimpleName()` 仅类名（如 "NullPointerException"），丢失具体消息 | ✅ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | data_parallel 校验消息缺类型信息 | `"data_parallel=N is only supported for Transform operators, got recall"` 含实际类型 | `"data_parallel=N is only supported for Transform operators"` 无 "got xxx" | ✅ |
+| M2 | RecallResource 抛 IllegalStateException → PanicError | `return error` → scheduler 包装为 ExecutionError | `throw new IllegalStateException(...)` → RuntimeException → 被 Engine 包装为 PanicError | ✅ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | GoFormat.formatG(-0.0) 返回 "0" | Go `fmt.Sprintf("%g", -0.0)` = `"-0"` 保留符号位；Java `d == 0` 为 true → 返回 `"0"` | ✅ |
+| L2 | TransformByLua debug 日志前缀格式 | Go `[pine:debug] operator="name"` (冒号 + operator= 标签)；Java `[pine-debug] name` (连字符 + 无标签) | ✅ |
+| L3 | observe_log JSON key 排序 | Go `encoding/json` 对 map key 字母序排序；Java Jackson 保持 LinkedHashMap 插入序 | ✅ |
+
+### 排除项（验证为无效）
+
+| 原始项 | 排除原因 |
+|--------|----------|
+| /stats JSON 字段顺序 | JSON 规范不要求 key 有序，两侧数据相同 |
+| Codegen toPythonLiteral 差异 | 功能等价：Java 已用 GoFormat.formatG 对齐 Go %g |
+| Server reload 时序问题 | 两侧均 2s 轮询 + mtime 检测，逻辑相同 |
+| GoFormat.sprint 数组处理 | Java 实现正确，格式 "[a b]" 已对齐 Go |
+| Engine 外层 catch 双重包装 | 内层逻辑 return 后外层 catch 仅兜底基础设施异常，无双重包装 |
+
+### 第十轮决策
+
+全部 7 项修复 Java 侧：
+- H1: RegistryError.getMessage() 重写，对齐 Go `"pine: registry error [op]: msg"` 格式
+- H2: PanicError.getMessage() 改用 `getCause().getMessage()` 输出完整信息（null 时回退 toString）
+- M1: data_parallel 校验消息补 `", got <type>"` 和 `"$metadata.common_output"` 及 `"(type \"xxx\" does not)"` 对齐 Go
+- M2: RecallResource 全部 IllegalStateException → OperatorException
+- L1: formatG(-0.0) 检测 IEEE 754 负零位模式，返回 `"-0"`
+- L2: TransformByLua debug 前缀 `[pine-debug] name` → `[pine:debug] operator="name"`
+- L3: ObserveLog snapshot/row 改用 TreeMap 对齐 Go 字母序 JSON 输出
+
 ## 第八轮审计 (2026-05-15)
 
 ### 第七轮修复复验

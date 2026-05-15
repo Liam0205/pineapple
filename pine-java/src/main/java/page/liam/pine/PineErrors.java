@@ -24,11 +24,16 @@ public final class PineErrors {
         private final String operator;
 
         public RegistryError(String operator, String message) {
-            super("operator \"" + operator + "\": " + message);
+            super(message);
             this.operator = operator;
         }
 
         public String getOperator() { return operator; }
+
+        @Override
+        public String getMessage() {
+            return "pine: registry error [" + operator + "]: " + super.getMessage();
+        }
     }
 
     public static class ValidationError extends IllegalArgumentException {
@@ -87,7 +92,9 @@ public final class PineErrors {
 
         @Override
         public String getMessage() {
-            return "pine: panic in operator \"" + operator + "\": " + getCause().getClass().getSimpleName();
+            String causeMsg = getCause().getMessage();
+            if (causeMsg == null) causeMsg = getCause().toString();
+            return "pine: panic in operator \"" + operator + "\": " + causeMsg;
         }
     }
 }

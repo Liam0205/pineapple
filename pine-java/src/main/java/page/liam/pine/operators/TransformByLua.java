@@ -93,7 +93,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             int nonNil = (int) input.rawCommon().values().stream().filter(v -> v != null).count();
             int itemCount = input.itemCount();
             String mode = isItemMode ? "item" : "common";
-            System.err.printf("[pine-debug] %s common_input fields=%d non_nil=%d items=%d mode=%s func=%s%n",
+            System.err.printf("[pine:debug] operator=\"%s\" common_input fields=%d non_nil=%d items=%d mode=%s func=%s%n",
                 operatorName, fields, nonNil, itemCount, mode, funcName);
         }
         Globals globals = pool.borrow();

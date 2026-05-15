@@ -82,7 +82,10 @@ public final class GoFormat {
      * Unlike Java's %g which limits to 6 significant digits, Go preserves full precision.
      */
     public static String formatG(double d) {
-        if (d == 0) return "0";
+        if (d == 0) {
+            if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) return "-0";
+            return "0";
+        }
         if (Double.isNaN(d)) return "NaN";
         if (d == Double.POSITIVE_INFINITY) return "+Inf";
         if (d == Double.NEGATIVE_INFINITY) return "-Inf";

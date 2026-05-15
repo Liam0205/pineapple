@@ -159,13 +159,13 @@ public class Engine {
             }
             if (opCfg.dataParallel > 1) {
                 if (opType != OperatorType.TRANSFORM) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " is only supported for Transform operators");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " is only supported for Transform operators, got " + opType.name().toLowerCase());
                 }
                 if (!opCfg.metadata.commonOutput.isEmpty()) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires empty common_output");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires empty $metadata.common_output for Transform operators");
                 }
                 if (!(op instanceof ConcurrentSafe)) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires ConcurrentSafe");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires the operator to implement ConcurrentSafe interface (type \"" + opCfg.typeName + "\" does not)");
                 }
             }
 
