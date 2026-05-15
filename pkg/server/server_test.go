@@ -586,6 +586,29 @@ func TestExecuteRequestBodyTooLarge(t *testing.T) {
 	}
 }
 
+func TestHandleExecute_ValidationError_Returns400(t *testing.T) {
+	s := setupEngine(t)
+
+	// The test engine's flow_contract requires common field "x".
+	// Sending a request without "x" should trigger ValidationError → 400.
+	body := `{"common":{"missing_field":1},"items":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/execute", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleExecute(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for ValidationError", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "missing required common input field") {
+		t.Errorf("error = %q, want mention of missing field", errMsg)
+	}
+}
+
 func TestHandleStats_Success(t *testing.T) {
 	s := setupEngine(t)
 

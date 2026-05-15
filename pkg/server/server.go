@@ -349,7 +349,12 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 			log.Printf("execute error: %s", de.DetailedError())
 		}
 		resp.Error = err.Error()
-		writeJSON(w, http.StatusInternalServerError, resp)
+		var ve *pine.ValidationError
+		if errors.As(err, &ve) {
+			writeJSON(w, http.StatusBadRequest, resp)
+		} else {
+			writeJSON(w, http.StatusInternalServerError, resp)
+		}
 		return
 	}
 

@@ -2,6 +2,7 @@ package transform
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	pine "github.com/Liam0205/pineapple"
@@ -268,5 +269,64 @@ func TestRedisSetOp_SetEmptyMembers(t *testing.T) {
 	}
 	if s.Exists("prefix:u1") {
 		t.Error("key should not exist for empty set")
+	}
+}
+
+func TestRedisSetOp_FailOnError_True(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	op := &RedisSetOp{}
+	if err := op.Init(map[string]any{
+		"redis_addr":    s.Addr(),
+		"key_prefix":    "prefix:",
+		"data_type":     "string",
+		"fail_on_error": true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
+
+	// Close miniredis to simulate infrastructure failure
+	s.Close()
+
+	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "hello"}, nil)
+	out := pine.NewOperatorOutput()
+	err := op.Execute(context.Background(), in, out)
+	if err == nil {
+		t.Fatal("expected fatal error with fail_on_error=true")
+	}
+	if !strings.Contains(err.Error(), "transform_redis_set") {
+		t.Errorf("error should have operator prefix, got: %v", err)
+	}
+}
+
+func TestRedisSetOp_FailOnError_False_SetWarning(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	op := &RedisSetOp{}
+	if err := op.Init(map[string]any{
+		"redis_addr":    s.Addr(),
+		"key_prefix":    "prefix:",
+		"data_type":     "string",
+		"fail_on_error": false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
+
+	// Close miniredis to simulate infrastructure failure
+	s.Close()
+
+	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "hello"}, nil)
+	out := pine.NewOperatorOutput()
+	err := op.Execute(context.Background(), in, out)
+	if err != nil {
+		t.Errorf("expected nil error (default fail_on_error=false), got %v", err)
+	}
+	if out.GetWarning() == nil {
+		t.Error("expected warning to be set on infrastructure failure")
+	}
+	if !strings.Contains(out.GetWarning().Error(), "transform_redis_set") {
+		t.Errorf("warning should have operator prefix, got: %v", out.GetWarning())
 	}
 }

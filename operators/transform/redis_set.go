@@ -9,6 +9,7 @@
 //   - key_prefix (string, required): Key prefix prepended to the suffix built from common_input fields.
 //   - data_type (string, optional, default="string"): Redis data type: "set", "string", or "list".
 //   - ttl (int, optional, default=0): TTL in seconds. 0 means no expiry.
+//   - fail_on_error (bool, optional, default=false): Return fatal error on Redis infrastructure failure instead of logging and continuing.
 //
 // Key construction: key_prefix + join(first N-1 common_input values, ":").
 // Value is the last common_input field.
@@ -42,6 +43,7 @@ func init() {
 			"key_prefix":     {Type: "string", Required: true, Description: "Key prefix prepended to the suffix built from common_input fields."},
 			"data_type":      {Type: "string", Required: false, Default: "string", Description: `Redis data type: "set", "string", or "list".`},
 			"ttl":            {Type: "int", Required: false, Default: 0, Description: "TTL in seconds. 0 means no expiry."},
+			"fail_on_error":  {Type: "bool", Required: false, Default: false, Description: "Return fatal error on Redis infrastructure failure instead of logging and continuing."},
 		},
 	}, func() pine.Operator {
 		return &RedisSetOp{}
@@ -52,10 +54,11 @@ func init() {
 type RedisSetOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
-	rdb       *redis.Client
-	keyPrefix string
-	dataType  string
-	ttl       time.Duration
+	rdb         *redis.Client
+	keyPrefix   string
+	dataType    string
+	ttl         time.Duration
+	failOnError bool
 }
 
 func (o *RedisSetOp) Init(params map[string]any) error {
@@ -72,6 +75,9 @@ func (o *RedisSetOp) Init(params map[string]any) error {
 	}
 	if v, ok := params["ttl"]; ok {
 		o.ttl = time.Duration(toInt64Param(v)) * time.Second
+	}
+	if v, ok := params["fail_on_error"].(bool); ok {
+		o.failOnError = v
 	}
 
 	if addr != "" {
@@ -147,6 +153,10 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 
 	if err != nil {
 		log.Printf("transform_redis_set: write key %s: %v", key, err)
+		if o.failOnError {
+			return fmt.Errorf("transform_redis_set: write key %s: %w", key, err)
+		}
+		out.SetWarning(fmt.Errorf("transform_redis_set: write key %s: %w", key, err))
 	}
 	return nil
 }
