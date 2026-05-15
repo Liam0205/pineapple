@@ -216,32 +216,32 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 | # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
 |---|--------|---------|-----------|----------|
-| 1 | OperatorOutput.setWarning 语义 | "first wins"：后续调用被忽略 (`operator_io.go:109`) | "last wins"：每次调用覆盖 (`OperatorOutput.java:14`) | ⬜ |
-| 2 | filter_condition 数值格式精度 | `%v` 完整精度 `1.23456789`→`"1.23456789"` | `%g` 6 位有效数字 `1.23456789`→`"1.23457"` | ⬜ |
-| 3 | Codegen operators.py 本地变量名 | `_params`（避免遮蔽 kwarg） | `params`（遮蔽同名参数） | ⬜ |
+| 1 | OperatorOutput.setWarning 语义 | "first wins"：后续调用被忽略 (`operator_io.go:109`) | "last wins"：每次调用覆盖 (`OperatorOutput.java:14`) | ✅ |
+| 2 | filter_condition 数值格式精度 | `%v` 完整精度 `1.23456789`→`"1.23456789"` | `%g` 6 位有效数字 `1.23456789`→`"1.23457"` | ✅ |
+| 3 | Codegen operators.py 本地变量名 | `_params`（避免遮蔽 kwarg） | `params`（遮蔽同名参数） | ✅ |
 | 4 | Server 错误响应格式 | 405/503 用 plain text | 全部 JSON `{"error":"..."}` | ⬜ 修 Go 侧 |
-| 5 | HTTP metrics status label | `statusBucket()` → `"2xx"/"5xx"` | `String.valueOf(code)` → `"200"/"500"` | ⬜ |
-| 6 | TransformByLua 缺 MetricsAware | Go LuaOp 实现 SetMetricsProvider | Java 未实现此接口 | ⬜ |
+| 5 | HTTP metrics status label | `statusBucket()` → `"2xx"/"5xx"` | `String.valueOf(code)` → `"200"/"500"` | ✅ |
+| 6 | TransformByLua 缺 MetricsAware | Go LuaOp 实现 SetMetricsProvider | Java 未实现此接口 | ✅ |
 | 7 | transform_redis_set Schema 不对称 | Go 无 `fail_on_error` | Java 有 `fail_on_error` | ⬜ 有意超前 |
 
 ### 🟡 MEDIUM 严重度
 
 | # | 差异点 | 说明 | 修复状态 |
 |---|--------|------|----------|
-| 8 | Body 超限 HTTP 状态码 | Go 400 vs Java 413 | ⬜ |
-| 9 | Body size 配置来源 | Go 仅 programmatic API；Java JSON config | ⬜ |
-| 10 | HTTP histogram 桶定义 | Go 12 个显式桶；Java null（无桶） | ⬜ |
-| 11 | 热加载首次 spurious reload | 两侧都有 lastMod=0 导致首 tick 必触发 | ⬜ 两侧 |
-| 12 | lastReloadDurationNs 失败路径 | Go 仅成功时记录；Java 失败时也被覆写 | ⬜ |
-| 13 | `__init__.py` 生成格式 | Go 逐行 import；Java 分组 import | ⬜ |
+| 8 | Body 超限 HTTP 状态码 | Go 400 vs Java 413 | ⬜ 登记 Go 侧 |
+| 9 | Body size 配置来源 | Go 仅 programmatic API；Java JSON config | ⬜ 已接受 |
+| 10 | HTTP histogram 桶定义 | Go 12 个显式桶；Java null（无桶） | ✅ |
+| 11 | 热加载首次 spurious reload | 两侧都有 lastMod=0 导致首 tick 必触发 | ✅ Java + 登记 Go |
+| 12 | lastReloadDurationNs 失败路径 | Go 仅成功时记录；Java 失败时也被覆写 | ✅ |
+| 13 | `__init__.py` 生成格式 | Go 逐行 import；Java 分组 import | ✅ |
 | 14 | merge_dedup key 等价性 | Go raw `any` 相等；Java normalizeKey→Double | ⬜ 已接受 |
-| 15 | DataFrame AddItem 无 validateValue | Go 在 additions 调 validateValue；Java 跳过 | ⬜ |
-| 16 | Lua pool 重置策略 | Go baseline 快照/恢复；Java 仅 nil usedKeys | ⬜ |
-| 17 | resource_lookup 大浮点格式 | Go `FormatFloat('f')` vs Java `Double.toString()` | ⬜ |
-| 18 | redis_get key suffix 大浮点 | Go `fmt.Sprint`→`"1e+20"` vs Java→`"1.0E20"` | ⬜ |
-| 19 | reorder_shuffle tie-breaking | Go uint64 无符号；Java Long.compare 有符号 | ⬜ |
-| 20 | Codegen 缺 Metadata Contract 文档节 | Go 从源码注释解析生成；Java 完全缺失 | ⬜ |
-| 21 | Codegen string escape | Go `%q` vs Java 手动 5 种转义 | ⬜ |
+| 15 | DataFrame AddItem 无 validateValue | Go 在 additions 调 validateValue；Java 跳过 | ✅ |
+| 16 | Lua pool 重置策略 | Go baseline 快照/恢复；Java 仅 nil usedKeys | ✅ |
+| 17 | resource_lookup 大浮点格式 | Go `FormatFloat('f')` vs Java `Double.toString()` | ✅ |
+| 18 | redis_get key suffix 大浮点 | Go `fmt.Sprint`→`"1e+20"` vs Java→`"1.0E20"` | ✅ |
+| 19 | reorder_shuffle tie-breaking | Go uint64 无符号；Java Long.compare 有符号 | ✅ |
+| 20 | Codegen 缺 Metadata Contract 文档节 | Go 从源码注释解析生成；Java 完全缺失 | ✅ |
+| 21 | Codegen string escape | Go `%q` vs Java 手动 5 种转义 | ✅ |
 | 22 | 无 caller-driven timeout/cancel | Go `Execute(ctx,req)` vs Java `execute(common,items)` | ⬜ 平台限制 |
 | 23 | Cancel 传播 5ms 延迟 | Go channel select 即时；Java polling | ⬜ 平台限制 |
 | 24 | HTTP 超时缺失 | Go 可配置 Read/Write/Idle；Java 无 | ⬜ 平台限制 |
@@ -252,14 +252,14 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 | # | 差异点 | 说明 | 修复状态 |
 |---|--------|------|----------|
-| 27 | Health endpoint 方法限制 | Go 不限方法；Java 仅 GET | ⬜ |
+| 27 | Health endpoint 方法限制 | Go 不限方法；Java 仅 GET | ⬜ 已接受 |
 | 28 | reorder_sort 稳定性 | Go 不稳定；Java TimSort 稳定 | ⬜ 已接受 |
-| 29 | Lua pool Close 不关闭 Globals | Go 遍历关闭所有 state；Java 仅 clear queue | ⬜ |
-| 30 | Codegen `__init__.py` header 注释 | 措辞微差 | ⬜ |
-| 31 | Body size int vs int64 | Go int64；Java int（2GB 上限） | ⬜ |
-| 32 | redis_get SMEMBERS 返回顺序 | Go 保序；Java HashSet 无序 | ⬜ Redis 本身无序 |
-| 33 | /dag collapse=0 传递方式 | Go 不传 option；Java 始终传 0 | ⬜ 功能等价 |
-| 34 | Resource injection 模式 | Go per-request context；Java per-engine field | ⬜ 设计差异 |
+| 29 | Lua pool Close 不关闭 Globals | Go 遍历关闭所有 state；Java 仅 clear queue | ⬜ 已接受 |
+| 30 | Codegen `__init__.py` header 注释 | 措辞微差 | ✅ |
+| 31 | Body size int vs int64 | Go int64；Java int（2GB 上限） | ✅ |
+| 32 | redis_get SMEMBERS 返回顺序 | Go 保序；Java HashSet 无序 | ⬜ 已接受 |
+| 33 | /dag collapse=0 传递方式 | Go 不传 option；Java 始终传 0 | ⬜ 已接受 |
+| 34 | Resource injection 模式 | Go per-request context；Java per-engine field | ⬜ 已接受 |
 
 ### 上轮修复复验
 
