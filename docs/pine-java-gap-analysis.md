@@ -180,7 +180,7 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 | # | 差异点 | 说明 | 修复状态 |
 |---|--------|------|----------|
-| 13 | DebugAware/MetricsAware 缺失 | 算子无法接收引擎注入的 debug/metrics | ⬜ 接口设计差异 |
+| 13 | DebugAware/MetricsAware 缺失 | 算子无法接收引擎注入的 debug/metrics | ✅ |
 | 14 | DataFrame row 模式无 validateValue | ColumnFrame 有但 DataFrame 没有 | ✅ |
 | 15 | applyOutput error 不记录 stats/metrics | Go 在 ApplyOutput 错误时调用 RecordError | ✅ |
 | 16 | /stats 无 snapshot 返回 200 | Go 返回 503 | ✅ |
@@ -200,10 +200,10 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 | # | 差异点 | 说明 | 修复状态 |
 |---|--------|------|----------|
-| 28 | Operator.Execute 缺 context 参数 | 基础接口设计差异 | ⬜ 设计差异 |
-| 29 | EngineMetrics null vs Nop | 风格差异，运行时等价 | ⬜ |
+| 28 | Operator.Execute 缺 context 参数 | CancellationToken 注入 | ✅ |
+| 29 | EngineMetrics null vs Nop | NopProvider 消除 null 检查 | ✅ |
 | 30 | /health 方法校验 | Java 限 GET，Go 不限 | ⬜ Java 更严格 |
-| 31 | body size 不可配置 | Java 硬编码 10MB | ⬜ |
+| 31 | body size 不可配置 | JSON 配置 max_request_body_size | ✅ |
 | 32 | recall_static Init 引用拷贝 | Go 拷贝 slice，Java 直接存引用 | ✅ |
 | 33 | redis_get Set 返回顺序 | Go 保序，Java HashSet 无序 | ⬜ Redis SMEMBERS 本身无序 |
 | 34 | reorder_sort 排序稳定性 | Go 不稳定，Java TimSort 稳定 | ⬜ 已接受设计差异 |
