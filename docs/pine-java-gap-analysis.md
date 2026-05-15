@@ -1097,4 +1097,48 @@ Server 修复（H4/H5/M11）：
 | R14  | 1    | 4      | -   | 独立重验 |
 | R15  | 0    | 2      | -   | 继续收敛 |
 | R16  | 0    | 2      | -   | 深度追查 |
-| R17  | 0    | 0      | 6   | 仅剩措辞级差异，全部修复 → **收敛完成** |
+| R17  | 0    | 0      | 6   | 仅剩措辞级差异，全部修复 |
+
+---
+
+## 第十八轮审计 (R18)
+
+**方法论**: 三路并行独立审计——①重新验证 R14-R17 全部 16 项修复到位；②逐算子逻辑语义对比（18 对）；③Engine/Server/Config/GoFormat 非算子代码交叉验证。
+
+**结果**: R14-R17 全部修复确认到位。0 HIGH / 0 MEDIUM / 11 LOW
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 处理 |
+|---|--------|---------|-----------|------|
+| L1 | RenderDAG 错误消息措辞 | `unsupported DAG format "X" (use "dot" or "mermaid")` | `unsupported format "X": expected "dot" or "mermaid"` | ✅ 修复 |
+| L2 | trace duration_ms 精度 | 微秒截断后÷1000 (1.234) | 纳秒÷1000000 (1.234567) | 可接受 |
+| L3 | request.Common 校验消息 | `request.Common must not be nil` | `request common must not be null` | ✅ 修复 |
+| L4 | MergeDedup normalizeKey | `map[any]` raw key | Number→double 归一化 | 可接受：补偿 Jackson 类型差异 |
+| L5 | Redis SMEMBERS 返回顺序 | `[]string` 保留响应序 | `Set<String>` 包装丢失序 | 可接受：Redis Set 本身无序 |
+| L6 | reorder_sort 稳定性 | pdqsort（不稳定） | TimSort（稳定） | 可接受：平台差异 |
+| L7 | normalize/sort 类型宽度 | 仅 float64/int64/int | 任何 Number 子类 | 可接受：实际 JSON 不触发 |
+| L8 | Lua common 模式取消检查 | VM 指令级 ctx 检查 | 无取消检查 | ✅ 修复：添加输入准备后+函数调用前检查 |
+| L9 | observe_log 输出流 | log.Printf (stdout) | System.err.printf (stderr) | 可接受：不影响管线输出 |
+| L10 | SSRF dial-time 校验 | DialContext 拦截 | DNS 重查 (TOCTOU 窗口) | 可接受：平台限制 |
+| L11 | /stats JSON key 顺序 | 字母排序 | 插入顺序 | 可接受：JSON spec 无序 |
+
+### 第十八轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| L1 | 修 Java | RenderDAG 消息对齐 Go 措辞 |
+| L3 | 修 Java | request.Common 消息对齐 Go 措辞 |
+| L8 | 修 Java | executeForCommon 添加 token 参数及两处取消检查 |
+| 其余 | 可接受 | 平台/设计差异，无功能影响 |
+
+### 收敛总结
+
+| 轮次 | HIGH | MEDIUM | LOW | 说明 |
+|------|------|--------|-----|------|
+| R9   | 8    | 11     | -   | 首轮系统审计 |
+| R14  | 1    | 4      | -   | 独立重验 |
+| R15  | 0    | 2      | -   | 继续收敛 |
+| R16  | 0    | 2      | -   | 深度追查 |
+| R17  | 0    | 0      | 6   | 措辞级差异，全部修复 |
+| R18  | 0    | 0      | 11  | 3 修复 + 8 accepted → **审计收敛** |

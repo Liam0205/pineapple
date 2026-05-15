@@ -184,7 +184,7 @@ public class Engine {
 
     public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
         if (common == null) {
-            throw new PineErrors.ValidationError("request common must not be null");
+            throw new PineErrors.ValidationError("request.Common must not be nil");
         }
 
         for (String field : contract.commonInput) {
@@ -479,7 +479,7 @@ public class Engine {
                     : DAGVisualizer.renderMermaid(dag);
         }
         if (!"dot".equalsIgnoreCase(format)) {
-            throw new PineErrors.ValidationError("unsupported format \"" + format + "\": expected \"dot\" or \"mermaid\"");
+            throw new PineErrors.ValidationError("unsupported DAG format \"" + format + "\" (use \"dot\" or \"mermaid\")");
         }
         return collapseLevel > 0
                 ? DAGVisualizer.renderCollapsedDot(dag, collapseLevel)
