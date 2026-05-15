@@ -19,9 +19,21 @@ public class FilterCondition extends AbstractOperator {
     public void execute(OperatorInput input, OperatorOutput output) {
         String field = itemInput.get(0);
         for (int i = 0; i < input.itemCount(); i++) {
-            if (Objects.equals(String.valueOf(input.item(i, field)), String.valueOf(value))) {
+            if (Objects.equals(formatValue(input.item(i, field)), formatValue(value))) {
                 output.removeItem(i);
             }
         }
+    }
+
+    private static String formatValue(Object v) {
+        if (v == null) return "null";
+        if (v instanceof Number) {
+            double d = ((Number) v).doubleValue();
+            if (d == Math.floor(d) && !Double.isInfinite(d)) {
+                return Long.toString((long) d);
+            }
+            return Double.toString(d);
+        }
+        return v.toString();
     }
 }

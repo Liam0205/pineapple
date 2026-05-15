@@ -18,7 +18,7 @@ public class Stats {
     }
 
     public void recordError(String name, long durationNs) {
-        getOrCreate(name).errorCount.incrementAndGet();
+        getOrCreate(name).recordError(durationNs);
     }
 
     public void recordRun() {
@@ -61,6 +61,16 @@ public class Stats {
 
         void recordExec(long durationNs) {
             execCount.incrementAndGet();
+            totalDurationNs.addAndGet(durationNs);
+            long prev;
+            do {
+                prev = maxDurationNs.get();
+                if (durationNs <= prev) return;
+            } while (!maxDurationNs.compareAndSet(prev, durationNs));
+        }
+
+        void recordError(long durationNs) {
+            errorCount.incrementAndGet();
             totalDurationNs.addAndGet(durationNs);
             long prev;
             do {

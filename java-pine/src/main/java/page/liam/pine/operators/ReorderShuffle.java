@@ -2,6 +2,7 @@ package page.liam.pine.operators;
 
 import page.liam.pine.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class ReorderShuffle extends AbstractOperator {
@@ -50,13 +51,15 @@ public class ReorderShuffle extends AbstractOperator {
 
     private static double hashToUnitInterval(String s) {
         long h = fnv64a(s);
-        return (h >>> 1) / (double) Long.MAX_VALUE;
+        double unsigned = (h & 0x7FFFFFFFFFFFFFFFL) + (h < 0 ? 9223372036854775808.0 : 0.0);
+        return unsigned / 18446744073709551616.0;
     }
 
     private static long fnv64a(String s) {
+        byte[] data = s.getBytes(StandardCharsets.UTF_8);
         long hash = 0xcbf29ce484222325L;
-        for (int i = 0; i < s.length(); i++) {
-            hash ^= (s.charAt(i) & 0xFF);
+        for (byte b : data) {
+            hash ^= (b & 0xFF);
             hash *= 0x100000001b3L;
         }
         return hash;

@@ -38,19 +38,20 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             isItemMode = false;
         }
 
-        // Validate script compiles
+        // Validate script compiles and defines the function
         Globals g = createSandboxedGlobals();
         g.load(script).call();
+        if (g.get(funcName).isnil()) {
+            throw new IllegalArgumentException("lua: script does not define function \"" + funcName + "\"");
+        }
 
-        pool = new LuaPool();
+        pool = new LuaPool(script);
     }
 
     @Override
     public void execute(OperatorInput input, OperatorOutput output) throws Exception {
         Globals globals = pool.borrow();
         try {
-            globals.load(script).call();
-
             if (isItemMode) {
                 executeForItem(globals, input, output);
             } else {
@@ -156,10 +157,15 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
 
     static class LuaPool {
         private final ConcurrentLinkedQueue<Globals> pool = new ConcurrentLinkedQueue<>();
+        private final String initScript;
         final AtomicLong borrowCount = new AtomicLong();
         final AtomicLong returnCount = new AtomicLong();
         final AtomicLong createCount = new AtomicLong();
         final AtomicLong activeCount = new AtomicLong();
+
+        LuaPool(String script) {
+            this.initScript = script;
+        }
 
         Globals borrow() {
             borrowCount.incrementAndGet();
@@ -168,6 +174,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             if (g == null) {
                 createCount.incrementAndGet();
                 g = createSandboxedGlobals();
+                g.load(initScript).call();
             }
             return g;
         }

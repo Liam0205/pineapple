@@ -218,6 +218,18 @@ public class Config {
                 }
             }
         }
+        for (Map.Entry<String, OperatorConfig> entry : cfg.pipelineConfig.operators.entrySet()) {
+            String name = entry.getKey();
+            OperatorConfig opCfg = entry.getValue();
+            for (String skipField : opCfg.skip) {
+                if (!skipField.startsWith("_")) {
+                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must start with underscore");
+                }
+                if (!opCfg.metadata.commonInput.contains(skipField)) {
+                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" not found in $metadata.common_input");
+                }
+            }
+        }
     }
 
     private static List<String> readStringList(JsonNode parent, String field) {

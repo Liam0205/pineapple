@@ -142,7 +142,10 @@ public class PineServer {
         rm.start();
 
         Engine engine = Engine.create(configData, rm);
-        snapshot.set(new Snapshot(engine, rm));
+        Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
+        if (old != null && old.resources instanceof ResourceManager) {
+            ((ResourceManager) old.resources).stop();
+        }
         lastReloadDurationNs = System.nanoTime() - start;
         reloadCount.incrementAndGet();
         if (reloadTotal != null) {
@@ -203,7 +206,18 @@ public class PineServer {
             resp.put("common", result.common);
             resp.put("items", result.items);
 
-            Object returnTrace = req.get("_return_trace");
+            if (result.warnings != null && !result.warnings.isEmpty()) {
+                List<Map<String, Object>> warnList = new ArrayList<>();
+                for (Engine.Warning w : result.warnings) {
+                    Map<String, Object> wm = new LinkedHashMap<>();
+                    wm.put("operator", w.operator);
+                    wm.put("message", w.err.getMessage());
+                    warnList.add(wm);
+                }
+                resp.put("warnings", warnList);
+            }
+
+            Object returnTrace = common.get("_return_trace");
             if (Boolean.TRUE.equals(returnTrace) && result.trace != null) {
                 List<Map<String, Object>> traceList = new ArrayList<>();
                 for (OpTrace t : result.trace) {

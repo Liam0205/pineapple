@@ -184,6 +184,7 @@ public class Engine {
         OpTrace[] traces = new OpTrace[n];
         List<Warning> warnings = Collections.synchronizedList(new ArrayList<>());
         AtomicReference<Exception> fatalError = new AtomicReference<>();
+        CountDownLatch cancelLatch = new CountDownLatch(1);
         AtomicLong activeOps = new AtomicLong();
         ForkJoinPool pool = ForkJoinPool.commonPool();
         CountDownLatch allDone = new CountDownLatch(n);
@@ -198,7 +199,7 @@ public class Engine {
                     Config.OperatorConfig opCfg = cop.config;
 
                     for (int pred : node.preds) {
-                        applied[pred].await();
+                        awaitWithCancel(applied[pred], cancelLatch);
                         if (fatalError.get() != null) return;
                     }
 
@@ -275,6 +276,17 @@ public class Engine {
                         execErr = e;
                     }
 
+                    // Validate output type constraints
+                    if (execErr == null && output != null) {
+                        OperatorType opType = Registry.getType(opCfg.typeName);
+                        if (opType != null) {
+                            String violation = opType.validateOutput(output);
+                            if (violation != null) {
+                                execErr = new IllegalStateException("type violation: " + violation);
+                            }
+                        }
+                    }
+
                     long duration = System.nanoTime() - startTime;
                     activeOps.decrementAndGet();
                     if (engineMetrics != null) {
@@ -288,8 +300,10 @@ public class Engine {
                             engineMetrics.opErrorTotal.with(cop.name).inc();
                             engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
                         }
-                        fatalError.compareAndSet(null,
-                                new PineErrors.ExecutionError(cop.name, execErr));
+                        if (fatalError.compareAndSet(null,
+                                new PineErrors.ExecutionError(cop.name, execErr))) {
+                            cancelLatch.countDown();
+                        }
                         return;
                     }
 
@@ -315,11 +329,15 @@ public class Engine {
                     }
 
                 } catch (Exception e) {
-                    fatalError.compareAndSet(null,
-                            new PineErrors.ExecutionError(opName, e));
+                    if (fatalError.compareAndSet(null,
+                            new PineErrors.ExecutionError(opName, e))) {
+                        cancelLatch.countDown();
+                    }
                 } catch (Error e) {
-                    fatalError.compareAndSet(null,
-                            new PineErrors.PanicError(opName, e));
+                    if (fatalError.compareAndSet(null,
+                            new PineErrors.PanicError(opName, e))) {
+                        cancelLatch.countDown();
+                    }
                 } finally {
                     applied[idx].countDown();
                     allDone.countDown();
@@ -487,6 +505,13 @@ public class Engine {
                 }
             }
             seen.add(name);
+        }
+    }
+
+    private static void awaitWithCancel(CountDownLatch target, CountDownLatch cancel) throws InterruptedException {
+        while (true) {
+            if (target.await(5, java.util.concurrent.TimeUnit.MILLISECONDS)) return;
+            if (cancel.await(0, java.util.concurrent.TimeUnit.MILLISECONDS)) return;
         }
     }
 }

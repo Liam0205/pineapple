@@ -17,6 +17,7 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     private static final long DEFAULT_MAX_RESPONSE = 10L * 1024 * 1024;
 
     private String url;
+    private String host;
     private Duration timeout;
     private boolean failOnError = true;
     private boolean allowPrivate;
@@ -30,7 +31,7 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
 
     @Override
     public void init(Map<String, Object> params) {
-        String host = (String) params.getOrDefault("host", "");
+        host = (String) params.getOrDefault("host", "");
         long port = toLong(params.getOrDefault("port", 0));
         String endpoint = (String) params.getOrDefault("endpoint", "/execute");
         if (endpoint.isEmpty()) endpoint = "/execute";
@@ -101,6 +102,9 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
 
         HttpResponse<byte[]> resp;
         try {
+            if (!allowPrivate) {
+                validateHostAtDialTime(host);
+            }
             resp = client.send(httpReq, HttpResponse.BodyHandlers.ofByteArray());
         } catch (Exception e) {
             handleError(output, "request failed: " + e.getMessage(), e);
@@ -170,6 +174,15 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
             }
         } catch (UnknownHostException e) {
             // DNS may not be available at init; dial-time check is the real guard
+        }
+    }
+
+    private static void validateHostAtDialTime(String host) throws Exception {
+        InetAddress[] addrs = InetAddress.getAllByName(host);
+        for (InetAddress addr : addrs) {
+            if (isPrivateAddress(addr)) {
+                throw new SecurityException("transform_by_remote_pineapple: dial-time SSRF check failed: \"" + host + "\" resolves to private address " + addr.getHostAddress());
+            }
         }
     }
 

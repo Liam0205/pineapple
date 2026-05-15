@@ -2,6 +2,8 @@ package page.liam.pine;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ParallelExecutor {
 
@@ -40,11 +42,14 @@ public class ParallelExecutor {
             return output;
         }
 
-        ExecutorService executor = ForkJoinPool.commonPool();
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        AtomicReference<Exception> firstError = new AtomicReference<>();
+        ForkJoinPool pool = ForkJoinPool.commonPool();
         List<Future<OperatorOutput>> futures = new ArrayList<>(n);
 
         for (OperatorInput shard : shards) {
-            futures.add(executor.submit(() -> {
+            futures.add(pool.submit(() -> {
+                if (cancelled.get()) return null;
                 OperatorOutput out = new OperatorOutput();
                 op.execute(shard, out);
                 return out;
@@ -52,11 +57,11 @@ public class ParallelExecutor {
         }
 
         OperatorOutput merged = new OperatorOutput();
-        Exception firstError = null;
 
         for (int i = 0; i < futures.size(); i++) {
             try {
                 OperatorOutput out = futures.get(i).get();
+                if (out == null) continue;
                 int offset = offsets[i];
                 for (Map.Entry<Integer, Map<String, Object>> entry : out.getItemWrites().entrySet()) {
                     int absIdx = entry.getKey() + offset;
@@ -64,16 +69,23 @@ public class ParallelExecutor {
                         merged.setItem(absIdx, field.getKey(), field.getValue());
                     }
                 }
+                if (out.getWarning() != null) {
+                    merged.setWarning(out.getWarning());
+                }
             } catch (ExecutionException e) {
-                if (firstError == null) {
-                    firstError = e.getCause() instanceof Exception
-                            ? (Exception) e.getCause() : new Exception(e.getCause());
+                Exception cause = e.getCause() instanceof Exception
+                        ? (Exception) e.getCause() : new Exception(e.getCause());
+                if (firstError.compareAndSet(null, cause)) {
+                    cancelled.set(true);
+                    for (int j = i + 1; j < futures.size(); j++) {
+                        futures.get(j).cancel(true);
+                    }
                 }
             }
         }
 
-        if (firstError != null) {
-            throw firstError;
+        if (firstError.get() != null) {
+            throw firstError.get();
         }
         return merged;
     }
