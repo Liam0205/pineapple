@@ -97,8 +97,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "11"
-      - name: Run fixture tests
-        run: mvn test -B -q
+          cache: maven
+      - run: mvn test -B -q
+      - name: Upload Java coverage
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: java-coverage
+          path: pine-java/target/site/jacoco/
+          retention-days: 30
 
   java-benchmark:
     runs-on: ubuntu-latest
