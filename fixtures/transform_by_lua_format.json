@@ -1,0 +1,167 @@
+{
+  "operator": "transform_by_lua",
+  "cases": [
+    {
+      "name": "integer-valued floats format without decimal",
+      "params": {
+        "lua_script": "function f() return item_val * 1.0 end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_val"],
+        "common_output": [],
+        "item_output": ["out"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_val": 1.0 },
+          { "item_val": 999999.0 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "out": 1.0 },
+          { "out": 999999.0 }
+        ]
+      }
+    },
+    {
+      "name": "scientific notation threshold at 1e6",
+      "params": {
+        "lua_script": "function f() return item_val + 0 end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_val"],
+        "common_output": [],
+        "item_output": ["out"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_val": 1000000.0 },
+          { "item_val": 10000000.0 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "out": 1000000.0 },
+          { "out": 10000000.0 }
+        ]
+      }
+    },
+    {
+      "name": "very small decimal values",
+      "params": {
+        "lua_script": "function f() return item_val end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_val"],
+        "common_output": [],
+        "item_output": ["out"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_val": 0.0001 },
+          { "item_val": 0.5 },
+          { "item_val": 3.14159 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "out": 0.0001 },
+          { "out": 0.5 },
+          { "out": 3.14159 }
+        ]
+      }
+    },
+    {
+      "name": "boolean values through lua",
+      "params": {
+        "lua_script": "function f() return item_flag, not item_flag end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_flag"],
+        "common_output": [],
+        "item_output": ["same", "negated"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_flag": true },
+          { "item_flag": false }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "same": true, "negated": false },
+          { "same": false, "negated": true }
+        ]
+      }
+    },
+    {
+      "name": "nil value through lua returns nil",
+      "params": {
+        "lua_script": "function f() return item_val end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_val"],
+        "common_output": [],
+        "item_output": ["out"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "other": "x" }
+        ]
+      },
+      "expected": {
+        "items": [
+          {}
+        ]
+      }
+    },
+    {
+      "name": "string values preserved through lua",
+      "params": {
+        "lua_script": "function f() return tostring(item_val) end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_val"],
+        "common_output": [],
+        "item_output": ["out"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_val": "hello" },
+          { "item_val": "" }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "out": "hello" },
+          { "out": "" }
+        ]
+      }
+    }
+  ]
+}
