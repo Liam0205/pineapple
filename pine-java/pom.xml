@@ -6,11 +6,33 @@
 
     <groupId>page.liam</groupId>
     <artifactId>pine</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.6.6</version>
     <packaging>jar</packaging>
 
     <name>Pine-Java</name>
-    <description>Java implementation of Pineapple operator engine for MaxCompute UDFs</description>
+    <description>Java implementation of Pineapple operator engine</description>
+    <url>https://github.com/Liam0205/pineapple</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+        </license>
+    </licenses>
+
+    <scm>
+        <connection>scm:git:git://github.com/Liam0205/pineapple.git</connection>
+        <developerConnection>scm:git:ssh://github.com/Liam0205/pineapple.git</developerConnection>
+        <url>https://github.com/Liam0205/pineapple</url>
+    </scm>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/Liam0205/pineapple</url>
+        </repository>
+    </distributionManagement>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
