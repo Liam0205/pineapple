@@ -22,7 +22,7 @@ public class MergeDedup extends AbstractOperator {
     public void init(Map<String, Object> params) throws Exception {
         strategy = (String) params.getOrDefault("strategy", "first");
         if (!"first".equals(strategy)) {
-            throw new IllegalArgumentException("merge_dedup: unsupported strategy: " + strategy);
+            throw new IllegalArgumentException("merge_dedup: unsupported strategy \"" + strategy + "\"");
         }
     }
 

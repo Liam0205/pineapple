@@ -1141,4 +1141,53 @@ Server 修复（H4/H5/M11）：
 | R15  | 0    | 2      | -   | 继续收敛 |
 | R16  | 0    | 2      | -   | 深度追查 |
 | R17  | 0    | 0      | 6   | 措辞级差异，全部修复 |
-| R18  | 0    | 0      | 11  | 3 修复 + 8 accepted → **审计收敛** |
+| R18  | 0    | 0      | 11  | 3 修复 + 8 accepted（注：L9 observe_log 为误报，两端均 stderr） |
+
+---
+
+## 第十九轮审计 (R19)
+
+**方法论**: 三路并行——①Init 时校验逻辑全量对比（18 对算子）；②引擎配线/注入/DAG/调度器/输出投影语义验证；③R18 修复确认 + R18 "accepted" 项独立质疑。
+
+**结果**: R18 全部修复确认到位。R18 MEDIUM 误报（remote_pineapple DNS — Go 同样静默通过）。R18 L9 事实错误（两端均 stderr）。0 HIGH / 0 MEDIUM / 5 LOW
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| L1 | recall_static init 类型错误含实际类型 | `'items' must be a JSON array, got %T` | `'items' must be a list`（无类型） | ✅ |
+| L2 | transform_copy init 方向错误 %q 引号 | `unsupported direction "foo"` | `unsupported direction: foo` | ✅ |
+| L3 | normalize/dedup/sort init 枚举错误 %q 引号 | `unsupported X "val"` | `unsupported X: val` | ✅ |
+| L4 | filter_truncate init 含类型/值信息 | `got %T` + `got %d` | 无类型/值 | ✅ |
+| L5 | trace duration_ms 精度 | 微秒截断÷1000 (1.234) | 纳秒÷1000000 (1.234567) | ✅ |
+
+### R19 附加验证结果
+
+| 维度 | 结论 |
+|------|------|
+| R18 修复 (3 项) | 全部确认到位 |
+| R18 MEDIUM (remote_pineapple DNS) | 误报：Go 同样 `return nil` 静默处理 |
+| R18 L9 (observe_log stdout/stderr) | 事实错误：Go `log.Printf` 默认 stderr，与 Java 相同 |
+| 引擎注入顺序 | PARITY（Metadata→Debug→Metrics，ResourceAware 仅 Java 有，已接受） |
+| DAG 构建算法 | PARITY（完全一致的五阶段 port） |
+| 调度器语义 | PARITY（goroutine/channel ↔ ForkJoinPool/CompletableFuture） |
+| 输出投影 | PARITY（declared-field-only，missing 静默跳过） |
+| 元数据传播时机 | PARITY（均在 init 之后注入） |
+
+### 第十九轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| L1-L5 | 全部修复 | init 消息对齐 Go `%q` 格式 + trace 精度对齐 |
+
+### 收敛总结
+
+| 轮次 | HIGH | MEDIUM | LOW | 说明 |
+|------|------|--------|-----|------|
+| R9   | 8    | 11     | -   | 首轮系统审计 |
+| R14  | 1    | 4      | -   | 独立重验 |
+| R15  | 0    | 2      | -   | 继续收敛 |
+| R16  | 0    | 2      | -   | 深度追查 |
+| R17  | 0    | 0      | 6   | 措辞级差异 |
+| R18  | 0    | 0      | 3   | 取消检查 + 消息措辞 |
+| R19  | 0    | 0      | 5   | init 消息格式 + trace 精度 → **收敛** |
