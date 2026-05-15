@@ -161,13 +161,10 @@ public class Codegen {
                 w.println("        item_defaults: dict | None = None,");
                 w.println("        common_defaults: dict | None = None,");
                 boolean isRecall = "recall".equalsIgnoreCase(schema.type);
-                if (isRecall) {
-                    w.println("        recall: bool = True,");
-                }
                 w.println("        row_dependency: bool = False,");
                 w.println("        debug: bool = False,");
                 w.println("        name: str | None = None,");
-                w.printf("    ) -> \"%sOp\":%n", className);
+                w.printf("    ) -> \"%s\":%n", className);
                 w.println("        params = {");
                 for (String pName : paramNames) {
                     ParamSpec spec = schema.params.get(pName);
@@ -256,14 +253,22 @@ public class Codegen {
 
     private static String toPythonLiteral(Object v) {
         if (v == null) return "None";
-        if (v instanceof String) return "\"" + v + "\"";
+        if (v instanceof String) return "\"" + escapeString((String) v) + "\"";
         if (v instanceof Boolean) return (Boolean) v ? "True" : "False";
         if (v instanceof Number) {
             double d = ((Number) v).doubleValue();
             if (d == (long) d) return Long.toString((long) d);
             return Double.toString(d);
         }
-        return "\"" + v + "\"";
+        return "\"" + escapeString(v.toString()) + "\"";
+    }
+
+    private static String escapeString(String s) {
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     private static void generateDocs(List<OperatorSchema> schemas, String docDir) throws IOException {
@@ -387,22 +392,37 @@ public class Codegen {
             w.println("# auto-generated from pine resource schema — DO NOT EDIT");
             w.println("from __future__ import annotations");
             w.println("from typing import Any");
-            w.println("from apple.base import BaseResource");
+            w.println("from apple.resource import BaseResource");
             w.println();
 
             for (ResourceSchema schema : schemas) {
                 String className = toCamelCase(schema.name) + "Resource";
                 w.println();
                 w.printf("class %s(BaseResource):%n", className);
-                w.printf("    \"\"\"Resource: %s\"\"\"%n", schema.name);
+                String desc = schema.description != null && !schema.description.isEmpty()
+                        ? schema.name + " — " + schema.description : schema.name;
+                w.printf("    \"\"\"Resource: %s\"\"\"%n", desc);
                 w.printf("    _name = \"%s\"%n", schema.name);
                 w.printf("    _default_interval = %d%n", schema.defaultInterval);
 
+                // _params_schema
                 List<String> paramNames = new ArrayList<>(schema.params.keySet());
                 Collections.sort(paramNames);
+                w.print("    _params_schema = {");
+                for (String pName : paramNames) {
+                    ParamSpec spec = schema.params.get(pName);
+                    w.printf("%n        \"%s\": {\"type\": \"%s\", \"required\": %s",
+                            pName, spec.type, spec.required ? "True" : "False");
+                    if (spec.defaultValue != null) {
+                        w.printf(", \"default\": %s", toPythonLiteral(spec.defaultValue));
+                    }
+                    w.print("},");
+                }
+                w.println();
+                w.println("    }");
 
                 w.println();
-                w.println("    def __call__(");
+                w.println("    def __init__(");
                 w.println("        self,");
                 w.println("        *,");
                 for (String pName : paramNames) {
@@ -412,14 +432,14 @@ public class Codegen {
                             : (spec.required ? "..." : toPythonDefault(spec.type));
                     w.printf("        %s: %s = %s,%n", pName, pyType, pyDefault);
                 }
-                w.println("        interval: int = 0,");
-                w.println("    ) -> BaseResource:");
-                w.println("        params = {");
+                w.printf("        interval: int = %d,%n", schema.defaultInterval);
+                w.println("    ):");
+                w.println("        super().__init__(");
+                w.println("            interval=interval,");
                 for (String pName : paramNames) {
-                    w.printf("            \"%s\": %s,%n", pName, pName);
+                    w.printf("            %s=%s,%n", pName, pName);
                 }
-                w.println("        }");
-                w.println("        return self._build(params, interval)");
+                w.println("        )");
                 w.println();
             }
         }

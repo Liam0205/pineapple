@@ -100,19 +100,21 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
 
-        HttpResponse<byte[]> resp;
+        HttpResponse<java.io.InputStream> resp;
         try {
             if (!allowPrivate) {
                 validateHostAtDialTime(host);
             }
-            resp = client.send(httpReq, HttpResponse.BodyHandlers.ofByteArray());
+            resp = client.send(httpReq, HttpResponse.BodyHandlers.ofInputStream());
         } catch (Exception e) {
             handleError(output, "request failed: " + e.getMessage(), e);
             return;
         }
 
-        byte[] respBody = resp.body();
-        if (respBody.length > maxResponseSize) {
+        byte[] respBody;
+        try (java.io.InputStream is = resp.body()) {
+            respBody = readLimited(is, maxResponseSize);
+        } catch (Exception e) {
             handleError(output, "response body exceeds " + maxResponseSize + " bytes limit", null);
             return;
         }
@@ -205,5 +207,20 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     private static long toLong(Object v) {
         if (v instanceof Number) return ((Number) v).longValue();
         return 0;
+    }
+
+    private static byte[] readLimited(java.io.InputStream in, long limit) throws Exception {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] tmp = new byte[8192];
+        long total = 0;
+        int n;
+        while ((n = in.read(tmp)) != -1) {
+            total += n;
+            if (total > limit) {
+                throw new RuntimeException("response too large");
+            }
+            buf.write(tmp, 0, n);
+        }
+        return buf.toByteArray();
     }
 }

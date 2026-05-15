@@ -226,14 +226,17 @@ public class ResourceManager implements ResourceProvider {
     }
 
     public void validateDeps(Map<String, Config.OperatorConfig> operators) {
+        List<String> missing = new ArrayList<>();
         for (Map.Entry<String, Config.OperatorConfig> entry : operators.entrySet()) {
             Object rn = entry.getValue().rawParams.get("resource_name");
             if (rn instanceof String && !((String) rn).isEmpty()) {
                 if (!resources.containsKey((String) rn)) {
-                    throw new IllegalArgumentException(
-                            "operator \"" + entry.getKey() + "\" references resource \"" + rn + "\" which is not registered");
+                    missing.add("operator \"" + entry.getKey() + "\" references resource \"" + rn + "\" which is not registered");
                 }
             }
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException(String.join("; ", missing));
         }
     }
 }

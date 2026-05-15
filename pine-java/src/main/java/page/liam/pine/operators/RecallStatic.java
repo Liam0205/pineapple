@@ -27,7 +27,10 @@ public class RecallStatic extends AbstractOperator {
                 throw new IllegalArgumentException("recall_static: items[" + i + "] must be a map");
             }
         }
-        items = (List<Map<String, Object>>) raw;
+        items = new java.util.ArrayList<>(list.size());
+        for (Object o : list) {
+            items.add(new HashMap<>((Map<String, Object>) o));
+        }
     }
 
     @Override

@@ -338,7 +338,22 @@ public class Engine {
                     }
 
                     // Apply output
-                    frame.applyOutput(output, cop.name, opCfg.recall);
+                    try {
+                        frame.applyOutput(output, cop.name, opCfg.recall);
+                    } catch (Exception applyErr) {
+                        long applyDuration = System.nanoTime() - startTime;
+                        traces[idx] = new OpTrace(cop.name, startTime, applyDuration, false, inputSnapshot, outputSnapshot);
+                        stats.recordError(cop.name, applyDuration);
+                        if (engineMetrics != null) {
+                            engineMetrics.opErrorTotal.with(cop.name).inc();
+                            engineMetrics.opExecDuration.with(cop.name).observe(applyDuration / 1_000_000_000.0);
+                        }
+                        if (fatalError.compareAndSet(null,
+                                new PineErrors.ExecutionError(cop.name, applyErr))) {
+                            cancelLatch.countDown();
+                        }
+                        return;
+                    }
 
                     traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
                     stats.recordExec(cop.name, duration);
@@ -383,9 +398,6 @@ public class Engine {
         }
 
         Exception err = fatalError.get();
-        if (err != null) {
-            throw err;
-        }
 
         // Collect non-null traces
         List<OpTrace> traceList = new ArrayList<>();
@@ -393,11 +405,11 @@ public class Engine {
             if (t != null) traceList.add(t);
         }
 
-        // Project result
+        // Project result (even on error, return partial result)
         Map<String, Object> resultCommon = frame.toResultCommon(contract.commonOutput);
         List<Map<String, Object>> resultItems = frame.toResultItems(contract.itemOutput);
 
-        return new Result(resultCommon, resultItems, warnings, traceList);
+        return new Result(resultCommon, resultItems, warnings, traceList, err);
     }
 
     // --- Public API ---
@@ -501,13 +513,20 @@ public class Engine {
         public final List<Map<String, Object>> items;
         public final List<Warning> warnings;
         public final List<OpTrace> trace;
+        public final Exception error;
 
         public Result(Map<String, Object> common, List<Map<String, Object>> items,
                       List<Warning> warnings, List<OpTrace> trace) {
+            this(common, items, warnings, trace, null);
+        }
+
+        public Result(Map<String, Object> common, List<Map<String, Object>> items,
+                      List<Warning> warnings, List<OpTrace> trace, Exception error) {
             this.common = common;
             this.items = items;
             this.warnings = warnings;
             this.trace = trace;
+            this.error = error;
         }
     }
 

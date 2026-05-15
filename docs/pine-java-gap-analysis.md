@@ -155,6 +155,59 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | 30 | logOnce 缺失 | Go sync.Once；Java volatile+synchronized 幂等保护 | ✅ |
 | 31 | ResourceProvider.Get 语义 | Go (any,bool)；Java GetResult(value, exists) | ✅ |
 
+## 第四轮审计 (2026-05-15)
+
+前三轮修复后全面重审。发现 34 项差异，修复 22 项，7 项为平台限制/设计差异。
+
+### 🔴 HIGH 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| 1 | Codegen operators.py 返回类型双重 "Op" | `-> "XxxOpOp":` 应为 `-> "XxxOp":` | ✅ |
+| 2 | Codegen resources.py __call__ → __init__ | Go 用 `__init__`，Java 错用 `__call__` | ✅ |
+| 3 | Codegen resources.py import 路径 | `apple.base` 应为 `apple.resource` | ✅ |
+| 4 | Codegen resources.py return 方式 | `self._build` 应为 `super().__init__()` | ✅ |
+| 5 | Codegen toPythonLiteral 不转义 | 含引号的 default 产出非法 Python | ✅ |
+| 6 | Server body size 先全量读入 | readAllBytes 可 OOM；改为流式限读 | ✅ |
+| 7 | Server 从不调用 validateResourceDeps | Go 在 load 和 reload 时都调用 | ✅ |
+| 8 | Engine.Execute throws 无 partial result | Go 返回 (result, err)；Java 改为 Result 含 error 字段 | ✅ |
+| 9 | Lua pool 无状态清理 | returnState 后全局变量泄漏到下次 | ✅ 清理 operator 设置的 key |
+| 10 | Lua pool 无 Close/shutdown | 热加载时泄漏 | ✅ |
+| 11 | Lua context 取消传播缺失 | LuaJ 无 SetContext 等效机制 | ⬜ 平台限制 |
+| 12 | RemotePineapple 响应体全量读入 | BodyHandlers.ofByteArray 可 OOM | ✅ ofInputStream + readLimited |
+
+### 🟡 MEDIUM 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| 13 | DebugAware/MetricsAware 缺失 | 算子无法接收引擎注入的 debug/metrics | ⬜ 接口设计差异 |
+| 14 | DataFrame row 模式无 validateValue | ColumnFrame 有但 DataFrame 没有 | ✅ |
+| 15 | applyOutput error 不记录 stats/metrics | Go 在 ApplyOutput 错误时调用 RecordError | ✅ |
+| 16 | /stats 无 snapshot 返回 200 | Go 返回 503 | ✅ |
+| 17 | trace skipped 字段始终输出 | Go 用 omitempty 不输出 false | ✅ |
+| 18 | /dag collapse 负值无校验 | Go 返回 400 | ✅ |
+| 19 | /dag renderDAG 错误无 try-catch | 可能 500 无格式化 | ✅ |
+| 20 | validateDeps 遇第一个就 throw | Go 收集所有缺失再报错 | ✅ |
+| 21 | Fetcher 接口无 context 参数 | 无法配合超时/取消 | ⬜ 接口设计差异 |
+| 22 | Lua 沙箱 PackageLib | Go 不加载 PackageLib | ⬜ LuaJ 依赖 PackageLib 编译 |
+| 23 | SSRF DNS rebinding TOCTOU | 应用层 DNS 检查后 HttpClient 重新解析 | ⬜ 平台限制 |
+| 24 | filter_condition 大数字科学计数法 | `1.0E20` vs `1e+20` | ✅ formatFloatG |
+| 25 | merge_dedup normalizeKey vs map[any] | Number→Double 在非 JSON 场景仍有差异 | ⬜ JSON 输入下行为一致 |
+| 26 | Codegen recall 暴露 recall 参数 | Go 不在签名中暴露 | ✅ |
+| 27 | Codegen resources.py 缺 _params_schema | 缺失 + interval 默认值硬编码 0 | ✅ |
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| 28 | Operator.Execute 缺 context 参数 | 基础接口设计差异 | ⬜ 设计差异 |
+| 29 | EngineMetrics null vs Nop | 风格差异，运行时等价 | ⬜ |
+| 30 | /health 方法校验 | Java 限 GET，Go 不限 | ⬜ Java 更严格 |
+| 31 | body size 不可配置 | Java 硬编码 10MB | ⬜ |
+| 32 | recall_static Init 引用拷贝 | Go 拷贝 slice，Java 直接存引用 | ✅ |
+| 33 | redis_get Set 返回顺序 | Go 保序，Java HashSet 无序 | ⬜ Redis SMEMBERS 本身无序 |
+| 34 | reorder_sort 排序稳定性 | Go 不稳定，Java TimSort 稳定 | ⬜ 已接受设计差异 |
+
 ## 技术说明
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ
 - Go Server 基于 net/http 支持完整 middleware 链和超时；Java 用 JDK 内置 com.sun.net.httpserver

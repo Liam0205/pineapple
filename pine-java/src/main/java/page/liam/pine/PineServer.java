@@ -141,6 +141,8 @@ public class PineServer {
         rm.loadFromConfig(configData);
         rm.start();
         try {
+            Config cfg = Config.load(configData);
+            rm.validateDeps(cfg.pipelineConfig.operators);
             Engine engine = Engine.create(configData, rm);
             Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
             if (old != null && old.resources instanceof ResourceManager) {
@@ -202,8 +204,8 @@ public class PineServer {
         }
 
         try {
-            byte[] body = exchange.getRequestBody().readAllBytes();
-            if (body.length > MAX_REQUEST_BODY_BYTES) {
+            byte[] body = readLimitedBody(exchange.getRequestBody(), MAX_REQUEST_BODY_BYTES);
+            if (body == null) {
                 sendResponse(exchange, 413, Map.of("error", "request body too large"));
                 return;
             }
@@ -228,6 +230,10 @@ public class PineServer {
                 resp.put("warnings", warnList);
             }
 
+            if (result.error != null) {
+                resp.put("error", result.error.getMessage());
+            }
+
             Object returnTrace = common.get("_return_trace");
             if (Boolean.TRUE.equals(returnTrace) && result.trace != null) {
                 List<Map<String, Object>> traceList = new ArrayList<>();
@@ -235,7 +241,9 @@ public class PineServer {
                     Map<String, Object> tm = new LinkedHashMap<>();
                     tm.put("name", t.name);
                     tm.put("duration_ms", t.durationNs / 1_000_000.0);
-                    tm.put("skipped", t.skipped);
+                    if (t.skipped) {
+                        tm.put("skipped", true);
+                    }
                     if (t.inputSnapshot != null) {
                         tm.put("input_snapshot", t.inputSnapshot);
                     }
@@ -247,7 +255,7 @@ public class PineServer {
                 resp.put("trace", traceList);
             }
 
-            sendResponse(exchange, 200, resp);
+            sendResponse(exchange, result.error != null ? 500 : 200, resp);
 
         } catch (IllegalArgumentException e) {
             sendResponse(exchange, 400, Map.of("error", e.getMessage()));
@@ -262,14 +270,16 @@ public class PineServer {
             return;
         }
         Snapshot snap = snapshot.get();
+        if (snap == null) {
+            sendResponse(exchange, 503, Map.of("error", "engine not loaded"));
+            return;
+        }
         Map<String, Object> resp = new LinkedHashMap<>();
-        if (snap != null) {
-            resp.put("operators", snap.engine.stats());
-            resp.put("scheduler", snap.engine.schedulerStats());
-            Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
-            if (custom != null) {
-                resp.put("operator_detail", custom);
-            }
+        resp.put("operators", snap.engine.stats());
+        resp.put("scheduler", snap.engine.schedulerStats());
+        Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
+        if (custom != null) {
+            resp.put("operator_detail", custom);
         }
         resp.put("server", serverStats());
         sendResponse(exchange, 200, resp);
@@ -301,19 +311,27 @@ public class PineServer {
                             sendResponse(exchange, 400, Map.of("error", "invalid collapse value"));
                             return;
                         }
+                        if (collapse < 0) {
+                            sendResponse(exchange, 400, Map.of("error", "collapse must be >= 0"));
+                            return;
+                        }
                     }
                 }
             }
         }
 
-        String output = snap.engine.renderDAG(format, collapse);
+        try {
+            String output = snap.engine.renderDAG(format, collapse);
 
-        String contentType = "dot".equals(format) ? "text/vnd.graphviz" : "text/plain";
-        byte[] responseBytes = output.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", contentType + "; charset=utf-8");
-        exchange.sendResponseHeaders(200, responseBytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(responseBytes);
+            String contentType = "dot".equals(format) ? "text/vnd.graphviz" : "text/plain";
+            byte[] responseBytes = output.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", contentType + "; charset=utf-8");
+            exchange.sendResponseHeaders(200, responseBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(responseBytes);
+            }
+        } catch (Exception e) {
+            sendResponse(exchange, 400, Map.of("error", e.getMessage()));
         }
     }
 
@@ -332,6 +350,21 @@ public class PineServer {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(responseBytes);
         }
+    }
+
+    private static byte[] readLimitedBody(java.io.InputStream in, int limit) throws IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] tmp = new byte[8192];
+        int total = 0;
+        int n;
+        while ((n = in.read(tmp)) != -1) {
+            total += n;
+            if (total > limit) {
+                return null;
+            }
+            buf.write(tmp, 0, n);
+        }
+        return buf.toByteArray();
     }
 
     public static void main(String[] args) throws Exception {
