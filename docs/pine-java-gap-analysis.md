@@ -910,3 +910,58 @@ Server 修复（H4/H5/M11）：
 | L3 | 修 Java | TransformRedisGet: warning 消息结构化 (SMembers/LRange/Get + key) |
 | L4 | 修 Java | TransformRedisSet: set/list case 非列表值增加 stderr 日志 |
 
+## 第十四轮审计 (2026-05-15)
+
+### 第十三轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| M1 TransformResourceLookup OperatorException | ✓ 确认修复 |
+| M2 TransformRemotePineapple handleError 路由 | ✓ 确认修复 |
+| M3 GoFormat.sprint(-0.0) 负零检测 | ✓ 确认修复 |
+| L1 Engine per-operator debug 日志 | ✓ 确认修复 |
+| L2 TransformByLua 错误前缀 "lua:" | ✓ 确认修复 |
+| L3 TransformRedisGet structured warning | ✓ 确认修复 |
+| L4 TransformRedisSet 非列表值日志 | ✓ 确认修复 |
+
+### 全量复验摘要
+
+三组并行独立审计（Engine/调度器/错误体系/GoFormat/Registry、全部 18 算子、Server/Codegen/Config/Frame）。**前轮全部修复项验证通过**，无回归。
+
+### 新发现
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | GoFormat.formatFloatF(-0.0) 丢失负号 | `strconv.FormatFloat(-0, 'f', -1, 64)` = `"-0"` | 整数快捷路径 `Math.abs(-0.0)=0.0 < 1e18` → `Long.toString(0)` = `"0"` (`GoFormat.java:67-68`) | ⬜ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | ReorderSort 错误消息缺上下文 | `"reorder_sort: item[2].score: cannot convert string to float64"` (`sort.go:74`) | `"cannot convert java.lang.String to double"` (`ReorderSort.java:72`) — 缺算子前缀/索引/字段名 | ⬜ |
+| M2 | TransformRedisSet common_input<2 异常类型 | 返回 `error` → ExecutionError (`redis_set.go:101`) | 抛 `IllegalArgumentException` → PanicError (`TransformRedisSet.java:59`) | ⬜ |
+| M3 | TransformByLua debug nonNil 统计范围 | 仅统计 commonInput 声明字段非 nil 数 (`lua.go:99-103`) | 统计 rawCommon() 全部非 nil 值 (`TransformByLua.java:93`) | ⬜ |
+| M4 | Engine.applyOutput 多一层 OperatorException 包装 | `ExecutionError{fmt.Errorf("apply output: ...")}` (`scheduler.go:255`) | `ExecutionError(name, new OperatorException("apply output: ..."))` (`Engine.java:379-380`) | ⬜ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| Engine.renderDAG 错误类型 (IllegalArgumentException vs ValidationError) | /dag handler 统一 catch → 400，wire 行为等效 |
+| recall_resource 错误消息缺 item 索引/实际类型 | 开发者调试信息，不影响功能 |
+| transform_resource_lookup 错误消息缺 "in context" | 措辞差异，不影响功能 |
+| debug 日志 duration 格式差异 (Go time.Duration vs Java 自定义) | 仅影响日志可读性 |
+| /health 方法限制 | 已接受（Java 更严格，无害） |
+| HTTP 超时配置 | 平台限制（com.sun.net.httpserver 无等效 API） |
+| JSON 响应尾部换行 | 已接受 |
+| Codegen string escape (\x vs \u) | 均为合法 Python escape |
+| merge_dedup key 归一化 | JSON 反序列化后均为 Double，实际不触发 |
+
+### 第十四轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| H1 | 暂不修 | 待后续统一处理 |
+| M1-M4 | 暂不修 | 待后续统一处理 |
