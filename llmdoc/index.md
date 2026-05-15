@@ -67,3 +67,4 @@
 - `llmdoc/memory/reflections/pine-java-audit-round6-fixes.md` — Pine-Java 第六轮 Go-parity 审计复盘，记录 19 项差异处理（14 fix Java/3 fix Go/2 accepted）、GoFormat 统一为跨算子格式化单一事实源、ResourceRegistry codegen-time 模式、前轮"已验证"项回归教训。
 - `llmdoc/memory/reflections/pine-java-parity-rounds-7-8.md` — Pine-Java 第七/八轮 Go-parity 审计复盘，记录 CancellationToken parent-child 层级隔离、ResourceAware 编译期注入、GoFormat 1e6 阈值修正、Throwable 结构化包装四项核心修复与注入时机设计教训。
 - `llmdoc/memory/reflections/pine-java-parity-round-9.md` — Pine-Java 第九轮 Go-parity 审计复盘，记录 OperatorException checked 边界（error vs panic 映射）、CompletableFuture 事件驱动调度器、GoFormat 边角（Infinity/List/小数阈值）、Server 响应体对齐，以及 fixture-based 格式化验证缺位的教训。
+- `llmdoc/memory/reflections/pine-java-parity-round-10.md` — Pine-Java 第十轮 Go-parity 审计复盘，记录约定引入未全扫描导致的清扫轮、IEEE 754 -0.0 符号位跨运行时差异、JSON key 排序确定性、验证消息类型信息缺失教训。
