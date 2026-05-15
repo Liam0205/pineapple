@@ -80,6 +80,17 @@ func (o *LuaOp) Init(params map[string]any) error {
 		return fmt.Errorf("lua: failed to load script: %w", err)
 	}
 
+	// Validate that the declared function exists in the script.
+	L := o.pool.Borrow()
+	if L == nil {
+		return fmt.Errorf("lua: failed to borrow state for validation")
+	}
+	if L.GetGlobal(o.funcName) == glua.LNil {
+		o.pool.Return(L)
+		return fmt.Errorf("lua: function %q not defined in script", o.funcName)
+	}
+	o.pool.Return(L)
+
 	return nil
 }
 

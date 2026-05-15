@@ -7,6 +7,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +21,11 @@ import (
 	"github.com/Liam0205/pineapple/pkg/metrics"
 	"github.com/Liam0205/pineapple/pkg/resource"
 )
+
+// errorResponse is a lightweight JSON error envelope used for non-200 responses.
+type errorResponse struct {
+	Error string `json:"error"`
+}
 
 // Config holds the server startup settings.
 type Config struct {
@@ -224,7 +230,11 @@ func (s *Server) reloadConfig(path string) error {
 }
 
 func (s *Server) watchConfig(ctx context.Context, path string) {
+	// Initialize lastMod to current file mtime to avoid spurious reload on first tick.
 	var lastMod time.Time
+	if info, err := os.Stat(path); err == nil {
+		lastMod = info.ModTime()
+	}
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -284,20 +294,25 @@ type traceEntry struct {
 
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
 		return
 	}
 
 	snap := s.snapshot.Load()
 	if snap == nil {
-		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "engine not loaded"})
 		return
 	}
 
 	var req executeRequest
 	r.Body = http.MaxBytesReader(w, r.Body, s.effectiveMaxRequestBodySize())
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, executeResponse{Error: "invalid request: " + err.Error()})
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "request body too large"})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid request: " + err.Error()})
 		return
 	}
 
@@ -349,13 +364,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
 		return
 	}
 
 	snap := s.snapshot.Load()
 	if snap == nil {
-		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "engine not loaded"})
 		return
 	}
 
@@ -380,13 +395,13 @@ func (s *Server) serverStats() map[string]int64 {
 
 func (s *Server) handleDAG(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
 		return
 	}
 
 	snap := s.snapshot.Load()
 	if snap == nil {
-		http.Error(w, "engine not loaded", http.StatusServiceUnavailable)
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "engine not loaded"})
 		return
 	}
 
@@ -399,7 +414,7 @@ func (s *Server) handleDAG(w http.ResponseWriter, r *http.Request) {
 	if collapseStr := r.URL.Query().Get("collapse"); collapseStr != "" {
 		level, err := strconv.Atoi(collapseStr)
 		if err != nil || level < 0 {
-			http.Error(w, "collapse must be a non-negative integer", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "collapse must be a non-negative integer"})
 			return
 		}
 		if level > 0 {
@@ -409,7 +424,7 @@ func (s *Server) handleDAG(w http.ResponseWriter, r *http.Request) {
 
 	output, err := snap.engine.RenderDAG(format, opts...)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
 	}
 
