@@ -377,7 +377,7 @@ public class Engine {
                         engineMetrics.opErrorTotal.with(cop.name).inc();
                         engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
                         Exception wrapped = new PineErrors.ExecutionError(cop.name,
-                                new PineErrors.OperatorException("apply output: " + applyErr.getMessage(), applyErr));
+                                new Exception("apply output: " + applyErr.getMessage(), applyErr));
                         if (fatalError.compareAndSet(null, wrapped)) {
                             cancellationToken.cancel();
                             for (CompletableFuture<Void> f : applied) {

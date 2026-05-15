@@ -934,23 +934,23 @@ Server 修复（H4/H5/M11）：
 
 | # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
 |---|--------|---------|-----------|----------|
-| H1 | GoFormat.formatFloatF(-0.0) 丢失负号 | `strconv.FormatFloat(-0, 'f', -1, 64)` = `"-0"` | 整数快捷路径 `Math.abs(-0.0)=0.0 < 1e18` → `Long.toString(0)` = `"0"` (`GoFormat.java:67-68`) | ⬜ |
+| H1 | GoFormat.formatFloatF(-0.0) 丢失负号 | `strconv.FormatFloat(-0, 'f', -1, 64)` = `"-0"` | 整数快捷路径 `Math.abs(-0.0)=0.0 < 1e18` → `Long.toString(0)` = `"0"` (`GoFormat.java:67-68`) | ✅ |
 
 #### 🟡 MEDIUM 严重度
 
 | # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
 |---|--------|---------|-----------|----------|
-| M1 | ReorderSort 错误消息缺上下文 | `"reorder_sort: item[2].score: cannot convert string to float64"` (`sort.go:74`) | `"cannot convert java.lang.String to double"` (`ReorderSort.java:72`) — 缺算子前缀/索引/字段名 | ⬜ |
-| M2 | TransformRedisSet common_input<2 异常类型 | 返回 `error` → ExecutionError (`redis_set.go:101`) | 抛 `IllegalArgumentException` → PanicError (`TransformRedisSet.java:59`) | ⬜ |
-| M3 | TransformByLua debug nonNil 统计范围 | 仅统计 commonInput 声明字段非 nil 数 (`lua.go:99-103`) | 统计 rawCommon() 全部非 nil 值 (`TransformByLua.java:93`) | ⬜ |
-| M4 | Engine.applyOutput 多一层 OperatorException 包装 | `ExecutionError{fmt.Errorf("apply output: ...")}` (`scheduler.go:255`) | `ExecutionError(name, new OperatorException("apply output: ..."))` (`Engine.java:379-380`) | ⬜ |
+| M1 | ReorderSort 错误消息缺上下文 | `"reorder_sort: item[2].score: cannot convert string to float64"` (`sort.go:74`) | `"cannot convert java.lang.String to double"` (`ReorderSort.java:72`) — 缺算子前缀/索引/字段名 | ✅ |
+| M2 | TransformRedisSet common_input<2 异常类型 | 返回 `error` → ExecutionError (`redis_set.go:101`) | 抛 `IllegalArgumentException` → PanicError (`TransformRedisSet.java:59`) | ✅ |
+| M3 | TransformByLua debug nonNil 统计范围 | 仅统计 commonInput 声明字段非 nil 数 (`lua.go:99-103`) | 统计 rawCommon() 全部非 nil 值 (`TransformByLua.java:93`) | ✅ |
+| M4 | Engine.applyOutput 多一层 OperatorException 包装 | `ExecutionError{fmt.Errorf("apply output: ...")}` (`scheduler.go:255`) | `ExecutionError(name, new OperatorException("apply output: ..."))` (`Engine.java:379-380`) | ✅ |
 
 ### 排除项
 
 | 项 | 理由 |
 |---|------|
 | Engine.renderDAG 错误类型 (IllegalArgumentException vs ValidationError) | /dag handler 统一 catch → 400，wire 行为等效 |
-| recall_resource 错误消息缺 item 索引/实际类型 | 开发者调试信息，不影响功能 |
+| recall_resource 错误消息缺 item 索引/实际类型 | ~~开发者调试信息~~ → 已附带修复（加索引+类型） |
 | transform_resource_lookup 错误消息缺 "in context" | 措辞差异，不影响功能 |
 | debug 日志 duration 格式差异 (Go time.Duration vs Java 自定义) | 仅影响日志可读性 |
 | /health 方法限制 | 已接受（Java 更严格，无害） |
@@ -963,5 +963,10 @@ Server 修复（H4/H5/M11）：
 
 | # | 决策 | 备注 |
 |---|------|------|
-| H1 | 暂不修 | 待后续统一处理 |
-| M1-M4 | 暂不修 | 待后续统一处理 |
+| H1 | 修 Java | formatFloatF 整数快捷路径前添加 -0.0 检测 |
+| M1 | 修 Java | ReorderSort: 错误消息加算子前缀 + item 索引 + 字段名 |
+| M2 | 修 Java | TransformRedisSet: IllegalArgumentException → OperatorException |
+| M3 | 修 Java | TransformByLua: nonNil 改为仅统计 commonInput 声明字段 |
+| M4 | 修 Java | Engine.applyOutput: 去掉多余 OperatorException 包装层 |
+| 附带 | 修 Java | RecallResource: 错误消息加 item 索引和实际类型 |
+| 附带 | 修 Java | TransformRedisGet: failOnError 错误消息加 Redis 命令名 |

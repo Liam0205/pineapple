@@ -64,6 +64,9 @@ public final class GoFormat {
      * Uses Double.toString for shortest round-trip representation.
      */
     public static String formatFloatF(double d) {
+        if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
+            return "-0";
+        }
         if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e18) {
             return Long.toString((long) d);
         }

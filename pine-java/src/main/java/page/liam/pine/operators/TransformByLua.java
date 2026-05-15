@@ -90,7 +90,10 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (debug) {
             int fields = commonInput.size();
-            int nonNil = (int) input.rawCommon().values().stream().filter(v -> v != null).count();
+            int nonNil = 0;
+            for (String f : commonInput) {
+                if (input.common(f) != null) nonNil++;
+            }
             int itemCount = input.itemCount();
             String mode = isItemMode ? "item" : "common";
             System.err.printf("[pine:debug] operator=\"%s\" common_input fields=%d non_nil=%d items=%d mode=%s func=%s%n",

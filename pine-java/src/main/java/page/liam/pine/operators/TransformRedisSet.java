@@ -56,7 +56,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
 
         int n = commonInput.size();
         if (n < 2) {
-            throw new IllegalArgumentException("transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
+            throw new PineErrors.OperatorException("transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
         }
 
         String key = keyPrefix + TransformRedisGet.buildKeySuffix(input, commonInput.subList(0, n - 1));

@@ -108,7 +108,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
             output.setWarning(new PineErrors.OperatorException(
                     "transform_redis_get: " + redisCmd + "(" + key + "): " + e.getMessage(), e));
             if (failOnError) {
-                throw new PineErrors.OperatorException("transform_redis_get: " + key + ": " + e.getMessage(), e);
+                throw new PineErrors.OperatorException("transform_redis_get: " + redisCmd + "(" + key + "): " + e.getMessage(), e);
             }
             output.setCommon(cacheHitField, false);
         }
