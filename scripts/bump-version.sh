@@ -9,7 +9,7 @@
 #   1. Updates version.go            (Go constant)
 #   2. Updates apple/_version.py     (Python package version)
 #   3. Updates pine-java/pom.xml     (Java Maven artifact version)
-#   4. Updates _PINEAPPLE_VERSION in all JSON fixtures (testdata/*.json, pipeline.json)
+#   4. Updates _PINEAPPLE_VERSION in JSON fixtures and Java examples
 #   5. Runs codegen                  (regenerates apple_generated/ and doc/operators/)
 #   6. Runs Go tests                 (go test ./...)
 #   7. Runs Python tests             (python3 -m pytest apple/tests/ -v)
@@ -52,20 +52,28 @@ perl -0pi -e "s/__version__ = \".*\"/__version__ = \"${NEW_VERSION}\"/" apple/_v
 echo "[3/8] Updating pine-java/pom.xml"
 perl -0pi -e "s|<version>[^<]+</version>(\\s*<packaging>jar</packaging>)|<version>${NEW_VERSION}</version>\$1|" pine-java/pom.xml
 
-# --- 4. JSON fixtures ---
-echo "[4/8] Updating _PINEAPPLE_VERSION in JSON fixtures"
-json_files=()
-for f in pipeline.json testdata/*.json; do
+# --- 4. JSON fixtures and examples ---
+echo "[4/8] Updating _PINEAPPLE_VERSION in fixtures and examples"
+updated_files=()
+for f in pipeline.json testdata/*.json fixtures/**/*.json; do
   [[ -f "$f" ]] || continue
   if grep -q '"_PINEAPPLE_VERSION"' "$f"; then
     perl -0pi -e "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"
-    json_files+=("$f")
+    updated_files+=("$f")
   fi
 done
-if [[ ${#json_files[@]} -gt 0 ]]; then
-  printf "  updated: %s\n" "${json_files[@]}"
+# Java source files use escaped quotes: \"_PINEAPPLE_VERSION\"
+for f in pine-java/examples/*.java; do
+  [[ -f "$f" ]] || continue
+  if grep -q '_PINEAPPLE_VERSION' "$f"; then
+    perl -pi -e 's/\\"_PINEAPPLE_VERSION\\": \\"[^\\]*\\"/\\"_PINEAPPLE_VERSION\\": \\"'"${NEW_VERSION}"'\\"/' "$f"
+    updated_files+=("$f")
+  fi
+done
+if [[ ${#updated_files[@]} -gt 0 ]]; then
+  printf "  updated: %s\n" "${updated_files[@]}"
 else
-  echo "  (no JSON files with _PINEAPPLE_VERSION found)"
+  echo "  (no files with _PINEAPPLE_VERSION found)"
 fi
 
 # --- 5. Codegen ---
