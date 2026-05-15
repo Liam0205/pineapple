@@ -669,12 +669,12 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 - **引擎编译流水线**：JSON 解析 → 算子序列展开（含 SubFlow）→ sources 前向引用校验（`Engine.validateSourcesOrder`）→ 算子实例构建 → DAG 推导
 - **Option pattern**：`Engine.create(jsonConfig, options...)` 接受 `withMetrics`、`withResources`、`withLogPrefix`、`withDebug` 四种 option，语义与 Go 的 `pine.NewEngine(jsonConfig, opts...)` 一致
 - **DAG 推导**：屏障边 + 数据冒险边 + 显式 sources 边 + 传递性归约 + 拓扑排序
-- **并发调度**：ForkJoinPool + CountDownLatch 信号量，语义等同 Go 侧的 per-operator goroutine + done channel 模型
+- **并发调度**：ForkJoinPool + CompletableFuture 事件驱动唤醒，语义等同 Go 侧的 per-operator goroutine + done channel 模型（无轮询）
 - **DataFrame**：`Frame` 接口抽象，`DataFrame`（行存）和 `ColumnFrame`（列存），通过 `storage_mode` 配置选择
 - **data_parallel**：`ParallelExecutor` 实现 Transform 级并行分片，要求 `ConcurrentSafe` 接口
 - **双通道观测**：`Stats` 原子统计 + 可插拔 `Provider`（`metrics/Provider.java`），默认 `NopProvider`（等同 Go 的 `metrics.Nop()`）
 - **注入顺序**：引擎编译算子时按 MetadataAware → DebugAware → MetricsAware → ResourceAware 固定顺序注入，与 Go 侧一致（ResourceAware 缺失时抛出 IllegalStateException）
-- **结构化错误**：5 种错误类型 — `ConfigError`、`RegistryError`、`ValidationError`、`ExecutionError`、`PanicError`（区分 `getMessage()` 外部安全信息与 `detailedError()` 内部栈信息）
+- **结构化错误**：6 种错误类型 — `ConfigError`、`RegistryError`、`ValidationError`、`OperatorException`（checked）、`ExecutionError`、`PanicError`。`Operator.execute()` 声明 `throws OperatorException`；引擎据此区分预期算子错误（→ ExecutionError）与意外运行时异常（→ PanicError），对应 Go 的 error/panic 语义。所有错误类型的 `getMessage()` 统一 `pine:` 前缀
 
 ### Server 对等
 
@@ -735,6 +735,9 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 - `formatFloatF(double)` — 等效 Go `strconv.FormatFloat(d, 'f', -1, 64)`
 - `formatG(double)` — 等效 Go `fmt.Sprintf("%g", d)`；保留完整精度
 - magnitude ∈ [1e6, 1e7) 时 `formatG` 将科学计数法表示转换为定点表示，匹配 Go `%g` 在该区间的输出
+- `sprint` 支持 `List<?>` 和数组类型，输出 `"[a b c]"` 空格分隔格式（匹配 Go `fmt.Sprint` 对 slice 的行为）
+- `formatG` 将 `Infinity` / `-Infinity` 输出为 `"+Inf"` / `"-Inf"`（Go 惯例）
+- `formatG` 对 magnitude ∈ [1e-4, 1e-3) 的小数通过 `BigDecimal.toPlainString()` 转换为定点表示
 
 消费者：`TransformResourceLookup`（key coerce）、`TransformRedisGet`（key 拼接）、`FilterCondition`（条件比较值格式化，替代旧的 `formatValue` 方法）、`ReorderShuffle`（salt 格式化，替代旧的 `formatFloatG` 方法）。第六轮 parity 审计中移除了 `FilterCondition.formatValue` 和 `ReorderShuffle.formatFloatG`，统一使用 `GoFormat` 作为跨算子格式化单一事实源。
 
