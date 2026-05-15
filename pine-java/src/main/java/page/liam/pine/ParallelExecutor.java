@@ -41,7 +41,12 @@ public class ParallelExecutor {
             return output;
         }
 
-        CancellationToken shardToken = new CancellationToken();
+        CancellationToken shardToken = new CancellationToken() {
+            @Override
+            public boolean isCancelled() {
+                return super.isCancelled() || token.isCancelled();
+            }
+        };
         AtomicReference<Exception> firstError = new AtomicReference<>();
         ForkJoinPool pool = ForkJoinPool.commonPool();
         List<Future<OperatorOutput>> futures = new ArrayList<>(n);
@@ -55,7 +60,7 @@ public class ParallelExecutor {
                     return out;
                 } catch (Throwable t) {
                     Exception ex = t instanceof Exception ? (Exception) t
-                            : new PineErrors.ExecutionError("parallel-shard", t);
+                            : new PineErrors.PanicError("parallel-shard", t);
                     if (firstError.compareAndSet(null, ex)) {
                         shardToken.cancel();
                     }
@@ -83,7 +88,7 @@ public class ParallelExecutor {
             } catch (ExecutionException e) {
                 Exception cause = e.getCause() instanceof Exception
                         ? (Exception) e.getCause()
-                        : new PineErrors.ExecutionError("parallel-shard", e.getCause());
+                        : new PineErrors.PanicError("parallel-shard", e.getCause());
                 if (firstError.compareAndSet(null, cause)) {
                     shardToken.cancel();
                     for (int j = i + 1; j < futures.size(); j++) {

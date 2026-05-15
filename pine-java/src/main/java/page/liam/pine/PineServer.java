@@ -64,6 +64,7 @@ public class PineServer {
     public void start() throws Exception {
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
         loadConfig(configData); // initial load — not counted as reload
+        lastReloadDurationNs = 0;
         lastModified = Files.getLastModifiedTime(Paths.get(configPath)).toMillis();
 
         // Read max_request_body_size from config if present
@@ -71,7 +72,7 @@ public class PineServer {
             Map<String, Object> rawConfig = mapper.readValue(configData, new TypeReference<Map<String, Object>>() {});
             Object bodySize = rawConfig.get("max_request_body_size");
             if (bodySize instanceof Number) {
-                int size = ((Number) bodySize).intValue();
+                long size = ((Number) bodySize).longValue();
                 if (size > 0) {
                     this.maxRequestBodyBytes = size;
                 }
@@ -253,10 +254,6 @@ public class PineServer {
                 resp.put("warnings", warnList);
             }
 
-            if (result.error != null) {
-                resp.put("error", result.error.getMessage());
-            }
-
             Object returnTrace = common.get("_return_trace");
             if (Boolean.TRUE.equals(returnTrace) && result.trace != null) {
                 List<Map<String, Object>> traceList = new ArrayList<>();
@@ -278,10 +275,21 @@ public class PineServer {
                 resp.put("trace", traceList);
             }
 
+            if (result.error != null) {
+                if (result.error instanceof PineErrors.PanicError) {
+                    System.err.println("[pine-server] PANIC: " + ((PineErrors.PanicError) result.error).detailedError());
+                }
+                resp.put("error", result.error.getMessage());
+            }
+
             sendResponse(exchange, result.error != null ? 500 : 200, resp);
 
         } catch (IllegalArgumentException e) {
-            sendResponse(exchange, 400, Map.of("error", e.getMessage()));
+            Map<String, Object> errResp = new LinkedHashMap<>();
+            errResp.put("common", Collections.emptyMap());
+            errResp.put("items", Collections.emptyList());
+            errResp.put("error", e.getMessage());
+            sendResponse(exchange, 400, errResp);
         } catch (Exception e) {
             sendResponse(exchange, 500, Map.of("error", e.getMessage()));
         }

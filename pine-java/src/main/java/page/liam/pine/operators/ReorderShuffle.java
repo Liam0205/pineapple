@@ -76,10 +76,9 @@ public class ReorderShuffle extends AbstractOperator {
     private static String anyToString(Object v) {
         if (v == null) return "";
         if (v instanceof String) return (String) v;
+        if (v instanceof Integer || v instanceof Long) return Long.toString(((Number) v).longValue());
         if (v instanceof Number) {
-            double d = ((Number) v).doubleValue();
-            if (d == (long) d && !Double.isInfinite(d)) return Long.toString((long) d);
-            return GoFormat.formatG(d);
+            return GoFormat.formatG(((Number) v).doubleValue());
         }
         return v.toString();
     }

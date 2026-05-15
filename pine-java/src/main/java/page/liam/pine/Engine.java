@@ -143,22 +143,29 @@ public class Engine {
                 ((MetricsAware) op).setMetricsProvider(
                     eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
             }
+            if (op instanceof ResourceAware) {
+                if (eo.resources == null) {
+                    throw new IllegalStateException(
+                            "operator \"" + name + "\" implements ResourceAware but no ResourceProvider was supplied");
+                }
+                ((ResourceAware) op).setResourceProvider(eo.resources);
+            }
 
             if (opCfg.dataParallel < 0) {
-                throw new IllegalArgumentException("operator \"" + name + "\": data_parallel must be >= 1, got " + opCfg.dataParallel);
+                throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " + opCfg.dataParallel);
             }
             if (opCfg.dataParallel == 0) {
                 opCfg.dataParallel = 1;
             }
             if (opCfg.dataParallel > 1) {
                 if (opType != OperatorType.TRANSFORM) {
-                    throw new IllegalArgumentException("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " is only supported for Transform operators");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " is only supported for Transform operators");
                 }
                 if (!opCfg.metadata.commonOutput.isEmpty()) {
-                    throw new IllegalArgumentException("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires empty common_output");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires empty common_output");
                 }
                 if (!(op instanceof ConcurrentSafe)) {
-                    throw new IllegalArgumentException("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires ConcurrentSafe");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires ConcurrentSafe");
                 }
             }
 
@@ -172,6 +179,10 @@ public class Engine {
     }
 
     public Result execute(Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
+        return execute(new CancellationToken(), common, items);
+    }
+
+    public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
         if (common == null) {
             throw new PineErrors.ValidationError("request common must not be null");
         }
@@ -210,7 +221,12 @@ public class Engine {
         List<Warning> warnings = Collections.synchronizedList(new ArrayList<>());
         AtomicReference<Exception> fatalError = new AtomicReference<>();
         CountDownLatch cancelLatch = new CountDownLatch(1);
-        CancellationToken cancellationToken = new CancellationToken();
+        CancellationToken cancellationToken = new CancellationToken() {
+            @Override
+            public boolean isCancelled() {
+                return super.isCancelled() || externalToken.isCancelled();
+            }
+        };
         AtomicLong activeOps = new AtomicLong();
         ForkJoinPool pool = ForkJoinPool.commonPool();
         CountDownLatch allDone = new CountDownLatch(n);
@@ -270,15 +286,6 @@ public class Engine {
                         inputSnapshot = snapshotInput(input);
                     }
 
-                    // Inject resource provider
-                    if (cop.instance instanceof ResourceAware) {
-                        if (resourceProvider == null) {
-                            throw new IllegalStateException(
-                                    "operator \"" + cop.name + "\" implements ResourceAware but no ResourceProvider was supplied");
-                        }
-                        ((ResourceAware) cop.instance).setResourceProvider(resourceProvider);
-                    }
-
                     // Execute
                     long current = activeOps.incrementAndGet();
                     stats.recordConcurrency(current);
@@ -318,10 +325,11 @@ public class Engine {
                         stats.recordError(cop.name, duration);
                         engineMetrics.opErrorTotal.with(cop.name).inc();
                         engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-                        if (fatalError.compareAndSet(null,
-                                new PineErrors.ExecutionError(cop.name, execErr))) {
+                        Exception wrapped = execErr instanceof PineErrors.PanicError
+                                ? execErr : new PineErrors.ExecutionError(cop.name, execErr);
+                        if (fatalError.compareAndSet(null, wrapped)) {
                             cancellationToken.cancel();
-                        cancelLatch.countDown();
+                            cancelLatch.countDown();
                         }
                         return;
                     }
@@ -345,10 +353,11 @@ public class Engine {
                         stats.recordError(cop.name, duration);
                         engineMetrics.opErrorTotal.with(cop.name).inc();
                         engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-                        if (fatalError.compareAndSet(null,
-                                new PineErrors.ExecutionError(cop.name, applyErr))) {
+                        Exception wrapped = applyErr instanceof PineErrors.PanicError
+                                ? applyErr : new PineErrors.ExecutionError(cop.name, applyErr);
+                        if (fatalError.compareAndSet(null, wrapped)) {
                             cancellationToken.cancel();
-                        cancelLatch.countDown();
+                            cancelLatch.countDown();
                         }
                         return;
                     }
@@ -436,6 +445,9 @@ public class Engine {
             return collapseLevel > 0
                     ? DAGVisualizer.renderCollapsedMermaid(dag, collapseLevel)
                     : DAGVisualizer.renderMermaid(dag);
+        }
+        if (!"dot".equalsIgnoreCase(format)) {
+            throw new IllegalArgumentException("unsupported format \"" + format + "\": expected \"dot\" or \"mermaid\"");
         }
         return collapseLevel > 0
                 ? DAGVisualizer.renderCollapsedDot(dag, collapseLevel)
@@ -526,14 +538,14 @@ public class Engine {
         }
     }
 
-    private static void validateSourcesOrder(List<String> sequence, Map<String, Config.OperatorConfig> operators) throws PineErrors.ConfigError {
+    private static void validateSourcesOrder(List<String> sequence, Map<String, Config.OperatorConfig> operators) {
         Set<String> seen = new HashSet<>();
         for (String name : sequence) {
             Config.OperatorConfig opCfg = operators.get(name);
             if (opCfg != null) {
                 for (String src : opCfg.sources) {
                     if (!seen.contains(src)) {
-                        throw new PineErrors.ConfigError(
+                        throw new PineErrors.ValidationError(
                                 "operator \"" + name + "\": sources references \"" + src + "\" which appears later in the sequence (forward reference)");
                     }
                 }

@@ -36,7 +36,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
         }
         ttlSeconds = toInt(params.getOrDefault("ttl", 0));
         Object foe = params.get("fail_on_error");
-        failOnError = Boolean.TRUE.equals(foe) || "true".equals(foe);
+        if (foe instanceof Boolean) failOnError = (Boolean) foe;
 
         if (!addr.isEmpty()) {
             String host = addr.contains(":") ? addr.substring(0, addr.indexOf(':')) : addr;
@@ -103,9 +103,10 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
             throw e;
         } catch (Exception e) {
             if (failOnError) {
-                throw e;
+                throw new RuntimeException("transform_redis_set: write key " + key + ": " + e.getMessage(), e);
             }
             System.err.printf("transform_redis_set: write key %s: %s%n", key, e.getMessage());
+            output.setWarning(new Exception("transform_redis_set: write key " + key + ": " + e.getMessage(), e));
         }
     }
 

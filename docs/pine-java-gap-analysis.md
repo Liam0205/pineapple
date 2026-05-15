@@ -521,3 +521,53 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 - filter_condition: Go `%v` 对 float64 使用最短完整精度表示；Java `%g` 固定 6 位有效数字会截断
 - OperatorOutput.SetWarning 的 first-wins/last-wins 影响 ParallelExecutor 多 shard warning 合并结果
 - Codegen `_params` vs `params` 不会导致运行时错误（Python 允许局部变量与参数同名），但产出代码不同导致 CI diff 失败
+
+## 第八轮审计 (2026-05-15)
+
+### 第七轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| ParallelExecutor shardToken 取消传播 | ✓ 已实现，但发现 shardToken 不继承 parent token 取消（新 H2）|
+| PanicError 包装改 ExecutionError | ✓ 已实现，但应为 PanicError（新 M4），且调度器层缺 PanicError 保留（新 H1）|
+| GoFormat.sprint ≥1e6 → formatG | ✓ 验证正确 |
+| Go PR #13 redis_set fail_on_error | ⚠️ Java 缺 SetWarning + 缺错误前缀包装（新 H5/H6）|
+
+### 新发现
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | 调度器 PanicError 身份保留 | `scheduler.go:197` — PanicError 直接作为 fatalErr，不包装 ExecutionError | `Engine.java:322` — 所有 exception 统一包装 ExecutionError，PanicError 身份丢失 | ⬜ |
+| H2 | ParallelExecutor shardToken 不继承 parent 取消 | `parallel.go:82` — `context.WithCancel(ctx)` 子级自动继承 | `ParallelExecutor.java:44,51` — shardToken 独立，已运行 shard 无法感知 parent 取消 | ⬜ |
+| H3 | Execute API 无外部取消能力 | `pine.go:180` — `Execute(ctx, req)` 接受调用方 context | `Engine.java:174` — `execute(Map, List)` 无 token 参数 | ⬜ |
+| H4 | ResourceAware 并发 data race | 资源通过 `context.Context` 传递，无共享可变状态 | `Engine.java:274-279` — 每次请求在共享实例上 setResourceProvider()，非 volatile 字段并发写 | ⬜ |
+| H5 | redis_set 非致命路径缺 SetWarning | `redis_set.go:147` — `out.SetWarning(...)` | `TransformRedisSet.java:108` — 仅 stderr，无 setWarning | ⬜ |
+| H6 | redis_set failOnError=true 缺前缀包装 | `redis_set.go:145` — `fmt.Errorf("transform_redis_set: ...")` | `TransformRedisSet.java:106` — 直接 `throw e` 无前缀 | ⬜ |
+| H7 | ValidationError 响应体 schema 不一致 | 返回完整结构 `{common:null, items:null, error:"..."}` | 返回精简 `{error:"..."}` | ⬜ |
+| H8 | /health 方法检查不一致 | 无方法检查，任何 method 返回 200 | 仅 GET，其余 405 | ⬜ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | reorder_shuffle anyToString 整数值 float fast-path | `%g` 统一格式化 → `"1e+06"` | `Long.toString` fast-path → `"1000000"` | ⬜ |
+| M2 | validateSourcesOrder 错误类型 | → `*ValidationError` | → `PineErrors.ConfigError` | ⬜ |
+| M3 | validateDataParallel 错误类型 | → `*ValidationError` | → `IllegalArgumentException` | ⬜ |
+| M4 | ParallelExecutor Throwable 包装类型 | panic → `PanicError{stack}` | non-Exception Throwable → `ExecutionError` (应为 PanicError) | ⬜ |
+| M5 | /dag 端点格式验证缺失 | 无效 format → 返回错误 | 静默回退 DOT | ⬜ |
+| M6 | max_request_body_size intValue 截断 | int64 完整 | `intValue()` 截断后赋 long | ⬜ |
+| M7 | lastReloadDurationNs 初始值 | 保持 0（初始 load 不算 reload） | 设为初始加载耗时 | ⬜ |
+| M8 | PanicError 详细日志缺失 | server 用 `DetailedError()` 记录 stack | 不记录 | ⬜ |
+| M9 | execute 响应 JSON 字段顺序 | warnings→trace→error | warnings→error→trace | ⬜ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 修复状态 |
+|---|--------|----------|
+| L1 | awaitWithCancel 5ms 轮询 vs ctx.Done O(1) | ⬜ 已接受（平台限制）|
+| L2 | fail_on_error 解析风格 (Boolean vs "true" string) | ⬜ |
+| L3 | Lua 池回收策略差异 | ⬜ 已接受 |
+| L4 | Go writeJSON 尾部换行 | ⬜ 已接受 |
+
