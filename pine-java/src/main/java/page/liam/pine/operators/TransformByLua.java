@@ -100,6 +100,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 operatorName, fields, nonNil, itemCount, mode, funcName);
         }
         Globals globals = pool.borrow();
+        if (globals == null) {
+            throw new PineErrors.OperatorException("lua: pool is closed");
+        }
         try {
             if (isItemMode) {
                 executeForItem(token, globals, input, output);
@@ -250,7 +253,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
 
         Globals borrow() {
-            if (closed) throw new IllegalStateException("lua pool is closed");
+            if (closed) return null;
             borrowCount.incrementAndGet();
             activeCount.incrementAndGet();
             if (mBorrow != null) mBorrow.inc();

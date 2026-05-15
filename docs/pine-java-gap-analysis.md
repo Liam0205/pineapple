@@ -1015,3 +1015,51 @@ Server 修复（H4/H5/M11）：
 |---|------|------|
 | M1 | 修 Java | formatFloatF: NaN/±Infinity 显式守卫 |
 | M2 | 修 Java | TransformNormalize: 错误消息加算子前缀 + item 索引 + 字段名 |
+
+## 第十六轮审计 (2026-05-15)
+
+### 第十五轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| M1 GoFormat.formatFloatF NaN/±Infinity | ✓ L70-72 显式守卫 |
+| M2 TransformNormalize 错误消息 | ✓ 含算子前缀+索引+字段名 |
+
+### 全量复验摘要
+
+三组并行独立审计 + execute 路径 RuntimeException 全量追踪。**前轮全部修复项验证通过**，无回归。
+
+### execute() 路径 RuntimeException 全量追踪
+
+| 文件:行 | 异常 | 是否被局部捕获 | 结论 |
+|---------|------|---------------|------|
+| TransformRedisSet:106 | IAE("unsupported data_type") | ✅ L108 catch → OperatorException | 安全 |
+| TransformRedisGet:97 | IAE("unsupported data_type") | ✅ L99 catch → OperatorException | 安全 |
+| TransformRemotePineapple:189,195 | IAE("host not allowed") | N/A（init，非 execute） | 安全 |
+| TransformRemotePineapple:241 | RE("response too large") | ✅ L132 catch → handleError | 安全 |
+| TransformByLua:253 | ISE("lua pool is closed") | ❌ L102 在 try 块外 | **新 M1** |
+
+### 新发现
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | TransformByLua pool.borrow() 关闭时错误分类 | `return fmt.Errorf("lua: pool is closed")` → ExecutionError (`lua.go:111-113`) | `throw IllegalStateException` 在 try 块外 → PanicError (`TransformByLua.java:102,253`) | ✅ |
+| M2 | Engine.renderDAG 错误类型 | 返回 `*ValidationError` (`pine.go:296`) | 抛 `IllegalArgumentException` (非 ValidationError) (`Engine.java:482`) | ✅ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| /stats JSON key 顺序 | JSON spec 不保证对象 key 序 |
+| /dag 错误消息措辞 | 状态码均为 400 |
+| Config 校验消息措辞 | 开发者可见，非 wire 格式 |
+| TransformRemotePineapple setWarning RuntimeException | getMessage() 等效 |
+
+### 第十六轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| M1 | 修 Java | LuaPool.borrow() 关闭返回 null + execute 检查抛 OperatorException |
+| M2 | 修 Java | renderDAG IllegalArgumentException → ValidationError |

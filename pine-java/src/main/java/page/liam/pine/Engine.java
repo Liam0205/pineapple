@@ -479,7 +479,7 @@ public class Engine {
                     : DAGVisualizer.renderMermaid(dag);
         }
         if (!"dot".equalsIgnoreCase(format)) {
-            throw new IllegalArgumentException("unsupported format \"" + format + "\": expected \"dot\" or \"mermaid\"");
+            throw new PineErrors.ValidationError("unsupported format \"" + format + "\": expected \"dot\" or \"mermaid\"");
         }
         return collapseLevel > 0
                 ? DAGVisualizer.renderCollapsedDot(dag, collapseLevel)
