@@ -347,23 +347,23 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
 |---|--------|---------|-----------|----------|
 | 1 | globalDebug 单向覆盖 | `WithDebug(false)` 覆盖所有算子为 false | `if (globalDebug && !opCfg.debug)` 仅 false→true | ⬜ 登记 Go（Java 正确）|
-| 2 | filter_condition 大浮点格式 (>=1e15) | `%v` → `"1e+20"` | `Double.toString(1e20)` → `"1.0E20"` | ⬜ 修 Java |
-| 3 | Registry.all() 排序 | 按名称字母序 | 按注册插入序 (LinkedHashMap) | ⬜ 修 Java |
-| 4 | Codegen `__init__.py` 格式 | `—` (em dash) + 尾逗号 | `--` (double dash) + 无尾逗号 | ⬜ 修 Java |
-| 5 | statusBucket >=600 | `code >= 500` → `"5xx"` 含 600+ | `[500,600)` → `"5xx"`，>=600 → `"other"` | ⬜ 修 Java |
+| 2 | filter_condition 大浮点格式 (>=1e15) | `%v` → `"1e+20"` | `Double.toString(1e20)` → `"1.0E20"` | ✅ GoFormat.sprint |
+| 3 | Registry.all() 排序 | 按名称字母序 | 按注册插入序 (LinkedHashMap) | ✅ |
+| 4 | Codegen `__init__.py` 格式 | `—` (em dash) + 尾逗号 | `--` (double dash) + 无尾逗号 | ✅ |
+| 5 | statusBucket >=600 | `code >= 500` → `"5xx"` 含 600+ | `[500,600)` → `"5xx"`，>=600 → `"other"` | ✅ |
 
 ### 🟡 MEDIUM 严重度
 
 | # | 差异点 | 说明 | 修复状态 |
 |---|--------|------|----------|
-| 6 | MetricsAware 注入条件 | Java `provider != null` 才注入；Go 始终注入 (NopProvider) | ⬜ 修 Java |
-| 7 | applyOutput error duration | Go 不含 apply 时间；Java 含 apply 时间 | ⬜ 修 Java |
+| 6 | MetricsAware 注入条件 | Java `provider != null` 才注入；Go 始终注入 (NopProvider) | ✅ |
+| 7 | applyOutput error duration | Go 不含 apply 时间；Java 含 apply 时间 | ✅ |
 | 8 | TransformByLua Init 校验函数 | Go 延迟到 Execute；Java 在 Init 校验函数存在性 | ⬜ 登记 Go（Java 更好）|
-| 9 | Codegen float 默认值格式化 | Go `%g`（6 位）；Java `Double.toString`（完整精度）| ⬜ 修 Java |
-| 10 | reorder_shuffle anyToString | Go `%g`；Java 自实现 formatFloatG 基于 Double.toString 转换 | ⬜ 修 Java |
-| 11 | Registry.Register 类型校验 | Go 校验 IsValidOperatorType 且 panic；Java 仅检查 null | ⬜ 修 Java |
-| 12 | Codegen string escape 覆盖 | Go `%q` 全 Unicode；Java 仅 8 种显式转义 | ⬜ 修 Java |
-| 13 | reload Histogram 桶 | Go 8 桶 [0.001..5.0]；Java reload histogram 传 null | ⬜ 修 Java |
+| 9 | Codegen float 默认值格式化 | Go `%g`（6 位）；Java `Double.toString`（完整精度）| ✅ GoFormat.formatG |
+| 10 | reorder_shuffle anyToString | Go `%g`；Java 自实现 formatFloatG 基于 Double.toString 转换 | ✅ GoFormat.formatG |
+| 11 | Registry.Register 类型校验 | Go 校验 IsValidOperatorType 且 panic；Java 仅检查 null | ✅ enum 字段已足够 |
+| 12 | Codegen string escape 覆盖 | Go `%q` 全 Unicode；Java 仅 8 种显式转义 | ✅ \uXXXX |
+| 13 | reload Histogram 桶 | Go 8 桶 [0.001..5.0]；Java reload histogram 传 null | ✅ |
 | 14 | DAGVisualizer sanitizeMermaidID | Go 仅替换 `-.` 和空格；Java 替换全部非字母数字字符 | ⬜ 登记 Go（Java 更好）|
 
 ### 🟢 LOW 严重度
@@ -371,9 +371,9 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 | # | 差异点 | 说明 | 修复状态 |
 |---|--------|------|----------|
 | 15 | OpTrace startTime 类型 | Go `time.Time` 绝对时间 vs Java `nanoTime` 相对 | ⬜ 已接受 |
-| 16 | validateSourcesOrder 异常类型 | Java 用 IllegalArgumentException 非 ConfigError | ⬜ 修 Java |
-| 17 | Codegen operators.py 空行/注释措辞 | 微差 | ⬜ 修 Java |
-| 18 | Codegen resources.py 生成条件 | Go 当有资源时生成；Java 需 CLI 参数指定 | ⬜ 修 Java |
+| 16 | validateSourcesOrder 异常类型 | Java 用 IllegalArgumentException 非 ConfigError | ✅ |
+| 17 | Codegen operators.py 空行/注释措辞 | 微差 | ✅ |
+| 18 | Codegen resources.py 生成条件 | Go 当有资源时生成；Java 需 CLI 参数指定 | ✅ ResourceRegistry |
 | 19 | ResourceManager.Stop 可重用 | Java 重置 started=false（可 restart）；Go 不重置 | ⬜ 已接受 |
 
 ### 之前已登记/已接受项复验
