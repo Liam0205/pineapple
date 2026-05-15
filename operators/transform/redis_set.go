@@ -154,7 +154,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	if err != nil {
 		log.Printf("transform_redis_set: write key %s: %v", key, err)
 		if o.failOnError {
-			return err
+			return fmt.Errorf("transform_redis_set: write key %s: %w", key, err)
 		}
 		out.SetWarning(fmt.Errorf("transform_redis_set: write key %s: %w", key, err))
 	}
