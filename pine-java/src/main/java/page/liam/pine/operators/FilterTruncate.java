@@ -7,13 +7,13 @@ import page.liam.pine.OperatorOutput;
 import java.util.Map;
 
 public class FilterTruncate extends AbstractOperator {
-    private int topN;
+    private long topN;
 
     @Override
     public void init(Map<String, Object> params) throws Exception {
         Object v = params.get("top_n");
         if (v instanceof Number) {
-            topN = ((Number) v).intValue();
+            topN = ((Number) v).longValue();
         } else {
             throw new IllegalArgumentException("filter_truncate: top_n must be numeric");
         }
@@ -24,7 +24,7 @@ public class FilterTruncate extends AbstractOperator {
 
     @Override
     public void execute(OperatorInput input, OperatorOutput output) {
-        for (int i = topN; i < input.itemCount(); i++) {
+        for (int i = (int) Math.min(topN, input.itemCount()); i < input.itemCount(); i++) {
             output.removeItem(i);
         }
     }

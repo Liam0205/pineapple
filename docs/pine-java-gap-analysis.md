@@ -142,18 +142,18 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 | # | 差异点 | 说明 | 修复状态 |
 |---|--------|------|----------|
-| 20 | recall_static init 校验 | Go Init 时验证 items 类型；Java 延迟到 Execute | ⬜ |
-| 21 | filter_truncate topN 宽度 | Go int64；Java int (2^31) | ⬜ |
-| 22 | filter_condition null 格式 | Go `<nil>` vs Java `"null"` — 内部一致但跨运行时不同 | ⬜ |
-| 23 | redis_set 多余参数 | Java 有 fail_on_error 但 Go Schema 无 | ⬜ |
-| 24 | Schema type 字符串 | redis_db/ttl: Go `"int"` vs Java `"int64"` | ⬜ |
-| 25 | exportSchemaJSON key case | Go PascalCase, Java lowercase | ⬜ |
-| 26 | Codegen 模板差异 | `_apply` vs `_build`；kwargs 差异 | ⬜ |
-| 27 | buildOperator 空 Schema bypass | Java 对无 params 算子跳过校验 | ⬜ |
-| 28 | observe_log 输出目标 | Go log.Printf；Java System.out.printf | ⬜ |
-| 29 | EngineMetrics nil 风格 | Go Nop provider；Java null+条件检查 | ⬜ |
-| 30 | logOnce 缺失 | Go sync.Once；Java 无幂等保护 | ⬜ |
-| 31 | ResourceProvider.Get 语义 | Go (any,bool)；Java nullable 无法区分 nil vs 不存在 | ⬜ |
+| 20 | recall_static init 校验 | Go Init 时验证 items 类型；Java 延迟到 Execute | ✅ |
+| 21 | filter_truncate topN 宽度 | Go int64；Java int (2^31) | ✅ long |
+| 22 | filter_condition null 格式 | Go `<nil>` vs Java `"null"` — 内部一致但跨运行时不同 | ✅ `<nil>` |
+| 23 | redis_set 多余参数 | Java 有 fail_on_error 但 Go Schema 无 | ⬜ 有意超前 |
+| 24 | Schema type 字符串 | redis_db/ttl: Go `"int"` vs Java `"int64"` | ✅ |
+| 25 | exportSchemaJSON key case | Go PascalCase, Java lowercase | ✅ PascalCase |
+| 26 | Codegen 模板差异 | `_apply` vs `_build`；kwargs 差异 | ⬜ 独立实现 |
+| 27 | buildOperator 空 Schema bypass | Java 对无 params 算子跳过校验 | ✅ 始终校验 |
+| 28 | observe_log 输出目标 | Go log.Printf；Java System.out.printf | ✅ stderr |
+| 29 | EngineMetrics nil 风格 | Go Nop provider；Java null+条件检查 | ⬜ 风格差异 |
+| 30 | logOnce 缺失 | Go sync.Once；Java 无幂等保护 | ⬜ 影响可忽略 |
+| 31 | ResourceProvider.Get 语义 | Go (any,bool)；Java nullable 无法区分 nil vs 不存在 | ⬜ 接口设计差异 |
 
 ## 技术说明
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ

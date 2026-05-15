@@ -84,12 +84,7 @@ public class Registry {
             throw new PineErrors.RegistryError(typeName, "unknown operator type");
         }
 
-        Map<String, Object> params;
-        if (!entry.schema.params.isEmpty()) {
-            params = validateAndExtractParams(entry.schema, rawParams);
-        } else {
-            params = rawParams;
-        }
+        Map<String, Object> params = validateAndExtractParams(entry.schema, rawParams);
 
         Operator op = entry.factory.get();
         op.init(params);
@@ -118,21 +113,20 @@ public class Registry {
         List<Map<String, Object>> schemas = new ArrayList<>();
         for (OperatorSchema s : all()) {
             Map<String, Object> obj = new LinkedHashMap<>();
-            obj.put("name", s.name);
-            obj.put("type", s.type.name().toLowerCase());
-            obj.put("description", s.description);
+            obj.put("Name", s.name);
+            String typeName = s.type.name().charAt(0) + s.type.name().substring(1).toLowerCase();
+            obj.put("Type", typeName);
+            obj.put("Description", s.description);
             Map<String, Object> params = new LinkedHashMap<>();
             for (Map.Entry<String, ParamSpec> p : s.params.entrySet()) {
                 Map<String, Object> spec = new LinkedHashMap<>();
-                spec.put("type", p.getValue().type);
-                spec.put("required", p.getValue().required);
-                if (p.getValue().defaultValue != null) {
-                    spec.put("default", p.getValue().defaultValue);
-                }
-                spec.put("description", p.getValue().description);
+                spec.put("Type", p.getValue().type);
+                spec.put("Required", p.getValue().required);
+                spec.put("Default", p.getValue().defaultValue);
+                spec.put("Description", p.getValue().description);
                 params.put(p.getKey(), spec);
             }
-            obj.put("params", params);
+            obj.put("Params", params);
             schemas.add(obj);
         }
         return mapper.writeValueAsString(schemas);

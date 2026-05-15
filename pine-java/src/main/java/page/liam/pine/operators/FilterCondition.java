@@ -26,7 +26,7 @@ public class FilterCondition extends AbstractOperator {
     }
 
     private static String formatValue(Object v) {
-        if (v == null) return "null";
+        if (v == null) return "<nil>";
         if (v instanceof Number) {
             double d = ((Number) v).doubleValue();
             if (d == Math.floor(d) && !Double.isInfinite(d)) {

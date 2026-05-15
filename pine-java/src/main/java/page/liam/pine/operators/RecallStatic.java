@@ -21,6 +21,12 @@ public class RecallStatic extends AbstractOperator {
         if (!(raw instanceof List)) {
             throw new IllegalArgumentException("recall_static: 'items' must be a list");
         }
+        List<?> list = (List<?>) raw;
+        for (int i = 0; i < list.size(); i++) {
+            if (!(list.get(i) instanceof Map)) {
+                throw new IllegalArgumentException("recall_static: items[" + i + "] must be a map");
+            }
+        }
         items = (List<Map<String, Object>>) raw;
     }
 
