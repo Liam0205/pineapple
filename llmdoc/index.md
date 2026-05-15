@@ -75,3 +75,4 @@
 - `llmdoc/memory/reflections/pine-java-parity-round-15.md` — Pine-Java 第十五轮 Go-parity 审计复盘，记录 GoFormat.formatFloatF NaN/Infinity 显式守卫（同模块 edge case 第四轮重复验证）、TransformNormalize 错误消息格式对齐，以及审计收敛信号（0 HIGH/2 MEDIUM deferred）。
 - `llmdoc/memory/reflections/pine-java-parity-round-16.md` — Pine-Java 第十六轮 Go-parity 审计复盘，记录 TransformByLua pool.borrow() null 返回模式（Go error return 映射）、Engine.renderDAG ValidationError 类型迁移，以及 OperatorException 迁移七轮长尾总结与审计正式收敛。
 - `llmdoc/memory/reflections/pine-java-parity-round-17.md` — Pine-Java 第十七轮（最终轮）Go-parity 审计复盘，记录 6 项 LOW 错误消息措辞对齐（首个零 M/H 轮次），标志 parity 审计从行为修复完全过渡到措辞打磨，审计正式完结。
+- `llmdoc/memory/reflections/pine-java-parity-rounds-18-19.md` — Pine-Java 第十八/十九轮 Go-parity 审计复盘（最后两轮），记录 8 项 LOW 修复（common-mode CancellationToken 遗漏、错误消息类型/值/引号对齐、trace 微秒精度截断），确认 rounds 1-19 全量审计完结，总计约 90 项差异关闭。
