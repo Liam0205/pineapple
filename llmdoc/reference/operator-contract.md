@@ -45,6 +45,10 @@ Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.r
 
 该并发模型意味着算子结构体上的任何可变状态必须在 `Init()` 后不可变或显式同步。
 
+### Pine-Java 执行签名
+
+Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception`。`CancellationToken` 是 volatile boolean，等效于 Go 的 `context.Context` 取消信号。算子中的长时间循环应检查 `token.isCancelled()` 以支持协作式取消。
+
 ## 必需接口
 
 公共算子接口通过 `operator.go` 暴露，在 `internal/types/operator.go` 中定义：
