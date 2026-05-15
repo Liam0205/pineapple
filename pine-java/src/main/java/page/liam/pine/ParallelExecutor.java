@@ -2,7 +2,6 @@ package page.liam.pine;
 
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ParallelExecutor {
@@ -42,22 +41,23 @@ public class ParallelExecutor {
             return output;
         }
 
-        AtomicBoolean cancelled = new AtomicBoolean(false);
+        CancellationToken shardToken = new CancellationToken();
         AtomicReference<Exception> firstError = new AtomicReference<>();
         ForkJoinPool pool = ForkJoinPool.commonPool();
         List<Future<OperatorOutput>> futures = new ArrayList<>(n);
 
         for (OperatorInput shard : shards) {
             futures.add(pool.submit(() -> {
-                if (cancelled.get()) return null;
+                if (shardToken.isCancelled() || token.isCancelled()) return null;
                 try {
                     OperatorOutput out = new OperatorOutput();
-                    op.execute(token, shard, out);
+                    op.execute(shardToken, shard, out);
                     return out;
                 } catch (Throwable t) {
-                    if (firstError.compareAndSet(null, t instanceof Exception ? (Exception) t
-                            : new RuntimeException("panic in shard", t))) {
-                        cancelled.set(true);
+                    Exception ex = t instanceof Exception ? (Exception) t
+                            : new PineErrors.ExecutionError("parallel-shard", t);
+                    if (firstError.compareAndSet(null, ex)) {
+                        shardToken.cancel();
                     }
                     return null;
                 }
@@ -82,9 +82,10 @@ public class ParallelExecutor {
                 }
             } catch (ExecutionException e) {
                 Exception cause = e.getCause() instanceof Exception
-                        ? (Exception) e.getCause() : new Exception(e.getCause());
+                        ? (Exception) e.getCause()
+                        : new PineErrors.ExecutionError("parallel-shard", e.getCause());
                 if (firstError.compareAndSet(null, cause)) {
-                    cancelled.set(true);
+                    shardToken.cancel();
                     for (int j = i + 1; j < futures.size(); j++) {
                         futures.get(j).cancel(true);
                     }

@@ -458,7 +458,59 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 
 **已接受（2 项）：** #15, #19
 
-## 技术说明
+## 第七轮审计 (2026-05-15)
+
+### 第六轮修复复验
+
+全部 ✅ 项确认有效。之前登记 Go 待修的 3 项（TransformByLua Init 校验、sanitizeMermaidID、Server JSON 错误格式）已在 PR #12 / commit b2100f7 中修复完毕。globalDebug 经验证 Go 原本就正确。
+
+### 新发现
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | ParallelExecutor shard 取消粒度 | `context.WithCancel` 创建 shard 级子 context，一 shard 失败 → cancel 传播至所有 running shard | 只有 `AtomicBoolean` 阻止尚未启动的 shard，已运行 shard 无取消信号 | ✅ shardToken |
+| H2 | Panic/Error 恢复包装 | `executeWithRecovery` → `PanicError{stack}`；`fatalOnce` 包装为 `ExecutionError` | `RuntimeException("panic in shard", t)` 无结构化包装 | ✅ PineErrors.ExecutionError |
+| H3 | Server: ValidationError → HTTP 状态码 | Engine 返回 `*ValidationError` 但 server 统一映射 500 | Engine 抛 `ValidationError extends IAE` → 映射 400 | ⬜ 登记 Go（Java 正确）|
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | GoFormat.sprint 整数值 float ≥ 1e6 | `fmt.Sprint(float64(1e6))` → `"1e+06"` | `GoFormat.sprint(1000000.0)` → `"1000000"` (floor 快速路径上限 1e18) | ✅ 上限改 1e6 + formatG 补科学记数转换 |
+| M2 | Trace: error 路径 inputSnapshot | 不包含 inputSnapshot | 包含 inputSnapshot（更利于调试）| ⬜ 已接受（Java 更好）|
+| M3 | redis_set: 错误透传 | 仅 log.Printf，无 SetWarning，无 fail_on_error | 支持 fail_on_error + stderr 回退 | ⬜ 登记 Go |
+| M4 | redis_set Schema 不对称 | Schema 无 fail_on_error | Java 已有 fail_on_error | ⬜ 登记 Go |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | ParallelExecutor 线程池选择 | Go goroutine vs Java ForkJoinPool.commonPool() | ⬜ 已接受 |
+| L2 | Trace inputSnapshot on error | Java 包含更多调试信息 | ⬜ 已接受（M2 同项）|
+| L3 | Engine debug log 输出 | Go 有 `[pine-debug]` JSON log，Java 无 | ⬜ 已接受（低优先级）|
+
+### 第七轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| H1 | 修 Java | 创建 shard 级 CancellationToken，对齐 Go 的 context.WithCancel 语义 |
+| H2 | 修 Java | 用 PineErrors.ExecutionError 包装，对齐 Go 的结构化错误 |
+| H3 | 登记 Go | Java 已正确（400），Go 应对齐 |
+| M1 | 修 Java | sprint 上限 1e18→1e6，formatG 补 [1e6,1e7) 科学记数转换 |
+| M2 | 已接受 | Java 行为更好，不改 |
+| M3/M4 | 登记 Go | Java 有意超前，Go 待补 fail_on_error + SetWarning |
+| L1-L3 | 已接受 | 平台差异或低优先级 |
+
+### Go 待修项更新
+
+| 项 | 状态 | 来源 |
+|---|------|------|
+| Server ValidationError → 400 | ⬜ 待修 | 第七轮 H3 |
+| redis_set fail_on_error + SetWarning | ⬜ 待修 | 第六轮 + 第七轮 M3/M4 |
+
+
 - Go 用 GopherLua + sync.Pool 做 Lua VM 池化和沙箱；Java 用 LuaJ
 - Go Server 基于 net/http 支持完整 middleware 链和超时；Java 用 JDK 内置 com.sun.net.httpserver
 - ColumnFrame 的 presence bitmap 用于区分 "字段不存在" vs "字段 = nil"

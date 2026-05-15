@@ -24,7 +24,7 @@ public final class GoFormat {
             if (v instanceof Long || v instanceof Integer) {
                 return Long.toString(((Number) v).longValue());
             }
-            if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e18) {
+            if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e6) {
                 return Long.toString((long) d);
             }
             return formatG(d);
@@ -51,29 +51,54 @@ public final class GoFormat {
      */
     public static String formatG(double d) {
         if (d == 0) return "0";
-        // Use Double.toString which gives full precision
+        if (Double.isInfinite(d) || Double.isNaN(d)) return Double.toString(d);
+
         String s = Double.toString(d);
-        // Convert Java's "1.0E20" format to Go's "1e+20" format
+
         if (s.contains("E") || s.contains("e")) {
             s = s.toLowerCase();
             int eIdx = s.indexOf('e');
             String mantissa = s.substring(0, eIdx);
             String expPart = s.substring(eIdx + 1);
-            // Remove trailing zeros from mantissa
             if (mantissa.contains(".")) {
                 mantissa = mantissa.replaceAll("0+$", "").replaceAll("\\.$", "");
             }
-            // Ensure exponent has sign
             if (!expPart.startsWith("-") && !expPart.startsWith("+")) {
                 expPart = "+" + expPart;
             }
-            // Pad exponent to at least 2 digits
             boolean neg = expPart.startsWith("-");
-            String digits = neg ? expPart.substring(1) : expPart.substring(1);
+            String digits = expPart.substring(1);
             if (digits.length() < 2) digits = "0" + digits;
             expPart = (neg ? "-" : "+") + digits;
             return mantissa + "e" + expPart;
         }
+
+        // Double.toString uses non-scientific for |d| in [1e-3, 1e7).
+        // Go uses scientific when integer part has > 6 digits (i.e., |d| >= 1e6 for integer-valued,
+        // or more generally when the number of significant digits before decimal exceeds 6).
+        String abs = s.startsWith("-") ? s.substring(1) : s;
+        boolean negative = s.startsWith("-");
+        int dotPos = abs.indexOf('.');
+        int intPartLen = dotPos >= 0 ? dotPos : abs.length();
+        if (intPartLen > 6) {
+            // Convert to scientific notation matching Go format
+            String allDigits = abs.replace(".", "");
+            // Remove trailing zeros for precision
+            int lastNonZero = allDigits.length() - 1;
+            while (lastNonZero > 0 && allDigits.charAt(lastNonZero) == '0') lastNonZero--;
+            allDigits = allDigits.substring(0, lastNonZero + 1);
+            int exp = intPartLen - 1;
+            String mantissa;
+            if (allDigits.length() == 1) {
+                mantissa = allDigits;
+            } else {
+                mantissa = allDigits.charAt(0) + "." + allDigits.substring(1);
+            }
+            String expStr = exp < 10 ? "0" + exp : String.valueOf(exp);
+            String result = mantissa + "e+" + expStr;
+            return negative ? "-" + result : result;
+        }
+
         // Non-scientific: strip trailing zeros
         if (s.contains(".")) {
             s = s.replaceAll("0+$", "").replaceAll("\\.$", "");
