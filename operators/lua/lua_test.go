@@ -205,13 +205,13 @@ func TestLuaOpForItemEmpty(t *testing.T) {
 }
 
 func TestLuaOpFunctionNotFound(t *testing.T) {
-	op := newLuaOp(t, `function other() return 1 end`, "missing_func", "",
-		nil, nil, nil, []string{"out"})
-
-	items := []map[string]any{{"x": 1.0}}
-	in := pine.NewOperatorInput(nil, items)
-	out := pine.NewOperatorOutput()
-	err := op.Execute(context.Background(), in, out)
+	op := &LuaOp{}
+	params := map[string]any{
+		"lua_script":          `function other() return 1 end`,
+		"function_for_item":   "missing_func",
+		"function_for_common": "",
+	}
+	err := op.Init(params)
 	if err == nil {
 		t.Fatal("expected error for missing function")
 	}

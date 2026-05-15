@@ -2,6 +2,7 @@ package dag
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Liam0205/pineapple/internal/types"
@@ -87,8 +88,10 @@ func RenderMermaid(g *Graph) string {
 	return b.String()
 }
 
+var mermaidIDRe = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+
 func sanitizeMermaidID(name string) string {
-	return strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(name)
+	return mermaidIDRe.ReplaceAllString(name, "_")
 }
 
 // collapsedGraph computes the aggregated view for level-based SubFlow rendering.

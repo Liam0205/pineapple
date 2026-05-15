@@ -577,8 +577,8 @@ func TestExecuteRequestBodyTooLarge(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.handleExecute(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413", w.Code)
 	}
 	body := w.Body.String()
 	if !strings.Contains(body, "too large") && !strings.Contains(body, "request body") {
