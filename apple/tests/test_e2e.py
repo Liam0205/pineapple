@@ -210,7 +210,7 @@ class TestE2E:
         # checked-in fixture so pytest does not dirty the worktree.
         json_str = flow.compile()
         config_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "testdata", "e2e_apple_dsl.json"
+            os.path.dirname(__file__), "..", "..", "pine-go", "testdata", "e2e_apple_dsl.json"
         )
         with open(config_path, "rb") as f:
             original_config = f.read()
@@ -223,7 +223,7 @@ class TestE2E:
                 ["go", "test", "./integration/", "-run", "TestAppleDSLe2e", "-v", "-count=1"],
                 capture_output=True,
                 text=True,
-                cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
+                cwd=os.path.join(os.path.dirname(__file__), "..", "..", "pine-go"),
                 timeout=60,
             )
             print(result.stdout)
@@ -240,7 +240,7 @@ class TestE2E:
             ["go", "test", "./integration/", "-run", "TestDeepNestedE2E", "-v", "-count=1"],
             capture_output=True,
             text=True,
-            cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
+                cwd=os.path.join(os.path.dirname(__file__), "..", "..", "pine-go"),
             timeout=60,
         )
         print(result.stdout)

@@ -23,8 +23,8 @@ if [ -d "apple" ]; then
 fi
 
 # Go lint
-if [ -f "go.mod" ]; then
-  go_out=$(golangci-lint run ./... 2>&1)
+if [ -f "pine-go/go.mod" ]; then
+  go_out=$(cd pine-go && golangci-lint run ./... 2>&1)
   if [ $? -ne 0 ]; then
     errors+="=== golangci-lint run ./... ===\n${go_out}\n\n"
   fi

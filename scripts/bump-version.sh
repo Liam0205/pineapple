@@ -6,7 +6,7 @@
 #   bash scripts/bump-version.sh 0.3.0
 #
 # What it does (in order):
-#   1. Updates version.go            (Go constant)
+#   1. Updates pine-go/version.go    (Go constant)
 #   2. Updates apple/_version.py     (Python package version)
 #   3. Updates pine-java/pom.xml     (Java Maven artifact version)
 #   4. Updates _PINEAPPLE_VERSION in JSON fixtures and Java examples
@@ -41,8 +41,8 @@ echo "==> Bumping Pineapple to v${NEW_VERSION}"
 echo
 
 # --- 1. version.go ---
-echo "[1/8] Updating version.go"
-perl -0pi -e "s/const Version = \".*\"/const Version = \"${NEW_VERSION}\"/" version.go
+echo "[1/8] Updating pine-go/version.go"
+perl -0pi -e "s/const Version = \".*\"/const Version = \"${NEW_VERSION}\"/" pine-go/version.go
 
 # --- 2. apple/_version.py ---
 echo "[2/8] Updating apple/_version.py"
@@ -55,7 +55,7 @@ perl -0pi -e "s|<version>[^<]+</version>(\\s*<packaging>jar</packaging>)|<versio
 # --- 4. JSON fixtures and examples ---
 echo "[4/8] Updating _PINEAPPLE_VERSION in fixtures and examples"
 updated_files=()
-for f in pipeline.json testdata/*.json fixtures/**/*.json; do
+for f in pipeline.json pine-go/testdata/*.json pine-go/fixtures/**/*.json; do
   [[ -f "$f" ]] || continue
   if grep -q '"_PINEAPPLE_VERSION"' "$f"; then
     perl -0pi -e "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"
@@ -78,11 +78,11 @@ fi
 
 # --- 5. Codegen ---
 echo "[5/8] Running codegen"
-go run ./cmd/pineapple-codegen -output apple_generated -doc-dir doc/operators -operators-dir operators
+(cd pine-go && go run ./cmd/pineapple-codegen -output ../apple_generated -doc-dir ../doc/operators -operators-dir operators)
 
 # --- 6. Go tests ---
 echo "[6/8] Running Go tests"
-go test ./...
+(cd pine-go && go test ./...)
 
 # --- 7. Python tests ---
 echo "[7/8] Running Python tests"

@@ -85,7 +85,7 @@ public class PipelineFixtureTest {
     private static Path findFixturesDir() {
         Path dir = Paths.get(System.getProperty("user.dir"));
         for (int i = 0; i < 5; i++) {
-            Path candidate = dir.resolve("fixtures/pipelines");
+            Path candidate = dir.resolve("pine-go/fixtures/pipelines");
             if (Files.isDirectory(candidate)) return candidate;
             dir = dir.getParent();
             if (dir == null) break;
