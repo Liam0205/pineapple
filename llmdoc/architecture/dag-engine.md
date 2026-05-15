@@ -81,7 +81,7 @@
    - 从参数中过滤保留键。
    - 应用默认值和必填参数检查。
    - 调用 `factory()` 然后 `Init(params)`。
-   - 对 `MetadataAware`、`DebugAware` 和 `MetricsAware` 算子按固定顺序应用引擎级注入：Metadata → Debug → Metrics。
+   - 对 `MetadataAware`、`DebugAware`、`MetricsAware` 和 `ResourceAware` 算子按固定顺序应用引擎级注入：Metadata → Debug → Metrics → Resource。
    - `MetricsAware` 注入使用 `NewEngine` option 中提供的 `metrics.Provider`；默认是 no-op provider。
 
 4. **构建 DAG**（`internal/dag.Build`）
@@ -654,7 +654,7 @@ HTTP 端点为 `GET /dag`：
 8. **Frame 实现自行保证并发安全。** 调度器不持有 frame 锁。RowFrame 和 ColumnFrame 均通过内部单个 `sync.RWMutex` 实现读写分离。
 9. **执行图经过传递性归约。** `Build()` 阶段移除被更长路径隐含的冗余边。`Node.Preds`/`Node.Succs` 是保持可达性的最小边集，调度器和可视化共用同一边集。
 10. **观测走双通道。** `/stats` 依赖内建原子统计，外部指标依赖可插拔 provider；二者记录同一运行事实但面向不同消费场景。
-11. **注入顺序固定。** 对同时实现多个可选接口的算子，引擎按 MetadataAware → DebugAware → MetricsAware 顺序注入。依赖 operator name 做 metric label 的实现可依赖该顺序。
+11. **注入顺序固定。** 对同时实现多个可选接口的算子，引擎按 MetadataAware → DebugAware → MetricsAware → ResourceAware 顺序注入。依赖 operator name 做 metric label 的实现可依赖该顺序。
 12. **全局 debug 通过覆写逐算子配置生效。** 根级 `debug` 与 `pine.WithDebug(...)` 不引入独立执行分支，而是在 `NewEngine` 中统一改写每个算子的 `opCfg.Debug`；Go option 还必须保留“未设置”与“显式 false”两种状态区分。
 13. **SubFlow 只影响可视化分组，不影响执行语义。** `Node.SubFlow` 与 collapsed render 不能改变 DAG 的边、调度顺序或 hazard 推导；它们只是对既有执行图的聚合视图。
 
@@ -673,7 +673,7 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 - **DataFrame**：`Frame` 接口抽象，`DataFrame`（行存）和 `ColumnFrame`（列存），通过 `storage_mode` 配置选择
 - **data_parallel**：`ParallelExecutor` 实现 Transform 级并行分片，要求 `ConcurrentSafe` 接口
 - **双通道观测**：`Stats` 原子统计 + 可插拔 `Provider`（`metrics/Provider.java`），默认 `NopProvider`（等同 Go 的 `metrics.Nop()`）
-- **注入顺序**：引擎编译算子时按 MetadataAware → DebugAware → MetricsAware 固定顺序注入，与 Go 侧一致
+- **注入顺序**：引擎编译算子时按 MetadataAware → DebugAware → MetricsAware → ResourceAware 固定顺序注入，与 Go 侧一致（ResourceAware 缺失时抛出 IllegalStateException）
 - **结构化错误**：5 种错误类型 — `ConfigError`、`RegistryError`、`ValidationError`、`ExecutionError`、`PanicError`（区分 `getMessage()` 外部安全信息与 `detailedError()` 内部栈信息）
 
 ### Server 对等
@@ -698,7 +698,7 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 
 - **CancellationToken**（volatile boolean）：Java 对 Go `context.Context` 取消传播的等价实现
 - 全部 18 个算子的 `execute()` 方法接受 `CancellationToken token` 作为第一参数
-- 引擎为每次请求创建一个 token，首个 fatal error 时取消（等同 Go 的 `ctx, cancel := context.WithCancel`）
+- 引擎为每次请求创建一个 request-level token，首个 fatal error 时取消。`ParallelExecutor` 额外创建 shard-level child token：各 shard 接收 child token 而非 parent，首个 shard 失败时仅取消 child token（等同 Go 的 per-shard `context.WithCancel`），shard 启动前同时检查 parent 和 child 两级取消状态
 - 长时间循环（Lua item 迭代、parallel shard）检查 `token.isCancelled()`
 - 不提供指令级 VM 中断（LuaJ 平台限制）——仅循环级协作式取消
 - **DebugAware 接口**：引擎注入 operatorName + debug flag；`TransformByLua` 利用它进行 debug 日志输出
@@ -731,9 +731,10 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 
 `GoFormat.java` 提供静态方法复制 Go 标准库数值格式化行为：
 
-- `sprint(Object)` — 等效 Go `fmt.Sprint`；nil → `"<nil>"`，整数值 float → 无小数点
+- `sprint(Object)` — 等效 Go `fmt.Sprint`；nil → `"<nil>"`，magnitude < 1e6 的整数值 float → 无小数点（阈值 1e6 匹配 Go 切换科学计数法的边界）
 - `formatFloatF(double)` — 等效 Go `strconv.FormatFloat(d, 'f', -1, 64)`
 - `formatG(double)` — 等效 Go `fmt.Sprintf("%g", d)`；保留完整精度
+- magnitude ∈ [1e6, 1e7) 时 `formatG` 将科学计数法表示转换为定点表示，匹配 Go `%g` 在该区间的输出
 
 消费者：`TransformResourceLookup`（key coerce）、`TransformRedisGet`（key 拼接）、`FilterCondition`（条件比较值格式化，替代旧的 `formatValue` 方法）、`ReorderShuffle`（salt 格式化，替代旧的 `formatFloatG` 方法）。第六轮 parity 审计中移除了 `FilterCondition.formatValue` 和 `ReorderShuffle.formatFloatG`，统一使用 `GoFormat` 作为跨算子格式化单一事实源。
 
