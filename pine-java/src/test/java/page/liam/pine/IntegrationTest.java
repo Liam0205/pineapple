@@ -12,25 +12,16 @@ public class IntegrationTest {
 
     private byte[] buildConfig(Map<String, Object> operators, List<String> sequence,
                                Map<String, Object> flowContract) throws Exception {
-        Map<String, Object> pipelineConfig = new LinkedHashMap<>();
-        pipelineConfig.put("operators", operators);
-
-        Map<String, Object> mainGroup = new LinkedHashMap<>();
-        mainGroup.put("pipeline", sequence);
-
-        Map<String, Object> pipelineGroup = new LinkedHashMap<>();
-        pipelineGroup.put("main", mainGroup);
-
-        Map<String, Object> config = new LinkedHashMap<>();
-        config.put("_PINEAPPLE_VERSION", "0.6.6");
-        config.put("pipeline_config", pipelineConfig);
-        config.put("pipeline_group", pipelineGroup);
-        config.put("flow_contract", flowContract);
-        return mapper.writeValueAsBytes(config);
+        return buildConfig(operators, sequence, flowContract, false);
     }
 
     private byte[] buildConfigWithDebug(Map<String, Object> operators, List<String> sequence,
                                         Map<String, Object> flowContract) throws Exception {
+        return buildConfig(operators, sequence, flowContract, true);
+    }
+
+    private byte[] buildConfig(Map<String, Object> operators, List<String> sequence,
+                               Map<String, Object> flowContract, boolean debug) throws Exception {
         Map<String, Object> pipelineConfig = new LinkedHashMap<>();
         pipelineConfig.put("operators", operators);
 
@@ -41,11 +32,12 @@ public class IntegrationTest {
         pipelineGroup.put("main", mainGroup);
 
         Map<String, Object> config = new LinkedHashMap<>();
-        config.put("_PINEAPPLE_VERSION", "0.6.6");
-        config.put("debug", true);
         config.put("pipeline_config", pipelineConfig);
         config.put("pipeline_group", pipelineGroup);
         config.put("flow_contract", flowContract);
+        if (debug) {
+            config.put("debug", true);
+        }
         return mapper.writeValueAsBytes(config);
     }
 

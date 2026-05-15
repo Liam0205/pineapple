@@ -28,7 +28,6 @@ public class ServerTest {
     @BeforeAll
     static void startServer() throws Exception {
         String config = "{"
-                + "\"_PINEAPPLE_VERSION\": \"0.6.6\","
                 + "\"pipeline_config\": {"
                 + "  \"operators\": {"
                 + "    \"recall\": {"
