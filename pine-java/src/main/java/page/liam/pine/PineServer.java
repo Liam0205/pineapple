@@ -249,7 +249,7 @@ public class PineServer {
             if (result.warnings != null && !result.warnings.isEmpty()) {
                 List<String> warnList = new ArrayList<>();
                 for (Engine.Warning w : result.warnings) {
-                    warnList.add(w.err.getMessage());
+                    warnList.add("operator \"" + w.operator + "\": " + w.err.getMessage());
                 }
                 resp.put("warnings", warnList);
             }

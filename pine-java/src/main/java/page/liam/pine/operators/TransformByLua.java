@@ -89,7 +89,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (debug) {
-            int fields = input.rawCommon().size();
+            int fields = commonInput.size();
             int nonNil = (int) input.rawCommon().values().stream().filter(v -> v != null).count();
             int itemCount = input.itemCount();
             String mode = isItemMode ? "item" : "common";
@@ -143,7 +143,12 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             for (String field : itemInput) {
                 globals.set(field, toLua(input.item(i, field)));
             }
-            Varargs results = fn.invoke(LuaValue.NONE);
+            Varargs results;
+            try {
+                results = fn.invoke(LuaValue.NONE);
+            } catch (LuaError e) {
+                throw new Exception("lua: item[" + i + "]: " + e.getMessage(), e);
+            }
             for (int j = 0; j < nret; j++) {
                 Object val = toJava(results.arg(j + 1));
                 output.setItem(i, itemOutput.get(j), val);

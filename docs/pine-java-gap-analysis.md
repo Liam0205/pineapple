@@ -590,6 +590,65 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 - L2: TransformByLua debug 前缀 `[pine-debug] name` → `[pine:debug] operator="name"`
 - L3: ObserveLog snapshot/row 改用 TreeMap 对齐 Go 字母序 JSON 输出
 
+## 第十一轮审计 (2026-05-15)
+
+### 第十轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 RegistryError "pine:" 前缀 | ✓ 确认修复 |
+| H2 PanicError getMessage() 完整消息 | ✓ 确认修复 |
+| M1 data_parallel 校验消息含类型 | ✓ 确认修复 |
+| M2 RecallResource → OperatorException | ✓ 确认修复 |
+| L1 formatG(-0.0) → "-0" | ✓ 确认修复 |
+| L2 TransformByLua [pine:debug] | ✓ 确认修复 |
+| L3 ObserveLog TreeMap | ✓ 确认修复 |
+
+### 新发现
+
+经三组并行独立审计（错误/调度器、18 算子、Server/Codegen/Config），确认 4 项有效新差异。
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | ApplyOutput 错误包装类型 | `scheduler.go:257` — applyErr 始终包装为 `ExecutionError{Err: "apply output: <err>"}` | `Engine.java:373-387` — RuntimeException → PanicError（frame 抛 IOOBE/IAE 等成为 PanicError 而非 ExecutionError）| ✅ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | /execute warnings 缺 operator 前缀 | `pine.go:220` — `fmt.Errorf("operator %q: %w", w.Operator, w.Err)` → wire 含算子名 | `PineServer.java:252` — `w.err.getMessage()` → wire 无算子名 | ✅ |
+| M2 | TransformByLua debug log 计数来源 | `lua.go:100` — `len(o.CommonInput)` (metadata 声明字段数) | `TransformByLua.java:92` — `input.rawCommon().size()` (DataFrame 全部字段数) | ✅ |
+| M3 | TransformByLua 错误缺 item 索引 | `lua.go:149` — `"lua: item[%d]: %w"` 含失败条目索引 | `TransformByLua.java:107` — `"lua error: <msg>"` 无索引 | ✅ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | Trace duration_ms 精度 | Go 截断到微秒 (`Microseconds()/1000.0`)；Java 保留纳秒 (`ns/1e6`) | ⬜ 已接受 |
+| L2 | Scheduler-level debug log 缺失 | Go 输出 per-operator `[pine-debug] operator=... duration=... input_size=... output_size=...`；Java 仅有 trace snapshot | ⬜ |
+| L3 | validateSourcesOrder 错误消息措辞 | Go "declared after the current operator"；Java "appears later in the sequence" | ⬜ 已接受 |
+| L4 | TransformRedisSet failOnError=true 缺日志 | Go 始终 `log.Printf` 后再 return error；Java 仅 throw 不 log | ⬜ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| /stats JSON key 顺序 | JSON 规范不要求 key 有序 |
+| Server HTTP 超时 | com.sun.net.httpserver 平台限制（已知接受）|
+| CancellationToken vs context | 平台限制（已知接受）|
+| Debug trace 错误路径含 inputSnapshot | Java 行为更好（已知接受）|
+| 外层 catch Goroutine panic 恢复 | Java 更健壮（已知接受）|
+
+### 第十一轮决策
+
+全部 4 项修复 Java 侧：
+- H1: ApplyOutput catch block 改为始终包装 ExecutionError + "apply output:" 前缀消息，对齐 Go
+- M1: /execute warnings 格式改为 `"operator \"name\": message"` 对齐 Go wire 格式
+- M2: TransformByLua debug log 改用 `commonInput.size()` 计数 metadata 声明字段
+- M3: TransformByLua item 循环中 catch LuaError 包装 `"lua: item[N]: message"` 含索引
+
 ## 第八轮审计 (2026-05-15)
 
 ### 第七轮修复复验

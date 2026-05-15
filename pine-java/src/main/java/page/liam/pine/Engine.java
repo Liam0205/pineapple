@@ -370,14 +370,8 @@ public class Engine {
                         stats.recordError(cop.name, duration);
                         engineMetrics.opErrorTotal.with(cop.name).inc();
                         engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-                        Exception wrapped;
-                        if (applyErr instanceof PineErrors.PanicError) {
-                            wrapped = applyErr;
-                        } else if (applyErr instanceof PineErrors.OperatorException) {
-                            wrapped = new PineErrors.ExecutionError(cop.name, applyErr);
-                        } else {
-                            wrapped = new PineErrors.PanicError(cop.name, applyErr);
-                        }
+                        Exception wrapped = new PineErrors.ExecutionError(cop.name,
+                                new PineErrors.OperatorException("apply output: " + applyErr.getMessage(), applyErr));
                         if (fatalError.compareAndSet(null, wrapped)) {
                             cancellationToken.cancel();
                             for (CompletableFuture<Void> f : applied) {
