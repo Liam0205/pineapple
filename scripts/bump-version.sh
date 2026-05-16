@@ -18,6 +18,7 @@
 # The script does NOT commit, tag, or push. Review the diff and do that yourself.
 
 set -euo pipefail
+shopt -s globstar
 
 if [[ $# -ne 1 ]]; then
   echo "Usage: $0 <new-version>"

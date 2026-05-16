@@ -37,15 +37,18 @@ if [[ -f "$REPO_ROOT/.venv/bin/activate" ]]; then
   source "$REPO_ROOT/.venv/bin/activate"
 fi
 
-PYTHON_CMD="
-import sys, json
-sys.path.insert(0, '${REPO_ROOT}')
-exec(open('${SCRIPT}').read())
-if 'flow' not in dir():
-    print('Error: script must define a top-level variable named \"flow\"', file=sys.stderr)
+export APPLE_REPO_ROOT="$REPO_ROOT"
+export APPLE_SCRIPT="$SCRIPT"
+
+PYTHON_CMD='
+import os, sys
+sys.path.insert(0, os.environ["APPLE_REPO_ROOT"])
+exec(open(os.environ["APPLE_SCRIPT"]).read())
+if "flow" not in dir():
+    print("Error: script must define a top-level variable named \"flow\"", file=sys.stderr)
     sys.exit(1)
 print(flow.compile())
-"
+'
 
 if [[ -n "$OUTPUT" ]]; then
   python3 -c "$PYTHON_CMD" > "$OUTPUT"

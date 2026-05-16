@@ -2,8 +2,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+WORK_DIR=$(mktemp -d)
+trap "rm -rf $WORK_DIR" EXIT
 
 FAIL=0
 summary=""
@@ -24,9 +24,9 @@ echo "==> Pre-building binaries..."
 
 echo "    Building Go CLIs..."
 cd "$REPO_ROOT/pine-go"
-go build -o "$TMPDIR/pineapple-codegen" ./cmd/pineapple-codegen/
-go build -o "$TMPDIR/pineapple-dag" ./cmd/pineapple-dag/
-go build -o "$TMPDIR/pineapple-run" ./cmd/pineapple-run/
+go build -o "$WORK_DIR/pineapple-codegen" ./cmd/pineapple-codegen/
+go build -o "$WORK_DIR/pineapple-dag" ./cmd/pineapple-dag/
+go build -o "$WORK_DIR/pineapple-run" ./cmd/pineapple-run/
 
 echo "    Compiling Java + resolving classpath..."
 cd "$REPO_ROOT/pine-java"
@@ -43,13 +43,13 @@ echo
 # ---------- 1. Codegen schema parity ----------
 echo "==> [1/3] Codegen schema parity"
 echo "    Exporting Go schema..."
-"$TMPDIR/pineapple-codegen" -schema-json "$TMPDIR/schema-go.json"
+"$WORK_DIR/pineapple-codegen" -schema-json "$WORK_DIR/schema-go.json"
 
 echo "    Exporting Java schema..."
-java_run page.liam.pine.Codegen --export-schema "$TMPDIR/schema-java.json"
+java_run page.liam.pine.Codegen --export-schema "$WORK_DIR/schema-java.json"
 
 echo "    Comparing structural fields (operator names, param types, required)..."
-python3 -c "
+if python3 -c "
 import json, sys
 
 def extract_structure(schemas):
@@ -65,8 +65,8 @@ def extract_structure(schemas):
         result[name] = params
     return result
 
-go_data = json.load(open('$TMPDIR/schema-go.json'))
-java_data = json.load(open('$TMPDIR/schema-java.json'))
+go_data = json.load(open('$WORK_DIR/schema-go.json'))
+java_data = json.load(open('$WORK_DIR/schema-java.json'))
 
 go_struct = extract_structure(go_data)
 java_struct = extract_structure(java_data)
@@ -85,9 +85,7 @@ else:
             print(f'    Go:   {go_struct[op]}', file=sys.stderr)
             print(f'    Java: {java_struct[op]}', file=sys.stderr)
     sys.exit(1)
-"
-
-if [[ $? -eq 0 ]]; then
+"; then
   pass "codegen schema parity (operator names + param types/required)"
 else
   fail "codegen schema structural divergence"
@@ -114,7 +112,7 @@ for fixture in "$REPO_ROOT"/fixtures/pipelines/*.json; do
   dag_total=$((dag_total + 1))
 
   # Extract .config from fixture to a temp file
-  config_file="$TMPDIR/dag_config_${fname}"
+  config_file="$WORK_DIR/dag_config_${fname}"
   python3 -c "
 import json
 with open('$fixture') as f:
@@ -124,7 +122,7 @@ with open('$config_file', 'w') as cf:
     json.dump(cfg, cf)
 " || { fail "render-dag extract config: $fname"; continue; }
 
-  go_dot=$("$TMPDIR/pineapple-dag" -config "$config_file" -format dot 2>/dev/null) || {
+  go_dot=$("$WORK_DIR/pineapple-dag" -config "$config_file" -format dot 2>/dev/null) || {
     fail "render-dag Go failed: $fname"; continue
   }
 
@@ -175,7 +173,7 @@ if not cases:
     sys.exit(0)
 for i, c in enumerate(cases):
     req = c.get('request', {})
-    with open('$TMPDIR/req_${fname}_' + str(i) + '.json', 'w') as rf:
+    with open('$WORK_DIR/req_${fname}_' + str(i) + '.json', 'w') as rf:
         json.dump(req, rf)
 print(len(cases))
 " 2>/dev/null) || continue
@@ -187,18 +185,18 @@ print(len(cases))
 import json
 with open('$fixture_file') as f:
     data = json.load(f)
-with open('$TMPDIR/config_${fname}', 'w') as cf:
+with open('$WORK_DIR/config_${fname}', 'w') as cf:
     json.dump(data.get('config', {}), cf)
 " 2>/dev/null || continue
 
   case_results=""
   for ((i=0; i<cases; i++)); do
-    req_file="$TMPDIR/req_${fname}_${i}.json"
-    config_file="$TMPDIR/config_${fname}"
+    req_file="$WORK_DIR/req_${fname}_${i}.json"
+    config_file="$WORK_DIR/config_${fname}"
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     exec_total=$((exec_total + 1))
 
-    go_result=$("$TMPDIR/pineapple-run" -config "$config_file" -request "$req_file" 2>/dev/null) || {
+    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" 2>/dev/null) || {
       fail "execution Go failed: $fname case $i"; continue
     }
 
