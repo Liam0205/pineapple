@@ -199,7 +199,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Cross-validate Go vs Java
-        run: bash scripts/cross-validate.sh
+        run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
       - name: Write summary
         if: always()
         shell: bash
@@ -207,11 +207,25 @@ jobs:
           {
             echo "### Cross-Validation Summary"
             echo ""
-            echo "| Check | Status |"
-            echo "|-------|--------|"
-            echo "| Codegen schema parity | ✅ |"
-            echo "| Render-DAG parity | ✅ |"
-            echo "| Execution parity | ✅ |"
+            if grep -q "^FAIL:" cross-validate-output.txt 2>/dev/null; then
+              echo "| Check | Status |"
+              echo "|-------|--------|"
+              grep "^PASS:\|^FAIL:" cross-validate-output.txt | while read -r line; do
+                if [[ "$line" == PASS:* ]]; then
+                  echo "| ${line#PASS: } | ✅ |"
+                else
+                  echo "| ${line#FAIL: } | ❌ |"
+                fi
+              done
+            elif grep -q "^PASS:" cross-validate-output.txt 2>/dev/null; then
+              echo "| Check | Status |"
+              echo "|-------|--------|"
+              grep "^PASS:" cross-validate-output.txt | while read -r line; do
+                echo "| ${line#PASS: } | ✅ |"
+              done
+            else
+              echo "Cross-validation did not produce results."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   codegen-check:

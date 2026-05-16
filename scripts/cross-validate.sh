@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK_DIR=$(mktemp -d)
-trap "rm -rf $WORK_DIR" EXIT
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 FAIL=0
 summary=""
@@ -35,6 +35,21 @@ JAVA_CP="$REPO_ROOT/pine-java/target/classes:$(mvn dependency:build-classpath -B
 
 java_run() {
   java -cp "$JAVA_CP" "$@"
+}
+
+normalize_json() {
+  python3 -c "
+import json, sys
+def normalize(obj):
+    if isinstance(obj, dict):
+        return {k: normalize(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [normalize(v) for v in obj]
+    elif isinstance(obj, (int, float)):
+        return float(obj)
+    return obj
+print(json.dumps(normalize(json.load(sys.stdin)), sort_keys=True))
+"
 }
 
 echo "    Done."
@@ -205,30 +220,8 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
     }
 
     # Normalize JSON for comparison (unify int/float: 83 == 83.0)
-    go_norm=$(echo "$go_result" | python3 -c "
-import json, sys
-def normalize(obj):
-    if isinstance(obj, dict):
-        return {k: normalize(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [normalize(v) for v in obj]
-    elif isinstance(obj, (int, float)):
-        return float(obj)
-    return obj
-print(json.dumps(normalize(json.load(sys.stdin)), sort_keys=True))
-" 2>/dev/null)
-    java_norm=$(echo "$java_result" | python3 -c "
-import json, sys
-def normalize(obj):
-    if isinstance(obj, dict):
-        return {k: normalize(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [normalize(v) for v in obj]
-    elif isinstance(obj, (int, float)):
-        return float(obj)
-    return obj
-print(json.dumps(normalize(json.load(sys.stdin)), sort_keys=True))
-" 2>/dev/null)
+    go_norm=$(echo "$go_result" | normalize_json)
+    java_norm=$(echo "$java_result" | normalize_json)
 
     if [[ "$go_norm" == "$java_norm" ]]; then
       exec_pass=$((exec_pass + 1))
