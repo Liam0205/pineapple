@@ -55,7 +55,7 @@ perl -0pi -e "s|<version>[^<]+</version>(\\s*<packaging>jar</packaging>)|<versio
 # --- 4. JSON fixtures and examples ---
 echo "[4/8] Updating _PINEAPPLE_VERSION in fixtures and examples"
 updated_files=()
-for f in pipeline.json pine-go/testdata/*.json pine-go/fixtures/**/*.json; do
+for f in pipeline.json pine-go/testdata/*.json fixtures/**/*.json; do
   [[ -f "$f" ]] || continue
   if grep -q '"_PINEAPPLE_VERSION"' "$f"; then
     perl -0pi -e "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"

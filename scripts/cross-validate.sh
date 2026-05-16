@@ -100,7 +100,7 @@ echo "==> [2/3] Render-DAG parity"
 dag_pass=0
 dag_total=0
 
-for fixture in "$REPO_ROOT"/pine-go/fixtures/pipelines/*.json; do
+for fixture in "$REPO_ROOT"/fixtures/pipelines/*.json; do
   [[ -f "$fixture" ]] || continue
   [[ "$fixture" == *.go ]] && continue
   fname=$(basename "$fixture")
@@ -151,7 +151,7 @@ fi
 echo
 echo "==> [3/3] Execution parity (Go vs Java on same config+request)"
 
-FIXTURES_DIR="$REPO_ROOT/pine-go/fixtures/pipelines"
+FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 exec_pass=0
 exec_total=0
 

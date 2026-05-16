@@ -1,4 +1,4 @@
-package fixtures_test
+package integration
 
 import (
 	"context"
@@ -48,7 +48,7 @@ type fixtureExpected struct {
 }
 
 func TestFixtures(t *testing.T) {
-	files, err := filepath.Glob("*.json")
+	files, err := filepath.Glob("../../fixtures/*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
