@@ -241,13 +241,13 @@ jobs:
         with:
           go-version-file: pine-go/go.mod
       - name: Fuzz config.Load
-        run: go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -parallel=4 ./internal/config/
+        run: go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -timeout=60s -parallel=4 ./internal/config/
       - name: Fuzz dag.Build
-        run: go test -run=^$ -fuzz=FuzzBuild -fuzztime=30s -parallel=4 ./internal/dag/
+        run: go test -run=^$ -fuzz=FuzzBuild -fuzztime=30s -timeout=60s -parallel=4 ./internal/dag/
       - name: Fuzz DataFrame ApplyOutput
-        run: go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -parallel=4 ./internal/dataframe/
+        run: go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -timeout=60s -parallel=4 ./internal/dataframe/
       - name: Fuzz data_parallel equivalence
-        run: go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -parallel=4 ./internal/runtime/
+        run: go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -timeout=60s -parallel=4 ./internal/runtime/
 
   benchmark:
     runs-on: ubuntu-latest
