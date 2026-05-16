@@ -184,10 +184,10 @@ CI runs automatically on every push/PR:
 |----------|------|
 | Design docs | [`design_doc/`](design_doc/) — Architecture, data model, operator registration, observability, etc. |
 | Operator reference | [`doc/operators/`](doc/operators/README.md) — Detailed docs for all built-in operators |
-| Pipeline authoring | [`doc/guide_pipeline.md`](doc/guide_pipeline.md) — Apple DSL usage guide |
-| Operator development | [`doc/guide_operator.md`](doc/guide_operator.md) — Go operator development guide |
+| Pipeline authoring | [`doc/guide_pipeline-en.md`](doc/guide_pipeline-en.md) — Apple DSL usage guide |
+| Operator development | [`doc/guide_operator-en.md`](doc/guide_operator-en.md) — Go operator development guide |
 | Third-party extensions | [`design_doc/12_distribution.md`](design_doc/12_distribution.md) — Add custom operators without modifying source |
-| API reference | [`doc/api.md`](doc/api.md) — HTTP endpoint documentation |
+| API reference | [`doc/api-en.md`](doc/api-en.md) — HTTP endpoint documentation |
 
 ## License
 
