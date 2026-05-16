@@ -4,11 +4,11 @@
 
 ## 权威文件
 
-- `pine.go`
-- `internal/config/load.go`
-- `internal/dag/dag.go`
-- `internal/dag/visualize.go`
-- `pkg/server/server.go`
+- `pine-go/pine.go`
+- `pine-go/internal/config/load.go`
+- `pine-go/internal/dag/dag.go`
+- `pine-go/internal/dag/visualize.go`
+- `pine-go/pkg/server/server.go`
 
 ## 稳定入口
 
@@ -39,10 +39,10 @@
 
 SubFlow 折叠不是重新解析 DSL，而是沿用引擎编译期保留下来的分组元数据：
 
-1. `internal/config.ExpandOperatorSequenceWithSubFlows()` 递归展开 `pipeline_group` / `pipeline_map`
+1. `pine-go/internal/config.ExpandOperatorSequenceWithSubFlows()` 递归展开 `pipeline_group` / `pipeline_map`
 2. 同时生成 `opToSubFlow map[string]string`，值为算子直接父 SubFlow 的层级路径
-3. `internal/dag.Build(...)` 把该映射写入每个 `Node.SubFlow`
-4. `internal/dag/visualize.go` 在渲染时读取 `Node.SubFlow` 并按路径前缀分组
+3. `pine-go/internal/dag.Build(...)` 把该映射写入每个 `Node.SubFlow`
+4. `pine-go/internal/dag/visualize.go` 在渲染时读取 `Node.SubFlow` 并按路径前缀分组
 
 因此 SubFlow 只是图节点的附加标签，不参与 DAG 边推导。
 
@@ -118,8 +118,8 @@ DAG 渲染永远基于 `Build()` 之后的执行图：
 
 ## 检索指针
 
-- 编译期 SubFlow 映射生成：`internal/config/load.go`
-- DAG 节点上的 SubFlow 存储：`internal/dag/dag.go`
-- 渲染实现：`internal/dag/visualize.go`
-- 公共 API：`pine.go`
-- HTTP `/dag` 参数：`pkg/server/server.go`
+- 编译期 SubFlow 映射生成：`pine-go/internal/config/load.go`
+- DAG 节点上的 SubFlow 存储：`pine-go/internal/dag/dag.go`
+- 渲染实现：`pine-go/internal/dag/visualize.go`
+- 公共 API：`pine-go/pine.go`
+- HTTP `/dag` 参数：`pine-go/pkg/server/server.go`
