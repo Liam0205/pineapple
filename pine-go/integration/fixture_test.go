@@ -48,7 +48,7 @@ type fixtureExpected struct {
 }
 
 func TestFixtures(t *testing.T) {
-	files, err := filepath.Glob("../../fixtures/*.json")
+	files, err := filepath.Glob("../../fixtures/operators/*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
