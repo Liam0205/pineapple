@@ -712,6 +712,44 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
     fail "server HTTP: oversized body (Go=$go_413_code, Java=$java_413_code)"
   fi
 
+  # Test 12: GET /dag?format=mermaid → Mermaid output parity
+  srv_total=$((srv_total + 1))
+  go_dag_mmd=$(curl -s "http://localhost:$GO_PORT/dag?format=mermaid")
+  java_dag_mmd=$(curl -s "http://localhost:$JAVA_PORT/dag?format=mermaid")
+  if [[ "$go_dag_mmd" == "$java_dag_mmd" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [12] GET /dag?format=mermaid → match"
+  else
+    fail "server HTTP: /dag?format=mermaid divergence"
+    diff <(echo "$go_dag_mmd") <(echo "$java_dag_mmd") >&2 || true
+  fi
+
+  # Test 13: GET /dag?format=invalid → error response parity
+  srv_total=$((srv_total + 1))
+  go_dag_inv_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$GO_PORT/dag?format=invalid")
+  java_dag_inv_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$JAVA_PORT/dag?format=invalid")
+  go_dag_inv_body=$(curl -s "http://localhost:$GO_PORT/dag?format=invalid" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))" 2>/dev/null || echo "non-json")
+  java_dag_inv_body=$(curl -s "http://localhost:$JAVA_PORT/dag?format=invalid" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))" 2>/dev/null || echo "non-json")
+  if [[ "$go_dag_inv_code" == "$java_dag_inv_code" && "$go_dag_inv_body" == "$java_dag_inv_body" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [13] GET /dag?format=invalid → $go_dag_inv_code + body keys match"
+  else
+    fail "server HTTP: /dag?format=invalid divergence (Go=$go_dag_inv_code/$go_dag_inv_body, Java=$java_dag_inv_code/$java_dag_inv_body)"
+  fi
+
+  # Test 14: POST /execute (missing field) → validation error body keys parity
+  srv_total=$((srv_total + 1))
+  go_val_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$GO_PORT/execute")
+  java_val_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$JAVA_PORT/execute")
+  go_val_keys=$(echo "$go_val_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  java_val_keys=$(echo "$java_val_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  if [[ "$go_val_keys" == "$java_val_keys" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [14] POST /execute (validation error) → body keys match ($go_val_keys)"
+  else
+    fail "server HTTP: validation error body keys (Go=$go_val_keys, Java=$java_val_keys)"
+  fi
+
   srv_cleanup
 fi
 
@@ -753,7 +791,7 @@ java -cp "$JAVA_CP" -Dpine.config="$SRV_ERR_CONFIG" -Dpine.port=$JAVA_ERR_PORT p
 JAVA_SRV_PID=$!
 
 if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
-  # Test 12: POST /execute (runtime error) → 500 + error field + body structure
+  # Test 15: POST /execute (runtime error) → 500 + error field + body structure
   srv_total=$((srv_total + 1))
   go_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_ERR_PORT/execute")
   java_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_ERR_PORT/execute")
@@ -769,7 +807,7 @@ if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
     java_has_err=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
     if [[ "$go_has_err" == "True" && "$java_has_err" == "True" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [12] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
+      echo "    [15] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
     else
       fail "server HTTP: 500 error message mismatch (Go=$go_has_err, Java=$java_has_err)"
     fi
@@ -825,7 +863,7 @@ java -cp "$JAVA_CP" -Dpine.config="$SRV_WARN_CONFIG" -Dpine.port=$JAVA_WARN_PORT
 JAVA_SRV_PID=$!
 
 if srv_ready $GO_WARN_PORT && srv_ready $JAVA_WARN_PORT; then
-  # Test 13: POST /execute with warning-producing config → 200 + warnings field parity
+  # Test 16: POST /execute with warning-producing config → 200 + warnings field parity
   srv_total=$((srv_total + 1))
   WARN_REQ='{"common":{"uid":"x"},"items":[]}'
   go_warn_resp=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
@@ -863,7 +901,7 @@ else:
 ")
     if [[ -n "$go_warn_prefix" && "$go_warn_prefix" == "$java_warn_prefix" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [13] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
+      echo "    [16] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
     else
       fail "server HTTP: warning prefix divergence (Go='$go_warn_prefix', Java='$java_warn_prefix')"
     fi
