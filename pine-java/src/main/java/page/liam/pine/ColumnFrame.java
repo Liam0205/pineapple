@@ -122,7 +122,7 @@ public class ColumnFrame implements Frame {
             for (Map.Entry<Integer, Map<String, Object>> entry : out.getItemWrites().entrySet()) {
                 int idx = entry.getKey();
                 if (idx < 0 || idx >= rowCount) {
-                    throw new RuntimeException("SetItem index " + idx + " out of range [0, " + rowCount + ")");
+                    throw new IndexOutOfBoundsException("SetItem index " + idx + " out of range [0, " + rowCount + ")");
                 }
                 for (Map.Entry<String, Object> fe : entry.getValue().entrySet()) {
                     String field = fe.getKey();
@@ -143,7 +143,7 @@ public class ColumnFrame implements Frame {
             if (!removed.isEmpty()) {
                 for (int idx : removed) {
                     if (idx < 0 || idx >= rowCount) {
-                        throw new RuntimeException("RemoveItem index " + idx + " out of range [0, " + rowCount + ")");
+                        throw new IndexOutOfBoundsException("RemoveItem index " + idx + " out of range [0, " + rowCount + ")");
                     }
                 }
                 int newCount = rowCount - removed.size();
@@ -161,13 +161,13 @@ public class ColumnFrame implements Frame {
             List<Integer> order = out.getItemOrder();
             if (order != null) {
                 if (order.size() != rowCount) {
-                    throw new RuntimeException("SetItemOrder length " + order.size() + " does not match item count " + rowCount);
+                    throw new IllegalArgumentException("SetItemOrder length " + order.size() + " does not match item count " + rowCount);
                 }
                 int[] mapping = new int[rowCount];
                 for (int i = 0; i < rowCount; i++) {
                     int origIdx = order.get(i);
                     if (origIdx < 0 || origIdx >= rowCount) {
-                        throw new RuntimeException("SetItemOrder index " + origIdx + " out of range [0, " + rowCount + ")");
+                        throw new IndexOutOfBoundsException("SetItemOrder index " + origIdx + " out of range [0, " + rowCount + ")");
                     }
                     mapping[i] = origIdx;
                 }
@@ -275,6 +275,6 @@ public class ColumnFrame implements Frame {
         if (v instanceof Boolean) return;
         if (v instanceof Map) return;
         if (v instanceof List) return;
-        throw new RuntimeException("unsupported value type: " + v.getClass().getName());
+        throw new IllegalArgumentException("unsupported value type: " + v.getClass().getName());
     }
 }

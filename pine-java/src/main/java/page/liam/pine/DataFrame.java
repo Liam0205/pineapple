@@ -109,7 +109,7 @@ public class DataFrame implements Frame {
             for (Map.Entry<Integer, Map<String, Object>> entry : out.getItemWrites().entrySet()) {
                 int idx = entry.getKey();
                 if (idx < 0 || idx >= items.size()) {
-                    throw new RuntimeException("SetItem index " + idx + " out of range [0, " + items.size() + ")");
+                    throw new IndexOutOfBoundsException("SetItem index " + idx + " out of range [0, " + items.size() + ")");
                 }
                 for (Object v : entry.getValue().values()) {
                     validateValue(v);
@@ -122,7 +122,7 @@ public class DataFrame implements Frame {
             if (!removed.isEmpty()) {
                 for (int idx : removed) {
                     if (idx < 0 || idx >= items.size()) {
-                        throw new RuntimeException("RemoveItem index " + idx + " out of range [0, " + items.size() + ")");
+                        throw new IndexOutOfBoundsException("RemoveItem index " + idx + " out of range [0, " + items.size() + ")");
                     }
                 }
                 List<Map<String, Object>> surviving = new ArrayList<>();
@@ -138,12 +138,12 @@ public class DataFrame implements Frame {
             List<Integer> order = out.getItemOrder();
             if (order != null) {
                 if (order.size() != items.size()) {
-                    throw new RuntimeException("SetItemOrder length " + order.size() + " does not match item count " + items.size());
+                    throw new IllegalArgumentException("SetItemOrder length " + order.size() + " does not match item count " + items.size());
                 }
                 List<Map<String, Object>> reordered = new ArrayList<>(order.size());
                 for (int origIdx : order) {
                     if (origIdx < 0 || origIdx >= items.size()) {
-                        throw new RuntimeException("SetItemOrder index " + origIdx + " out of range [0, " + items.size() + ")");
+                        throw new IndexOutOfBoundsException("SetItemOrder index " + origIdx + " out of range [0, " + items.size() + ")");
                     }
                     reordered.add(items.get(origIdx));
                 }
@@ -207,6 +207,6 @@ public class DataFrame implements Frame {
         if (v instanceof Boolean) return;
         if (v instanceof Map) return;
         if (v instanceof List) return;
-        throw new RuntimeException("unsupported value type: " + v.getClass().getName());
+        throw new IllegalArgumentException("unsupported value type: " + v.getClass().getName());
     }
 }
