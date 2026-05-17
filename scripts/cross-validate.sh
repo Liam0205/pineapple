@@ -195,12 +195,6 @@ for fixture_file in "$FIXTURES_DIR"/*.json; do
   [[ -f "$fixture_file" ]] || continue
   fname=$(basename "$fixture_file")
 
-  # Skip fixtures requiring static_resources
-  if grep -q '"static_resources"' "$fixture_file" 2>/dev/null; then
-    echo "    [skip] $fname (requires static_resources)"
-    continue
-  fi
-
   # Pipeline fixtures have a "cases" array with request/expected pairs
   cases=$(python3 -c "
 import json, sys
@@ -213,6 +207,11 @@ for i, c in enumerate(cases):
     req = c.get('request', {})
     with open('$WORK_DIR/req_${fname}_' + str(i) + '.json', 'w') as rf:
         json.dump(req, rf)
+# Write static_resources if present
+sr = data.get('static_resources')
+if sr is not None:
+    with open('$WORK_DIR/resources_${fname}.json', 'w') as sf:
+        json.dump(sr, sf)
 print(len(cases))
 " 2>/dev/null) || continue
 
@@ -234,11 +233,16 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     exec_total=$((exec_total + 1))
 
-    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" 2>/dev/null) || {
+    res_flag=""
+    if [[ -f "$WORK_DIR/resources_${fname}.json" ]]; then
+      res_flag="-static-resources $WORK_DIR/resources_${fname}.json"
+    fi
+
+    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
       fail "execution Go failed: $fname case $i"; continue
     }
 
-    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" 2>/dev/null) || {
+    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
       fail "execution Java failed: $fname case $i"; continue
     }
 
@@ -275,10 +279,6 @@ for fixture_file in "$FIXTURES_DIR"/*.json; do
   [[ -f "$fixture_file" ]] || continue
   fname=$(basename "$fixture_file")
 
-  if grep -q '"static_resources"' "$fixture_file" 2>/dev/null; then
-    continue
-  fi
-
   cases=$(python3 -c "
 import json, sys
 with open('$fixture_file') as f:
@@ -290,6 +290,10 @@ for i, c in enumerate(cases):
     req = c.get('request', {})
     with open('$WORK_DIR/col_req_${fname}_' + str(i) + '.json', 'w') as rf:
         json.dump(req, rf)
+sr = data.get('static_resources')
+if sr is not None:
+    with open('$WORK_DIR/col_resources_${fname}.json', 'w') as sf:
+        json.dump(sr, sf)
 print(len(cases))
 " 2>/dev/null) || continue
 
@@ -313,11 +317,16 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     col_total=$((col_total + 1))
 
-    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" 2>/dev/null) || {
+    res_flag=""
+    if [[ -f "$WORK_DIR/col_resources_${fname}.json" ]]; then
+      res_flag="-static-resources $WORK_DIR/col_resources_${fname}.json"
+    fi
+
+    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
       fail "column-store Go failed: $fname case $i"; continue
     }
 
-    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" 2>/dev/null) || {
+    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
       fail "column-store Java failed: $fname case $i"; continue
     }
 
