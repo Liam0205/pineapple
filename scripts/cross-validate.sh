@@ -741,10 +741,12 @@ if srv_ready $GO_WARN_PORT && srv_ready $JAVA_WARN_PORT; then
   # Test 11: POST /execute with warning-producing config → 200 + warnings field parity
   srv_total=$((srv_total + 1))
   WARN_REQ='{"common":{"uid":"x"},"items":[]}'
-  go_warn_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
-  java_warn_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$JAVA_WARN_PORT/execute")
-  go_warn_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
-  java_warn_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$JAVA_WARN_PORT/execute")
+  go_warn_resp=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
+  go_warn_code="${go_warn_resp##*$'\n'}"
+  go_warn_body="${go_warn_resp%$'\n'*}"
+  java_warn_resp=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$JAVA_WARN_PORT/execute")
+  java_warn_code="${java_warn_resp##*$'\n'}"
+  java_warn_body="${java_warn_resp%$'\n'*}"
 
   # Both should return 200
   if [[ "$go_warn_code" == "200" && "$java_warn_code" == "200" ]]; then
