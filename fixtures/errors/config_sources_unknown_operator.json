@@ -1,0 +1,28 @@
+{
+  "name": "Config error: sources references an operator not in operators map",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "merge_op": {
+          "type_name": "merge_dedup",
+          "sources": ["nonexistent_recall"],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["id"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["merge_op"]}
+    },
+    "flow_contract": {
+      "common_input": [], "item_input": [],
+      "common_output": [], "item_output": ["id"]
+    }
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "nonexistent_recall"
+  }
+}
