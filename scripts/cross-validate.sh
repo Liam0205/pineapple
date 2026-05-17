@@ -152,6 +152,29 @@ with open('$config_file', 'w') as cf:
     fail "render-dag divergence: $fname"
     diff <(echo "$go_dot") <(echo "$java_dot") >&2 || true
   fi
+
+  # Test collapsed DAG if fixture has non-empty pipeline_map
+  if grep -q '"pipeline_map"' "$fixture" 2>/dev/null; then
+    for collapse_level in 1 2; do
+      dag_total=$((dag_total + 1))
+
+      go_col=$("$WORK_DIR/pineapple-dag" -config "$config_file" -format dot -collapse "$collapse_level" 2>/dev/null) || {
+        fail "render-dag Go collapsed=$collapse_level failed: $fname"; continue
+      }
+
+      java_col=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot -collapse "$collapse_level" 2>/dev/null) || {
+        fail "render-dag Java collapsed=$collapse_level failed: $fname"; continue
+      }
+
+      if [[ "$go_col" == "$java_col" ]]; then
+        dag_pass=$((dag_pass + 1))
+        echo "    [$dag_total] $fname (collapse=$collapse_level) → match"
+      else
+        fail "render-dag divergence: $fname (collapse=$collapse_level)"
+        diff <(echo "$go_col") <(echo "$java_col") >&2 || true
+      fi
+    done
+  fi
 done
 
 if [[ $dag_total -gt 0 && $dag_pass -eq $dag_total ]]; then
