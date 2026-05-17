@@ -87,7 +87,7 @@ public class FixtureTest {
 
         // Execute
         OperatorOutput output = new OperatorOutput();
-        op.execute(new CancellationToken(), input, output);
+        op.execute(CancellationToken.create(), input, output);
 
         // Validate removed_indices
         if (expected.containsKey("removed_indices")) {

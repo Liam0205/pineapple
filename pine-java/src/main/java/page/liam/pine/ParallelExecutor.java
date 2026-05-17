@@ -41,12 +41,7 @@ public class ParallelExecutor {
             return output;
         }
 
-        CancellationToken shardToken = new CancellationToken() {
-            @Override
-            public boolean isCancelled() {
-                return super.isCancelled() || token.isCancelled();
-            }
-        };
+        CancellationToken shardToken = CancellationToken.childOf(token);
         AtomicReference<Exception> firstError = new AtomicReference<>();
         ForkJoinPool pool = ForkJoinPool.commonPool();
         List<Future<OperatorOutput>> futures = new ArrayList<>(n);

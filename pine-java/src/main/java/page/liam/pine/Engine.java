@@ -175,7 +175,7 @@ public class Engine {
     }
 
     public Result execute(Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
-        return execute(new CancellationToken(), common, items);
+        return execute(CancellationToken.create(), common, items);
     }
 
     public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
@@ -218,12 +218,7 @@ public class Engine {
         OpTrace[] traces = new OpTrace[n];
         List<Warning> warnings = Collections.synchronizedList(new ArrayList<>());
         AtomicReference<Exception> fatalError = new AtomicReference<>();
-        CancellationToken cancellationToken = new CancellationToken() {
-            @Override
-            public boolean isCancelled() {
-                return super.isCancelled() || externalToken.isCancelled();
-            }
-        };
+        CancellationToken cancellationToken = CancellationToken.childOf(externalToken);
         AtomicLong activeOps = new AtomicLong();
         ForkJoinPool pool = ForkJoinPool.commonPool();
 
