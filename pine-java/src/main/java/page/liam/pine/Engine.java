@@ -118,8 +118,9 @@ public class Engine {
             boolean effectiveDebug = globalDebug || opCfg.debug;
 
             Operator op = Registry.global().buildOperator(opCfg.typeName, opCfg.rawParams);
-            OperatorType opType = Registry.global().getType(opCfg.typeName);
-            String effectiveOperatorType = opType != null ? opType.name().toLowerCase() : "transform";
+            Optional<OperatorType> opTypeOpt = Registry.global().getType(opCfg.typeName);
+            OperatorType opType = opTypeOpt.orElse(null);
+            String effectiveOperatorType = opTypeOpt.map(t -> t.name().toLowerCase()).orElse("transform");
             opCfg.operatorType = effectiveOperatorType;
 
             boolean effectiveRecall = opCfg.recall || opType == OperatorType.RECALL;
@@ -375,9 +376,9 @@ public class Engine {
 
         // Validate output type constraints
         if (execErr == null && output != null) {
-            OperatorType opType = Registry.global().getType(opCfg.typeName);
-            if (opType != null) {
-                String violation = opType.validateOutput(output);
+            Optional<OperatorType> opTypeOpt2 = Registry.global().getType(opCfg.typeName);
+            if (opTypeOpt2.isPresent()) {
+                String violation = opTypeOpt2.get().validateOutput(output);
                 if (violation != null) {
                     execErr = new PineErrors.OperatorException("type violation: " + violation);
                 }

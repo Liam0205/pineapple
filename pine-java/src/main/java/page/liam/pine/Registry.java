@@ -60,14 +60,14 @@ public class Registry {
         return op;
     }
 
-    public OperatorType getType(String typeName) {
+    public Optional<OperatorType> getType(String typeName) {
         OperatorEntry entry = operators.get(typeName);
-        return entry != null ? entry.schema.type : null;
+        return entry != null ? Optional.of(entry.schema.type) : Optional.empty();
     }
 
-    public OperatorSchema getSchema(String typeName) {
+    public Optional<OperatorSchema> getSchema(String typeName) {
         OperatorEntry entry = operators.get(typeName);
-        return entry != null ? entry.schema : null;
+        return entry != null ? Optional.of(entry.schema) : Optional.empty();
     }
 
     public List<OperatorSchema> all() {

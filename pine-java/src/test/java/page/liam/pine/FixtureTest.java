@@ -46,7 +46,7 @@ public class FixtureTest {
             List<Map<String, Object>> cases = (List<Map<String, Object>>) fixture.get("cases");
 
             // Skip operators not yet implemented in Java
-            if (Registry.global().getType(operatorName) == null) {
+            if (Registry.global().getType(operatorName).isEmpty()) {
                 continue;
             }
 
