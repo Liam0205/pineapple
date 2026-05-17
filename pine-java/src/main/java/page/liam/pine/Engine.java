@@ -6,11 +6,12 @@ import page.liam.pine.operators.AllOperators;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Engine {
-    private static volatile boolean logPrefixSet = false;
+    private static final AtomicBoolean logPrefixSet = new AtomicBoolean();
 
     private final List<CompiledOperator> operators;
     private final DAG dag;
@@ -95,13 +96,8 @@ public class Engine {
 
         // Resolve log_prefix: Option > JSON config (set once only, like Go's sync.Once)
         String logPrefix = eo.logPrefix != null ? eo.logPrefix : cfg.logPrefix;
-        if (!logPrefix.isEmpty() && !logPrefixSet) {
-            synchronized (Engine.class) {
-                if (!logPrefixSet) {
-                    System.setProperty("pine.log.prefix", logPrefix);
-                    logPrefixSet = true;
-                }
-            }
+        if (!logPrefix.isEmpty() && logPrefixSet.compareAndSet(false, true)) {
+            System.setProperty("pine.log.prefix", logPrefix);
         }
 
         // Resolve global debug: Option > JSON config
