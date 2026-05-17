@@ -20,9 +20,11 @@ public class Engine {
     private final Stats stats;
     private final EngineMetrics engineMetrics;
     private final String storageMode;
+    private final ExecutorService executor;
 
     private Engine(List<CompiledOperator> operators, DAG dag, Config.FlowContract contract,
-                   ResourceProvider resourceProvider, Stats stats, EngineMetrics engineMetrics, String storageMode) {
+                   ResourceProvider resourceProvider, Stats stats, EngineMetrics engineMetrics,
+                   String storageMode, ExecutorService executor) {
         this.operators = operators;
         this.dag = dag;
         this.contract = contract;
@@ -30,6 +32,7 @@ public class Engine {
         this.stats = stats;
         this.engineMetrics = engineMetrics;
         this.storageMode = storageMode;
+        this.executor = executor;
     }
 
     // --- Option pattern ---
@@ -44,6 +47,7 @@ public class Engine {
         ResourceProvider resources;
         String logPrefix;
         Boolean debug;
+        ExecutorService executor;
     }
 
     public static Option withMetrics(Provider provider) {
@@ -60,6 +64,10 @@ public class Engine {
 
     public static Option withDebug(boolean debug) {
         return opts -> opts.debug = debug;
+    }
+
+    public static Option withExecutor(ExecutorService executor) {
+        return opts -> opts.executor = executor;
     }
 
     // --- Factory methods ---
@@ -171,7 +179,8 @@ public class Engine {
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
         Stats stats = new Stats();
         EngineMetrics em = new EngineMetrics(eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
-        return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode);
+        ExecutorService pool = eo.executor != null ? eo.executor : ForkJoinPool.commonPool();
+        return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode, pool);
     }
 
     public Result execute(Map<String, Object> common, List<Map<String, Object>> items) {
@@ -220,11 +229,10 @@ public class Engine {
         AtomicReference<Exception> fatalError = new AtomicReference<>();
         CancellationToken cancellationToken = CancellationToken.childOf(externalToken);
         AtomicLong activeOps = new AtomicLong();
-        ForkJoinPool pool = ForkJoinPool.commonPool();
 
         for (int i = 0; i < n; i++) {
             final int idx = i;
-            pool.execute(() -> {
+            executor.execute(() -> {
                 String opName = operators.get(idx).name;
                 try {
                     DAG.Node node = dag.nodes.get(idx);
@@ -291,7 +299,7 @@ public class Engine {
                     Exception execErr = null;
                     try {
                         if (opCfg.dataParallel > 1) {
-                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, opCfg.dataParallel, cop.name);
+                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, opCfg.dataParallel, cop.name, executor);
                         } else {
                             output = new OperatorOutput();
                             cop.instance.execute(cancellationToken, input, output);

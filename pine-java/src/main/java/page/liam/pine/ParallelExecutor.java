@@ -8,7 +8,7 @@ public class ParallelExecutor {
 
     private ParallelExecutor() {}
 
-    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism, String operatorName) throws PineErrors.OperatorException {
+    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism, String operatorName, ExecutorService executor) throws PineErrors.OperatorException {
         int total = input.itemCount();
         if (parallelism <= 1 || total == 0) {
             OperatorOutput output = new OperatorOutput();
@@ -43,11 +43,10 @@ public class ParallelExecutor {
 
         CancellationToken shardToken = CancellationToken.childOf(token);
         AtomicReference<Exception> firstError = new AtomicReference<>();
-        ForkJoinPool pool = ForkJoinPool.commonPool();
         List<Future<OperatorOutput>> futures = new ArrayList<>(n);
 
         for (OperatorInput shard : shards) {
-            futures.add(pool.submit(() -> {
+            futures.add(executor.submit(() -> {
                 if (shardToken.isCancelled() || token.isCancelled()) return null;
                 try {
                     OperatorOutput out = new OperatorOutput();
