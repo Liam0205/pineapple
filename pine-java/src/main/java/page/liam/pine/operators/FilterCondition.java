@@ -2,9 +2,12 @@ package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.GoFormat;
 import page.liam.pine.OperatorInput;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.OperatorParams;
 
 import java.util.Map;
 import java.util.Objects;
@@ -21,7 +24,7 @@ public class FilterCondition extends AbstractOperator {
     private Object value;
 
     @Override
-    public void init(Map<String, Object> params) {
+    public void init(OperatorParams params) {
         this.value = params.get("value");
     }
 

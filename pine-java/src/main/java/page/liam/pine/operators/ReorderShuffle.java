@@ -16,7 +16,7 @@ import java.util.*;
 public class ReorderShuffle extends AbstractOperator {
 
     @Override
-    public void init(Map<String, Object> params) {}
+    public void init(OperatorParams params) {}
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {

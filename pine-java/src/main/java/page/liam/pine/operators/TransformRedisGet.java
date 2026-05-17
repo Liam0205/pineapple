@@ -23,11 +23,11 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     private boolean failOnError;
 
     @Override
-    public void init(Map<String, Object> params) {
-        String addr = (String) params.getOrDefault("redis_addr", "");
-        String password = (String) params.getOrDefault("redis_password", "");
-        int db = toInt(params.getOrDefault("redis_db", 0));
-        keyPrefix = (String) params.getOrDefault("key_prefix", "");
+    public void init(OperatorParams params) {
+        String addr = params.getString("redis_addr", "");
+        String password = params.getString("redis_password", "");
+        int db = params.getInt("redis_db", 0);
+        keyPrefix = params.getString("key_prefix", "");
         Object dt = params.get("data_type");
         if (dt instanceof String && !((String) dt).isEmpty()) {
             dataType = (String) dt;
@@ -127,10 +127,5 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
 
     static String sprintValue(Object v) {
         return GoFormat.sprint(v);
-    }
-
-    private static int toInt(Object v) {
-        if (v instanceof Number) return ((Number) v).intValue();
-        return 0;
     }
 }

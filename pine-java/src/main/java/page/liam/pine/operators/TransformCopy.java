@@ -2,8 +2,11 @@ package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorInput;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.OperatorParams;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,7 +32,7 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
     private String direction;
 
     @Override
-    public void init(Map<String, Object> params) {
+    public void init(OperatorParams params) {
         direction = (String) params.get("direction");
         switch (direction) {
             case "common_to_item":

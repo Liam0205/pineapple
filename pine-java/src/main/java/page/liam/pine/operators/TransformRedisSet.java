@@ -25,16 +25,16 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
     private boolean failOnError;
 
     @Override
-    public void init(Map<String, Object> params) {
-        String addr = (String) params.getOrDefault("redis_addr", "");
-        String password = (String) params.getOrDefault("redis_password", "");
-        int db = toInt(params.getOrDefault("redis_db", 0));
-        keyPrefix = (String) params.getOrDefault("key_prefix", "");
+    public void init(OperatorParams params) {
+        String addr = params.getString("redis_addr", "");
+        String password = params.getString("redis_password", "");
+        int db = params.getInt("redis_db", 0);
+        keyPrefix = params.getString("key_prefix", "");
         Object dt = params.get("data_type");
         if (dt instanceof String && !((String) dt).isEmpty()) {
             dataType = (String) dt;
         }
-        ttlSeconds = toInt(params.getOrDefault("ttl", 0));
+        ttlSeconds = params.getInt("ttl", 0);
         Object foe = params.get("fail_on_error");
         if (foe instanceof Boolean) failOnError = (Boolean) foe;
 
@@ -122,10 +122,5 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
             return ((List<?>) v).stream().map(GoFormat::sprint).collect(Collectors.toList());
         }
         return null;
-    }
-
-    private static int toInt(Object v) {
-        if (v instanceof Number) return ((Number) v).intValue();
-        return 0;
     }
 }

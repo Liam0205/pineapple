@@ -38,10 +38,10 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     private List<String> itemResp = Collections.emptyList();
 
     @Override
-    public void init(Map<String, Object> params) {
-        host = (String) params.getOrDefault("host", "");
-        long port = toLong(params.getOrDefault("port", 0));
-        String endpoint = (String) params.getOrDefault("endpoint", "/execute");
+    public void init(OperatorParams params) {
+        host = params.getString("host", "");
+        long port = toLong(params.get("port"));
+        String endpoint = params.getString("endpoint", "/execute");
         if (endpoint.isEmpty()) endpoint = "/execute";
 
         url = "http://" + host + ":" + port + endpoint;

@@ -18,7 +18,7 @@ public class ObserveLog extends AbstractOperator {
     private String prefix = "";
 
     @Override
-    public void init(Map<String, Object> params) {
+    public void init(OperatorParams params) {
         Object v = params.get("log_prefix");
         if (v instanceof String) {
             prefix = (String) v;

@@ -4,9 +4,8 @@ import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.PineErrors;
-
-import java.util.Map;
 
 /**
  * Operator: transform_normalize
@@ -20,8 +19,8 @@ public class TransformNormalize extends AbstractOperator {
     private String method;
 
     @Override
-    public void init(Map<String, Object> params) {
-        method = (String) params.getOrDefault("method", "min_max");
+    public void init(OperatorParams params) {
+        method = params.getString("method", "min_max");
         if (!"min_max".equals(method)) {
             throw new IllegalArgumentException("transform_normalize: unsupported method \"" + method + "\"");
         }

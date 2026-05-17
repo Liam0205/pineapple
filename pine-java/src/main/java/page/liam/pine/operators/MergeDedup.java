@@ -4,6 +4,7 @@ import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.OperatorParams;
 
 import java.util.*;
 
@@ -19,8 +20,8 @@ public class MergeDedup extends AbstractOperator {
     private String strategy;
 
     @Override
-    public void init(Map<String, Object> params) {
-        strategy = (String) params.getOrDefault("strategy", "first");
+    public void init(OperatorParams params) {
+        strategy = params.getString("strategy", "first");
         if (!"first".equals(strategy)) {
             throw new IllegalArgumentException("merge_dedup: unsupported strategy \"" + strategy + "\"");
         }

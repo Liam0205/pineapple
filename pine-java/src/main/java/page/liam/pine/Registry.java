@@ -53,7 +53,7 @@ public class Registry {
 
         Operator op = entry.factory.get();
         try {
-            op.init(params);
+            op.init(new OperatorParams(params));
         } catch (RuntimeException e) {
             throw new PineErrors.RegistryError(typeName, "Init failed: " + e.getMessage());
         }
