@@ -377,7 +377,10 @@ public class PineServer {
     }
 
     private void sendResponse(HttpExchange exchange, int status, Object body) throws IOException {
-        byte[] responseBytes = mapper.writeValueAsBytes(body);
+        byte[] json = mapper.writeValueAsBytes(body);
+        byte[] responseBytes = new byte[json.length + 1];
+        System.arraycopy(json, 0, responseBytes, 0, json.length);
+        responseBytes[json.length] = '\n';
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(status, responseBytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
