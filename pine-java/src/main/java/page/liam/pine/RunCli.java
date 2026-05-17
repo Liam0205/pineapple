@@ -51,6 +51,11 @@ public class RunCli {
 
         Engine.Result result = engine.execute(common, items);
 
+        if (result.error != null) {
+            System.err.println("execution error: " + result.error.getMessage());
+            System.exit(1);
+        }
+
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("common", result.common);
         output.put("items", result.items);

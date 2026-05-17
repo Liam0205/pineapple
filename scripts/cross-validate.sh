@@ -56,7 +56,7 @@ echo "    Done."
 echo
 
 # ---------- 1. Codegen schema parity ----------
-echo "==> [1/5] Codegen schema parity"
+echo "==> [1/7] Codegen schema parity"
 echo "    Exporting Go schema..."
 "$WORK_DIR/pineapple-codegen" -schema-json "$WORK_DIR/schema-go.json"
 
@@ -108,7 +108,7 @@ fi
 
 # ---------- 2. Render-DAG parity ----------
 echo
-echo "==> [2/5] Render-DAG parity"
+echo "==> [2/7] Render-DAG parity"
 
 dag_pass=0
 dag_total=0
@@ -179,7 +179,7 @@ fi
 
 # ---------- 3. Dual-engine execution parity ----------
 echo
-echo "==> [3/5] Execution parity (Go vs Java on same config+request)"
+echo "==> [3/7] Execution parity (Go vs Java on same config+request)"
 
 FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 exec_pass=0
@@ -264,7 +264,7 @@ fi
 
 # ---------- 4. Column-store execution parity ----------
 echo
-echo "==> [4/5] Column-store execution parity (storage_mode=column)"
+echo "==> [4/7] Column-store execution parity (storage_mode=column)"
 
 col_pass=0
 col_total=0
@@ -347,7 +347,7 @@ fi
 
 # ---------- 5. Error parity ----------
 echo
-echo "==> [5/5] Error parity (Go vs Java on invalid configs)"
+echo "==> [5/7] Error parity (Go vs Java on invalid configs)"
 
 ERRORS_DIR="$REPO_ROOT/fixtures/errors"
 err_pass=0
@@ -425,6 +425,280 @@ if [[ $err_total -gt 0 && $err_pass -eq $err_total ]]; then
   pass "error parity ($err_pass/$err_total fixtures)"
 elif [[ $err_total -eq 0 ]]; then
   pass "error parity (no error fixtures found, skipped)"
+fi
+
+# ---------- 6. Server HTTP parity ----------
+echo
+echo "==> [6/7] Server HTTP parity (Go vs Java endpoint behavior)"
+
+# Pick a simple fixture for server testing
+SRV_FIXTURE="$REPO_ROOT/fixtures/pipelines/transform_then_filter.json"
+SRV_CONFIG="$WORK_DIR/srv_config.json"
+python3 -c "
+import json
+with open('$SRV_FIXTURE') as f:
+    data = json.load(f)
+cfg = data.get('config', {})
+with open('$SRV_CONFIG', 'w') as cf:
+    json.dump(cfg, cf)
+"
+
+GO_PORT=18901
+JAVA_PORT=18902
+
+# Build server binary
+echo "    Building Go server..."
+cd "$REPO_ROOT/pine-go"
+go build -o "$WORK_DIR/pineapple-server" ./cmd/pineapple-server/
+
+# Start Go server
+"$WORK_DIR/pineapple-server" -config "$SRV_CONFIG" -addr ":$GO_PORT" &
+GO_SRV_PID=$!
+
+# Start Java server
+java -cp "$JAVA_CP" -Dpine.config="$SRV_CONFIG" -Dpine.port=$JAVA_PORT page.liam.pine.PineServer &
+JAVA_SRV_PID=$!
+
+# Wait for servers to be ready
+srv_ready() {
+  local port=$1 max_wait=10 elapsed=0
+  while ! curl -s "http://localhost:$port/health" >/dev/null 2>&1; do
+    sleep 0.2
+    elapsed=$((elapsed + 1))
+    if [[ $elapsed -ge $((max_wait * 5)) ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+srv_cleanup() {
+  [[ -n "${GO_SRV_PID:-}" ]] && kill $GO_SRV_PID 2>/dev/null || true
+  [[ -n "${JAVA_SRV_PID:-}" ]] && kill $JAVA_SRV_PID 2>/dev/null || true
+  wait $GO_SRV_PID 2>/dev/null || true
+  wait $JAVA_SRV_PID 2>/dev/null || true
+}
+trap 'srv_cleanup; rm -rf "$WORK_DIR"' EXIT
+
+srv_pass=0
+srv_total=0
+
+if ! srv_ready $GO_PORT; then
+  fail "server HTTP: Go server failed to start"
+  srv_cleanup
+elif ! srv_ready $JAVA_PORT; then
+  fail "server HTTP: Java server failed to start"
+  srv_cleanup
+else
+  echo "    Both servers ready."
+
+  # Test 1: GET /health
+  srv_total=$((srv_total + 1))
+  go_health=$(curl -s "http://localhost:$GO_PORT/health")
+  java_health=$(curl -s "http://localhost:$JAVA_PORT/health")
+  if [[ "$go_health" == "$java_health" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [1] GET /health → match"
+  else
+    fail "server HTTP: /health divergence"
+  fi
+
+  # Test 2: POST /execute with valid request
+  srv_total=$((srv_total + 1))
+  SRV_REQ=$(python3 -c "
+import json
+with open('$SRV_FIXTURE') as f:
+    data = json.load(f)
+req = data['cases'][0]['request']
+print(json.dumps(req))
+")
+  go_exec=$(curl -s -X POST -H "Content-Type: application/json" -d "$SRV_REQ" "http://localhost:$GO_PORT/execute" | normalize_json)
+  java_exec=$(curl -s -X POST -H "Content-Type: application/json" -d "$SRV_REQ" "http://localhost:$JAVA_PORT/execute" | normalize_json)
+  if [[ "$go_exec" == "$java_exec" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [2] POST /execute (valid) → match"
+  else
+    fail "server HTTP: /execute valid request divergence"
+    diff <(echo "$go_exec" | python3 -m json.tool) <(echo "$java_exec" | python3 -m json.tool) >&2 || true
+  fi
+
+  # Test 3: GET /execute (wrong method) → 405
+  srv_total=$((srv_total + 1))
+  go_405_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$GO_PORT/execute")
+  java_405_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$JAVA_PORT/execute")
+  go_405_body=$(curl -s "http://localhost:$GO_PORT/execute")
+  java_405_body=$(curl -s "http://localhost:$JAVA_PORT/execute")
+  if [[ "$go_405_code" == "$java_405_code" ]] && [[ "$go_405_code" == "405" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [3] GET /execute → 405 match"
+  else
+    fail "server HTTP: /execute wrong method (Go=$go_405_code, Java=$java_405_code)"
+  fi
+
+  # Test 4: POST /execute with invalid JSON → 400
+  srv_total=$((srv_total + 1))
+  go_400_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$GO_PORT/execute")
+  java_400_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$JAVA_PORT/execute")
+  if [[ "$go_400_code" == "$java_400_code" ]] && [[ "$go_400_code" == "400" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [4] POST /execute (bad JSON) → 400 match"
+  else
+    fail "server HTTP: /execute bad JSON (Go=$go_400_code, Java=$java_400_code)"
+  fi
+
+  # Test 5: GET /dag → DOT output parity
+  srv_total=$((srv_total + 1))
+  go_dag=$(curl -s "http://localhost:$GO_PORT/dag")
+  java_dag=$(curl -s "http://localhost:$JAVA_PORT/dag")
+  if [[ "$go_dag" == "$java_dag" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [5] GET /dag → match"
+  else
+    fail "server HTTP: /dag divergence"
+    diff <(echo "$go_dag") <(echo "$java_dag") >&2 || true
+  fi
+
+  # Test 6: GET /stats → structure parity (ignore volatile values)
+  srv_total=$((srv_total + 1))
+  go_stats_keys=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  java_stats_keys=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  if [[ "$go_stats_keys" == "$java_stats_keys" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [6] GET /stats → top-level keys match"
+  else
+    fail "server HTTP: /stats keys divergence (Go=$go_stats_keys, Java=$java_stats_keys)"
+  fi
+
+  srv_cleanup
+fi
+
+if [[ $srv_total -gt 0 && $srv_pass -eq $srv_total ]]; then
+  pass "server HTTP parity ($srv_pass/$srv_total checks)"
+elif [[ $srv_total -eq 0 ]]; then
+  pass "server HTTP parity (skipped)"
+fi
+
+# ---------- 7. Cancellation/timeout parity ----------
+echo
+echo "==> [7/7] Cancellation parity (timeout behavior)"
+
+# Create a slow Lua fixture that should exceed a tight timeout
+TIMEOUT_CONFIG="$WORK_DIR/timeout_config.json"
+TIMEOUT_REQ="$WORK_DIR/timeout_req.json"
+
+cat > "$TIMEOUT_CONFIG" << 'CFGEOF'
+{
+  "pipeline_config": {
+    "operators": {
+      "slow_lua": {
+        "type_name": "transform_by_lua",
+        "lua_script": "function slow()\n  local s=0\n  for i=1,100000000 do s=s+i end\n  return s\nend",
+        "function_for_item": "slow",
+        "function_for_common": "",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["x"],
+          "item_output": ["x"]
+        }
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["slow_lua"]}
+  },
+  "flow_contract": {
+    "common_input": [],
+    "item_input": ["x"],
+    "common_output": [],
+    "item_output": ["x"]
+  }
+}
+CFGEOF
+
+cat > "$TIMEOUT_REQ" << 'REQEOF'
+{"common": {}, "items": [{"x": 1}]}
+REQEOF
+
+cancel_pass=0
+cancel_total=0
+
+# Test 1: both engines killed by timeout produce same exit behavior (non-zero)
+cancel_total=$((cancel_total + 1))
+go_exit=0
+timeout 1 "$WORK_DIR/pineapple-run" -config "$TIMEOUT_CONFIG" -request "$TIMEOUT_REQ" >/dev/null 2>&1 || go_exit=$?
+java_exit=0
+timeout 1 java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$TIMEOUT_CONFIG" -request "$TIMEOUT_REQ" >/dev/null 2>&1 || java_exit=$?
+
+# Both should have been killed (exit 124 from timeout, or 137 from SIGKILL)
+if [[ $go_exit -ne 0 && $java_exit -ne 0 ]]; then
+  cancel_pass=$((cancel_pass + 1))
+  echo "    [1] slow Lua + timeout 1s → both killed (Go=$go_exit, Java=$java_exit)"
+elif [[ $go_exit -eq 0 && $java_exit -eq 0 ]]; then
+  # Both finished fast enough — still parity
+  cancel_pass=$((cancel_pass + 1))
+  echo "    [1] slow Lua + timeout 1s → both completed (parity OK)"
+else
+  fail "cancellation parity: divergence (Go exit=$go_exit, Java exit=$java_exit)"
+fi
+
+# Test 2: Lua error produces same error behavior from both engines
+cancel_total=$((cancel_total + 1))
+ERR_LUA_CONFIG="$WORK_DIR/err_lua_config.json"
+cat > "$ERR_LUA_CONFIG" << 'CFGEOF'
+{
+  "pipeline_config": {
+    "operators": {
+      "bad_lua": {
+        "type_name": "transform_by_lua",
+        "lua_script": "function fail_intentional()\n  error('intentional failure')\nend",
+        "function_for_item": "fail_intentional",
+        "function_for_common": "",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["x"],
+          "item_output": ["x"]
+        }
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["bad_lua"]}
+  },
+  "flow_contract": {
+    "common_input": [],
+    "item_input": ["x"],
+    "common_output": [],
+    "item_output": ["x"]
+  }
+}
+CFGEOF
+
+go_lua_err=$("$WORK_DIR/pineapple-run" -config "$ERR_LUA_CONFIG" -request "$TIMEOUT_REQ" 2>&1) && go_lua_ok=true || go_lua_ok=false
+java_lua_err=$(java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$ERR_LUA_CONFIG" -request "$TIMEOUT_REQ" 2>&1) && java_lua_ok=true || java_lua_ok=false
+
+if [[ "$go_lua_ok" == "false" && "$java_lua_ok" == "false" ]]; then
+  # Both failed — check both mention "intentional"
+  if echo "$go_lua_err" | grep -qi "intentional" && echo "$java_lua_err" | grep -qi "intentional"; then
+    cancel_pass=$((cancel_pass + 1))
+    echo "    [2] Lua error() → both failed with expected message"
+  else
+    fail "cancellation parity: Lua error message mismatch"
+    echo "      Go:   $go_lua_err" | head -2 >&2
+    echo "      Java: $java_lua_err" | head -2 >&2
+  fi
+elif [[ "$go_lua_ok" == "$java_lua_ok" ]]; then
+  cancel_pass=$((cancel_pass + 1))
+  echo "    [2] Lua error() → both behaved same (ok=$go_lua_ok)"
+else
+  fail "cancellation parity: Lua error divergence (Go_ok=$go_lua_ok, Java_ok=$java_lua_ok)"
+fi
+
+if [[ $cancel_total -gt 0 && $cancel_pass -eq $cancel_total ]]; then
+  pass "cancellation parity ($cancel_pass/$cancel_total checks)"
+elif [[ $cancel_total -eq 0 ]]; then
+  pass "cancellation parity (skipped)"
 fi
 
 # ---------- Summary ----------
