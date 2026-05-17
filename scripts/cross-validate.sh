@@ -144,7 +144,7 @@ with open('$config_file', 'w') as cf:
     fail "render-dag Go failed: $fname"; continue
   }
 
-  java_dot=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot -collapse 0 2>/dev/null) || {
+  java_dot=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot 2>/dev/null) || {
     fail "render-dag Java failed: $fname"; continue
   }
 
@@ -163,7 +163,7 @@ with open('$config_file', 'w') as cf:
     fail "render-dag Go mermaid failed: $fname"; continue
   }
 
-  java_mmd=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid -collapse 0 2>/dev/null) || {
+  java_mmd=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid 2>/dev/null) || {
     fail "render-dag Java mermaid failed: $fname"; continue
   }
 
@@ -695,7 +695,7 @@ else:
     fail "server HTTP: _return_trace structure divergence (Go=$go_trace_struct, Java=$java_trace_struct)"
   fi
 
-  # Test 13: POST /execute with oversized body → 413
+  # Test 11: POST /execute with oversized body → 413
   srv_total=$((srv_total + 1))
   python3 -c "
 import sys
@@ -707,7 +707,7 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
   java_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$JAVA_PORT/execute")
   if [[ "$go_413_code" == "$java_413_code" ]] && [[ "$go_413_code" == "413" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [13] POST /execute (oversized body) → 413 match"
+    echo "    [11] POST /execute (oversized body) → 413 match"
   else
     fail "server HTTP: oversized body (Go=$go_413_code, Java=$java_413_code)"
   fi
@@ -753,7 +753,7 @@ java -cp "$JAVA_CP" -Dpine.config="$SRV_ERR_CONFIG" -Dpine.port=$JAVA_ERR_PORT p
 JAVA_SRV_PID=$!
 
 if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
-  # Test 10: POST /execute (runtime error) → 500 + error field + body structure
+  # Test 12: POST /execute (runtime error) → 500 + error field + body structure
   srv_total=$((srv_total + 1))
   go_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_ERR_PORT/execute")
   java_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_ERR_PORT/execute")
@@ -769,7 +769,7 @@ if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
     java_has_err=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
     if [[ "$go_has_err" == "True" && "$java_has_err" == "True" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [11] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
+      echo "    [12] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
     else
       fail "server HTTP: 500 error message mismatch (Go=$go_has_err, Java=$java_has_err)"
     fi
@@ -825,7 +825,7 @@ java -cp "$JAVA_CP" -Dpine.config="$SRV_WARN_CONFIG" -Dpine.port=$JAVA_WARN_PORT
 JAVA_SRV_PID=$!
 
 if srv_ready $GO_WARN_PORT && srv_ready $JAVA_WARN_PORT; then
-  # Test 11: POST /execute with warning-producing config → 200 + warnings field parity
+  # Test 13: POST /execute with warning-producing config → 200 + warnings field parity
   srv_total=$((srv_total + 1))
   WARN_REQ='{"common":{"uid":"x"},"items":[]}'
   go_warn_resp=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
@@ -863,7 +863,7 @@ else:
 ")
     if [[ -n "$go_warn_prefix" && "$go_warn_prefix" == "$java_warn_prefix" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [12] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
+      echo "    [13] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
     else
       fail "server HTTP: warning prefix divergence (Go='$go_warn_prefix', Java='$java_warn_prefix')"
     fi
