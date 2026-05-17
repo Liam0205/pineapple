@@ -87,7 +87,7 @@
         "items": [
           {"item_id": "video_4", "rank_score": 200.45},
           {"item_id": "video_2", "rank_score": 120.6},
-          {"item_id": "video_3", "rank_score": 83.0}
+          {"item_id": "video_3", "rank_score": 83}
         ]
       }
     }

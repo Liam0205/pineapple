@@ -85,8 +85,8 @@
       "expected": {
         "common": {},
         "items": [
-          {"item_base": 50.0, "tag": "promo", "item_score": 100.0},
-          {"item_base": 30.0, "tag": "promo", "item_score": 60.0}
+          {"item_base": 50.0, "tag": "promo", "item_score": 100},
+          {"item_base": 30.0, "tag": "promo", "item_score": 60}
         ]
       }
     },
@@ -101,7 +101,7 @@
       "expected": {
         "common": {},
         "items": [
-          {"item_base": 5.0, "tag": "test", "item_score": 10.0}
+          {"item_base": 5.0, "tag": "test", "item_score": 10}
         ]
       }
     }

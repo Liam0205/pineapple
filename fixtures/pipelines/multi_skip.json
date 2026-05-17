@@ -71,8 +71,8 @@
       "expected": {
         "common": {},
         "items": [
-          {"item_score": 10.0, "tag": "hot", "item_doubled": 20.0},
-          {"item_score": 20.0, "tag": "hot", "item_doubled": 40.0}
+          {"item_score": 10.0, "tag": "hot", "item_doubled": 20},
+          {"item_score": 20.0, "tag": "hot", "item_doubled": 40}
         ]
       }
     },
@@ -89,8 +89,8 @@
       "expected": {
         "common": {},
         "items": [
-          {"item_score": 10.0, "item_doubled": 20.0},
-          {"item_score": 20.0, "item_doubled": 40.0}
+          {"item_score": 10.0, "item_doubled": 20},
+          {"item_score": 20.0, "item_doubled": 40}
         ]
       }
     },
