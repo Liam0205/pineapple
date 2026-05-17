@@ -724,6 +724,18 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
     diff <(echo "$go_dag_mmd") <(echo "$java_dag_mmd") >&2 || true
   fi
 
+  # Test 12b: GET /dag?collapse=1 → collapsed DAG via HTTP endpoint
+  srv_total=$((srv_total + 1))
+  go_dag_col=$(curl -s "http://localhost:$GO_PORT/dag?collapse=1")
+  java_dag_col=$(curl -s "http://localhost:$JAVA_PORT/dag?collapse=1")
+  if [[ "$go_dag_col" == "$java_dag_col" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [12b] GET /dag?collapse=1 → match"
+  else
+    fail "server HTTP: /dag?collapse=1 divergence"
+    diff <(echo "$go_dag_col") <(echo "$java_dag_col") >&2 || true
+  fi
+
   # Test 13: GET /dag?format=invalid → error response parity
   srv_total=$((srv_total + 1))
   go_dag_inv_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$GO_PORT/dag?format=invalid")

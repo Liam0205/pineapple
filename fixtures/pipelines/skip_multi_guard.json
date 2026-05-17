@@ -1,0 +1,95 @@
+{
+  "name": "multi-element skip array (OR semantics)",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "copy_tag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "skip": ["_skip_a", "_skip_b"],
+          "$metadata": {
+            "common_input": ["_skip_a", "_skip_b", "tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["tag"]
+          }
+        },
+        "truncate": {
+          "type_name": "filter_truncate",
+          "top_n": 10,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["copy_tag", "truncate"]}
+    },
+    "flow_contract": {
+      "common_input": ["_skip_a", "_skip_b", "tag"],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id", "tag"]
+    }
+  },
+  "cases": [
+    {
+      "name": "neither guard truthy — operator runs",
+      "request": {
+        "common": {"_skip_a": false, "_skip_b": false, "tag": "hello"},
+        "items": [{"id": "x"}, {"id": "y"}]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x", "tag": "hello"},
+          {"id": "y", "tag": "hello"}
+        ]
+      }
+    },
+    {
+      "name": "only _skip_a truthy — operator skipped (OR)",
+      "request": {
+        "common": {"_skip_a": true, "_skip_b": false, "tag": "hello"},
+        "items": [{"id": "x"}, {"id": "y"}]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x"},
+          {"id": "y"}
+        ]
+      }
+    },
+    {
+      "name": "only _skip_b truthy — operator skipped (OR)",
+      "request": {
+        "common": {"_skip_a": false, "_skip_b": true, "tag": "hello"},
+        "items": [{"id": "x"}]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x"}
+        ]
+      }
+    },
+    {
+      "name": "both guards truthy — operator skipped",
+      "request": {
+        "common": {"_skip_a": true, "_skip_b": true, "tag": "hello"},
+        "items": [{"id": "x"}]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x"}
+        ]
+      }
+    }
+  ]
+}
