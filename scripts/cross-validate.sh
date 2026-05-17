@@ -118,12 +118,6 @@ for fixture in "$REPO_ROOT"/fixtures/pipelines/*.json; do
   [[ "$fixture" == *.go ]] && continue
   fname=$(basename "$fixture")
 
-  # Skip fixtures requiring static_resources
-  if grep -q '"static_resources"' "$fixture" 2>/dev/null; then
-    echo "    [skip] $fname (requires static_resources)"
-    continue
-  fi
-
   dag_total=$((dag_total + 1))
 
   # Extract .config from fixture to a temp file
