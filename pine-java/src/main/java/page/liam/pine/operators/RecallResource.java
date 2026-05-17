@@ -15,7 +15,7 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
     private ResourceProvider resourceProvider;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(Map<String, Object> params) {
         resourceName = (String) params.get("resource_name");
     }
 

@@ -109,7 +109,7 @@ public class ColumnFrame implements Frame {
     }
 
     @Override
-    public void applyOutput(OperatorOutput out, String opName, boolean recall) throws Exception {
+    public void applyOutput(OperatorOutput out, String opName, boolean recall) {
         rwLock.writeLock().lock();
         try {
             // 1. Common writes

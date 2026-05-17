@@ -19,7 +19,7 @@ public class FilterTruncate extends AbstractOperator {
     private long topN;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(Map<String, Object> params) {
         Object v = params.get("top_n");
         if (v instanceof Number) {
             topN = ((Number) v).longValue();

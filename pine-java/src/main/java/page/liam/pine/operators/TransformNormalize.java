@@ -20,7 +20,7 @@ public class TransformNormalize extends AbstractOperator {
     private String method;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(Map<String, Object> params) {
         method = (String) params.getOrDefault("method", "min_max");
         if (!"min_max".equals(method)) {
             throw new IllegalArgumentException("transform_normalize: unsupported method \"" + method + "\"");

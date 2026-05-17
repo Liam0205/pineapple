@@ -29,7 +29,7 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
     private String direction;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(Map<String, Object> params) {
         direction = (String) params.get("direction");
         switch (direction) {
             case "common_to_item":

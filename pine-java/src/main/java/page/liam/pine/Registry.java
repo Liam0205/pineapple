@@ -78,7 +78,7 @@ public class Registry {
         return params;
     }
 
-    public static Operator buildOperator(String typeName, Map<String, Object> rawParams) throws Exception {
+    public static Operator buildOperator(String typeName, Map<String, Object> rawParams) {
         OperatorEntry entry = operators.get(typeName);
         if (entry == null) {
             throw new PineErrors.RegistryError(typeName, "operator type not registered");
@@ -89,7 +89,7 @@ public class Registry {
         Operator op = entry.factory.get();
         try {
             op.init(params);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             throw new PineErrors.RegistryError(typeName, "Init failed: " + e.getMessage());
         }
         return op;

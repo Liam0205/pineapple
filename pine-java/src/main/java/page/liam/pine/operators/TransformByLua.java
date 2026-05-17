@@ -30,7 +30,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     private boolean debug;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(Map<String, Object> params) {
         script = (String) params.get("lua_script");
         String funcForItem = (String) params.getOrDefault("function_for_item", "");
         String funcForCommon = (String) params.getOrDefault("function_for_common", "");

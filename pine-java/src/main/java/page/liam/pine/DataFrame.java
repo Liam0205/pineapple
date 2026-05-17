@@ -96,7 +96,7 @@ public class DataFrame implements Frame {
         }
     }
 
-    public void applyOutput(OperatorOutput out, String opName, boolean recall) throws Exception {
+    public void applyOutput(OperatorOutput out, String opName, boolean recall) {
         rwLock.writeLock().lock();
         try {
             // 1. Common writes

@@ -22,7 +22,7 @@ public class RecallStatic extends AbstractOperator {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(Map<String, Object> params) {
         Object raw = params.get("items");
         if (raw == null) {
             throw new IllegalArgumentException("recall_static: missing required param 'items'");

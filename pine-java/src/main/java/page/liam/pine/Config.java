@@ -24,8 +24,13 @@ public class Config {
     public Map<String, SubFlowRef> pipelineGroup;
     public FlowContract flowContract;
 
-    public static Config load(byte[] json) throws Exception {
-        JsonNode root = mapper.readTree(json);
+    public static Config load(byte[] json) throws PineErrors.ConfigError {
+        JsonNode root;
+        try {
+            root = mapper.readTree(json);
+        } catch (Exception e) {
+            throw new PineErrors.ConfigError("failed to parse config JSON: " + e.getMessage());
+        }
         Config cfg = new Config();
         cfg.pineappleVersion = root.has("_PINEAPPLE_VERSION") ? root.get("_PINEAPPLE_VERSION").asText() : "";
         cfg.logPrefix = root.has("log_prefix") ? root.get("log_prefix").asText() : "";
@@ -87,7 +92,7 @@ public class Config {
         return cfg;
     }
 
-    private static OperatorConfig parseOperatorConfig(JsonNode node) throws Exception {
+    private static OperatorConfig parseOperatorConfig(JsonNode node) {
         OperatorConfig opCfg = new OperatorConfig();
         opCfg.typeName = node.has("type_name") ? node.get("type_name").asText() : "";
         opCfg.recall = node.has("recall") && node.get("recall").asBoolean();
@@ -144,11 +149,11 @@ public class Config {
         return opCfg;
     }
 
-    public List<String> expandOperatorSequence() throws Exception {
+    public List<String> expandOperatorSequence() throws PineErrors.ConfigError {
         return expandOperatorSequenceWithSubFlows().sequence;
     }
 
-    public ExpandResult expandOperatorSequenceWithSubFlows() throws Exception {
+    public ExpandResult expandOperatorSequenceWithSubFlows() throws PineErrors.ConfigError {
         SubFlowRef group;
         if (pipelineGroup.containsKey("main")) {
             group = pipelineGroup.get("main");

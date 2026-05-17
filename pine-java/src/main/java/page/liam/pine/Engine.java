@@ -64,7 +64,7 @@ public class Engine {
 
     // --- Factory methods ---
 
-    public static Engine create(byte[] jsonConfig, Option... options) throws Exception {
+    public static Engine create(byte[] jsonConfig, Option... options) throws PineErrors.ConfigError {
         EngineOptions eo = new EngineOptions();
         for (Option opt : options) {
             opt.apply(eo);
@@ -72,20 +72,20 @@ public class Engine {
         return createInternal(jsonConfig, eo);
     }
 
-    public static Engine create(byte[] jsonConfig, ResourceProvider resources) throws Exception {
+    public static Engine create(byte[] jsonConfig, ResourceProvider resources) throws PineErrors.ConfigError {
         EngineOptions eo = new EngineOptions();
         eo.resources = resources;
         return createInternal(jsonConfig, eo);
     }
 
-    public static Engine create(byte[] jsonConfig, ResourceProvider resources, Provider metricsProvider) throws Exception {
+    public static Engine create(byte[] jsonConfig, ResourceProvider resources, Provider metricsProvider) throws PineErrors.ConfigError {
         EngineOptions eo = new EngineOptions();
         eo.resources = resources;
         eo.metricsProvider = metricsProvider;
         return createInternal(jsonConfig, eo);
     }
 
-    private static Engine createInternal(byte[] jsonConfig, EngineOptions eo) throws Exception {
+    private static Engine createInternal(byte[] jsonConfig, EngineOptions eo) throws PineErrors.ConfigError {
         AllOperators.ensureRegistered();
         Config cfg = Config.load(jsonConfig);
         Config.ExpandResult expanded = cfg.expandOperatorSequenceWithSubFlows();
@@ -174,11 +174,11 @@ public class Engine {
         return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode);
     }
 
-    public Result execute(Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
+    public Result execute(Map<String, Object> common, List<Map<String, Object>> items) {
         return execute(CancellationToken.create(), common, items);
     }
 
-    public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
+    public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) {
         if (common == null) {
             throw new PineErrors.ValidationError("request.Common must not be nil");
         }

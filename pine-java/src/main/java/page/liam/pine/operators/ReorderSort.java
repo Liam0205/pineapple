@@ -22,7 +22,7 @@ public class ReorderSort extends AbstractOperator {
     private boolean ascending;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(Map<String, Object> params) {
         String order = (String) params.getOrDefault("order", "desc");
         switch (order) {
             case "asc":
