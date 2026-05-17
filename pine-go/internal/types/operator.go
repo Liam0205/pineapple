@@ -32,6 +32,16 @@ var validOperatorTypes = map[OperatorType]struct{}{
 	OpTypeObserve:   {},
 }
 
+// AllOperatorTypes lists all operator types in canonical order.
+var AllOperatorTypes = []OperatorType{
+	OpTypeRecall,
+	OpTypeTransform,
+	OpTypeFilter,
+	OpTypeMerge,
+	OpTypeReorder,
+	OpTypeObserve,
+}
+
 // IsValidOperatorType returns true if t is a recognised operator type.
 func IsValidOperatorType(t OperatorType) bool {
 	_, ok := validOperatorTypes[t]

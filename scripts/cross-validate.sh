@@ -141,32 +141,53 @@ with open('$config_file', 'w') as cf:
 
   if [[ "$go_dot" == "$java_dot" ]]; then
     dag_pass=$((dag_pass + 1))
-    echo "    [$dag_total] $fname → match"
+    echo "    [$dag_total] $fname (dot) → match"
   else
-    fail "render-dag divergence: $fname"
+    fail "render-dag divergence: $fname (dot)"
     diff <(echo "$go_dot") <(echo "$java_dot") >&2 || true
+  fi
+
+  # Mermaid format parity
+  dag_total=$((dag_total + 1))
+
+  go_mmd=$("$WORK_DIR/pineapple-dag" -config "$config_file" -format mermaid 2>/dev/null) || {
+    fail "render-dag Go mermaid failed: $fname"; continue
+  }
+
+  java_mmd=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid -collapse 0 2>/dev/null) || {
+    fail "render-dag Java mermaid failed: $fname"; continue
+  }
+
+  if [[ "$go_mmd" == "$java_mmd" ]]; then
+    dag_pass=$((dag_pass + 1))
+    echo "    [$dag_total] $fname (mermaid) → match"
+  else
+    fail "render-dag divergence: $fname (mermaid)"
+    diff <(echo "$go_mmd") <(echo "$java_mmd") >&2 || true
   fi
 
   # Test collapsed DAG if fixture has non-empty pipeline_map
   if grep -q '"pipeline_map"' "$fixture" 2>/dev/null; then
     for collapse_level in 1 2; do
-      dag_total=$((dag_total + 1))
+      for cfmt in dot mermaid; do
+        dag_total=$((dag_total + 1))
 
-      go_col=$("$WORK_DIR/pineapple-dag" -config "$config_file" -format dot -collapse "$collapse_level" 2>/dev/null) || {
-        fail "render-dag Go collapsed=$collapse_level failed: $fname"; continue
-      }
+        go_col=$("$WORK_DIR/pineapple-dag" -config "$config_file" -format "$cfmt" -collapse "$collapse_level" 2>/dev/null) || {
+          fail "render-dag Go $cfmt collapsed=$collapse_level failed: $fname"; continue
+        }
 
-      java_col=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot -collapse "$collapse_level" 2>/dev/null) || {
-        fail "render-dag Java collapsed=$collapse_level failed: $fname"; continue
-      }
+        java_col=$(java_run page.liam.pine.RenderDAGCli -config "$config_file" -format "$cfmt" -collapse "$collapse_level" 2>/dev/null) || {
+          fail "render-dag Java $cfmt collapsed=$collapse_level failed: $fname"; continue
+        }
 
-      if [[ "$go_col" == "$java_col" ]]; then
-        dag_pass=$((dag_pass + 1))
-        echo "    [$dag_total] $fname (collapse=$collapse_level) → match"
-      else
-        fail "render-dag divergence: $fname (collapse=$collapse_level)"
-        diff <(echo "$go_col") <(echo "$java_col") >&2 || true
-      fi
+        if [[ "$go_col" == "$java_col" ]]; then
+          dag_pass=$((dag_pass + 1))
+          echo "    [$dag_total] $fname ($cfmt collapse=$collapse_level) → match"
+        else
+          fail "render-dag divergence: $fname ($cfmt collapse=$collapse_level)"
+          diff <(echo "$go_col") <(echo "$java_col") >&2 || true
+        fi
+      done
     done
   fi
 done
