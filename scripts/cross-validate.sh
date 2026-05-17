@@ -655,6 +655,63 @@ else:
     fail "server HTTP: ValidationError status divergence (Go=$go_val_code, Java=$java_val_code)"
   fi
 
+  # Test 10: POST /execute with _return_trace → trace structure parity
+  srv_total=$((srv_total + 1))
+  TRACE_REQ=$(python3 -c "
+import json
+with open('$SRV_FIXTURE') as f:
+    data = json.load(f)
+req = data['cases'][0]['request']
+req['common']['_return_trace'] = True
+print(json.dumps(req))
+")
+  go_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$GO_PORT/execute")
+  java_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$JAVA_PORT/execute")
+  # Compare trace structure: field names and count, ignoring timing values
+  go_trace_struct=$(echo "$go_trace_body" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+trace = d.get('trace', [])
+if trace:
+    keys = sorted(trace[0].keys())
+    print(f'count={len(trace)} keys={keys}')
+else:
+    print('no_trace')
+")
+  java_trace_struct=$(echo "$java_trace_body" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+trace = d.get('trace', [])
+if trace:
+    keys = sorted(trace[0].keys())
+    print(f'count={len(trace)} keys={keys}')
+else:
+    print('no_trace')
+")
+  if [[ "$go_trace_struct" == "$java_trace_struct" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [10] POST /execute (_return_trace) → trace structure match ($go_trace_struct)"
+  else
+    fail "server HTTP: _return_trace structure divergence (Go=$go_trace_struct, Java=$java_trace_struct)"
+  fi
+
+  # Test 13: POST /execute with oversized body → 413
+  srv_total=$((srv_total + 1))
+  python3 -c "
+import sys
+# Generate ~11MB payload (exceeds 10MB default limit)
+items = ','.join(['{\"x\":\"' + 'A'*1000 + '\"}'] * 11000)
+sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
+" > "$WORK_DIR/large_body.json"
+  go_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$GO_PORT/execute")
+  java_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$JAVA_PORT/execute")
+  if [[ "$go_413_code" == "$java_413_code" ]] && [[ "$go_413_code" == "413" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [13] POST /execute (oversized body) → 413 match"
+  else
+    fail "server HTTP: oversized body (Go=$go_413_code, Java=$java_413_code)"
+  fi
+
   srv_cleanup
 fi
 
@@ -712,7 +769,7 @@ if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
     java_has_err=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
     if [[ "$go_has_err" == "True" && "$java_has_err" == "True" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [10] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
+      echo "    [11] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
     else
       fail "server HTTP: 500 error message mismatch (Go=$go_has_err, Java=$java_has_err)"
     fi
@@ -806,7 +863,7 @@ else:
 ")
     if [[ -n "$go_warn_prefix" && "$go_warn_prefix" == "$java_warn_prefix" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [11] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
+      echo "    [12] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
     else
       fail "server HTTP: warning prefix divergence (Go='$go_warn_prefix', Java='$java_warn_prefix')"
     fi
