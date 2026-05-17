@@ -26,6 +26,6 @@
   },
   "expected_error": {
     "type": "RegistryError",
-    "message_contains": "value"
+    "message_contains": "required parameter \"value\" missing for operator"
   }
 }

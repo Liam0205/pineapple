@@ -60,7 +60,7 @@ public class Registry {
             if (!params.containsKey(name)) {
                 if (spec.required) {
                     throw new PineErrors.RegistryError(schema.name,
-                            "required parameter \"" + name + "\" missing");
+                            "required parameter \"" + name + "\" missing for operator \"" + schema.name + "\"");
                 }
                 if (spec.defaultValue != null) {
                     params.put(name, spec.defaultValue);
@@ -71,7 +71,7 @@ public class Registry {
         for (String key : params.keySet()) {
             if (!schema.params.containsKey(key)) {
                 throw new PineErrors.RegistryError(schema.name,
-                        "unknown parameter \"" + key + "\"");
+                        "unknown parameter \"" + key + "\" for operator \"" + schema.name + "\"");
             }
         }
 
@@ -81,7 +81,7 @@ public class Registry {
     public static Operator buildOperator(String typeName, Map<String, Object> rawParams) throws Exception {
         OperatorEntry entry = operators.get(typeName);
         if (entry == null) {
-            throw new PineErrors.RegistryError(typeName, "unknown operator type");
+            throw new PineErrors.RegistryError(typeName, "operator type not registered");
         }
 
         Map<String, Object> params = validateAndExtractParams(entry.schema, rawParams);

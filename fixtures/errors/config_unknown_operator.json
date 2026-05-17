@@ -26,6 +26,6 @@
   },
   "expected_error": {
     "type": "RegistryError",
-    "message_contains": "totally_nonexistent_operator_xyz"
+    "message_contains": "operator type not registered"
   }
 }
