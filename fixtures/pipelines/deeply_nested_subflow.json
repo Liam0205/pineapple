@@ -1,0 +1,109 @@
+{
+  "name": "deeply nested SubFlow (depth-3 expansion)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "copy_tag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": ["tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["tag"]
+          }
+        },
+        "lua_score": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function calc()\n  return item_val * multiplier\nend",
+          "function_for_item": "calc",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": ["multiplier"],
+            "common_output": [],
+            "item_input": ["item_val"],
+            "item_output": ["item_score"]
+          }
+        },
+        "sort_desc": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": []
+          }
+        },
+        "keep_top2": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "inner": {
+          "pipeline": ["lua_score", "sort_desc"]
+        },
+        "middle": {
+          "pipeline": ["copy_tag", "inner"]
+        },
+        "outer": {
+          "pipeline": ["middle", "keep_top2"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["outer"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["tag", "multiplier"],
+      "item_input": ["item_val"],
+      "common_output": [],
+      "item_output": ["item_val", "tag", "item_score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "depth-3 SubFlow: outer → middle → inner, score and truncate",
+      "request": {
+        "common": {"tag": "deep", "multiplier": 3},
+        "items": [
+          {"item_val": 10.0},
+          {"item_val": 50.0},
+          {"item_val": 30.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_val": 50.0, "tag": "deep", "item_score": 150},
+          {"item_val": 30.0, "tag": "deep", "item_score": 90}
+        ]
+      }
+    },
+    {
+      "name": "single item passes through all 3 SubFlow levels",
+      "request": {
+        "common": {"tag": "solo", "multiplier": 5},
+        "items": [
+          {"item_val": 7.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_val": 7.0, "tag": "solo", "item_score": 35}
+        ]
+      }
+    }
+  ]
+}
