@@ -21,6 +21,6 @@ public class TransformSize extends AbstractOperator implements page.liam.pine.Co
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
-        output.setCommon(commonOutput.get(0), input.itemCount());
+        output.setCommon(commonOutput().get(0), input.itemCount());
     }
 }

@@ -28,7 +28,7 @@ public class MergeDedup extends AbstractOperator {
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
-        String dedupBy = itemInput.get(0);
+        String dedupBy = itemInput().get(0);
         Set<Object> seen = new LinkedHashSet<>();
         for (int i = 0; i < input.itemCount(); i++) {
             Object key = normalizeKey(input.item(i, dedupBy));

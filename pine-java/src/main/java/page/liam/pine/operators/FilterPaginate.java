@@ -24,8 +24,8 @@ public class FilterPaginate extends AbstractOperator {
         int n = input.itemCount();
         if (n == 0) return;
 
-        int page = toInt(input.common(commonInput.get(0)));
-        int size = toInt(input.common(commonInput.get(1)));
+        int page = toInt(input.common(commonInput().get(0)));
+        int size = toInt(input.common(commonInput().get(1)));
         if (size <= 0) size = 10;
         if (page < 0) page = 0;
 

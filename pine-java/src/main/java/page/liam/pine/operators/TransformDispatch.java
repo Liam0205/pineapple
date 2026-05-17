@@ -21,8 +21,8 @@ public class TransformDispatch extends AbstractOperator implements page.liam.pin
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
-        String commonField = commonInput.get(0);
-        String itemField = itemOutput.get(0);
+        String commonField = commonInput().get(0);
+        String itemField = itemOutput().get(0);
         Object val = input.common(commonField);
         for (int i = 0; i < input.itemCount(); i++) {
             output.setItem(i, itemField, val);

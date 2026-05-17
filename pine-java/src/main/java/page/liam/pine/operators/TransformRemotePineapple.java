@@ -76,21 +76,21 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
-        List<String> cReq = commonReq.isEmpty() ? commonInput : commonReq;
-        List<String> iReq = itemReq.isEmpty() ? itemInput : itemReq;
-        List<String> cResp = commonResp.isEmpty() ? commonOutput : commonResp;
-        List<String> iResp = itemResp.isEmpty() ? itemOutput : itemResp;
+        List<String> cReq = commonReq.isEmpty() ? commonInput() : commonReq;
+        List<String> iReq = itemReq.isEmpty() ? itemInput() : itemReq;
+        List<String> cResp = commonResp.isEmpty() ? commonOutput() : commonResp;
+        List<String> iResp = itemResp.isEmpty() ? itemOutput() : itemResp;
 
         Map<String, Object> reqCommon = new LinkedHashMap<>();
-        for (int i = 0; i < commonInput.size() && i < cReq.size(); i++) {
-            reqCommon.put(cReq.get(i), input.common(commonInput.get(i)));
+        for (int i = 0; i < commonInput().size() && i < cReq.size(); i++) {
+            reqCommon.put(cReq.get(i), input.common(commonInput().get(i)));
         }
 
         List<Map<String, Object>> reqItems = new ArrayList<>(input.itemCount());
         for (int j = 0; j < input.itemCount(); j++) {
             Map<String, Object> item = new LinkedHashMap<>();
-            for (int i = 0; i < itemInput.size() && i < iReq.size(); i++) {
-                item.put(iReq.get(i), input.item(j, itemInput.get(i)));
+            for (int i = 0; i < itemInput().size() && i < iReq.size(); i++) {
+                item.put(iReq.get(i), input.item(j, itemInput().get(i)));
             }
             reqItems.add(item);
         }
@@ -158,19 +158,19 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> respItems = (List<Map<String, Object>>) result.getOrDefault("items", Collections.emptyList());
 
-        for (int i = 0; i < commonOutput.size() && i < cResp.size(); i++) {
+        for (int i = 0; i < commonOutput().size() && i < cResp.size(); i++) {
             String remoteField = cResp.get(i);
             if (respCommon.containsKey(remoteField)) {
-                output.setCommon(commonOutput.get(i), respCommon.get(remoteField));
+                output.setCommon(commonOutput().get(i), respCommon.get(remoteField));
             }
         }
 
         for (int j = 0; j < input.itemCount() && j < respItems.size(); j++) {
             Map<String, Object> respItem = respItems.get(j);
-            for (int i = 0; i < itemOutput.size() && i < iResp.size(); i++) {
+            for (int i = 0; i < itemOutput().size() && i < iResp.size(); i++) {
                 String remoteField = iResp.get(i);
                 if (respItem.containsKey(remoteField)) {
-                    output.setItem(j, itemOutput.get(i), respItem.get(remoteField));
+                    output.setItem(j, itemOutput().get(i), respItem.get(remoteField));
                 }
             }
         }

@@ -54,13 +54,13 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (pool == null) return;
 
-        int n = commonInput.size();
+        int n = commonInput().size();
         if (n < 2) {
             throw new PineErrors.OperatorException("transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
         }
 
-        String key = keyPrefix + TransformRedisGet.buildKeySuffix(input, commonInput.subList(0, n - 1));
-        Object value = input.common(commonInput.get(n - 1));
+        String key = keyPrefix + TransformRedisGet.buildKeySuffix(input, commonInput().subList(0, n - 1));
+        Object value = input.common(commonInput().get(n - 1));
 
         try (Jedis jedis = pool.getResource()) {
             switch (dataType) {

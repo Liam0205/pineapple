@@ -51,15 +51,15 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
-        String resultField = commonOutput.get(0);
-        String cacheHitField = commonOutput.get(1);
+        String resultField = commonOutput().get(0);
+        String cacheHitField = commonOutput().get(1);
 
         if (pool == null) {
             output.setCommon(cacheHitField, false);
             return;
         }
 
-        String key = keyPrefix + buildKeySuffix(input, commonInput);
+        String key = keyPrefix + buildKeySuffix(input, commonInput());
 
         try (Jedis jedis = pool.getResource()) {
             switch (dataType) {

@@ -32,8 +32,8 @@ public class TransformNormalize extends AbstractOperator {
         int n = input.itemCount();
         if (n == 0) return;
 
-        String field = itemInput.get(0);
-        String outputField = itemOutput.get(0);
+        String field = itemInput().get(0);
+        String outputField = itemOutput().get(0);
 
         double[] vals = new double[n];
         for (int i = 0; i < n; i++) {

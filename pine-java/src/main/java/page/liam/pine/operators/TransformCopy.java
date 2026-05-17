@@ -46,15 +46,15 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         switch (direction) {
             case "common_to_common":
-                for (int i = 0; i < commonInput.size(); i++) {
-                    output.setCommon(commonOutput.get(i), input.common(commonInput.get(i)));
+                for (int i = 0; i < commonInput().size(); i++) {
+                    output.setCommon(commonOutput().get(i), input.common(commonInput().get(i)));
                 }
                 break;
 
             case "common_to_item":
-                for (int i = 0; i < commonInput.size(); i++) {
-                    Object val = input.common(commonInput.get(i));
-                    String dst = itemOutput.get(i);
+                for (int i = 0; i < commonInput().size(); i++) {
+                    Object val = input.common(commonInput().get(i));
+                    String dst = itemOutput().get(i);
                     for (int j = 0; j < input.itemCount(); j++) {
                         output.setItem(j, dst, val);
                     }
@@ -62,9 +62,9 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
                 break;
 
             case "item_to_item":
-                for (int i = 0; i < itemInput.size(); i++) {
-                    String src = itemInput.get(i);
-                    String dst = itemOutput.get(i);
+                for (int i = 0; i < itemInput().size(); i++) {
+                    String src = itemInput().get(i);
+                    String dst = itemOutput().get(i);
                     for (int j = 0; j < input.itemCount(); j++) {
                         output.setItem(j, dst, input.item(j, src));
                     }
@@ -72,13 +72,13 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
                 break;
 
             case "item_to_common":
-                for (int i = 0; i < itemInput.size(); i++) {
-                    String src = itemInput.get(i);
+                for (int i = 0; i < itemInput().size(); i++) {
+                    String src = itemInput().get(i);
                     List<Object> vals = new ArrayList<>();
                     for (int j = 0; j < input.itemCount(); j++) {
                         vals.add(input.item(j, src));
                     }
-                    output.setCommon(commonOutput.get(i), vals);
+                    output.setCommon(commonOutput().get(i), vals);
                 }
                 break;
         }
