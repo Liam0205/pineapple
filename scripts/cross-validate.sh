@@ -696,6 +696,98 @@ else
   srv_cleanup
 fi
 
+# Third server pair: test warnings format (Redis unreachable + fail_on_error=false)
+SRV_WARN_CONFIG="$WORK_DIR/srv_warn_config.json"
+cat > "$SRV_WARN_CONFIG" << 'CFGEOF'
+{
+  "pipeline_config": {
+    "operators": {
+      "redis_getter": {
+        "type_name": "transform_redis_get",
+        "redis_addr": "127.0.0.1:1",
+        "key_prefix": "test:",
+        "fail_on_error": false,
+        "$metadata": {
+          "common_input": ["uid"],
+          "common_output": ["result", "cache_hit"],
+          "item_input": [],
+          "item_output": []
+        }
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["redis_getter"]}
+  },
+  "flow_contract": {
+    "common_input": ["uid"],
+    "item_input": [],
+    "common_output": ["uid", "result", "cache_hit"],
+    "item_output": []
+  }
+}
+CFGEOF
+
+GO_WARN_PORT=18905
+JAVA_WARN_PORT=18906
+
+"$WORK_DIR/pineapple-server" -config "$SRV_WARN_CONFIG" -addr ":$GO_WARN_PORT" &
+GO_SRV_PID=$!
+
+java -cp "$JAVA_CP" -Dpine.config="$SRV_WARN_CONFIG" -Dpine.port=$JAVA_WARN_PORT page.liam.pine.PineServer &
+JAVA_SRV_PID=$!
+
+if srv_ready $GO_WARN_PORT && srv_ready $JAVA_WARN_PORT; then
+  # Test 11: POST /execute with warning-producing config → 200 + warnings field parity
+  srv_total=$((srv_total + 1))
+  WARN_REQ='{"common":{"uid":"x"},"items":[]}'
+  go_warn_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
+  java_warn_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$JAVA_WARN_PORT/execute")
+  go_warn_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
+  java_warn_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$JAVA_WARN_PORT/execute")
+
+  # Both should return 200
+  if [[ "$go_warn_code" == "200" && "$java_warn_code" == "200" ]]; then
+    # Both should have "warnings" array with matching prefix
+    go_warn_prefix=$(echo "$go_warn_body" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ws = d.get('warnings', [])
+if ws:
+    w = ws[0]
+    # Extract prefix up to the Redis error details
+    idx = w.find('): ')
+    print(w[:idx+1] if idx >= 0 else w)
+else:
+    print('')
+")
+    java_warn_prefix=$(echo "$java_warn_body" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ws = d.get('warnings', [])
+if ws:
+    w = ws[0]
+    idx = w.find('): ')
+    print(w[:idx+1] if idx >= 0 else w)
+else:
+    print('')
+")
+    if [[ -n "$go_warn_prefix" && "$go_warn_prefix" == "$java_warn_prefix" ]]; then
+      srv_pass=$((srv_pass + 1))
+      echo "    [11] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
+    else
+      fail "server HTTP: warning prefix divergence (Go='$go_warn_prefix', Java='$java_warn_prefix')"
+    fi
+  else
+    fail "server HTTP: warning test status code (Go=$go_warn_code, Java=$java_warn_code)"
+  fi
+
+  srv_cleanup
+else
+  fail "server HTTP: warning-config servers failed to start"
+  srv_cleanup
+fi
+
 if [[ $srv_total -gt 0 && $srv_pass -eq $srv_total ]]; then
   pass "server HTTP parity ($srv_pass/$srv_total checks)"
 elif [[ $srv_total -eq 0 ]]; then
