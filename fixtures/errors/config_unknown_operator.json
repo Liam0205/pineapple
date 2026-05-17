@@ -1,0 +1,31 @@
+{
+  "name": "Config error: unknown operator type_name",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "op_nonexistent": {
+          "type_name": "totally_nonexistent_operator_xyz",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["x"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["op_nonexistent"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["x"]
+    }
+  },
+  "expected_error": {
+    "type": "RegistryError",
+    "message_contains": "totally_nonexistent_operator_xyz"
+  }
+}

@@ -56,7 +56,7 @@ echo "    Done."
 echo
 
 # ---------- 1. Codegen schema parity ----------
-echo "==> [1/3] Codegen schema parity"
+echo "==> [1/5] Codegen schema parity"
 echo "    Exporting Go schema..."
 "$WORK_DIR/pineapple-codegen" -schema-json "$WORK_DIR/schema-go.json"
 
@@ -108,7 +108,7 @@ fi
 
 # ---------- 2. Render-DAG parity ----------
 echo
-echo "==> [2/3] Render-DAG parity"
+echo "==> [2/5] Render-DAG parity"
 
 dag_pass=0
 dag_total=0
@@ -162,7 +162,7 @@ fi
 
 # ---------- 3. Dual-engine execution parity ----------
 echo
-echo "==> [3/3] Execution parity (Go vs Java on same config+request)"
+echo "==> [3/5] Execution parity (Go vs Java on same config+request)"
 
 FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 exec_pass=0
@@ -239,6 +239,166 @@ if [[ $exec_total -gt 0 && $exec_pass -eq $exec_total ]]; then
   pass "execution parity ($exec_pass/$exec_total cases)"
 elif [[ $exec_total -eq 0 ]]; then
   pass "execution parity (no pipeline fixture cases found, skipped)"
+fi
+
+# ---------- 4. Column-store execution parity ----------
+echo
+echo "==> [4/5] Column-store execution parity (storage_mode=column)"
+
+col_pass=0
+col_total=0
+
+for fixture_file in "$FIXTURES_DIR"/*.json; do
+  [[ -f "$fixture_file" ]] || continue
+  fname=$(basename "$fixture_file")
+
+  if grep -q '"static_resources"' "$fixture_file" 2>/dev/null; then
+    continue
+  fi
+
+  cases=$(python3 -c "
+import json, sys
+with open('$fixture_file') as f:
+    data = json.load(f)
+cases = data.get('cases', [])
+if not cases:
+    sys.exit(0)
+for i, c in enumerate(cases):
+    req = c.get('request', {})
+    with open('$WORK_DIR/col_req_${fname}_' + str(i) + '.json', 'w') as rf:
+        json.dump(req, rf)
+print(len(cases))
+" 2>/dev/null) || continue
+
+  [[ -z "$cases" || "$cases" == "0" ]] && continue
+
+  # Extract config with storage_mode injected
+  python3 -c "
+import json
+with open('$fixture_file') as f:
+    data = json.load(f)
+cfg = data.get('config', {})
+cfg['storage_mode'] = 'column'
+with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
+    json.dump(cfg, cf)
+" 2>/dev/null || continue
+
+  case_results=""
+  for ((i=0; i<cases; i++)); do
+    req_file="$WORK_DIR/col_req_${fname}_${i}.json"
+    config_file="$WORK_DIR/col_config_${fname}"
+    [[ -f "$req_file" && -f "$config_file" ]] || continue
+    col_total=$((col_total + 1))
+
+    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" 2>/dev/null) || {
+      fail "column-store Go failed: $fname case $i"; continue
+    }
+
+    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" 2>/dev/null) || {
+      fail "column-store Java failed: $fname case $i"; continue
+    }
+
+    go_norm=$(echo "$go_result" | normalize_json)
+    java_norm=$(echo "$java_result" | normalize_json)
+
+    if [[ "$go_norm" == "$java_norm" ]]; then
+      col_pass=$((col_pass + 1))
+      case_results+="✓"
+    else
+      fail "column-store divergence: $fname case $i"
+      diff <(echo "$go_norm" | python3 -m json.tool) <(echo "$java_norm" | python3 -m json.tool) >&2 || true
+      case_results+="✗"
+    fi
+  done
+  echo "    $fname ($cases cases) [$case_results]"
+done
+
+if [[ $col_total -gt 0 && $col_pass -eq $col_total ]]; then
+  pass "column-store execution parity ($col_pass/$col_total cases)"
+elif [[ $col_total -eq 0 ]]; then
+  pass "column-store execution parity (no cases, skipped)"
+fi
+
+# ---------- 5. Error parity ----------
+echo
+echo "==> [5/5] Error parity (Go vs Java on invalid configs)"
+
+ERRORS_DIR="$REPO_ROOT/fixtures/errors"
+err_pass=0
+err_total=0
+
+for fixture_file in "$ERRORS_DIR"/*.json; do
+  [[ -f "$fixture_file" ]] || continue
+  fname=$(basename "$fixture_file")
+  err_total=$((err_total + 1))
+
+  # Extract config and expected error type
+  python3 -c "
+import json
+with open('$fixture_file') as f:
+    data = json.load(f)
+cfg = data.get('config', {})
+with open('$WORK_DIR/err_config_${fname}', 'w') as cf:
+    json.dump(cfg, cf)
+req = data.get('request', {'common': {}, 'items': []})
+with open('$WORK_DIR/err_req_${fname}', 'w') as rf:
+    json.dump(req, rf)
+" 2>/dev/null || { fail "error fixture parse: $fname"; continue; }
+
+  config_file="$WORK_DIR/err_config_${fname}"
+  req_file="$WORK_DIR/err_req_${fname}"
+
+  # Both engines should fail — capture stderr
+  go_err=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" 2>&1) && {
+    fail "error parity: Go succeeded unexpectedly: $fname"; continue
+  }
+
+  java_err=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" 2>&1) && {
+    fail "error parity: Java succeeded unexpectedly: $fname"; continue
+  }
+
+  # Extract error classification from fixture
+  expected_type=$(python3 -c "
+import json
+with open('$fixture_file') as f:
+    data = json.load(f)
+print(data.get('expected_error', {}).get('type', ''))
+" 2>/dev/null)
+
+  expected_contains=$(python3 -c "
+import json
+with open('$fixture_file') as f:
+    data = json.load(f)
+print(data.get('expected_error', {}).get('message_contains', ''))
+" 2>/dev/null)
+
+  # Verify both errors contain expected substring
+  go_ok=true
+  java_ok=true
+
+  if [[ -n "$expected_contains" ]]; then
+    if ! echo "$go_err" | grep -qi "$expected_contains"; then
+      go_ok=false
+    fi
+    if ! echo "$java_err" | grep -qi "$expected_contains"; then
+      java_ok=false
+    fi
+  fi
+
+  if [[ "$go_ok" == "true" && "$java_ok" == "true" ]]; then
+    err_pass=$((err_pass + 1))
+    echo "    [$err_total] $fname → both failed correctly"
+  else
+    fail "error parity: $fname (go_match=$go_ok, java_match=$java_ok)"
+    echo "      Go:   $go_err" | head -3 >&2
+    echo "      Java: $java_err" | head -3 >&2
+  fi
+done
+
+if [[ $err_total -gt 0 && $err_pass -eq $err_total ]]; then
+  pass "error parity ($err_pass/$err_total fixtures)"
+elif [[ $err_total -eq 0 ]]; then
+  pass "error parity (no error fixtures found, skipped)"
 fi
 
 # ---------- Summary ----------
