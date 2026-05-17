@@ -558,7 +558,7 @@ print(json.dumps(req))
     diff <(echo "$go_dag") <(echo "$java_dag") >&2 || true
   fi
 
-  # Test 6: GET /stats → structure parity (ignore volatile values)
+  # Test 6: GET /stats → structure parity (compare after execute)
   srv_total=$((srv_total + 1))
   go_stats_keys=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
   java_stats_keys=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
@@ -569,6 +569,127 @@ print(json.dumps(req))
     fail "server HTTP: /stats keys divergence (Go=$go_stats_keys, Java=$java_stats_keys)"
   fi
 
+  # Test 7: GET /stats → operator sub-structure key parity
+  srv_total=$((srv_total + 1))
+  go_op_keys=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ops = d.get('operators', {})
+if ops:
+    first = next(iter(ops.values()))
+    print(sorted(first.keys()))
+else:
+    print('[]')
+")
+  java_op_keys=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ops = d.get('operators', {})
+if ops:
+    first = next(iter(ops.values()))
+    print(sorted(first.keys()))
+else:
+    print('[]')
+")
+  if [[ "$go_op_keys" == "$java_op_keys" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [7] GET /stats → operator stat keys match"
+  else
+    fail "server HTTP: /stats operator keys divergence (Go=$go_op_keys, Java=$java_op_keys)"
+  fi
+
+  # Test 8: POST /execute (bad JSON) → verify 400 body contains "error" field
+  srv_total=$((srv_total + 1))
+  go_400_body=$(curl -s -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$GO_PORT/execute")
+  java_400_body=$(curl -s -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$JAVA_PORT/execute")
+  go_400_has_error=$(echo "$go_400_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('error' in d)")
+  java_400_has_error=$(echo "$java_400_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('error' in d)")
+  if [[ "$go_400_has_error" == "True" && "$java_400_has_error" == "True" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [8] POST /execute (bad JSON) → 400 body has error field"
+  else
+    fail "server HTTP: /execute 400 body structure (Go=$go_400_has_error, Java=$java_400_has_error)"
+  fi
+
+  # Test 9: POST /execute (missing required field) → 400 ValidationError
+  srv_total=$((srv_total + 1))
+  go_val_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$GO_PORT/execute")
+  java_val_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$JAVA_PORT/execute")
+  if [[ "$go_val_code" == "$java_val_code" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [9] POST /execute (missing field) → $go_val_code match"
+  else
+    fail "server HTTP: ValidationError status divergence (Go=$go_val_code, Java=$java_val_code)"
+  fi
+
+  srv_cleanup
+fi
+
+# Second server pair: test 500 partial result body (Lua error config)
+SRV_ERR_CONFIG="$WORK_DIR/srv_err_config.json"
+cat > "$SRV_ERR_CONFIG" << 'CFGEOF'
+{
+  "pipeline_config": {
+    "operators": {
+      "bad_lua": {
+        "type_name": "transform_by_lua",
+        "lua_script": "function fail_now()\n  error('intentional server failure')\nend",
+        "function_for_item": "fail_now",
+        "function_for_common": "",
+        "$metadata": {
+          "common_input": [], "common_output": [],
+          "item_input": ["x"], "item_output": ["y"]
+        }
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["bad_lua"]}
+  },
+  "flow_contract": {
+    "common_input": [], "item_input": ["x"],
+    "common_output": [], "item_output": ["x", "y"]
+  }
+}
+CFGEOF
+
+GO_ERR_PORT=18903
+JAVA_ERR_PORT=18904
+
+"$WORK_DIR/pineapple-server" -config "$SRV_ERR_CONFIG" -addr ":$GO_ERR_PORT" &
+GO_SRV_PID=$!
+
+java -cp "$JAVA_CP" -Dpine.config="$SRV_ERR_CONFIG" -Dpine.port=$JAVA_ERR_PORT page.liam.pine.PineServer &
+JAVA_SRV_PID=$!
+
+if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
+  # Test 10: POST /execute (runtime error) → 500 + error field + body structure
+  srv_total=$((srv_total + 1))
+  go_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_ERR_PORT/execute")
+  java_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_ERR_PORT/execute")
+  go_500_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_ERR_PORT/execute")
+  java_500_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_ERR_PORT/execute")
+
+  go_500_keys=$(echo "$go_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  java_500_keys=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+
+  if [[ "$go_500_code" == "500" && "$java_500_code" == "500" && "$go_500_keys" == "$java_500_keys" ]]; then
+    # Both 500 with same key structure
+    go_has_err=$(echo "$go_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
+    java_has_err=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
+    if [[ "$go_has_err" == "True" && "$java_has_err" == "True" ]]; then
+      srv_pass=$((srv_pass + 1))
+      echo "    [10] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
+    else
+      fail "server HTTP: 500 error message mismatch (Go=$go_has_err, Java=$java_has_err)"
+    fi
+  else
+    fail "server HTTP: 500 response divergence (Go=$go_500_code keys=$go_500_keys, Java=$java_500_code keys=$java_500_keys)"
+  fi
+
+  srv_cleanup
+else
+  fail "server HTTP: error-config servers failed to start"
   srv_cleanup
 fi
 
