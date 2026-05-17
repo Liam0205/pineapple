@@ -119,8 +119,8 @@ public class Engine {
                 opCfg.debug = true;
             }
 
-            Operator op = Registry.buildOperator(opCfg.typeName, opCfg.rawParams);
-            OperatorType opType = Registry.getType(opCfg.typeName);
+            Operator op = Registry.global().buildOperator(opCfg.typeName, opCfg.rawParams);
+            OperatorType opType = Registry.global().getType(opCfg.typeName);
             opCfg.operatorType = opType != null ? opType.name().toLowerCase() : "transform";
 
             if (opType == OperatorType.RECALL) {
@@ -314,7 +314,7 @@ public class Engine {
 
                     // Validate output type constraints
                     if (execErr == null && output != null) {
-                        OperatorType opType = Registry.getType(opCfg.typeName);
+                        OperatorType opType = Registry.global().getType(opCfg.typeName);
                         if (opType != null) {
                             String violation = opType.validateOutput(output);
                             if (violation != null) {

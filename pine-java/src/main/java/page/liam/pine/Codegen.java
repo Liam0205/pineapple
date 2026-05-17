@@ -47,16 +47,16 @@ public class Codegen {
 
         if (!exportSchemaPath.isEmpty()) {
             AllOperators.ensureRegistered();
-            String json = Registry.exportSchemaJSON();
+            String json = Registry.global().exportSchemaJSON();
             Files.writeString(Paths.get(exportSchemaPath), json);
-            System.out.printf("exported %d operator schemas to %s%n", Registry.all().size(), exportSchemaPath);
+            System.out.printf("exported %d operator schemas to %s%n", Registry.global().all().size(), exportSchemaPath);
             return;
         }
 
         List<OperatorSchema> schemas;
         if (schemaFromRegistry) {
             AllOperators.ensureRegistered();
-            schemas = fromRegistry(Registry.all());
+            schemas = fromRegistry(Registry.global().all());
         } else {
             if (schemaPath.isEmpty()) schemaPath = "schema.json";
             schemas = mapper.readValue(

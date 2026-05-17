@@ -46,7 +46,7 @@ public class FixtureTest {
             List<Map<String, Object>> cases = (List<Map<String, Object>>) fixture.get("cases");
 
             // Skip operators not yet implemented in Java
-            if (Registry.getType(operatorName) == null) {
+            if (Registry.global().getType(operatorName) == null) {
                 continue;
             }
 
@@ -68,7 +68,7 @@ public class FixtureTest {
         Map<String, Object> expected = (Map<String, Object>) tc.getOrDefault("expected", Collections.emptyMap());
 
         // Build operator
-        Operator op = Registry.buildOperator(operatorName, params);
+        Operator op = Registry.global().buildOperator(operatorName, params);
 
         // Set metadata
         if (op instanceof MetadataAware) {
