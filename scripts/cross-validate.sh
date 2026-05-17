@@ -227,16 +227,16 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     exec_total=$((exec_total + 1))
 
-    res_flag=""
+    res_args=()
     if [[ -f "$WORK_DIR/resources_${fname}.json" ]]; then
-      res_flag="-static-resources $WORK_DIR/resources_${fname}.json"
+      res_args=(-static-resources "$WORK_DIR/resources_${fname}.json")
     fi
 
-    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
+    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
       fail "execution Go failed: $fname case $i"; continue
     }
 
-    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
+    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
       fail "execution Java failed: $fname case $i"; continue
     }
 
@@ -265,6 +265,8 @@ fi
 # ---------- 4. Column-store execution parity ----------
 echo
 echo "==> [4/7] Column-store execution parity (storage_mode=column)"
+# All fixtures are re-run with storage_mode forced to "column", including those
+# that already declare it.  This verifies row→column equivalence uniformly.
 
 col_pass=0
 col_total=0
@@ -311,16 +313,16 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     col_total=$((col_total + 1))
 
-    res_flag=""
+    res_args=()
     if [[ -f "$WORK_DIR/col_resources_${fname}.json" ]]; then
-      res_flag="-static-resources $WORK_DIR/col_resources_${fname}.json"
+      res_args=(-static-resources "$WORK_DIR/col_resources_${fname}.json")
     fi
 
-    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
+    go_result=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
       fail "column-store Go failed: $fname case $i"; continue
     }
 
-    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" $res_flag 2>/dev/null) || {
+    java_result=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
       fail "column-store Java failed: $fname case $i"; continue
     }
 
@@ -448,8 +450,7 @@ JAVA_PORT=18902
 
 # Build server binary
 echo "    Building Go server..."
-cd "$REPO_ROOT/pine-go"
-go build -o "$WORK_DIR/pineapple-server" ./cmd/pineapple-server/
+(cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pineapple-server" ./cmd/pineapple-server/)
 
 # Start Go server
 "$WORK_DIR/pineapple-server" -config "$SRV_CONFIG" -addr ":$GO_PORT" &
@@ -477,6 +478,8 @@ srv_cleanup() {
   [[ -n "${JAVA_SRV_PID:-}" ]] && kill $JAVA_SRV_PID 2>/dev/null || true
   wait $GO_SRV_PID 2>/dev/null || true
   wait $JAVA_SRV_PID 2>/dev/null || true
+  GO_SRV_PID=""
+  JAVA_SRV_PID=""
 }
 trap 'srv_cleanup; rm -rf "$WORK_DIR"' EXIT
 
@@ -713,7 +716,7 @@ cat > "$TIMEOUT_CONFIG" << 'CFGEOF'
     "operators": {
       "slow_lua": {
         "type_name": "transform_by_lua",
-        "lua_script": "function slow()\n  local s=0\n  for i=1,100000000 do s=s+i end\n  return s\nend",
+        "lua_script": "function slow()\n  while true do end\nend",
         "function_for_item": "slow",
         "function_for_common": "",
         "$metadata": {
@@ -747,18 +750,18 @@ cancel_total=0
 # Test 1: both engines killed by timeout produce same exit behavior (non-zero)
 cancel_total=$((cancel_total + 1))
 go_exit=0
-timeout 1 "$WORK_DIR/pineapple-run" -config "$TIMEOUT_CONFIG" -request "$TIMEOUT_REQ" >/dev/null 2>&1 || go_exit=$?
+timeout 3 "$WORK_DIR/pineapple-run" -config "$TIMEOUT_CONFIG" -request "$TIMEOUT_REQ" >/dev/null 2>&1 || go_exit=$?
 java_exit=0
-timeout 1 java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$TIMEOUT_CONFIG" -request "$TIMEOUT_REQ" >/dev/null 2>&1 || java_exit=$?
+timeout 3 java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$TIMEOUT_CONFIG" -request "$TIMEOUT_REQ" >/dev/null 2>&1 || java_exit=$?
 
 # Both should have been killed (exit 124 from timeout, or 137 from SIGKILL)
 if [[ $go_exit -ne 0 && $java_exit -ne 0 ]]; then
   cancel_pass=$((cancel_pass + 1))
-  echo "    [1] slow Lua + timeout 1s → both killed (Go=$go_exit, Java=$java_exit)"
+  echo "    [1] slow Lua + timeout 3s → both killed (Go=$go_exit, Java=$java_exit)"
 elif [[ $go_exit -eq 0 && $java_exit -eq 0 ]]; then
   # Both finished fast enough — still parity
   cancel_pass=$((cancel_pass + 1))
-  echo "    [1] slow Lua + timeout 1s → both completed (parity OK)"
+  echo "    [1] slow Lua + timeout 3s → both completed (parity OK)"
 else
   fail "cancellation parity: divergence (Go exit=$go_exit, Java exit=$java_exit)"
 fi

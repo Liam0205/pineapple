@@ -5,6 +5,7 @@
       "operators": {
         "recall_a": {
           "type_name": "recall_static",
+          "recall": true,
           "items": [{"item_id": 1, "score": 90}, {"item_id": 2, "score": 80}],
           "$metadata": {
             "common_input": [], "common_output": [],
@@ -13,6 +14,7 @@
         },
         "recall_b": {
           "type_name": "recall_static",
+          "recall": true,
           "items": [{"item_id": 3, "tag": "hot"}, {"item_id": 4, "tag": "new"}],
           "$metadata": {
             "common_input": [], "common_output": [],
@@ -48,6 +50,7 @@
   },
   "cases": [
     {
+      "name": "sparse recalls merge sorted by item_id",
       "request": {"common": {}, "items": []},
       "expected": {
         "common": {},
