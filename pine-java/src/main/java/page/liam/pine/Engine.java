@@ -115,17 +115,14 @@ public class Engine {
         for (String name : sequence) {
             Config.OperatorConfig opCfg = cfg.pipelineConfig.operators.get(name);
 
-            if (globalDebug && !opCfg.debug) {
-                opCfg.debug = true;
-            }
+            boolean effectiveDebug = globalDebug || opCfg.debug;
 
             Operator op = Registry.global().buildOperator(opCfg.typeName, opCfg.rawParams);
             OperatorType opType = Registry.global().getType(opCfg.typeName);
-            opCfg.operatorType = opType != null ? opType.name().toLowerCase() : "transform";
+            String effectiveOperatorType = opType != null ? opType.name().toLowerCase() : "transform";
+            opCfg.operatorType = effectiveOperatorType;
 
-            if (opType == OperatorType.RECALL) {
-                opCfg.recall = true;
-            }
+            boolean effectiveRecall = opCfg.recall || opType == OperatorType.RECALL;
 
             if (op instanceof MetadataAware) {
                 List<String> commonIn = new ArrayList<>(opCfg.metadata.commonInput);
@@ -141,7 +138,7 @@ public class Engine {
             }
 
             if (op instanceof DebugAware) {
-                ((DebugAware) op).setDebug(name, opCfg.debug);
+                ((DebugAware) op).setDebug(name, effectiveDebug);
             }
             if (op instanceof MetricsAware) {
                 ((MetricsAware) op).setMetricsProvider(
@@ -155,25 +152,26 @@ public class Engine {
                 ((ResourceAware) op).setResourceProvider(eo.resources);
             }
 
-            if (opCfg.dataParallel < 0) {
-                throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " + opCfg.dataParallel);
+            int effectiveDataParallel = opCfg.dataParallel;
+            if (effectiveDataParallel < 0) {
+                throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " + effectiveDataParallel);
             }
-            if (opCfg.dataParallel == 0) {
-                opCfg.dataParallel = 1;
+            if (effectiveDataParallel == 0) {
+                effectiveDataParallel = 1;
             }
-            if (opCfg.dataParallel > 1) {
+            if (effectiveDataParallel > 1) {
                 if (opType != OperatorType.TRANSFORM) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " is only supported for Transform operators, got " + opType.name().toLowerCase());
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + effectiveDataParallel + " is only supported for Transform operators, got " + opType.name().toLowerCase());
                 }
                 if (!opCfg.metadata.commonOutput.isEmpty()) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires empty $metadata.common_output for Transform operators");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + effectiveDataParallel + " requires empty $metadata.common_output for Transform operators");
                 }
                 if (!(op instanceof ConcurrentSafe)) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires the operator to implement ConcurrentSafe interface (type \"" + opCfg.typeName + "\" does not)");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + effectiveDataParallel + " requires the operator to implement ConcurrentSafe interface (type \"" + opCfg.typeName + "\" does not)");
                 }
             }
 
-            compiledOps.add(new CompiledOperator(name, op, opCfg));
+            compiledOps.add(new CompiledOperator(name, op, opCfg, effectiveDebug, effectiveRecall, effectiveDataParallel, effectiveOperatorType));
         }
 
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
@@ -286,7 +284,7 @@ public class Engine {
 
                     // Debug: capture input snapshot
                     Map<String, Object> inputSnapshot = null;
-                    if (opCfg.debug) {
+                    if (cop.debug) {
                         inputSnapshot = snapshotInput(input);
                     }
 
@@ -298,8 +296,8 @@ public class Engine {
                     OperatorOutput output;
                     Exception execErr = null;
                     try {
-                        if (opCfg.dataParallel > 1) {
-                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, opCfg.dataParallel, cop.name, executor);
+                        if (cop.dataParallel > 1) {
+                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, cop.dataParallel, cop.name, executor);
                         } else {
                             output = new OperatorOutput();
                             cop.instance.execute(cancellationToken, input, output);
@@ -357,7 +355,7 @@ public class Engine {
 
                     // Debug: capture output snapshot
                     Map<String, Object> outputSnapshot = null;
-                    if (opCfg.debug) {
+                    if (cop.debug) {
                         outputSnapshot = snapshotOutput(output);
                         int inputSize = input.itemCount();
                         int outputSize = inputSize + output.getAddedItems().size() - output.getRemovedItems().size();
@@ -369,7 +367,7 @@ public class Engine {
 
                     // Apply output
                     try {
-                        frame.applyOutput(output, cop.name, opCfg.recall);
+                        frame.applyOutput(output, cop.name, cop.recall);
                     } catch (Exception applyErr) {
                         traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
                         stats.recordError(cop.name, duration);
@@ -546,11 +544,20 @@ public class Engine {
         public final String name;
         public final Operator instance;
         public final Config.OperatorConfig config;
+        public final boolean debug;
+        public final boolean recall;
+        public final int dataParallel;
+        public final String operatorType;
 
-        public CompiledOperator(String name, Operator instance, Config.OperatorConfig config) {
+        public CompiledOperator(String name, Operator instance, Config.OperatorConfig config,
+                                boolean debug, boolean recall, int dataParallel, String operatorType) {
             this.name = name;
             this.instance = instance;
             this.config = config;
+            this.debug = debug;
+            this.recall = recall;
+            this.dataParallel = dataParallel;
+            this.operatorType = operatorType;
         }
     }
 
