@@ -88,6 +88,33 @@
           { "score_norm": 1.0 }
         ]
       }
+    },
+    {
+      "name": "all same values with multiple items produce all zeros",
+      "params": { "method": "min_max" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["score"],
+        "common_output": [],
+        "item_output": ["score_norm"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "score": 42.0 },
+          { "score": 42.0 },
+          { "score": 42.0 },
+          { "score": 42.0 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "score_norm": 0.0 },
+          { "score_norm": 0.0 },
+          { "score_norm": 0.0 },
+          { "score_norm": 0.0 }
+        ]
+      }
     }
   ]
 }
