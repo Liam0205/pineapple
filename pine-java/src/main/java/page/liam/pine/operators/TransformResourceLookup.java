@@ -20,7 +20,7 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
     private ResourceProvider resourceProvider;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(OperatorParams params) {
         resourceName = (String) params.get("resource_name");
         lookupKey = (String) params.get("lookup_key");
         outputField = (String) params.get("output_field");

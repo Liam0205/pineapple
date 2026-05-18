@@ -220,7 +220,7 @@ public class IntegrationTest {
         byte[] config = buildConfig(operators, Collections.singletonList("recall"), flowContract);
         Engine engine = Engine.create(config);
 
-        CancellationToken token = new CancellationToken();
+        CancellationToken token = CancellationToken.create();
         token.cancel();
 
         Engine.Result result = engine.execute(token, new HashMap<>(), new ArrayList<>());

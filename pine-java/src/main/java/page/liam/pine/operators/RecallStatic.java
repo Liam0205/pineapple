@@ -2,8 +2,11 @@ package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorInput;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.OperatorParams;
 
 import java.util.HashMap;
 import java.util.List;
@@ -22,7 +25,7 @@ public class RecallStatic extends AbstractOperator {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void init(Map<String, Object> params) throws Exception {
+    public void init(OperatorParams params) {
         Object raw = params.get("items");
         if (raw == null) {
             throw new IllegalArgumentException("recall_static: missing required param 'items'");
