@@ -39,15 +39,15 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
     @SuppressWarnings("unchecked")
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (resourceProvider == null) {
-            throw new IllegalStateException("transform_resource_lookup: no resource provider");
+            throw new PineErrors.OperatorException("transform_resource_lookup: no resource provider");
         }
         ResourceProvider.GetResult result = resourceProvider.get(resourceName);
         if (!result.exists()) {
-            throw new IllegalStateException("transform_resource_lookup: resource \"" + resourceName + "\" not found");
+            throw new PineErrors.OperatorException("transform_resource_lookup: resource \"" + resourceName + "\" not found");
         }
         Object raw = result.value();
         if (!(raw instanceof Map)) {
-            throw new IllegalStateException("transform_resource_lookup: resource \"" + resourceName + "\" is not a Map");
+            throw new PineErrors.OperatorException("transform_resource_lookup: resource \"" + resourceName + "\" is not a Map");
         }
         Map<String, Object> table = (Map<String, Object>) raw;
 
