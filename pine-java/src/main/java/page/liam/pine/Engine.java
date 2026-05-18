@@ -106,6 +106,11 @@ public class Engine {
         String logPrefix = eo.logPrefix != null ? eo.logPrefix : cfg.logPrefix;
         if (!logPrefix.isEmpty() && logPrefixSet.compareAndSet(false, true)) {
             System.setProperty("pine.log.prefix", logPrefix);
+        } else if (!logPrefix.isEmpty()) {
+            String current = System.getProperty("pine.log.prefix", "");
+            if (!logPrefix.equals(current)) {
+                System.err.println("[pine] WARNING: log_prefix changed to \"" + logPrefix + "\" but was already set to \"" + current + "\" (ignored, set-once semantics)");
+            }
         }
 
         // Resolve global debug: Option > JSON config
