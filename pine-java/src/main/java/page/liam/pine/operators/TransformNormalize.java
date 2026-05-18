@@ -4,6 +4,7 @@ import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.PineErrors;
 
 import java.util.Map;
 
@@ -27,7 +28,7 @@ public class TransformNormalize extends AbstractOperator {
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         int n = input.itemCount();
         if (n == 0) return;
 
@@ -52,10 +53,10 @@ public class TransformNormalize extends AbstractOperator {
         }
     }
 
-    private static double toDouble(Object v) throws Exception {
+    private static double toDouble(Object v) throws PineErrors.OperatorException {
         if (v instanceof Number) {
             return ((Number) v).doubleValue();
         }
-        throw new Exception("cannot convert " + (v == null ? "null" : v.getClass().getName()) + " to double");
+        throw new PineErrors.OperatorException("cannot convert " + (v == null ? "null" : v.getClass().getName()) + " to double");
     }
 }

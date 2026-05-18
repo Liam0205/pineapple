@@ -47,7 +47,7 @@ Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.r
 
 ### Pine-Java 执行签名
 
-Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception`。`CancellationToken` 是 volatile boolean，等效于 Go 的 `context.Context` 取消信号。算子中的长时间循环应检查 `token.isCancelled()` 以支持协作式取消。
+Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException`。`CancellationToken` 是 volatile boolean，等效于 Go 的 `context.Context` 取消信号。算子中的长时间循环应检查 `token.isCancelled()` 以支持协作式取消。声明 checked `OperatorException` 使引擎能区分预期算子错误（包装为 `ExecutionError`）与意外运行时异常（包装为 `PanicError`），语义对应 Go 的 error/panic 分界。
 
 ## 必需接口
 

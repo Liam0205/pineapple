@@ -2,14 +2,13 @@ package page.liam.pine;
 
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ParallelExecutor {
 
     private ParallelExecutor() {}
 
-    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism) throws Exception {
+    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism) throws PineErrors.OperatorException {
         int total = input.itemCount();
         if (parallelism <= 1 || total == 0) {
             OperatorOutput output = new OperatorOutput();
@@ -42,22 +41,37 @@ public class ParallelExecutor {
             return output;
         }
 
-        AtomicBoolean cancelled = new AtomicBoolean(false);
+        CancellationToken shardToken = new CancellationToken() {
+            @Override
+            public boolean isCancelled() {
+                return super.isCancelled() || token.isCancelled();
+            }
+        };
         AtomicReference<Exception> firstError = new AtomicReference<>();
         ForkJoinPool pool = ForkJoinPool.commonPool();
         List<Future<OperatorOutput>> futures = new ArrayList<>(n);
 
         for (OperatorInput shard : shards) {
             futures.add(pool.submit(() -> {
-                if (cancelled.get()) return null;
+                if (shardToken.isCancelled() || token.isCancelled()) return null;
                 try {
                     OperatorOutput out = new OperatorOutput();
-                    op.execute(token, shard, out);
+                    op.execute(shardToken, shard, out);
                     return out;
+                } catch (PineErrors.OperatorException e) {
+                    if (firstError.compareAndSet(null, e)) {
+                        shardToken.cancel();
+                    }
+                    return null;
+                } catch (RuntimeException e) {
+                    if (firstError.compareAndSet(null, e)) {
+                        shardToken.cancel();
+                    }
+                    return null;
                 } catch (Throwable t) {
-                    if (firstError.compareAndSet(null, t instanceof Exception ? (Exception) t
-                            : new RuntimeException("panic in shard", t))) {
-                        cancelled.set(true);
+                    Exception ex = new PineErrors.PanicError("parallel-shard", t);
+                    if (firstError.compareAndSet(null, ex)) {
+                        shardToken.cancel();
                     }
                     return null;
                 }
@@ -80,11 +94,17 @@ public class ParallelExecutor {
                 if (out.getWarning() != null) {
                     merged.setWarning(out.getWarning());
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (firstError.compareAndSet(null, new PineErrors.OperatorException("parallel execution interrupted", e))) {
+                    shardToken.cancel();
+                }
             } catch (ExecutionException e) {
                 Exception cause = e.getCause() instanceof Exception
-                        ? (Exception) e.getCause() : new Exception(e.getCause());
+                        ? (Exception) e.getCause()
+                        : new PineErrors.PanicError("parallel-shard", e.getCause());
                 if (firstError.compareAndSet(null, cause)) {
-                    cancelled.set(true);
+                    shardToken.cancel();
                     for (int j = i + 1; j < futures.size(); j++) {
                         futures.get(j).cancel(true);
                     }
@@ -93,7 +113,14 @@ public class ParallelExecutor {
         }
 
         if (firstError.get() != null) {
-            throw firstError.get();
+            Exception err = firstError.get();
+            if (err instanceof PineErrors.OperatorException) {
+                throw (PineErrors.OperatorException) err;
+            }
+            if (err instanceof RuntimeException) {
+                throw (RuntimeException) err;
+            }
+            throw new PineErrors.OperatorException(err.getMessage(), err);
         }
         return merged;
     }

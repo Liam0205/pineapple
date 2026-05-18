@@ -75,7 +75,7 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         List<String> cReq = commonReq.isEmpty() ? commonInput : commonReq;
         List<String> iReq = itemReq.isEmpty() ? itemInput : itemReq;
         List<String> cResp = commonResp.isEmpty() ? commonOutput : commonResp;
@@ -99,7 +99,12 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         reqBody.put("common", reqCommon);
         reqBody.put("items", reqItems);
 
-        byte[] body = mapper.writeValueAsBytes(reqBody);
+        byte[] body;
+        try {
+            body = mapper.writeValueAsBytes(reqBody);
+        } catch (Exception e) {
+            throw new PineErrors.OperatorException("transform_by_remote_pineapple: serialize request: " + e.getMessage(), e);
+        }
 
         if (token.isCancelled()) return;
 
@@ -134,7 +139,12 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
             return;
         }
 
-        Map<String, Object> result = mapper.readValue(respBody, new TypeReference<>() {});
+        Map<String, Object> result;
+        try {
+            result = mapper.readValue(respBody, new TypeReference<>() {});
+        } catch (Exception e) {
+            throw new PineErrors.OperatorException("transform_by_remote_pineapple: parse response: " + e.getMessage(), e);
+        }
 
         Object errObj = result.get("error");
         if (errObj instanceof String && !((String) errObj).isEmpty()) {
@@ -165,10 +175,10 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         }
     }
 
-    private void handleError(OperatorOutput output, String msg, Exception cause) throws Exception {
+    private void handleError(OperatorOutput output, String msg, Exception cause) throws PineErrors.OperatorException {
         String fullMsg = "transform_by_remote_pineapple: " + msg;
         if (failOnError) {
-            throw new RuntimeException(fullMsg, cause);
+            throw new PineErrors.OperatorException(fullMsg, cause);
         }
         output.setWarning(new RuntimeException(fullMsg, cause));
     }

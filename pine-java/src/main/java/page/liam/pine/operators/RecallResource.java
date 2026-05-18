@@ -26,13 +26,13 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (resourceProvider == null) {
-            throw new IllegalStateException("recall_resource: no resource provider");
+            throw new PineErrors.OperatorException("recall_resource: no resource provider");
         }
         ResourceProvider.GetResult result = resourceProvider.get(resourceName);
         if (!result.exists()) {
-            throw new IllegalStateException("recall_resource: resource \"" + resourceName + "\" not found");
+            throw new PineErrors.OperatorException("recall_resource: resource \"" + resourceName + "\" not found");
         }
 
         Object raw = result.value();
@@ -40,7 +40,7 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
         if (raw instanceof List) {
             items = (List<?>) raw;
         } else {
-            throw new IllegalStateException("recall_resource: resource \"" + resourceName + "\" is not a List");
+            throw new PineErrors.OperatorException("recall_resource: resource \"" + resourceName + "\" is not a List");
         }
 
         for (Object item : items) {
@@ -48,7 +48,7 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
                 Map<String, Object> m = (Map<String, Object>) item;
                 output.addItem(new java.util.LinkedHashMap<>(m));
             } else {
-                throw new IllegalStateException("recall_resource: item is not a Map");
+                throw new PineErrors.OperatorException("recall_resource: item is not a Map");
             }
         }
     }
