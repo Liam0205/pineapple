@@ -567,6 +567,11 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
   - 可配置超时：`ReadHeaderTimeout`（默认 5s）、`ReadTimeout`（默认 10s）、`WriteTimeout`（默认 30s）、`IdleTimeout`（默认 120s），防止 slowloris 类攻击和资源耗尽
   - 可配置 `MaxRequestBodySize`（默认 10MB），通过 `http.MaxBytesReader` 在 handler 层限制请求体大小
   - 上述参数均通过 `server.Config` 字段暴露，`cmd/pineapple-server/main.go` 提供对应命令行 flags
+- `pkg/server/server.go` HTTP 错误响应契约：
+  - 所有非 200 错误响应统一使用 JSON 格式 `{"error": "..."}` (`errorResponse` 结构体)，不再使用 `http.Error` 纯文本
+  - `pine.ValidationError`（如缺少必需的 common 输入字段）映射为 HTTP 400，而非 500
+  - 请求体超过 `MaxRequestBodySize` 时返回 HTTP 413（Request Entity Too Large），而非 400
+  - 其他引擎执行错误仍为 HTTP 500
 
 ### Server 结构体生命周期
 

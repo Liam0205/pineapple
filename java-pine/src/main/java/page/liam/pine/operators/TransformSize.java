@@ -1,0 +1,17 @@
+package page.liam.pine.operators;
+
+import page.liam.pine.AbstractOperator;
+import page.liam.pine.OperatorInput;
+import page.liam.pine.OperatorOutput;
+
+import java.util.Map;
+
+public class TransformSize extends AbstractOperator {
+    @Override
+    public void init(Map<String, Object> params) {}
+
+    @Override
+    public void execute(OperatorInput input, OperatorOutput output) {
+        output.setCommon(commonOutput.get(0), input.itemCount());
+    }
+}
