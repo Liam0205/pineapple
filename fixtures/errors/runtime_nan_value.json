@@ -1,0 +1,33 @@
+{
+  "description": "NaN produced by Lua is rejected as invalid JSON value",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "produce_nan": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function nan_test()\n  return 0/0\nend",
+          "function_for_item": "nan_test",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["y"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["produce_nan"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["x", "y"]
+    }
+  },
+  "request": {"common": {}, "items": [{"x": 1}]},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "NaN"
+  }
+}

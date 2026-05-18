@@ -271,7 +271,20 @@ public class ColumnFrame implements Frame {
     private static void validateValue(Object v) {
         if (v == null) return;
         if (v instanceof String) return;
-        if (v instanceof Number) return;
+        if (v instanceof Number) {
+            if (v instanceof Double) {
+                double d = (Double) v;
+                if (Double.isNaN(d) || Double.isInfinite(d)) {
+                    throw new IllegalArgumentException("NaN/Inf is not a valid JSON value");
+                }
+            } else if (v instanceof Float) {
+                float f = (Float) v;
+                if (Float.isNaN(f) || Float.isInfinite(f)) {
+                    throw new IllegalArgumentException("NaN/Inf is not a valid JSON value");
+                }
+            }
+            return;
+        }
         if (v instanceof Boolean) return;
         if (v instanceof Map) return;
         if (v instanceof List) return;

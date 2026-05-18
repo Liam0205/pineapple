@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"sync"
 
@@ -209,10 +210,20 @@ func validateValue(field string, value any) error {
 	if value == nil {
 		return nil
 	}
-	switch value.(type) {
+	switch v := value.(type) {
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return fmt.Errorf("field %q: NaN/Inf is not a valid JSON value", field)
+		}
+		return nil
+	case float32:
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return fmt.Errorf("field %q: NaN/Inf is not a valid JSON value", field)
+		}
+		return nil
 	case bool, int, int8, int16, int32, int64,
 		uint, uint8, uint16, uint32, uint64,
-		float32, float64, string:
+		string:
 		return nil
 	case []any, map[string]any:
 		return nil
