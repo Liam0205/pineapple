@@ -31,7 +31,7 @@ public class Config {
         } catch (Exception e) {
             throw new PineErrors.ConfigError("failed to parse config JSON: " + e.getMessage());
         }
-        Config cfg = new Config();
+        Config cfg;
         try {
             cfg = parseRoot(root);
         } catch (IllegalArgumentException e) {

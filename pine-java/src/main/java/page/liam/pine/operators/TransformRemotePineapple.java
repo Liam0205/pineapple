@@ -119,9 +119,10 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
             if (!allowPrivate) {
                 // Resolve DNS, check all IPs, then connect to the checked IP directly (prevents DNS rebinding)
                 String safeIP = resolveToSafeIP(host);
+                String ipLiteral = safeIP.contains(":") ? "[" + safeIP + "]" : safeIP;
                 URI originalUri = URI.create(url);
                 int port = originalUri.getPort() > 0 ? originalUri.getPort() : (originalUri.getScheme().equals("https") ? 443 : 80);
-                targetUrl = originalUri.getScheme() + "://" + safeIP + ":" + port + originalUri.getPath();
+                targetUrl = originalUri.getScheme() + "://" + ipLiteral + ":" + port + originalUri.getPath();
                 reqBuilder.uri(URI.create(targetUrl));
                 reqBuilder.header("Host", host);
             } else {
