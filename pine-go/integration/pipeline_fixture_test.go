@@ -1,4 +1,4 @@
-package pipeline_fixtures_test
+package integration
 
 import (
 	"context"
@@ -37,7 +37,7 @@ type pipelineResult struct {
 }
 
 func TestPipelineFixtures(t *testing.T) {
-	files, err := filepath.Glob("*.json")
+	files, err := filepath.Glob("../../fixtures/pipelines/*.json")
 	if err != nil {
 		t.Fatal(err)
 	}

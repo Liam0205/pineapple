@@ -187,19 +187,46 @@ jobs:
     needs: [go-test, java-test]
     steps:
       - uses: actions/checkout@v6
-      - name: Verify fixture parity
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: pine-go/go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Cross-validate Go vs Java
+        run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
+      - name: Write summary
+        if: always()
         shell: bash
         run: |
-          GO_FIXTURES=$(find pine-go/fixtures/pipelines -name "*.json" | sort | wc -l)
-          echo "Pipeline fixtures: $GO_FIXTURES files"
-          echo "Both Go and Java test jobs passed on the same fixtures."
-          echo
-          echo "### Cross-Validation Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Engine | Fixtures | Status |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|--------|----------|--------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Go     | $GO_FIXTURES pipeline fixtures | ✅ Passed |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Java   | $GO_FIXTURES pipeline fixtures | ✅ Passed |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Cross-Validation Summary"
+            echo ""
+            if grep -q "^FAIL:" cross-validate-output.txt 2>/dev/null; then
+              echo "| Check | Status |"
+              echo "|-------|--------|"
+              grep "^PASS:\|^FAIL:" cross-validate-output.txt | while read -r line; do
+                if [[ "$line" == PASS:* ]]; then
+                  echo "| ${line#PASS: } | ✅ |"
+                else
+                  echo "| ${line#FAIL: } | ❌ |"
+                fi
+              done
+            elif grep -q "^PASS:" cross-validate-output.txt 2>/dev/null; then
+              echo "| Check | Status |"
+              echo "|-------|--------|"
+              grep "^PASS:" cross-validate-output.txt | while read -r line; do
+                echo "| ${line#PASS: } | ✅ |"
+              done
+            else
+              echo "Cross-validation did not produce results."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   codegen-check:
     runs-on: ubuntu-latest
@@ -228,13 +255,13 @@ jobs:
         with:
           go-version-file: pine-go/go.mod
       - name: Fuzz config.Load
-        run: go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -parallel=4 ./internal/config/
+        run: go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -timeout=60s -parallel=4 ./internal/config/
       - name: Fuzz dag.Build
-        run: go test -run=^$ -fuzz=FuzzBuild -fuzztime=30s -parallel=4 ./internal/dag/
+        run: go test -run=^$ -fuzz=FuzzBuild -fuzztime=30s -timeout=60s -parallel=4 ./internal/dag/
       - name: Fuzz DataFrame ApplyOutput
-        run: go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -parallel=4 ./internal/dataframe/
+        run: go test -run=^$ -fuzz=FuzzApplyOutputStorageEquivalence -fuzztime=30s -timeout=60s -parallel=4 ./internal/dataframe/
       - name: Fuzz data_parallel equivalence
-        run: go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -parallel=4 ./internal/runtime/
+        run: go test -run=^$ -fuzz=FuzzDataParallelEquivalence -fuzztime=30s -timeout=60s -parallel=4 ./internal/runtime/
 
   benchmark:
     runs-on: ubuntu-latest
