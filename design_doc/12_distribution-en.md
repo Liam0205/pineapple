@@ -1,26 +1,26 @@
-# 12. 发布与第三方扩展
+# 12. Distribution & Third-Party Extensions
 
-## 发布形式
+## Distribution
 
-| 层 | 发布形式 | 说明 |
-|----|---------|------|
-| Go 引擎 | Go module (`go get github.com/Liam0205/pineapple`) | 引擎、算子接口、内置算子 |
-| Java 引擎 | Maven artifact `page.liam:pine-java` | 引擎、算子接口、内置算子 |
-| Server 库 | `pkg/server` 包（Go） | 可复用的 HTTP 服务框架 |
-| Codegen 库 | `pkg/codegen` 包（Go）/ `page.liam.pine.Codegen`（Java） | 可复用的 Python binding 生成器 |
-| Python DSL | pip package `pineapple-apple`（核心包，不含 `generated/`） | 编译器、Flow 抽象、验证器 |
+| Layer | Form | Description |
+|-------|------|-------------|
+| Go engine | Go module (`go get github.com/Liam0205/pineapple`) | Engine, operator interfaces, built-in operators |
+| Java engine | Maven artifact `page.liam:pine-java` | Engine, operator interfaces, built-in operators |
+| Server library | `pkg/server` package (Go) | Reusable HTTP service framework |
+| Codegen library | `pkg/codegen` package (Go) / `page.liam.pine.Codegen` (Java) | Reusable Python binding generator |
+| Python DSL | pip package `pineapple-apple` (core, excludes `generated/`) | Compiler, Flow abstraction, validator |
 
-`apple_generated/` 是按算子集合生成的产物，每个部署不同，不打入 pip 包。第三方通过 `pip install pineapple-apple` 获得核心 DSL 能力，然后运行自己的 codegen wrapper 生成包含自定义算子的 Python 绑定。
+`apple_generated/` is generated per operator set and differs per deployment — it is not included in the pip package. Third parties install `pineapple-apple` via pip for core DSL capabilities, then run their own codegen wrapper to generate Python bindings that include custom operators.
 
-## 第三方安装步骤
+## Installation Steps for Third Parties
 
-### Go 侧
+### Go
 
 ```bash
 go get github.com/Liam0205/pineapple
 ```
 
-### Java 侧
+### Java
 
 ```xml
 <!-- pom.xml -->
@@ -31,28 +31,28 @@ go get github.com/Liam0205/pineapple
 </dependency>
 ```
 
-### Python 侧
+### Python
 
 ```bash
-# 安装核心 DSL 包
+# Install core DSL package
 pip install pineapple-apple
 
-# 构建并运行自定义 codegen（生成含内置 + 自定义算子的 Python 绑定）
-# Go 后端
+# Build and run custom codegen (generates bindings for built-in + custom operators)
+# Go backend
 go build -o my-codegen ./cmd/my-codegen
 ./my-codegen -output apple_generated -doc-dir doc/operators -operators-dir operators
 
-# 或 Java 后端
+# Or Java backend
 mvn exec:java -Dexec.mainClass="com.example.MyCodegen" -Dexec.args="--export apple_generated"
 ```
 
-第三方的 `apple_generated/` 包含内置算子和自定义算子的完整 binding，放在项目本地，不依赖 pip 包分发。
+The third-party `apple_generated/` contains complete bindings for both built-in and custom operators, kept locally in the project without relying on pip distribution.
 
-## 第三方扩展模式
+## Third-Party Extension Pattern
 
-第三方在**不修改 pineapple 源码**的前提下添加自定义算子。
+Third parties add custom operators **without modifying pineapple source**.
 
-### Go 项目结构
+### Go Project Structure
 
 ```
 my-project/
@@ -63,32 +63,32 @@ my-project/
 │   └── all.go                # import _ "my-project/operators/my_scorer"
 ├── cmd/
 │   ├── my-server/
-│   │   └── main.go           # 薄 wrapper: blank import 算子 + server.Run()
+│   │   └── main.go           # Thin wrapper: blank import operators + server.Run()
 │   └── my-codegen/
-│       └── main.go           # 薄 wrapper: blank import 算子 + codegen.Run()
+│       └── main.go           # Thin wrapper: blank import operators + codegen.Run()
 ├── apple/
-│   └── generated/            # codegen 产出（含内置 + 自定义算子的 binding）
+│   └── generated/            # Codegen output (built-in + custom operator bindings)
 └── pipelines/
     └── my_pipeline.py
 ```
 
-### Java 项目结构
+### Java Project Structure
 
 ```
 my-project/
 ├── pom.xml                   # dependency: page.liam:pine-java
 ├── src/main/java/com/example/
 │   ├── operators/
-│   │   └── MyScorer.java     # @AutoRegister 或 static { Registry.register(...) }
-│   ├── MyServer.java         # 薄 wrapper: Engine.create() + HTTP serving
-│   └── MyCodegen.java        # 薄 wrapper: Codegen 产出 Python bindings
+│   │   └── MyScorer.java     # @AutoRegister or static { Registry.register(...) }
+│   ├── MyServer.java         # Thin wrapper: Engine.create() + HTTP serving
+│   └── MyCodegen.java        # Thin wrapper: Codegen produces Python bindings
 ├── apple/
-│   └── generated/            # codegen 产出
+│   └── generated/            # Codegen output
 └── pipelines/
     └── my_pipeline.py
 ```
 
-### 自定义算子
+### Custom Operator (Go)
 
 ```go
 // my-project/operators/my_scorer/scorer.go
@@ -118,12 +118,12 @@ func (s *MyScorer) Init(params map[string]any) error {
 }
 
 func (s *MyScorer) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
-    // 业务逻辑
+    // Business logic
     return nil
 }
 ```
 
-### 自定义算子（Java）
+### Custom Operator (Java)
 
 ```java
 // my-project/src/main/java/com/example/operators/MyScorer.java
@@ -151,12 +151,12 @@ public class MyScorer implements Operator {
 
     @Override
     public void execute(Context ctx, OperatorInput in, OperatorOutput out) {
-        // 业务逻辑
+        // Business logic
     }
 }
 ```
 
-### Server wrapper
+### Server Wrapper
 
 ```go
 // my-project/cmd/my-server/main.go
@@ -166,8 +166,8 @@ import (
     "flag"
     "log"
 
-    _ "github.com/Liam0205/pineapple/operators" // 内置算子
-    _ "my-project/operators"                      // 自定义算子
+    _ "github.com/Liam0205/pineapple/operators" // Built-in operators
+    _ "my-project/operators"                      // Custom operators
     "github.com/Liam0205/pineapple/pkg/server"
 )
 
@@ -181,7 +181,7 @@ func main() {
 }
 ```
 
-`server.Config.Middlewares` 接受 `[]func(http.Handler) http.Handler`，按切片顺序从外到内包装。用于注入访问日志、认证等横切逻辑：
+`server.Config.Middlewares` accepts `[]func(http.Handler) http.Handler`, wrapping from outer to inner in slice order. Use it for cross-cutting concerns like access logging or authentication:
 
 ```go
 server.Run(server.Config{
@@ -193,7 +193,7 @@ server.Run(server.Config{
 })
 ```
 
-### Codegen wrapper
+### Codegen Wrapper
 
 ```go
 // my-project/cmd/my-codegen/main.go
@@ -221,24 +221,24 @@ func main() {
 }
 ```
 
-## 原理
+## How It Works
 
 ### Go
 
-Go 的 `init()` + blank import 机制使得算子注册完全解耦：
+Go's `init()` + blank import mechanism enables fully decoupled operator registration:
 
-1. 第三方算子包的 `init()` 调用 `pine.Register()` 写入全局 registry
-2. Server / codegen wrapper 通过 blank import 触发所有 `init()`
-3. `pkg/server` 和 `pkg/codegen` 从 registry 读取算子，无需知道算子的来源
+1. Third-party operator packages call `pine.Register()` in their `init()`, writing to the global registry
+2. Server / codegen wrappers trigger all `init()` functions via blank imports
+3. `pkg/server` and `pkg/codegen` read operators from the registry without knowing their origin
 
 ### Java
 
-Java 通过 static initializer 或 `ServiceLoader` 实现同样的解耦：
+Java achieves the same decoupling via static initializers or `ServiceLoader`:
 
-1. 第三方算子类的 `static {}` 块调用 `Registry.register()` 写入全局 registry
-2. Server / codegen 入口通过 classpath 扫描或显式类加载触发注册
-3. `Engine.create()` 从 registry 读取算子，无需知道算子的来源
+1. Third-party operator classes call `Registry.register()` in their `static {}` blocks, writing to the global registry
+2. Server / codegen entry points trigger registration via classpath scanning or explicit class loading
+3. `Engine.create()` reads operators from the registry without knowing their origin
 
-### 共同点
+### Common Principle
 
-两种语言的第三方算子对 pineapple 源码零污染，且与内置算子享有完全相同的能力（DAG 调度、trace、hot reload 等）。Go/Java 引擎通过 CI 交叉验证保证行为一致，第三方只需选择其中一种语言实现算子即可。
+Third-party operators in both languages have zero pollution on pineapple source and enjoy exactly the same capabilities as built-in operators (DAG scheduling, tracing, hot reload, etc.). Go/Java engines are verified for behavioral consistency via CI cross-validation — third parties only need to implement operators in one language of their choice.
