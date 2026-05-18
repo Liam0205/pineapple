@@ -115,6 +115,17 @@ else
   fail "codegen schema structural divergence"
 fi
 
+# 1b. Codegen Python output byte-level parity
+echo "    Comparing generated Python output..."
+"$WORK_DIR/pineapple-codegen" -output "$WORK_DIR/python-go" >/dev/null 2>&1
+java_run page.liam.pine.Codegen --schema-from-registry -output "$WORK_DIR/python-java" >/dev/null 2>&1
+if diff -r "$WORK_DIR/python-go" "$WORK_DIR/python-java" >/dev/null 2>&1; then
+  pass "codegen Python output parity (byte-level match)"
+else
+  fail "codegen Python output divergence"
+  diff -r "$WORK_DIR/python-go" "$WORK_DIR/python-java" >&2 || true
+fi
+
 # ---------- 2. Render-DAG parity ----------
 echo
 echo "==> [2/7] Render-DAG parity"
@@ -629,6 +640,25 @@ else:
     echo "    [7] GET /stats → operator stat keys match"
   else
     fail "server HTTP: /stats operator keys divergence (Go=$go_op_keys, Java=$java_op_keys)"
+  fi
+
+  # Test 7b: GET /stats → operator name ordering parity (JSON key order)
+  srv_total=$((srv_total + 1))
+  go_op_names=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(list(d.get('operators', {}).keys()))
+")
+  java_op_names=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(list(d.get('operators', {}).keys()))
+")
+  if [[ "$go_op_names" == "$java_op_names" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [7b] GET /stats → operator name ordering match"
+  else
+    fail "server HTTP: /stats operator ordering (Go=$go_op_names, Java=$java_op_names)"
   fi
 
   # Test 8: POST /execute (bad JSON) → verify 400 body contains "error" field
