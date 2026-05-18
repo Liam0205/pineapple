@@ -101,6 +101,7 @@ public class DataFrame implements Frame {
         try {
             // 1. Common writes
             for (Map.Entry<String, Object> entry : out.getCommonWrites().entrySet()) {
+                validateValue(entry.getValue());
                 common.put(entry.getKey(), entry.getValue());
             }
 
@@ -109,6 +110,9 @@ public class DataFrame implements Frame {
                 int idx = entry.getKey();
                 if (idx < 0 || idx >= items.size()) {
                     throw new RuntimeException("SetItem index " + idx + " out of range [0, " + items.size() + ")");
+                }
+                for (Object v : entry.getValue().values()) {
+                    validateValue(v);
                 }
                 items.get(idx).putAll(entry.getValue());
             }
@@ -191,5 +195,15 @@ public class DataFrame implements Frame {
         } finally {
             rwLock.readLock().unlock();
         }
+    }
+
+    private static void validateValue(Object v) {
+        if (v == null) return;
+        if (v instanceof String) return;
+        if (v instanceof Number) return;
+        if (v instanceof Boolean) return;
+        if (v instanceof Map) return;
+        if (v instanceof List) return;
+        throw new RuntimeException("unsupported value type: " + v.getClass().getName());
     }
 }

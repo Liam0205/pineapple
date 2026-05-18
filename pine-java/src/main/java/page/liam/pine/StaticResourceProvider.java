@@ -15,7 +15,10 @@ public class StaticResourceProvider implements ResourceProvider {
     }
 
     @Override
-    public Object get(String name) {
-        return data.get(name);
+    public GetResult get(String name) {
+        if (!data.containsKey(name)) {
+            return new GetResult(null, false);
+        }
+        return new GetResult(data.get(name), true);
     }
 }

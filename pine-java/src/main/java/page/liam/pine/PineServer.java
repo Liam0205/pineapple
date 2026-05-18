@@ -16,11 +16,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class PineServer {
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final int DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
     private final String configPath;
     private final int port;
     private final page.liam.pine.metrics.Provider metricsProvider;
+    private int maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES;
     private HttpServer httpServer;
     private ScheduledExecutorService watcherExecutor;
 
@@ -61,7 +63,21 @@ public class PineServer {
 
     public void start() throws Exception {
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
-        loadConfig(configData);
+        loadConfig(configData); // initial load — not counted as reload
+
+        // Read max_request_body_size from config if present
+        try {
+            Map<String, Object> rawConfig = mapper.readValue(configData, new TypeReference<Map<String, Object>>() {});
+            Object bodySize = rawConfig.get("max_request_body_size");
+            if (bodySize instanceof Number) {
+                int size = ((Number) bodySize).intValue();
+                if (size > 0) {
+                    this.maxRequestBodyBytes = size;
+                }
+            }
+        } catch (Exception ignored) {
+            // If parsing fails for body size, keep default
+        }
 
         httpServer = HttpServer.create(new InetSocketAddress(port), 0);
         httpServer.setExecutor(Executors.newFixedThreadPool(
@@ -131,7 +147,7 @@ public class PineServer {
             watcherExecutor.shutdownNow();
         }
         if (httpServer != null) {
-            httpServer.stop(5);
+            httpServer.stop(5); // waits up to 5s for in-flight exchanges to complete
         }
     }
 
@@ -140,13 +156,22 @@ public class PineServer {
         ResourceManager rm = new ResourceManager();
         rm.loadFromConfig(configData);
         rm.start();
-
-        Engine engine = Engine.create(configData, rm);
-        Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
-        if (old != null && old.resources instanceof ResourceManager) {
-            ((ResourceManager) old.resources).stop();
+        try {
+            Config cfg = Config.load(configData);
+            rm.validateDeps(cfg.pipelineConfig.operators);
+            Engine engine = Engine.create(configData, rm);
+            Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
+            if (old != null && old.resources instanceof ResourceManager) {
+                ((ResourceManager) old.resources).stop();
+            }
+        } catch (Exception e) {
+            rm.stop();
+            throw e;
         }
         lastReloadDurationNs = System.nanoTime() - start;
+    }
+
+    private void recordReload() {
         reloadCount.incrementAndGet();
         if (reloadTotal != null) {
             reloadTotal.inc();
@@ -163,6 +188,7 @@ public class PineServer {
                 lastModified = mod;
                 byte[] data = Files.readAllBytes(Paths.get(configPath));
                 loadConfig(data);
+                recordReload();
             }
         } catch (Exception e) {
             reloadErrorCount.incrementAndGet();
@@ -192,7 +218,11 @@ public class PineServer {
         }
 
         try {
-            byte[] body = exchange.getRequestBody().readAllBytes();
+            byte[] body = readLimitedBody(exchange.getRequestBody(), maxRequestBodyBytes);
+            if (body == null) {
+                sendResponse(exchange, 413, Map.of("error", "request body too large"));
+                return;
+            }
             Map<String, Object> req = mapper.readValue(body, new TypeReference<>() {});
 
             @SuppressWarnings("unchecked")
@@ -207,14 +237,15 @@ public class PineServer {
             resp.put("items", result.items);
 
             if (result.warnings != null && !result.warnings.isEmpty()) {
-                List<Map<String, Object>> warnList = new ArrayList<>();
+                List<String> warnList = new ArrayList<>();
                 for (Engine.Warning w : result.warnings) {
-                    Map<String, Object> wm = new LinkedHashMap<>();
-                    wm.put("operator", w.operator);
-                    wm.put("message", w.err.getMessage());
-                    warnList.add(wm);
+                    warnList.add(w.err.getMessage());
                 }
                 resp.put("warnings", warnList);
+            }
+
+            if (result.error != null) {
+                resp.put("error", result.error.getMessage());
             }
 
             Object returnTrace = common.get("_return_trace");
@@ -223,14 +254,22 @@ public class PineServer {
                 for (OpTrace t : result.trace) {
                     Map<String, Object> tm = new LinkedHashMap<>();
                     tm.put("name", t.name);
-                    tm.put("duration_ns", t.durationNs);
-                    tm.put("skipped", t.skipped);
+                    tm.put("duration_ms", t.durationNs / 1_000_000.0);
+                    if (t.skipped) {
+                        tm.put("skipped", true);
+                    }
+                    if (t.inputSnapshot != null) {
+                        tm.put("input_snapshot", t.inputSnapshot);
+                    }
+                    if (t.outputSnapshot != null) {
+                        tm.put("output_snapshot", t.outputSnapshot);
+                    }
                     traceList.add(tm);
                 }
                 resp.put("trace", traceList);
             }
 
-            sendResponse(exchange, 200, resp);
+            sendResponse(exchange, result.error != null ? 500 : 200, resp);
 
         } catch (IllegalArgumentException e) {
             sendResponse(exchange, 400, Map.of("error", e.getMessage()));
@@ -245,14 +284,16 @@ public class PineServer {
             return;
         }
         Snapshot snap = snapshot.get();
+        if (snap == null) {
+            sendResponse(exchange, 503, Map.of("error", "engine not loaded"));
+            return;
+        }
         Map<String, Object> resp = new LinkedHashMap<>();
-        if (snap != null) {
-            resp.put("operators", snap.engine.stats());
-            resp.put("scheduler", snap.engine.schedulerStats());
-            Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
-            if (custom != null) {
-                resp.put("operator_detail", custom);
-            }
+        resp.put("operators", snap.engine.stats());
+        resp.put("scheduler", snap.engine.schedulerStats());
+        Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
+        if (custom != null) {
+            resp.put("operator_detail", custom);
         }
         resp.put("server", serverStats());
         sendResponse(exchange, 200, resp);
@@ -279,20 +320,32 @@ public class PineServer {
                 if (kv.length == 2) {
                     if ("format".equals(kv[0])) format = kv[1];
                     else if ("collapse".equals(kv[0])) {
-                        try { collapse = Integer.parseInt(kv[1]); } catch (NumberFormatException ignored) {}
+                        try { collapse = Integer.parseInt(kv[1]); }
+                        catch (NumberFormatException e) {
+                            sendResponse(exchange, 400, Map.of("error", "invalid collapse value"));
+                            return;
+                        }
+                        if (collapse < 0) {
+                            sendResponse(exchange, 400, Map.of("error", "collapse must be >= 0"));
+                            return;
+                        }
                     }
                 }
             }
         }
 
-        String output = snap.engine.renderDAG(format, collapse);
+        try {
+            String output = snap.engine.renderDAG(format, collapse);
 
-        String contentType = "dot".equals(format) ? "text/vnd.graphviz" : "text/plain";
-        byte[] responseBytes = output.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", contentType + "; charset=utf-8");
-        exchange.sendResponseHeaders(200, responseBytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(responseBytes);
+            String contentType = "dot".equals(format) ? "text/vnd.graphviz" : "text/plain";
+            byte[] responseBytes = output.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", contentType + "; charset=utf-8");
+            exchange.sendResponseHeaders(200, responseBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(responseBytes);
+            }
+        } catch (Exception e) {
+            sendResponse(exchange, 400, Map.of("error", e.getMessage()));
         }
     }
 
@@ -311,6 +364,21 @@ public class PineServer {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(responseBytes);
         }
+    }
+
+    private static byte[] readLimitedBody(java.io.InputStream in, int limit) throws IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] tmp = new byte[8192];
+        int total = 0;
+        int n;
+        while ((n = in.read(tmp)) != -1) {
+            total += n;
+            if (total > limit) {
+                return null;
+            }
+            buf.write(tmp, 0, n);
+        }
+        return buf.toByteArray();
     }
 
     public static void main(String[] args) throws Exception {
