@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -34,12 +33,22 @@ public class PipelineFixtureTest {
                 byte[] configBytes = mapper.writeValueAsBytes(root.get("config"));
                 JsonNode cases = root.get("cases");
 
+                // Parse static_resources if present
+                ResourceProvider resourceProvider = null;
+                if (root.has("static_resources") && !root.get("static_resources").isNull()) {
+                    Map<String, Object> resources = mapper.convertValue(root.get("static_resources"),
+                            new TypeReference<Map<String, Object>>() {});
+                    resourceProvider = new StaticResourceProvider(resources);
+                }
+
+                final ResourceProvider rp = resourceProvider;
+
                 for (JsonNode testCase : cases) {
                     String caseName = testCase.get("name").asText();
                     String fullName = fixtureName + " / " + caseName;
 
                     tests.add(DynamicTest.dynamicTest(fullName, () -> {
-                        Engine engine = Engine.create(configBytes);
+                        Engine engine = Engine.create(configBytes, rp);
 
                         JsonNode request = testCase.get("request");
                         Map<String, Object> common = mapper.convertValue(request.get("common"),
@@ -74,7 +83,6 @@ public class PipelineFixtureTest {
     }
 
     private static Path findFixturesDir() {
-        // Walk up from working directory to find fixtures/pipelines/
         Path dir = Paths.get(System.getProperty("user.dir"));
         for (int i = 0; i < 5; i++) {
             Path candidate = dir.resolve("fixtures/pipelines");

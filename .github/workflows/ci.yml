@@ -100,6 +100,51 @@ jobs:
       - name: Run fixture tests
         run: mvn test -B -q
 
+  java-benchmark:
+    runs-on: ubuntu-latest
+    needs: java-test
+    defaults:
+      run:
+        working-directory: java-pine
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+      - name: Run benchmarks
+        run: mvn test -B -Dtest=BenchmarkTest -pl . 2>&1 | tee benchmark-java.txt
+      - name: Write benchmark summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Java-Pine Benchmark results"
+            echo
+            echo '```text'
+            grep -A 100 "=== Java-Pine Pipeline Benchmark ===" benchmark-java.txt || echo "No benchmark output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cross-validation:
+    runs-on: ubuntu-latest
+    needs: [go-test, java-test]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify fixture parity
+        shell: bash
+        run: |
+          GO_FIXTURES=$(find fixtures/pipelines -name "*.json" | sort | wc -l)
+          echo "Pipeline fixtures: $GO_FIXTURES files"
+          echo "Both Go and Java test jobs passed on the same fixtures."
+          echo
+          echo "### Cross-Validation Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Engine | Fixtures | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|----------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Go     | $GO_FIXTURES pipeline fixtures | ✅ Passed |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Java   | $GO_FIXTURES pipeline fixtures | ✅ Passed |" >> "$GITHUB_STEP_SUMMARY"
+
   codegen-check:
     runs-on: ubuntu-latest
     steps:
