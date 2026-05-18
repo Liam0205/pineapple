@@ -24,6 +24,7 @@ public class PineServer {
     private final page.liam.pine.metrics.Provider metricsProvider;
     private long maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES;
     private HttpServer httpServer;
+    private ExecutorService httpExecutor;
     private ScheduledExecutorService watcherExecutor;
 
     private final AtomicLong reloadCount = new AtomicLong();
@@ -62,6 +63,11 @@ public class PineServer {
     }
 
     public void start() throws Exception {
+        synchronized (this) {
+            started = true;
+            middlewares = Collections.unmodifiableList(middlewares);
+        }
+
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
         loadConfig(configData); // initial load — not counted as reload
         lastReloadDurationNs = 0;
@@ -82,8 +88,9 @@ public class PineServer {
         }
 
         httpServer = HttpServer.create(new InetSocketAddress(port), 0);
-        httpServer.setExecutor(Executors.newFixedThreadPool(
-                Runtime.getRuntime().availableProcessors() * 2));
+        httpExecutor = Executors.newFixedThreadPool(
+                Runtime.getRuntime().availableProcessors() * 2);
+        httpServer.setExecutor(httpExecutor);
 
         httpServer.createContext("/health", wrapHandler("/health", this::handleHealth));
         httpServer.createContext("/execute", wrapHandler("/execute", this::handleExecute));
@@ -101,9 +108,17 @@ public class PineServer {
         com.sun.net.httpserver.HttpHandler wrap(com.sun.net.httpserver.HttpHandler next);
     }
 
-    private final List<Middleware> middlewares = new ArrayList<>();
+    private List<Middleware> middlewares = new ArrayList<>();
+    private volatile boolean started;
 
-    public void addMiddleware(Middleware mw) {
+    /**
+     * Register a middleware. Must be called before {@link #start()}.
+     * Concurrent registration is not a supported use pattern.
+     */
+    public synchronized void addMiddleware(Middleware mw) {
+        if (started) {
+            throw new IllegalStateException("cannot add middleware after server has started");
+        }
         this.middlewares.add(mw);
     }
 
@@ -157,7 +172,10 @@ public class PineServer {
             watcherExecutor.shutdownNow();
         }
         if (httpServer != null) {
-            httpServer.stop(5); // waits up to 5s for in-flight exchanges to complete
+            httpServer.stop(5);
+        }
+        if (httpExecutor != null) {
+            httpExecutor.shutdownNow();
         }
     }
 

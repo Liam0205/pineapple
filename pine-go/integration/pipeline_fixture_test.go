@@ -15,6 +15,7 @@ import (
 
 type pipelineFixture struct {
 	Name            string                    `json:"name"`
+	Requires        []string                  `json:"requires"`
 	Config          json.RawMessage           `json:"config"`
 	StaticResources map[string]any            `json:"static_resources"`
 	Cases           []pipelineCase            `json:"cases"`
@@ -54,6 +55,10 @@ func TestPipelineFixtures(t *testing.T) {
 			var pf pipelineFixture
 			if err := json.Unmarshal(data, &pf); err != nil {
 				t.Fatal(err)
+			}
+
+			if len(pf.Requires) > 0 {
+				t.Skipf("skipping: requires %v", pf.Requires)
 			}
 
 			for _, tc := range pf.Cases {

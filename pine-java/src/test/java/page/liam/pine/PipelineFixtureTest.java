@@ -30,6 +30,13 @@ public class PipelineFixtureTest {
                 if (!path.toString().endsWith(".json")) continue;
                 JsonNode root = mapper.readTree(path.toFile());
                 String fixtureName = root.has("name") ? root.get("name").asText() : path.getFileName().toString();
+
+                // Skip fixtures that require external services (e.g., redis)
+                if (root.has("requires") && root.get("requires").isArray()) {
+                    System.out.println("Skipping fixture: " + fixtureName + " (requires: " + root.get("requires") + ")");
+                    continue;
+                }
+
                 byte[] configBytes = mapper.writeValueAsBytes(root.get("config"));
                 JsonNode cases = root.get("cases");
 

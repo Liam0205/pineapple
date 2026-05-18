@@ -46,6 +46,11 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
 
         url = "http://" + host + ":" + port + endpoint;
 
+        URI parsedUrl = URI.create(url);
+        if (parsedUrl.getScheme() == null || parsedUrl.getHost() == null) {
+            throw new IllegalArgumentException("transform_by_remote_pineapple: malformed URL: " + url);
+        }
+
         double timeoutSec = 5.0;
         Object t = params.get("timeout");
         if (t instanceof Number) timeoutSec = ((Number) t).doubleValue();
@@ -108,19 +113,27 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
 
         if (token.isCancelled()) return;
 
-        HttpRequest httpReq = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+        String targetUrl = url;
+        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 
         HttpResponse<java.io.InputStream> resp;
         try {
             if (!allowPrivate) {
-                validateHostAtDialTime(host);
+                // Resolve DNS, check all IPs, then connect to the checked IP directly (prevents DNS rebinding)
+                String safeIP = resolveToSafeIP(host);
+                String ipLiteral = safeIP.contains(":") ? "[" + safeIP + "]" : safeIP;
+                URI originalUri = URI.create(url);
+                int port = originalUri.getPort() > 0 ? originalUri.getPort() : (originalUri.getScheme().equals("https") ? 443 : 80);
+                targetUrl = originalUri.getScheme() + "://" + ipLiteral + ":" + port + originalUri.getPath();
+                reqBuilder.uri(URI.create(targetUrl));
+                reqBuilder.header("Host", host);
+            } else {
+                reqBuilder.uri(URI.create(targetUrl));
             }
-            resp = client.send(httpReq, HttpResponse.BodyHandlers.ofInputStream());
+            resp = client.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
         } catch (Exception e) {
             handleError(output, "request failed: " + e.getMessage(), e);
             return;
@@ -200,17 +213,26 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         }
     }
 
-    private static void validateHostAtDialTime(String host) throws Exception {
+    static String resolveToSafeIP(String host) throws Exception {
         InetAddress[] addrs = InetAddress.getAllByName(host);
         for (InetAddress addr : addrs) {
             if (isPrivateAddress(addr)) {
                 throw new SecurityException("transform_by_remote_pineapple: dial-time SSRF check failed: \"" + host + "\" resolves to private address " + addr.getHostAddress());
             }
         }
+        return addrs[0].getHostAddress();
     }
 
     private static boolean isPrivateAddress(InetAddress addr) {
-        return addr.isLoopbackAddress() || addr.isSiteLocalAddress() || addr.isLinkLocalAddress();
+        if (addr.isLoopbackAddress() || addr.isSiteLocalAddress() || addr.isLinkLocalAddress()) {
+            return true;
+        }
+        // IPv6 ULA (fc00::/7) — not covered by isSiteLocalAddress
+        byte[] raw = addr.getAddress();
+        if (raw.length == 16 && (raw[0] & 0xFE) == 0xFC) {
+            return true;
+        }
+        return false;
     }
 
     @SuppressWarnings("unchecked")
