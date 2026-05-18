@@ -363,12 +363,13 @@ fixtures/
 
 | 指标 | 值 |
 |------|-----|
-| Execution parity cases | 43 (row) + 43 (column) |
-| DAG render checks | 90 |
+| Execution parity cases | 45 (row) + 45 (column) |
+| DAG render checks | 92 |
 | Error parity fixtures | 15 |
 | Server HTTP checks | 21 |
 | Cancellation checks | 2 |
 | Schema parity | 完整（含 defaults + Python byte-level） |
+| Wire format | 字节级一致（含 HTML/Unicode 转义、pretty-print 格式） |
 
 ### 对新语言后端的扩展性
 
@@ -451,3 +452,20 @@ fixtures/
 | P2 | Codegen Python output | 字节级对比 | CI 可验证 | ✅ 验证为一致 + 加字节对比测试 |
 | P3 | Resource context/timeout | 内部差异 | 无消费者影响 | ⏸️ 接受的平台差异 |
 | P3 | Codegen string escaping | 异国字符默认值 | 当前无实际触发 | ⏸️ 仅记录 |
+
+### 第十一轮（2026-05-18 Wire Format 字节级对齐）
+
+深入验证 JSON 序列化 wire format 差异后发现的可操作缺口：
+
+| # | 模块 | 漏洞描述 | 严重度 | 可验证 | 建议 |
+|---|------|----------|--------|--------|------|
+| 1 | **JSON escaping** | Go `encoding/json` 转义 `<`, `>`, `&`, U+2028, U+2029 为小写 hex（`<`）；Jackson 默认不转义。 | **中** | 是 | Java 添加 GoCompatMapper 自定义 CharacterEscapes |
+| 2 | **RunCli pretty-print** | Go `SetIndent("","  ")` 输出 `"key": value`, `{}`（空对象无空格）；Jackson `DefaultPrettyPrinter` 输出 `"key" : value`, `{ }`。 | **中** | 是 | 配置 Separators: AFTER spacing + empty separator="" |
+
+#### 第十一轮路线图
+
+| 优先级 | 模块 | 漏洞 | 价值 | 状态 |
+|--------|------|------|------|------|
+| P1 | JSON HTML/Unicode escaping | wire format 字节差异 | API 输出一致 | ✅ 已修复 (GoFormat.createGoCompatMapper + CharacterEscapes) |
+| P1 | RunCli pretty-print format | 缩进/分隔格式差异 | CLI 输出字节一致 | ✅ 已修复 (DefaultPrettyPrinter + Separators config) |
+| — | html_chars_passthrough.json | 防回归 fixture | 验证转义正确性 | ✅ 新增 (2 cases: HTML + U+2028/2029) |
