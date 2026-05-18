@@ -60,6 +60,29 @@
       "expected": {
         "removed_indices": []
       }
+    },
+    {
+      "name": "numeric dedup key deduplicates correctly",
+      "params": { "strategy": "first" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_id"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": 100, "score": 1.0 },
+          { "item_id": 200, "score": 2.0 },
+          { "item_id": 100, "score": 3.0 },
+          { "item_id": 300, "score": 4.0 },
+          { "item_id": 200, "score": 5.0 }
+        ]
+      },
+      "expected": {
+        "removed_indices": [2, 4]
+      }
     }
   ]
 }

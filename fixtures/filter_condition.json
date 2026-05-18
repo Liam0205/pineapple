@@ -78,6 +78,27 @@
       "expected": {
         "removed_indices": []
       }
+    },
+    {
+      "name": "nil field value matches null param",
+      "params": { "value": null },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["status"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "a", "status": "online" },
+          { "item_id": "b" },
+          { "item_id": "c", "status": null }
+        ]
+      },
+      "expected": {
+        "removed_indices": [1, 2]
+      }
     }
   ]
 }

@@ -165,8 +165,8 @@ public class PineServer {
         long start = System.nanoTime();
         ResourceManager rm = new ResourceManager();
         rm.loadFromConfig(configData);
-        rm.start();
         try {
+            rm.start();
             Config cfg = Config.load(configData);
             rm.validateDeps(cfg.pipelineConfig.operators);
             Engine engine = Engine.create(configData, rm);

@@ -1,0 +1,96 @@
+{
+  "operator": "reorder_shuffle_by_salt",
+  "cases": [
+    {
+      "name": "deterministic shuffle with salt alpha",
+      "params": {},
+      "metadata": {
+        "common_input": ["salt"],
+        "item_input": ["item_id"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": { "salt": "alpha" },
+        "items": [
+          { "item_id": "1" },
+          { "item_id": "2" },
+          { "item_id": "3" },
+          { "item_id": "4" },
+          { "item_id": "5" }
+        ]
+      },
+      "expected": {
+        "item_order": [4, 3, 0, 2, 1]
+      }
+    },
+    {
+      "name": "deterministic shuffle with salt beta",
+      "params": {},
+      "metadata": {
+        "common_input": ["salt"],
+        "item_input": ["item_id"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": { "salt": "beta" },
+        "items": [
+          { "item_id": "1" },
+          { "item_id": "2" },
+          { "item_id": "3" },
+          { "item_id": "4" },
+          { "item_id": "5" }
+        ]
+      },
+      "expected": {
+        "item_order": [0, 2, 1, 4, 3]
+      }
+    },
+    {
+      "name": "same salt produces same order (idempotency)",
+      "params": {},
+      "metadata": {
+        "common_input": ["salt"],
+        "item_input": ["item_id"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": { "salt": "alpha" },
+        "items": [
+          { "item_id": "1" },
+          { "item_id": "2" },
+          { "item_id": "3" },
+          { "item_id": "4" },
+          { "item_id": "5" }
+        ]
+      },
+      "expected": {
+        "item_order": [4, 3, 0, 2, 1]
+      }
+    },
+    {
+      "name": "shuffle with numeric item ids",
+      "params": {},
+      "metadata": {
+        "common_input": ["salt"],
+        "item_input": ["item_id"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": { "salt": "gamma" },
+        "items": [
+          { "item_id": "100" },
+          { "item_id": "200" },
+          { "item_id": "300" },
+          { "item_id": "400" }
+        ]
+      },
+      "expected": {
+        "item_order": [1, 2, 0, 3]
+      }
+    }
+  ]
+}
