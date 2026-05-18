@@ -401,15 +401,26 @@ public class PineServer {
         return buf.toByteArray();
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         String configPath = System.getProperty("pine.config", "config.json");
         int port = Integer.parseInt(System.getProperty("pine.port", "8080"));
 
-        PineServer server = new PineServer(configPath, port);
-        server.start();
+        PineServer server;
+        try {
+            server = new PineServer(configPath, port);
+            server.start();
+        } catch (Exception e) {
+            System.err.println("fatal: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
         System.out.println("Pine server listening on :" + port);
 
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
-        Thread.currentThread().join();
+        try {
+            Thread.currentThread().join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
