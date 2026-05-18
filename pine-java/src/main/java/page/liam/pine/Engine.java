@@ -118,9 +118,8 @@ public class Engine {
             boolean effectiveDebug = globalDebug || opCfg.debug;
 
             Operator op = Registry.global().buildOperator(opCfg.typeName, opCfg.rawParams);
-            Optional<OperatorType> opTypeOpt = Registry.global().getType(opCfg.typeName);
-            OperatorType opType = opTypeOpt.orElse(null);
-            String effectiveOperatorType = opTypeOpt.map(t -> t.name().toLowerCase()).orElse("transform");
+            OperatorType opType = Registry.global().getType(opCfg.typeName).get();
+            String effectiveOperatorType = opType.name().toLowerCase();
             opCfg.operatorType = effectiveOperatorType;
 
             boolean effectiveRecall = opCfg.recall || opType == OperatorType.RECALL;
