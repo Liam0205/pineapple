@@ -1,0 +1,87 @@
+{
+  "name": "data_parallel Lua transform (verify shard-independent computation)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "i1", "item_val": 10.0},
+            {"item_id": "i2", "item_val": 20.0},
+            {"item_id": "i3", "item_val": 30.0},
+            {"item_id": "i4", "item_val": 40.0},
+            {"item_id": "i5", "item_val": 50.0},
+            {"item_id": "i6", "item_val": 60.0}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_val"]
+          }
+        },
+        "lua_transform": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function compute()\n  return item_val * multiplier + 1\nend",
+          "function_for_item": "compute",
+          "function_for_common": "",
+          "data_parallel": 4,
+          "$metadata": {
+            "common_input": ["multiplier"],
+            "common_output": [],
+            "item_input": ["item_val"],
+            "item_output": ["item_result"]
+          }
+        },
+        "sort_result": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_result"],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["recall_items", "lua_transform", "sort_result"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["multiplier"],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id", "item_result"]
+    }
+  },
+  "cases": [
+    {
+      "name": "6 items, data_parallel=4, multiplier=2: val*2+1 then sort desc",
+      "request": {
+        "common": {"multiplier": 2.0},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "i6", "item_result": 121.0},
+          {"item_id": "i5", "item_result": 101.0},
+          {"item_id": "i4", "item_result": 81.0},
+          {"item_id": "i3", "item_result": 61.0},
+          {"item_id": "i2", "item_result": 41.0},
+          {"item_id": "i1", "item_result": 21.0}
+        ]
+      }
+    }
+  ]
+}

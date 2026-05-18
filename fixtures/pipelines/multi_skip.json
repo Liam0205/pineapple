@@ -1,0 +1,134 @@
+{
+  "name": "multiple independent skip flags",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "copy_tag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "skip": "_skip_copy",
+          "$metadata": {
+            "common_input": ["_skip_copy", "tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["tag"]
+          }
+        },
+        "double_score": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function dbl()\n  return item_score * 2\nend",
+          "function_for_item": "dbl",
+          "function_for_common": "",
+          "skip": "_skip_double",
+          "$metadata": {
+            "common_input": ["_skip_double"],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": ["item_doubled"]
+          }
+        },
+        "truncate": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["copy_tag", "double_score", "truncate"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["_skip_copy", "_skip_double", "tag"],
+      "item_input": ["item_score"],
+      "common_output": [],
+      "item_output": ["item_score", "tag", "item_doubled"]
+    }
+  },
+  "cases": [
+    {
+      "name": "neither skipped — both transforms apply",
+      "request": {
+        "common": {"_skip_copy": false, "_skip_double": false, "tag": "hot"},
+        "items": [
+          {"item_score": 10.0},
+          {"item_score": 20.0},
+          {"item_score": 30.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_score": 10.0, "tag": "hot", "item_doubled": 20.0},
+          {"item_score": 20.0, "tag": "hot", "item_doubled": 40.0}
+        ]
+      }
+    },
+    {
+      "name": "skip copy only — tag not dispatched",
+      "request": {
+        "common": {"_skip_copy": true, "_skip_double": false, "tag": "hot"},
+        "items": [
+          {"item_score": 10.0},
+          {"item_score": 20.0},
+          {"item_score": 30.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_score": 10.0, "item_doubled": 20.0},
+          {"item_score": 20.0, "item_doubled": 40.0}
+        ]
+      }
+    },
+    {
+      "name": "skip double only — score not doubled",
+      "request": {
+        "common": {"_skip_copy": false, "_skip_double": true, "tag": "cold"},
+        "items": [
+          {"item_score": 5.0},
+          {"item_score": 15.0},
+          {"item_score": 25.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_score": 5.0, "tag": "cold"},
+          {"item_score": 15.0, "tag": "cold"}
+        ]
+      }
+    },
+    {
+      "name": "both skipped — only truncate runs",
+      "request": {
+        "common": {"_skip_copy": true, "_skip_double": true, "tag": "x"},
+        "items": [
+          {"item_score": 1.0},
+          {"item_score": 2.0},
+          {"item_score": 3.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_score": 1.0},
+          {"item_score": 2.0}
+        ]
+      }
+    }
+  ]
+}

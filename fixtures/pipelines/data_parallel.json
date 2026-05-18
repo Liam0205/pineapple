@@ -1,0 +1,99 @@
+{
+  "name": "data_parallel transform (sharded item execution)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "copy_tag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "data_parallel": 3,
+          "$metadata": {
+            "common_input": ["tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["tag"]
+          }
+        },
+        "dispatch_scene": {
+          "type_name": "transform_dispatch",
+          "data_parallel": 2,
+          "$metadata": {
+            "common_input": ["scene"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_scene"]
+          }
+        },
+        "truncate": {
+          "type_name": "filter_truncate",
+          "top_n": 4,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["copy_tag", "dispatch_scene", "truncate"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["tag", "scene"],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id", "tag", "item_scene"]
+    }
+  },
+  "cases": [
+    {
+      "name": "6 items split into 3 shards for copy, 2 shards for dispatch",
+      "request": {
+        "common": {"tag": "promo", "scene": "feed"},
+        "items": [
+          {"id": "a"},
+          {"id": "b"},
+          {"id": "c"},
+          {"id": "d"},
+          {"id": "e"},
+          {"id": "f"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "a", "tag": "promo", "item_scene": "feed"},
+          {"id": "b", "tag": "promo", "item_scene": "feed"},
+          {"id": "c", "tag": "promo", "item_scene": "feed"},
+          {"id": "d", "tag": "promo", "item_scene": "feed"}
+        ]
+      }
+    },
+    {
+      "name": "fewer items than parallelism — degrades gracefully",
+      "request": {
+        "common": {"tag": "vip", "scene": "search"},
+        "items": [
+          {"id": "x"},
+          {"id": "y"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x", "tag": "vip", "item_scene": "search"},
+          {"id": "y", "tag": "vip", "item_scene": "search"}
+        ]
+      }
+    }
+  ]
+}

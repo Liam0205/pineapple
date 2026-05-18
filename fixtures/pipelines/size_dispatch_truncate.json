@@ -1,0 +1,94 @@
+{
+  "name": "transform_size → dispatch → truncate (common↔item interaction)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "count_items": {
+          "type_name": "transform_size",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["item_count"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "dispatch_count": {
+          "type_name": "transform_dispatch",
+          "$metadata": {
+            "common_input": ["item_count"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["total"]
+          }
+        },
+        "keep_top3": {
+          "type_name": "filter_truncate",
+          "top_n": 3,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["count_items", "dispatch_count", "keep_top3"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["id"],
+      "common_output": ["item_count"],
+      "item_output": ["id", "total"]
+    }
+  },
+  "cases": [
+    {
+      "name": "5 items → count=5 dispatched → truncate to 3",
+      "request": {
+        "common": {},
+        "items": [
+          {"id": "a"},
+          {"id": "b"},
+          {"id": "c"},
+          {"id": "d"},
+          {"id": "e"}
+        ]
+      },
+      "expected": {
+        "common": {"item_count": 5},
+        "items": [
+          {"id": "a", "total": 5},
+          {"id": "b", "total": 5},
+          {"id": "c", "total": 5}
+        ]
+      }
+    },
+    {
+      "name": "2 items → count=2, no truncation (top_n=3)",
+      "request": {
+        "common": {},
+        "items": [
+          {"id": "x"},
+          {"id": "y"}
+        ]
+      },
+      "expected": {
+        "common": {"item_count": 2},
+        "items": [
+          {"id": "x", "total": 2},
+          {"id": "y", "total": 2}
+        ]
+      }
+    }
+  ]
+}
