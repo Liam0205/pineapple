@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class PineServer {
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper mapper = GoFormat.createGoCompatMapper();
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
@@ -236,7 +236,7 @@ public class PineServer {
             Map<String, Object> req = mapper.readValue(body, new TypeReference<>() {});
 
             @SuppressWarnings("unchecked")
-            Map<String, Object> common = (Map<String, Object>) req.getOrDefault("common", Collections.emptyMap());
+            Map<String, Object> common = (Map<String, Object>) req.get("common");
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> items = (List<Map<String, Object>>) req.getOrDefault("items", Collections.emptyList());
 
@@ -401,15 +401,26 @@ public class PineServer {
         return buf.toByteArray();
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         String configPath = System.getProperty("pine.config", "config.json");
         int port = Integer.parseInt(System.getProperty("pine.port", "8080"));
 
-        PineServer server = new PineServer(configPath, port);
-        server.start();
+        PineServer server;
+        try {
+            server = new PineServer(configPath, port);
+            server.start();
+        } catch (Exception e) {
+            System.err.println("fatal: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
         System.out.println("Pine server listening on :" + port);
 
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
-        Thread.currentThread().join();
+        try {
+            Thread.currentThread().join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

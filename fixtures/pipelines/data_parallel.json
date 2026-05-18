@@ -109,6 +109,17 @@
           {"id": "z", "tag": "solo", "item_scene": "home"}
         ]
       }
+    },
+    {
+      "name": "zero items with parallelism>1 — empty result passthrough",
+      "request": {
+        "common": {"tag": "none", "scene": "empty"},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": []
+      }
     }
   ]
 }

@@ -605,7 +605,7 @@ func TestLoadRejectsOperatorNameCollidingWithSubFlowPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when operator name collides with SubFlow path, but got nil")
 	}
-	if !strings.Contains(err.Error(), "collides") {
+	if !strings.Contains(err.Error(), "exists in both") {
 		t.Errorf("error = %q, want message about name collision", err.Error())
 	}
 }
