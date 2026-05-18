@@ -203,7 +203,9 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install redis-server
-        run: sudo apt-get install -y --no-install-recommends redis-server
+        run: |
+          sudo apt-get install -y --no-install-recommends redis-server=5:7.*
+          redis-server --version
       - name: Cross-validate Go vs Java
         run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
       - name: Write summary

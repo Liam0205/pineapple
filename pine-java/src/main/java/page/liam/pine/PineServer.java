@@ -62,8 +62,10 @@ public class PineServer {
     }
 
     public void start() throws Exception {
-        started = true;
-        middlewares = Collections.unmodifiableList(middlewares);
+        synchronized (this) {
+            started = true;
+            middlewares = Collections.unmodifiableList(middlewares);
+        }
 
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
         loadConfig(configData); // initial load — not counted as reload
@@ -107,7 +109,12 @@ public class PineServer {
     private List<Middleware> middlewares = new ArrayList<>();
     private volatile boolean started;
 
-    public void addMiddleware(Middleware mw) {
+    /**
+     * Register a middleware. Must be called before {@link #start()};
+     * calling after start throws IllegalStateException.
+     * Not thread-safe — all registrations must happen on a single thread.
+     */
+    public synchronized void addMiddleware(Middleware mw) {
         if (started) {
             throw new IllegalStateException("cannot add middleware after server has started");
         }

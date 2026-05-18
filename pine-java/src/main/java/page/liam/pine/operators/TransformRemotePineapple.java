@@ -207,15 +207,6 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         }
     }
 
-    private static void validateHostAtDialTime(String host) throws Exception {
-        InetAddress[] addrs = InetAddress.getAllByName(host);
-        for (InetAddress addr : addrs) {
-            if (isPrivateAddress(addr)) {
-                throw new SecurityException("transform_by_remote_pineapple: dial-time SSRF check failed: \"" + host + "\" resolves to private address " + addr.getHostAddress());
-            }
-        }
-    }
-
     static String resolveToSafeIP(String host) throws Exception {
         InetAddress[] addrs = InetAddress.getAllByName(host);
         for (InetAddress addr : addrs) {

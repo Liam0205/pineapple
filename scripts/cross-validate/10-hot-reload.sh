@@ -62,7 +62,22 @@ print(json.dumps(data['cases'][0]['request']))
 
   # Swap config file contents (simulates hot-reload trigger)
   cp "$RELOAD_CONFIG_B" "$RELOAD_CONFIG_A"
-  sleep 3  # Wait for mtime poll to detect change
+
+  # Poll until both servers detect the reload (timeout 10s)
+  reload_detected=false
+  for attempt in $(seq 1 50); do
+    go_rc=$(curl -s "http://localhost:$RELOAD_GO_PORT/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))" 2>/dev/null || echo 0)
+    java_rc=$(curl -s "http://localhost:$RELOAD_JAVA_PORT/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))" 2>/dev/null || echo 0)
+    if [[ "$go_rc" -ge 1 && "$java_rc" -ge 1 ]]; then
+      reload_detected=true
+      break
+    fi
+    sleep 0.2
+  done
+
+  if [[ "$reload_detected" != "true" ]]; then
+    fail "hot-reload: servers did not detect config change within 10s (Go reload_count=$go_rc, Java reload_count=$java_rc)"
+  fi
 
   # Test 2: After reload, DAG structure should change (use /dag endpoint)
   reload_total=$((reload_total + 1))

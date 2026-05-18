@@ -53,6 +53,7 @@ print(len(data.get('cases', [])))
       java_norm=$(echo "$java_raw" | normalize_json)
       if [[ "$go_norm" == "$java_norm" ]]; then
         raw_pass=$((raw_pass + 1))
+        echo "    [W] key ordering differs: $fname case $i" >&2
       else
         fail "raw byte divergence: $fname case $i (values differ, not just key ordering)"
         diff <(echo "$go_raw") <(echo "$java_raw") >&2 | head -10 || true
