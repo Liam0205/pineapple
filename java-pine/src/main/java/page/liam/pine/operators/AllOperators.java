@@ -15,7 +15,9 @@ public class AllOperators {
         Registry.register("merge_dedup", OperatorType.MERGE, MergeDedup::new);
         Registry.register("reorder_sort", OperatorType.REORDER, ReorderSort::new);
         Registry.register("recall_static", OperatorType.RECALL, RecallStatic::new);
+        Registry.register("recall_resource", OperatorType.RECALL, RecallResource::new);
         Registry.register("transform_by_lua", OperatorType.TRANSFORM, TransformByLua::new);
+        Registry.register("transform_resource_lookup", OperatorType.TRANSFORM, TransformResourceLookup::new);
     }
 
     public static void ensureRegistered() {

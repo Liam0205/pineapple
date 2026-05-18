@@ -4,6 +4,7 @@
 // Usage:
 //
 //	go run ./cmd/pineapple-codegen -output apple_generated
+//	go run ./cmd/pineapple-codegen -schema-json schema.json
 package main
 
 import (
@@ -20,7 +21,16 @@ func main() {
 	output := flag.String("output", "apple_generated", "Output directory for generated Python files")
 	docDir := flag.String("doc-dir", "", "Output directory for generated operator docs (empty to skip)")
 	opsDir := flag.String("operators-dir", "operators", "Directory containing Go operator source files")
+	schemaJSON := flag.String("schema-json", "", "Export operator schema as JSON to this path (skips Python generation)")
 	flag.Parse()
+
+	if *schemaJSON != "" {
+		if err := codegen.ExportSchemaJSON(*schemaJSON); err != nil {
+			fmt.Fprintf(os.Stderr, "pineapple-codegen: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := codegen.Run(codegen.Config{
 		OutputDir: *output,
