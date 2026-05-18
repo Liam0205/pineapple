@@ -27,7 +27,7 @@ public class FixtureTest {
     @TestFactory
     @SuppressWarnings("unchecked")
     Stream<DynamicNode> fixtureTests() throws Exception {
-        File fixtureDir = new File("../fixtures");
+        File fixtureDir = new File("../fixtures/operators");
         if (!fixtureDir.exists()) {
             return Stream.empty();
         }

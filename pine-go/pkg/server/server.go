@@ -267,8 +267,7 @@ func (s *Server) watchConfig(ctx context.Context, path string) {
 }
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 type executeRequest struct {

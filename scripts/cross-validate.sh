@@ -724,6 +724,18 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
     diff <(echo "$go_dag_mmd") <(echo "$java_dag_mmd") >&2 || true
   fi
 
+  # Test 12b: GET /dag?collapse=1 → collapsed DAG via HTTP endpoint
+  srv_total=$((srv_total + 1))
+  go_dag_col=$(curl -s "http://localhost:$GO_PORT/dag?collapse=1")
+  java_dag_col=$(curl -s "http://localhost:$JAVA_PORT/dag?collapse=1")
+  if [[ "$go_dag_col" == "$java_dag_col" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [12b] GET /dag?collapse=1 → match"
+  else
+    fail "server HTTP: /dag?collapse=1 divergence"
+    diff <(echo "$go_dag_col") <(echo "$java_dag_col") >&2 || true
+  fi
+
   # Test 13: GET /dag?format=invalid → error response parity
   srv_total=$((srv_total + 1))
   go_dag_inv_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$GO_PORT/dag?format=invalid")
@@ -748,6 +760,30 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
     echo "    [14] POST /execute (validation error) → body keys match ($go_val_keys)"
   else
     fail "server HTTP: validation error body keys (Go=$go_val_keys, Java=$java_val_keys)"
+  fi
+
+  # Test 15: Content-Type header parity across endpoints
+  srv_total=$((srv_total + 1))
+  ct_pass=true
+  for ep in "/health" "/stats" "/dag"; do
+    go_ct=$(curl -s -o /dev/null -w "%{content_type}" "http://localhost:$GO_PORT$ep")
+    java_ct=$(curl -s -o /dev/null -w "%{content_type}" "http://localhost:$JAVA_PORT$ep")
+    if [[ "$go_ct" != "$java_ct" ]]; then
+      ct_pass=false
+      fail "server HTTP: Content-Type mismatch for $ep (Go='$go_ct', Java='$java_ct')"
+      break
+    fi
+  done
+  # Also check POST /execute
+  go_ct=$(curl -s -o /dev/null -w "%{content_type}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute")
+  java_ct=$(curl -s -o /dev/null -w "%{content_type}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute")
+  if [[ "$go_ct" != "$java_ct" ]]; then
+    ct_pass=false
+    fail "server HTTP: Content-Type mismatch for /execute (Go='$go_ct', Java='$java_ct')"
+  fi
+  if $ct_pass; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [15] Content-Type headers → match across all endpoints"
   fi
 
   srv_cleanup
@@ -791,7 +827,7 @@ java -cp "$JAVA_CP" -Dpine.config="$SRV_ERR_CONFIG" -Dpine.port=$JAVA_ERR_PORT p
 JAVA_SRV_PID=$!
 
 if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
-  # Test 15: POST /execute (runtime error) → 500 + error field + body structure
+  # Test 16: POST /execute (runtime error) → 500 + error field + body structure
   srv_total=$((srv_total + 1))
   go_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_ERR_PORT/execute")
   java_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_ERR_PORT/execute")
@@ -807,7 +843,7 @@ if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
     java_has_err=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
     if [[ "$go_has_err" == "True" && "$java_has_err" == "True" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [15] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
+      echo "    [16] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
     else
       fail "server HTTP: 500 error message mismatch (Go=$go_has_err, Java=$java_has_err)"
     fi
@@ -901,7 +937,7 @@ else:
 ")
     if [[ -n "$go_warn_prefix" && "$go_warn_prefix" == "$java_warn_prefix" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [16] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
+      echo "    [17] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
     else
       fail "server HTTP: warning prefix divergence (Go='$go_warn_prefix', Java='$java_warn_prefix')"
     fi

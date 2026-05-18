@@ -473,12 +473,12 @@ public class Engine {
     }
 
     public String renderDAG(String format, int collapseLevel) {
-        if ("mermaid".equalsIgnoreCase(format)) {
+        if ("mermaid".equals(format)) {
             return collapseLevel > 0
                     ? DAGVisualizer.renderCollapsedMermaid(dag, collapseLevel)
                     : DAGVisualizer.renderMermaid(dag);
         }
-        if (!"dot".equalsIgnoreCase(format)) {
+        if (!"dot".equals(format)) {
             throw new PineErrors.ValidationError("unsupported DAG format \"" + format + "\" (use \"dot\" or \"mermaid\")");
         }
         return collapseLevel > 0

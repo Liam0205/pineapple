@@ -4,7 +4,7 @@
 
 | 层 | 发布形式 | 说明 |
 |----|---------|------|
-| Go 引擎 | Go module (`go get github.com/Liam0205/pineapple`) | 引擎、算子接口、内置算子 |
+| Go 引擎 | Go module (`go get github.com/Liam0205/pineapple/pine-go`) | 引擎、算子接口、内置算子 |
 | Java 引擎 | Maven artifact `page.liam:pine-java` | 引擎、算子接口、内置算子 |
 | Server 库 | `pkg/server` 包（Go） | 可复用的 HTTP 服务框架 |
 | Codegen 库 | `pkg/codegen` 包（Go）/ `page.liam.pine.Codegen`（Java） | 可复用的 Python binding 生成器 |
@@ -17,7 +17,7 @@
 ### Go 侧
 
 ```bash
-go get github.com/Liam0205/pineapple
+go get github.com/Liam0205/pineapple/pine-go
 ```
 
 ### Java 侧
@@ -56,7 +56,7 @@ mvn exec:java -Dexec.mainClass="com.example.MyCodegen" -Dexec.args="--export app
 
 ```
 my-project/
-├── go.mod                    # require github.com/Liam0205/pineapple
+├── go.mod                    # require github.com/Liam0205/pineapple/pine-go
 ├── operators/
 │   ├── my_scorer/
 │   │   └── scorer.go         # init() { pine.Register(schema, factory) }
@@ -96,7 +96,7 @@ package my_scorer
 
 import (
     "context"
-    pine "github.com/Liam0205/pineapple"
+    pine "github.com/Liam0205/pineapple/pine-go"
 )
 
 func init() {
@@ -166,9 +166,9 @@ import (
     "flag"
     "log"
 
-    _ "github.com/Liam0205/pineapple/operators" // 内置算子
+    _ "github.com/Liam0205/pineapple/pine-go/operators" // 内置算子
     _ "my-project/operators"                      // 自定义算子
-    "github.com/Liam0205/pineapple/pkg/server"
+    "github.com/Liam0205/pineapple/pine-go/pkg/server"
 )
 
 func main() {
@@ -204,9 +204,9 @@ import (
     "fmt"
     "os"
 
-    _ "github.com/Liam0205/pineapple/operators"
+    _ "github.com/Liam0205/pineapple/pine-go/operators"
     _ "my-project/operators"
-    "github.com/Liam0205/pineapple/pkg/codegen"
+    "github.com/Liam0205/pineapple/pine-go/pkg/codegen"
 )
 
 func main() {
