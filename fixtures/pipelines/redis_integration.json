@@ -1,5 +1,6 @@
 {
   "name": "redis integration set-then-get parity",
+  "requires": ["redis"],
   "config": {
     "pipeline_config": {
       "operators": {
