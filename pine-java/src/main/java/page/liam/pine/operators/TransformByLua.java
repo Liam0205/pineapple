@@ -100,11 +100,14 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 operatorName, fields, nonNil, itemCount, mode, funcName);
         }
         Globals globals = pool.borrow();
+        if (globals == null) {
+            throw new PineErrors.OperatorException("lua: pool is closed");
+        }
         try {
             if (isItemMode) {
                 executeForItem(token, globals, input, output);
             } else {
-                executeForCommon(globals, input, output);
+                executeForCommon(token, globals, input, output);
             }
         } catch (LuaError e) {
             throw new PineErrors.OperatorException("lua: " + e.getMessage(), e);
@@ -159,7 +162,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
     }
 
-    private void executeForCommon(Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
+    private void executeForCommon(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
+        if (token.isCancelled()) return;
+
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
         }
@@ -172,6 +177,8 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             }
             globals.set(field, tbl);
         }
+
+        if (token.isCancelled()) return;
 
         LuaValue fn = globals.get(funcName);
         if (fn.isnil()) {
@@ -250,7 +257,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
 
         Globals borrow() {
-            if (closed) throw new IllegalStateException("lua pool is closed");
+            if (closed) return null;
             borrowCount.incrementAndGet();
             activeCount.incrementAndGet();
             if (mBorrow != null) mBorrow.inc();

@@ -1015,3 +1015,179 @@ Server 修复（H4/H5/M11）：
 |---|------|------|
 | M1 | 修 Java | formatFloatF: NaN/±Infinity 显式守卫 |
 | M2 | 修 Java | TransformNormalize: 错误消息加算子前缀 + item 索引 + 字段名 |
+
+## 第十六轮审计 (2026-05-15)
+
+### 第十五轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| M1 GoFormat.formatFloatF NaN/±Infinity | ✓ L70-72 显式守卫 |
+| M2 TransformNormalize 错误消息 | ✓ 含算子前缀+索引+字段名 |
+
+### 全量复验摘要
+
+三组并行独立审计 + execute 路径 RuntimeException 全量追踪。**前轮全部修复项验证通过**，无回归。
+
+### execute() 路径 RuntimeException 全量追踪
+
+| 文件:行 | 异常 | 是否被局部捕获 | 结论 |
+|---------|------|---------------|------|
+| TransformRedisSet:106 | IAE("unsupported data_type") | ✅ L108 catch → OperatorException | 安全 |
+| TransformRedisGet:97 | IAE("unsupported data_type") | ✅ L99 catch → OperatorException | 安全 |
+| TransformRemotePineapple:189,195 | IAE("host not allowed") | N/A（init，非 execute） | 安全 |
+| TransformRemotePineapple:241 | RE("response too large") | ✅ L132 catch → handleError | 安全 |
+| TransformByLua:253 | ISE("lua pool is closed") | ❌ L102 在 try 块外 | **新 M1** |
+
+### 新发现
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | TransformByLua pool.borrow() 关闭时错误分类 | `return fmt.Errorf("lua: pool is closed")` → ExecutionError (`lua.go:111-113`) | `throw IllegalStateException` 在 try 块外 → PanicError (`TransformByLua.java:102,253`) | ✅ |
+| M2 | Engine.renderDAG 错误类型 | 返回 `*ValidationError` (`pine.go:296`) | 抛 `IllegalArgumentException` (非 ValidationError) (`Engine.java:482`) | ✅ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| /stats JSON key 顺序 | JSON spec 不保证对象 key 序 |
+| /dag 错误消息措辞 | 状态码均为 400 |
+| Config 校验消息措辞 | 开发者可见，非 wire 格式 |
+| TransformRemotePineapple setWarning RuntimeException | getMessage() 等效 |
+
+### 第十六轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| M1 | 修 Java | LuaPool.borrow() 关闭返回 null + execute 检查抛 OperatorException |
+| M2 | 修 Java | renderDAG IllegalArgumentException → ValidationError |
+
+---
+
+## 第十七轮审计 (R17)
+
+**方法论**: 按差异类型分组交叉验证（错误消息措辞、类型信息完整性、skip 字段校验措辞），独立重新验证源码。
+
+**结果**: 0 HIGH / 0 MEDIUM / 6 LOW
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| L1 | RecallResource: no resource provider 缺 "in context" | `"no resource provider in context"` (`recall_resource.go:48`) | `"no resource provider"` | ✅ |
+| L2 | TransformResourceLookup: 同上 | `"no resource provider in context"` (`resource_lookup.go:68`) | `"no resource provider"` | ✅ |
+| L3 | RecallResource: 类型错误缺实际类型 | `"is %T, want []map[string]any"` (`recall_resource.go:77`) | `"is not a List"` | ✅ |
+| L4 | TransformResourceLookup: 类型错误缺实际类型 | `"is %T, want map[string]any"` (`resource_lookup.go:76`) | `"is not a Map"` | ✅ |
+| L5 | Config skip field: 起始字符校验消息 | `"must start with '_' (control fields are engine-internal)"` (`load.go:222`) | `"must start with underscore"` | ✅ |
+| L6 | Config skip field: common_input 关联校验消息 | `"must also appear in $metadata.common_input to ensure correct DAG ordering"` (`load.go:243`) | `"not found in $metadata.common_input"` | ✅ |
+
+### 第十七轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| L1-L6 | 全部修复 | 错误消息完全对齐 Go 侧措辞 |
+
+### 收敛总结
+
+| 轮次 | HIGH | MEDIUM | LOW | 说明 |
+|------|------|--------|-----|------|
+| R9   | 8    | 11     | -   | 首轮系统审计 |
+| R14  | 1    | 4      | -   | 独立重验 |
+| R15  | 0    | 2      | -   | 继续收敛 |
+| R16  | 0    | 2      | -   | 深度追查 |
+| R17  | 0    | 0      | 6   | 仅剩措辞级差异，全部修复 |
+
+---
+
+## 第十八轮审计 (R18)
+
+**方法论**: 三路并行独立审计——①重新验证 R14-R17 全部 16 项修复到位；②逐算子逻辑语义对比（18 对）；③Engine/Server/Config/GoFormat 非算子代码交叉验证。
+
+**结果**: R14-R17 全部修复确认到位。0 HIGH / 0 MEDIUM / 11 LOW
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 处理 |
+|---|--------|---------|-----------|------|
+| L1 | RenderDAG 错误消息措辞 | `unsupported DAG format "X" (use "dot" or "mermaid")` | `unsupported format "X": expected "dot" or "mermaid"` | ✅ 修复 |
+| L2 | trace duration_ms 精度 | 微秒截断后÷1000 (1.234) | 纳秒÷1000000 (1.234567) | 可接受 |
+| L3 | request.Common 校验消息 | `request.Common must not be nil` | `request common must not be null` | ✅ 修复 |
+| L4 | MergeDedup normalizeKey | `map[any]` raw key | Number→double 归一化 | 可接受：补偿 Jackson 类型差异 |
+| L5 | Redis SMEMBERS 返回顺序 | `[]string` 保留响应序 | `Set<String>` 包装丢失序 | 可接受：Redis Set 本身无序 |
+| L6 | reorder_sort 稳定性 | pdqsort（不稳定） | TimSort（稳定） | 可接受：平台差异 |
+| L7 | normalize/sort 类型宽度 | 仅 float64/int64/int | 任何 Number 子类 | 可接受：实际 JSON 不触发 |
+| L8 | Lua common 模式取消检查 | VM 指令级 ctx 检查 | 无取消检查 | ✅ 修复：添加输入准备后+函数调用前检查 |
+| L9 | observe_log 输出流 | log.Printf (stdout) | System.err.printf (stderr) | 可接受：不影响管线输出 |
+| L10 | SSRF dial-time 校验 | DialContext 拦截 | DNS 重查 (TOCTOU 窗口) | 可接受：平台限制 |
+| L11 | /stats JSON key 顺序 | 字母排序 | 插入顺序 | 可接受：JSON spec 无序 |
+
+### 第十八轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| L1 | 修 Java | RenderDAG 消息对齐 Go 措辞 |
+| L3 | 修 Java | request.Common 消息对齐 Go 措辞 |
+| L8 | 修 Java | executeForCommon 添加 token 参数及两处取消检查 |
+| 其余 | 可接受 | 平台/设计差异，无功能影响 |
+
+### 收敛总结
+
+| 轮次 | HIGH | MEDIUM | LOW | 说明 |
+|------|------|--------|-----|------|
+| R9   | 8    | 11     | -   | 首轮系统审计 |
+| R14  | 1    | 4      | -   | 独立重验 |
+| R15  | 0    | 2      | -   | 继续收敛 |
+| R16  | 0    | 2      | -   | 深度追查 |
+| R17  | 0    | 0      | 6   | 措辞级差异，全部修复 |
+| R18  | 0    | 0      | 11  | 3 修复 + 8 accepted（注：L9 observe_log 为误报，两端均 stderr） |
+
+---
+
+## 第十九轮审计 (R19)
+
+**方法论**: 三路并行——①Init 时校验逻辑全量对比（18 对算子）；②引擎配线/注入/DAG/调度器/输出投影语义验证；③R18 修复确认 + R18 "accepted" 项独立质疑。
+
+**结果**: R18 全部修复确认到位。R18 MEDIUM 误报（remote_pineapple DNS — Go 同样静默通过）。R18 L9 事实错误（两端均 stderr）。0 HIGH / 0 MEDIUM / 5 LOW
+
+### 🟢 LOW 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| L1 | recall_static init 类型错误含实际类型 | `'items' must be a JSON array, got %T` | `'items' must be a list`（无类型） | ✅ |
+| L2 | transform_copy init 方向错误 %q 引号 | `unsupported direction "foo"` | `unsupported direction: foo` | ✅ |
+| L3 | normalize/dedup/sort init 枚举错误 %q 引号 | `unsupported X "val"` | `unsupported X: val` | ✅ |
+| L4 | filter_truncate init 含类型/值信息 | `got %T` + `got %d` | 无类型/值 | ✅ |
+| L5 | trace duration_ms 精度 | 微秒截断÷1000 (1.234) | 纳秒÷1000000 (1.234567) | ✅ |
+
+### R19 附加验证结果
+
+| 维度 | 结论 |
+|------|------|
+| R18 修复 (3 项) | 全部确认到位 |
+| R18 MEDIUM (remote_pineapple DNS) | 误报：Go 同样 `return nil` 静默处理 |
+| R18 L9 (observe_log stdout/stderr) | 事实错误：Go `log.Printf` 默认 stderr，与 Java 相同 |
+| 引擎注入顺序 | PARITY（Metadata→Debug→Metrics，ResourceAware 仅 Java 有，已接受） |
+| DAG 构建算法 | PARITY（完全一致的五阶段 port） |
+| 调度器语义 | PARITY（goroutine/channel ↔ ForkJoinPool/CompletableFuture） |
+| 输出投影 | PARITY（declared-field-only，missing 静默跳过） |
+| 元数据传播时机 | PARITY（均在 init 之后注入） |
+
+### 第十九轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| L1-L5 | 全部修复 | init 消息对齐 Go `%q` 格式 + trace 精度对齐 |
+
+### 收敛总结
+
+| 轮次 | HIGH | MEDIUM | LOW | 说明 |
+|------|------|--------|-----|------|
+| R9   | 8    | 11     | -   | 首轮系统审计 |
+| R14  | 1    | 4      | -   | 独立重验 |
+| R15  | 0    | 2      | -   | 继续收敛 |
+| R16  | 0    | 2      | -   | 深度追查 |
+| R17  | 0    | 0      | 6   | 措辞级差异 |
+| R18  | 0    | 0      | 3   | 取消检查 + 消息措辞 |
+| R19  | 0    | 0      | 5   | init 消息格式 + trace 精度 → **收敛** |

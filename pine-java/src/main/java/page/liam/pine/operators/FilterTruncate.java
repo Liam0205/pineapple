@@ -24,10 +24,10 @@ public class FilterTruncate extends AbstractOperator {
         if (v instanceof Number) {
             topN = ((Number) v).longValue();
         } else {
-            throw new IllegalArgumentException("filter_truncate: top_n must be numeric");
+            throw new IllegalArgumentException("filter_truncate: top_n must be numeric, got " + (v == null ? "null" : v.getClass().getSimpleName()));
         }
         if (topN < 0) {
-            throw new IllegalArgumentException("filter_truncate: top_n must be non-negative");
+            throw new IllegalArgumentException("filter_truncate: top_n must be non-negative, got " + topN);
         }
     }
 
