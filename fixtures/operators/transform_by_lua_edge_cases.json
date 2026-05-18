@@ -1,0 +1,215 @@
+{
+  "operator": "transform_by_lua",
+  "cases": [
+    {
+      "name": "float precision: 0.1 + 0.2",
+      "params": {
+        "lua_script": "function add_floats()\n  return 0.1 + 0.2\nend",
+        "function_for_item": "add_floats",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": 0.30000000000000004}]
+      }
+    },
+    {
+      "name": "large integer near int64 max",
+      "params": {
+        "lua_script": "function large_int()\n  return 9007199254740992\nend",
+        "function_for_item": "large_int",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": 9007199254740992}]
+      }
+    },
+    {
+      "name": "negative zero",
+      "params": {
+        "lua_script": "function neg_zero()\n  return -0.0\nend",
+        "function_for_item": "neg_zero",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": -0}]
+      }
+    },
+    {
+      "name": "string to number coercion via arithmetic",
+      "params": {
+        "lua_script": "function str_math()\n  return \"42\" + 0\nend",
+        "function_for_item": "str_math",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": 42}]
+      }
+    },
+    {
+      "name": "number to string via concatenation",
+      "params": {
+        "lua_script": "function num_concat()\n  return 3.14 .. \"\"\nend",
+        "function_for_item": "num_concat",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": "3.14"}]
+      }
+    },
+    {
+      "name": "integer division (floor)",
+      "params": {
+        "lua_script": "function int_div()\n  return math.floor(7/2)\nend",
+        "function_for_item": "int_div",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": 3}]
+      }
+    },
+    {
+      "name": "modulo with negative operand",
+      "params": {
+        "lua_script": "function neg_mod()\n  return -7 % 3\nend",
+        "function_for_item": "neg_mod",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": 2}]
+      }
+    },
+    {
+      "name": "string length with multibyte (ASCII only)",
+      "params": {
+        "lua_script": "function str_len()\n  return string.len(\"hello\")\nend",
+        "function_for_item": "str_len",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": 5}]
+      }
+    },
+    {
+      "name": "multiple return values",
+      "params": {
+        "lua_script": "function multi_ret()\n  return 10, 20, 30\nend",
+        "function_for_item": "multi_ret",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["a", "b", "c"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"a": 10, "b": 20, "c": 30}]
+      }
+    },
+    {
+      "name": "nil return means no write",
+      "params": {
+        "lua_script": "function bool_nil()\n  return nil\nend",
+        "function_for_item": "bool_nil",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{}]
+      }
+    }
+  ]
+}

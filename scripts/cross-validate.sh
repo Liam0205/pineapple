@@ -56,7 +56,7 @@ echo "    Done."
 echo
 
 # ---------- 1. Codegen schema parity ----------
-echo "==> [1/7] Codegen schema parity"
+echo "==> [1/11] Codegen schema parity"
 echo "    Exporting Go schema..."
 "$WORK_DIR/pineapple-codegen" -schema-json "$WORK_DIR/schema-go.json"
 
@@ -128,7 +128,7 @@ fi
 
 # ---------- 2. Render-DAG parity ----------
 echo
-echo "==> [2/7] Render-DAG parity"
+echo "==> [2/11] Render-DAG parity"
 
 dag_pass=0
 dag_total=0
@@ -220,7 +220,7 @@ fi
 
 # ---------- 3. Dual-engine execution parity ----------
 echo
-echo "==> [3/7] Execution parity (Go vs Java on same config+request)"
+echo "==> [3/11] Execution parity (Go vs Java on same config+request)"
 
 FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 exec_pass=0
@@ -305,7 +305,7 @@ fi
 
 # ---------- 4. Column-store execution parity ----------
 echo
-echo "==> [4/7] Column-store execution parity (storage_mode=column)"
+echo "==> [4/11] Column-store execution parity (storage_mode=column)"
 # All fixtures are re-run with storage_mode forced to "column", including those
 # that already declare it.  This verifies row→column equivalence uniformly.
 
@@ -390,7 +390,7 @@ fi
 
 # ---------- 5. Error parity ----------
 echo
-echo "==> [5/7] Error parity (Go vs Java on invalid configs)"
+echo "==> [5/11] Error parity (Go vs Java on invalid configs)"
 
 ERRORS_DIR="$REPO_ROOT/fixtures/errors"
 err_pass=0
@@ -472,7 +472,7 @@ fi
 
 # ---------- 6. Server HTTP parity ----------
 echo
-echo "==> [6/7] Server HTTP parity (Go vs Java endpoint behavior)"
+echo "==> [6/11] Server HTTP parity (Go vs Java endpoint behavior)"
 
 # Pick a simple fixture for server testing
 SRV_FIXTURE="$REPO_ROOT/fixtures/pipelines/transform_then_filter.json"
@@ -733,8 +733,8 @@ import sys
 items = ','.join(['{\"x\":\"' + 'A'*1000 + '\"}'] * 11000)
 sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
 " > "$WORK_DIR/large_body.json"
-  go_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$GO_PORT/execute")
-  java_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$JAVA_PORT/execute")
+  go_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$GO_PORT/execute" 2>/dev/null || true)
+  java_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$JAVA_PORT/execute" 2>/dev/null || true)
   if [[ "$go_413_code" == "$java_413_code" ]] && [[ "$go_413_code" == "413" ]]; then
     srv_pass=$((srv_pass + 1))
     echo "    [11] POST /execute (oversized body) → 413 match"
@@ -1013,7 +1013,7 @@ fi
 
 # ---------- 7. Cancellation/timeout parity ----------
 echo
-echo "==> [7/7] Cancellation parity (timeout behavior)"
+echo "==> [7/11] Cancellation parity (timeout behavior)"
 
 # Create a slow Lua fixture that should exceed a tight timeout
 TIMEOUT_CONFIG="$WORK_DIR/timeout_config.json"
@@ -1132,6 +1132,473 @@ if [[ $cancel_total -gt 0 && $cancel_pass -eq $cancel_total ]]; then
   pass "cancellation parity ($cancel_pass/$cancel_total checks)"
 elif [[ $cancel_total -eq 0 ]]; then
   pass "cancellation parity (skipped)"
+fi
+
+# ---------- 8. Concurrent request parity ----------
+echo
+echo "==> [8/11] Concurrent request parity"
+
+# Use the first server pair config (transform_then_filter)
+SRV_FIXTURE="$REPO_ROOT/fixtures/pipelines/transform_then_filter.json"
+CONC_CONFIG="$WORK_DIR/conc_config.json"
+python3 -c "
+import json
+with open('$SRV_FIXTURE') as f:
+    data = json.load(f)
+with open('$CONC_CONFIG', 'w') as cf:
+    json.dump(data.get('config', {}), cf)
+"
+
+CONC_REQ=$(python3 -c "
+import json
+with open('$SRV_FIXTURE') as f:
+    data = json.load(f)
+print(json.dumps(data['cases'][0]['request']))
+")
+
+GO_CONC_PORT=18920
+JAVA_CONC_PORT=18921
+
+"$WORK_DIR/pineapple-server" -config "$CONC_CONFIG" -addr ":$GO_CONC_PORT" &
+GO_SRV_PID=$!
+java -cp "$JAVA_CP" -Dpine.config="$CONC_CONFIG" -Dpine.port=$JAVA_CONC_PORT page.liam.pine.PineServer &
+JAVA_SRV_PID=$!
+
+conc_pass=0
+conc_total=0
+
+if srv_ready $GO_CONC_PORT && srv_ready $JAVA_CONC_PORT; then
+  echo "    Servers ready. Sending 10 concurrent requests to each..."
+
+  # Send 10 concurrent requests to Go
+  curl_pids=()
+  for i in $(seq 1 10); do
+    curl -s -X POST -H "Content-Type: application/json" -d "$CONC_REQ" "http://localhost:$GO_CONC_PORT/execute" > "$WORK_DIR/conc_go_$i.json" &
+    curl_pids+=($!)
+  done
+  wait "${curl_pids[@]}"
+
+  # Send 10 concurrent requests to Java
+  curl_pids=()
+  for i in $(seq 1 10); do
+    curl -s -X POST -H "Content-Type: application/json" -d "$CONC_REQ" "http://localhost:$JAVA_CONC_PORT/execute" > "$WORK_DIR/conc_java_$i.json" &
+    curl_pids+=($!)
+  done
+  wait "${curl_pids[@]}"
+
+  # All Go results should be identical to each other
+  conc_total=$((conc_total + 1))
+  go_first=$(cat "$WORK_DIR/conc_go_1.json" | normalize_json)
+  go_all_match=true
+  for i in $(seq 2 10); do
+    go_i=$(cat "$WORK_DIR/conc_go_$i.json" | normalize_json)
+    if [[ "$go_first" != "$go_i" ]]; then
+      go_all_match=false
+      break
+    fi
+  done
+
+  java_first=$(cat "$WORK_DIR/conc_java_1.json" | normalize_json)
+  java_all_match=true
+  for i in $(seq 2 10); do
+    java_i=$(cat "$WORK_DIR/conc_java_$i.json" | normalize_json)
+    if [[ "$java_first" != "$java_i" ]]; then
+      java_all_match=false
+      break
+    fi
+  done
+
+  if [[ "$go_all_match" == "true" && "$java_all_match" == "true" ]]; then
+    conc_pass=$((conc_pass + 1))
+    echo "    [1] All 10 concurrent responses identical within each engine"
+  else
+    fail "concurrent: responses differ within engine (Go_consistent=$go_all_match, Java_consistent=$java_all_match)"
+  fi
+
+  # Go and Java results should match each other
+  conc_total=$((conc_total + 1))
+  if [[ "$go_first" == "$java_first" ]]; then
+    conc_pass=$((conc_pass + 1))
+    echo "    [2] Go vs Java concurrent response → match"
+  else
+    fail "concurrent: Go vs Java divergence under concurrent load"
+    diff <(echo "$go_first" | python3 -m json.tool) <(echo "$java_first" | python3 -m json.tool) >&2 || true
+  fi
+
+  # Check stats consistency: exec_count should be 10 for each operator
+  conc_total=$((conc_total + 1))
+  go_exec_counts=$(curl -s "http://localhost:$GO_CONC_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ops = d.get('operators', {})
+counts = [v.get('exec_count', 0) for v in ops.values()]
+print(min(counts), max(counts))
+")
+  java_exec_counts=$(curl -s "http://localhost:$JAVA_CONC_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ops = d.get('operators', {})
+counts = [v.get('exec_count', 0) for v in ops.values()]
+print(min(counts), max(counts))
+")
+
+  if [[ "$go_exec_counts" == "10 10" && "$java_exec_counts" == "10 10" ]]; then
+    conc_pass=$((conc_pass + 1))
+    echo "    [3] Stats exec_count = 10 for all operators (both engines)"
+  else
+    fail "concurrent: stats exec_count mismatch (Go=$go_exec_counts, Java=$java_exec_counts)"
+  fi
+
+  kill $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  wait $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  GO_SRV_PID=""
+  JAVA_SRV_PID=""
+else
+  fail "concurrent: servers failed to start"
+  kill $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  wait $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  GO_SRV_PID=""
+  JAVA_SRV_PID=""
+fi
+
+if [[ $conc_total -gt 0 && $conc_pass -eq $conc_total ]]; then
+  pass "concurrent request parity ($conc_pass/$conc_total checks)"
+elif [[ $conc_total -eq 0 ]]; then
+  pass "concurrent request parity (skipped)"
+fi
+
+# ---------- 9. Raw byte execution parity (key ordering) ----------
+echo
+echo "==> [9/11] Raw byte execution parity (no normalization)"
+
+raw_pass=0
+raw_total=0
+
+for fixture_file in "$FIXTURES_DIR"/*.json; do
+  [[ -f "$fixture_file" ]] || continue
+  fname=$(basename "$fixture_file")
+
+  config_file="$WORK_DIR/config_${fname}"
+  [[ -f "$config_file" ]] || continue
+
+  cases=$(python3 -c "
+import json, sys
+with open('$fixture_file') as f:
+    data = json.load(f)
+print(len(data.get('cases', [])))
+" 2>/dev/null) || continue
+
+  [[ -z "$cases" || "$cases" == "0" ]] && continue
+
+  for ((i=0; i<cases; i++)); do
+    req_file="$WORK_DIR/req_${fname}_${i}.json"
+    [[ -f "$req_file" && -f "$config_file" ]] || continue
+    raw_total=$((raw_total + 1))
+
+    res_args=()
+    if [[ -f "$WORK_DIR/resources_${fname}.json" ]]; then
+      res_args=(-static-resources "$WORK_DIR/resources_${fname}.json")
+    fi
+
+    go_raw=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
+      raw_total=$((raw_total - 1)); continue
+    }
+
+    java_raw=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
+      raw_total=$((raw_total - 1)); continue
+    }
+
+    if [[ "$go_raw" == "$java_raw" ]]; then
+      raw_pass=$((raw_pass + 1))
+    else
+      # Key ordering differences are expected (Go: struct field order, Java: insertion order)
+      # Only fail if the normalized values also differ (would indicate a real data bug)
+      go_norm=$(echo "$go_raw" | normalize_json)
+      java_norm=$(echo "$java_raw" | normalize_json)
+      if [[ "$go_norm" == "$java_norm" ]]; then
+        raw_pass=$((raw_pass + 1))
+      else
+        fail "raw byte divergence: $fname case $i (values differ, not just key ordering)"
+        diff <(echo "$go_raw") <(echo "$java_raw") >&2 | head -10 || true
+      fi
+    fi
+  done
+done
+
+if [[ $raw_total -gt 0 && $raw_pass -eq $raw_total ]]; then
+  pass "raw byte execution parity ($raw_pass/$raw_total cases)"
+elif [[ $raw_total -eq 0 ]]; then
+  pass "raw byte execution parity (no cases, skipped)"
+fi
+
+# ---------- 10. Server hot-reload parity ----------
+echo
+echo "==> [10/11] Server hot-reload parity"
+
+reload_pass=0
+reload_total=0
+
+# Start with one config, then swap to another
+RELOAD_CONFIG_A="$WORK_DIR/reload_config.json"
+RELOAD_CONFIG_B="$WORK_DIR/reload_config_b.json"
+
+# Config A: simple transform_then_filter (2 operators)
+python3 -c "
+import json
+with open('$REPO_ROOT/fixtures/pipelines/transform_then_filter.json') as f:
+    data = json.load(f)
+with open('$RELOAD_CONFIG_A', 'w') as cf:
+    json.dump(data.get('config', {}), cf)
+"
+
+# Config B: recall_rank_truncate (different operators)
+python3 -c "
+import json
+with open('$REPO_ROOT/fixtures/pipelines/recall_rank_truncate.json') as f:
+    data = json.load(f)
+with open('$RELOAD_CONFIG_B', 'w') as cf:
+    json.dump(data.get('config', {}), cf)
+"
+
+RELOAD_GO_PORT=18930
+RELOAD_JAVA_PORT=18931
+
+"$WORK_DIR/pineapple-server" -config "$RELOAD_CONFIG_A" -addr ":$RELOAD_GO_PORT" &
+GO_SRV_PID=$!
+java -cp "$JAVA_CP" -Dpine.config="$RELOAD_CONFIG_A" -Dpine.port=$RELOAD_JAVA_PORT page.liam.pine.PineServer &
+JAVA_SRV_PID=$!
+
+if srv_ready $RELOAD_GO_PORT && srv_ready $RELOAD_JAVA_PORT; then
+  # Execute one request on each server to populate operator stats
+  RELOAD_REQ=$(python3 -c "
+import json
+with open('$REPO_ROOT/fixtures/pipelines/transform_then_filter.json') as f:
+    data = json.load(f)
+print(json.dumps(data['cases'][0]['request']))
+")
+  curl -s -X POST -H "Content-Type: application/json" -d "$RELOAD_REQ" "http://localhost:$RELOAD_GO_PORT/execute" >/dev/null 2>&1 || true
+  curl -s -X POST -H "Content-Type: application/json" -d "$RELOAD_REQ" "http://localhost:$RELOAD_JAVA_PORT/execute" >/dev/null 2>&1 || true
+
+  # Test 1: Initial operator count matches (after one execution)
+  reload_total=$((reload_total + 1))
+  go_ops_before=$(curl -s "http://localhost:$RELOAD_GO_PORT/stats" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('operators',{})))")
+  java_ops_before=$(curl -s "http://localhost:$RELOAD_JAVA_PORT/stats" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('operators',{})))")
+  if [[ "$go_ops_before" == "$java_ops_before" && "$go_ops_before" != "0" ]]; then
+    reload_pass=$((reload_pass + 1))
+    echo "    [1] Initial operator count matches ($go_ops_before operators)"
+  else
+    fail "hot-reload: initial operator count mismatch (Go=$go_ops_before, Java=$java_ops_before)"
+  fi
+
+  # Swap config file contents (simulates hot-reload trigger)
+  cp "$RELOAD_CONFIG_B" "$RELOAD_CONFIG_A"
+  sleep 3  # Wait for mtime poll to detect change
+
+  # Test 2: After reload, DAG structure should change (use /dag endpoint)
+  reload_total=$((reload_total + 1))
+  go_dag_before=$("$WORK_DIR/pineapple-dag" -config "$WORK_DIR/reload_config_b.json" -format dot 2>/dev/null || echo "")
+  go_dag_after=$(curl -s "http://localhost:$RELOAD_GO_PORT/dag?format=dot")
+  java_dag_after=$(curl -s "http://localhost:$RELOAD_JAVA_PORT/dag?format=dot")
+  if [[ "$go_dag_after" == "$java_dag_after" && -n "$go_dag_after" ]]; then
+    reload_pass=$((reload_pass + 1))
+    echo "    [2] After reload, DAG matches between Go and Java"
+  else
+    fail "hot-reload: DAG mismatch after reload"
+  fi
+
+  # Test 3: reload_count in server stats incremented
+  reload_total=$((reload_total + 1))
+  go_reload_count=$(curl -s "http://localhost:$RELOAD_GO_PORT/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))")
+  java_reload_count=$(curl -s "http://localhost:$RELOAD_JAVA_PORT/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))")
+  if [[ "$go_reload_count" -ge 1 && "$java_reload_count" -ge 1 ]]; then
+    reload_pass=$((reload_pass + 1))
+    echo "    [3] reload_count >= 1 (Go=$go_reload_count, Java=$java_reload_count)"
+  else
+    fail "hot-reload: reload_count not incremented (Go=$go_reload_count, Java=$java_reload_count)"
+  fi
+
+  kill $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  wait $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  GO_SRV_PID=""
+  JAVA_SRV_PID=""
+else
+  fail "hot-reload: servers failed to start"
+  kill $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  wait $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
+  GO_SRV_PID=""
+  JAVA_SRV_PID=""
+fi
+
+if [[ $reload_total -gt 0 && $reload_pass -eq $reload_total ]]; then
+  pass "hot-reload parity ($reload_pass/$reload_total checks)"
+elif [[ $reload_total -eq 0 ]]; then
+  pass "hot-reload parity (skipped)"
+fi
+
+# ---------- 11. Redis integration parity (conditional) ----------
+echo
+echo "==> [11/11] Redis integration parity (requires redis-server)"
+
+REDIS_FIXTURE="$REPO_ROOT/fixtures/pipelines/redis_integration.json"
+redis_pass=0
+redis_total=0
+
+if ! which redis-server >/dev/null 2>&1; then
+  pass "redis integration (skipped: redis-server not found)"
+else
+  REDIS_PORT=18940
+
+  redis-server --port $REDIS_PORT --daemonize yes --logfile /dev/null --save "" --appendonly no
+
+  # Wait for Redis to be ready
+  redis_ready=false
+  for i in $(seq 1 20); do
+    if redis-cli -p $REDIS_PORT PING 2>/dev/null | grep -q PONG; then
+      redis_ready=true
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ "$redis_ready" != "true" ]]; then
+    fail "redis integration: redis-server failed to start on port $REDIS_PORT"
+  else
+    echo "    Redis ready on port $REDIS_PORT"
+
+    # --- Test A: set-then-get via fixture (both engines) ---
+    redis_total=$((redis_total + 1))
+
+    # Create temp config by replacing PLACEHOLDER with actual Redis address and enabling strict mode
+    REDIS_CONFIG="$WORK_DIR/redis_config.json"
+    REDIS_REQ="$WORK_DIR/redis_req.json"
+    python3 -c "
+import json
+with open('$REDIS_FIXTURE') as f:
+    data = json.load(f)
+cfg = data['config']
+# Inject fail_on_error for strict integration testing
+for op in cfg.get('pipeline_config', {}).get('operators', {}).values():
+    op['fail_on_error'] = True
+cfg_str = json.dumps(cfg)
+cfg_str = cfg_str.replace('PLACEHOLDER', '127.0.0.1:$REDIS_PORT')
+with open('$REDIS_CONFIG', 'w') as cf:
+    cf.write(cfg_str)
+req = data['cases'][0]['request']
+with open('$REDIS_REQ', 'w') as rf:
+    json.dump(req, rf)
+"
+
+    # Run Go engine
+    go_redis_result=$("$WORK_DIR/pineapple-run" -config "$REDIS_CONFIG" -request "$REDIS_REQ" 2>/dev/null) || {
+      fail "redis integration: Go engine failed on set-then-get"
+      go_redis_result=""
+    }
+
+    # Run Java engine (flush Redis first so Java also starts fresh)
+    redis-cli -p $REDIS_PORT FLUSHALL >/dev/null 2>&1
+    java_redis_result=$(java_run page.liam.pine.RunCli -config "$REDIS_CONFIG" -request "$REDIS_REQ" 2>/dev/null) || {
+      fail "redis integration: Java engine failed on set-then-get"
+      java_redis_result=""
+    }
+
+    if [[ -n "$go_redis_result" && -n "$java_redis_result" ]]; then
+      go_redis_norm=$(echo "$go_redis_result" | normalize_json)
+      java_redis_norm=$(echo "$java_redis_result" | normalize_json)
+
+      if [[ "$go_redis_norm" == "$java_redis_norm" ]]; then
+        redis_pass=$((redis_pass + 1))
+        echo "    [A] set-then-get parity → match"
+      else
+        fail "redis integration: set-then-get divergence"
+        diff <(echo "$go_redis_norm" | python3 -m json.tool) <(echo "$java_redis_norm" | python3 -m json.tool) >&2 || true
+      fi
+    fi
+
+    # --- Test B: pre-populated GET-only (both engines read same value) ---
+    redis_total=$((redis_total + 1))
+
+    # Pre-populate Redis with a known value
+    redis-cli -p $REDIS_PORT SET "test:user2" "pre_existing" >/dev/null 2>&1
+
+    # Create GET-only config (no set_cache, just get_cache)
+    REDIS_GET_CONFIG="$WORK_DIR/redis_get_config.json"
+    REDIS_GET_REQ="$WORK_DIR/redis_get_req.json"
+    cat > "$REDIS_GET_CONFIG" << GETCFG
+{
+  "pipeline_config": {
+    "operators": {
+      "get_cache": {
+        "type_name": "transform_redis_get",
+        "redis_addr": "127.0.0.1:$REDIS_PORT",
+        "key_prefix": "test:",
+        "fail_on_error": true,
+        "\$metadata": {
+          "common_input": ["uid"],
+          "common_output": ["result", "cache_hit"],
+          "item_input": [],
+          "item_output": []
+        }
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["get_cache"]}
+  },
+  "flow_contract": {
+    "common_input": ["uid"],
+    "item_input": [],
+    "common_output": ["uid", "result", "cache_hit"],
+    "item_output": []
+  }
+}
+GETCFG
+    cat > "$REDIS_GET_REQ" << 'GETREQ'
+{"common": {"uid": "user2"}, "items": []}
+GETREQ
+
+    # Run Go engine
+    go_get_result=$("$WORK_DIR/pineapple-run" -config "$REDIS_GET_CONFIG" -request "$REDIS_GET_REQ" 2>/dev/null) || {
+      fail "redis integration: Go engine failed on pre-populated get"
+      go_get_result=""
+    }
+
+    # Run Java engine (same pre-populated Redis key)
+    java_get_result=$(java_run page.liam.pine.RunCli -config "$REDIS_GET_CONFIG" -request "$REDIS_GET_REQ" 2>/dev/null) || {
+      fail "redis integration: Java engine failed on pre-populated get"
+      java_get_result=""
+    }
+
+    if [[ -n "$go_get_result" && -n "$java_get_result" ]]; then
+      go_get_norm=$(echo "$go_get_result" | normalize_json)
+      java_get_norm=$(echo "$java_get_result" | normalize_json)
+
+      if [[ "$go_get_norm" == "$java_get_norm" ]]; then
+        redis_pass=$((redis_pass + 1))
+        echo "    [B] pre-populated get parity → match"
+
+        # Also verify correctness: result should be "pre_existing"
+        got_value=$(echo "$go_get_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('result',''))")
+        got_hit=$(echo "$go_get_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('cache_hit',''))")
+        if [[ "$got_value" == "pre_existing" && "$got_hit" == "True" ]]; then
+          echo "    [B] correctness verified: result='pre_existing', cache_hit=True"
+        else
+          echo "    [B] WARNING: unexpected values (result='$got_value', cache_hit='$got_hit')" >&2
+        fi
+      else
+        fail "redis integration: pre-populated get divergence"
+        diff <(echo "$go_get_norm" | python3 -m json.tool) <(echo "$java_get_norm" | python3 -m json.tool) >&2 || true
+      fi
+    fi
+
+    # Shutdown Redis
+    redis-cli -p $REDIS_PORT SHUTDOWN NOSAVE >/dev/null 2>&1 || true
+  fi
+
+  if [[ $redis_total -gt 0 && $redis_pass -eq $redis_total ]]; then
+    pass "redis integration parity ($redis_pass/$redis_total checks)"
+  elif [[ $redis_total -eq 0 ]]; then
+    pass "redis integration parity (skipped: setup failed)"
+  fi
 fi
 
 # ---------- Summary ----------

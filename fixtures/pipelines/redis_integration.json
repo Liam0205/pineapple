@@ -1,0 +1,47 @@
+{
+  "name": "redis integration set-then-get parity",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "set_cache": {
+          "type_name": "transform_redis_set",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "test:",
+          "$metadata": {
+            "common_input": ["uid", "payload"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "get_cache": {
+          "type_name": "transform_redis_get",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "test:",
+          "$metadata": {
+            "common_input": ["uid"],
+            "common_output": ["result", "cache_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["set_cache", "get_cache"]}
+    },
+    "flow_contract": {
+      "common_input": ["uid", "payload"],
+      "item_input": [],
+      "common_output": ["uid", "payload", "result", "cache_hit"],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "set then get string",
+      "request": {"common": {"uid": "user1", "payload": "hello_world"}, "items": []},
+      "expected": {"common": {"uid": "user1", "payload": "hello_world", "result": "hello_world", "cache_hit": true}, "items": []}
+    }
+  ]
+}
