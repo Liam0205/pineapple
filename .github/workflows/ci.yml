@@ -86,6 +86,20 @@ jobs:
           path: coverage.xml
           retention-days: 30
 
+  java-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: java-pine
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+      - name: Run fixture tests
+        run: mvn test -B -q
+
   codegen-check:
     runs-on: ubuntu-latest
     steps:
