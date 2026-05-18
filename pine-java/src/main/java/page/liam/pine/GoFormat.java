@@ -1,5 +1,10 @@
 package page.liam.pine;
 
+import com.fasterxml.jackson.core.SerializableString;
+import com.fasterxml.jackson.core.io.CharacterEscapes;
+import com.fasterxml.jackson.core.io.SerializedString;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.List;
 
 /**
@@ -203,5 +208,35 @@ public final class GoFormat {
         Object[] result = new Object[len];
         for (int i = 0; i < len; i++) result[i] = java.lang.reflect.Array.get(arr, i);
         return result;
+    }
+
+    /**
+     * Creates an ObjectMapper that escapes &lt;, &gt;, &amp;, U+2028, U+2029
+     * to match Go encoding/json's default HTML-safe output.
+     */
+    static ObjectMapper createGoCompatMapper() {
+        ObjectMapper m = new ObjectMapper();
+        m.getFactory().setCharacterEscapes(new CharacterEscapes() {
+            private final int[] esc = initEsc();
+            private int[] initEsc() {
+                int[] e = standardAsciiEscapesForJSON();
+                e['<'] = ESCAPE_CUSTOM;
+                e['>'] = ESCAPE_CUSTOM;
+                e['&'] = ESCAPE_CUSTOM;
+                return e;
+            }
+            @Override public int[] getEscapeCodesForAscii() { return esc; }
+            @Override public SerializableString getEscapeSequence(int ch) {
+                switch (ch) {
+                    case '<': return new SerializedString("\\u003c");
+                    case '>': return new SerializedString("\\u003e");
+                    case '&': return new SerializedString("\\u0026");
+                    case 0x2028: return new SerializedString("\\u2028");
+                    case 0x2029: return new SerializedString("\\u2029");
+                    default: return null;
+                }
+            }
+        });
+        return m;
     }
 }

@@ -1,0 +1,36 @@
+{
+  "name": "Config error: operator name collides with pipeline_map key",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "stage": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function noop(item) return item end",
+          "function_for_item": "noop",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["x"]
+          }
+        }
+      },
+      "pipeline_map": {
+        "stage": {"pipeline": ["stage"]}
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["stage"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["x"]
+    }
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "exists in both"
+  }
+}

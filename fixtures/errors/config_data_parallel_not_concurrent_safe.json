@@ -1,0 +1,32 @@
+{
+  "name": "Validation error: data_parallel on operator not implementing ConcurrentSafe",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "norm_op": {
+          "type_name": "transform_normalize",
+          "data_parallel": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["score"],
+            "item_output": ["score_norm"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["norm_op"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["score"],
+      "common_output": [],
+      "item_output": ["score_norm"]
+    }
+  },
+  "expected_error": {
+    "type": "ValidationError",
+    "message_contains": "ConcurrentSafe"
+  }
+}

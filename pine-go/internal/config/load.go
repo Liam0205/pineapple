@@ -208,7 +208,7 @@ func validate(cfg *RootConfig) error {
 	for name := range cfg.PipelineConfig.Operators {
 		if _, ok := cfg.PipelineConfig.PipelineMap[name]; ok {
 			return &types.ConfigError{
-				Message: fmt.Sprintf("operator name %q collides with a SubFlow path in pipeline_map", name),
+				Message: fmt.Sprintf("name %q exists in both operators and pipeline_map", name),
 			}
 		}
 	}

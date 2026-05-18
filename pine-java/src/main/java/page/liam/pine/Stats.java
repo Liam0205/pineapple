@@ -34,7 +34,7 @@ public class Stats {
     }
 
     public Map<String, Map<String, Object>> snapshot() {
-        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        Map<String, Map<String, Object>> result = new TreeMap<>();
         for (Map.Entry<String, OpStats> e : ops.entrySet()) {
             result.put(e.getKey(), e.getValue().snapshot());
         }

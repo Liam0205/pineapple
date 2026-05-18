@@ -22,6 +22,7 @@
           "function_for_item": "discount",
           "function_for_common": "",
           "skip": "_skip_discount",
+          "for_branch_control": true,
           "$metadata": {
             "common_input": ["_skip_discount"],
             "common_output": [],
