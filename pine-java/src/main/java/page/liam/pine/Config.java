@@ -1,0 +1,302 @@
+package page.liam.pine;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.*;
+
+public class Config {
+    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final Set<String> RESERVED_KEYS = new HashSet<>(Arrays.asList(
+            "type_name", "$metadata", "$code_info", "skip", "recall", "sources",
+            "debug", "row_dependency", "common_defaults", "item_defaults",
+            "for_branch_control", "data_parallel"
+    ));
+
+    public String pineappleVersion;
+    public String logPrefix = "";
+    public boolean debug;
+    public String storageMode = "row";
+    public PipelineConfig pipelineConfig;
+    public Map<String, SubFlowRef> pipelineGroup;
+    public FlowContract flowContract;
+
+    public static Config load(byte[] json) throws Exception {
+        JsonNode root = mapper.readTree(json);
+        Config cfg = new Config();
+        cfg.pineappleVersion = root.has("_PINEAPPLE_VERSION") ? root.get("_PINEAPPLE_VERSION").asText() : "";
+        cfg.logPrefix = root.has("log_prefix") ? root.get("log_prefix").asText() : "";
+        cfg.debug = root.has("debug") && root.get("debug").asBoolean();
+        cfg.storageMode = root.has("storage_mode") ? root.get("storage_mode").asText() : "row";
+
+        // Parse flow_contract
+        cfg.flowContract = new FlowContract();
+        if (root.has("flow_contract")) {
+            JsonNode fc = root.get("flow_contract");
+            cfg.flowContract.commonInput = readStringList(fc, "common_input");
+            cfg.flowContract.itemInput = readStringList(fc, "item_input");
+            cfg.flowContract.commonOutput = readStringList(fc, "common_output");
+            cfg.flowContract.itemOutput = readStringList(fc, "item_output");
+        }
+
+        // Parse pipeline_group
+        cfg.pipelineGroup = new LinkedHashMap<>();
+        if (root.has("pipeline_group")) {
+            for (Iterator<Map.Entry<String, JsonNode>> it = root.get("pipeline_group").fields(); it.hasNext(); ) {
+                Map.Entry<String, JsonNode> entry = it.next();
+                SubFlowRef ref = new SubFlowRef();
+                ref.pipeline = readStringList(entry.getValue(), "pipeline");
+                cfg.pipelineGroup.put(entry.getKey(), ref);
+            }
+        }
+
+        // Parse pipeline_config
+        cfg.pipelineConfig = new PipelineConfig();
+        cfg.pipelineConfig.operators = new LinkedHashMap<>();
+        cfg.pipelineConfig.pipelineMap = new LinkedHashMap<>();
+
+        if (root.has("pipeline_config")) {
+            JsonNode pc = root.get("pipeline_config");
+
+            // Parse pipeline_map
+            if (pc.has("pipeline_map")) {
+                for (Iterator<Map.Entry<String, JsonNode>> it = pc.get("pipeline_map").fields(); it.hasNext(); ) {
+                    Map.Entry<String, JsonNode> entry = it.next();
+                    SubFlowRef ref = new SubFlowRef();
+                    ref.pipeline = readStringList(entry.getValue(), "pipeline");
+                    cfg.pipelineConfig.pipelineMap.put(entry.getKey(), ref);
+                }
+            }
+
+            // Parse operators
+            if (pc.has("operators")) {
+                for (Iterator<Map.Entry<String, JsonNode>> it = pc.get("operators").fields(); it.hasNext(); ) {
+                    Map.Entry<String, JsonNode> entry = it.next();
+                    String name = entry.getKey();
+                    JsonNode opNode = entry.getValue();
+                    OperatorConfig opCfg = parseOperatorConfig(opNode);
+                    cfg.pipelineConfig.operators.put(name, opCfg);
+                }
+            }
+        }
+
+        validate(cfg);
+        return cfg;
+    }
+
+    private static OperatorConfig parseOperatorConfig(JsonNode node) throws Exception {
+        OperatorConfig opCfg = new OperatorConfig();
+        opCfg.typeName = node.has("type_name") ? node.get("type_name").asText() : "";
+        opCfg.recall = node.has("recall") && node.get("recall").asBoolean();
+        opCfg.debug = node.has("debug") && node.get("debug").asBoolean();
+        opCfg.rowDependency = node.has("row_dependency") && node.get("row_dependency").asBoolean();
+        opCfg.forBranchControl = node.has("for_branch_control") && node.get("for_branch_control").asBoolean();
+        opCfg.dataParallel = node.has("data_parallel") ? node.get("data_parallel").asInt(1) : 1;
+        opCfg.sources = node.has("sources") ? readStringList(node, "sources") : Collections.emptyList();
+
+        // Parse skip
+        if (node.has("skip")) {
+            JsonNode skipNode = node.get("skip");
+            if (skipNode.isArray()) {
+                opCfg.skip = new ArrayList<>();
+                for (JsonNode s : skipNode) {
+                    opCfg.skip.add(s.asText());
+                }
+            } else if (skipNode.isTextual() && !skipNode.asText().isEmpty()) {
+                opCfg.skip = Collections.singletonList(skipNode.asText());
+            } else {
+                opCfg.skip = Collections.emptyList();
+            }
+        } else {
+            opCfg.skip = Collections.emptyList();
+        }
+
+        // Parse $metadata
+        opCfg.metadata = new Metadata();
+        if (node.has("$metadata")) {
+            JsonNode meta = node.get("$metadata");
+            opCfg.metadata.commonInput = readStringList(meta, "common_input");
+            opCfg.metadata.commonOutput = readStringList(meta, "common_output");
+            opCfg.metadata.itemInput = readStringList(meta, "item_input");
+            opCfg.metadata.itemOutput = readStringList(meta, "item_output");
+        }
+
+        // Parse common_defaults and item_defaults
+        opCfg.commonDefaults = node.has("common_defaults")
+                ? mapper.convertValue(node.get("common_defaults"), new TypeReference<Map<String, Object>>() {})
+                : Collections.emptyMap();
+        opCfg.itemDefaults = node.has("item_defaults")
+                ? mapper.convertValue(node.get("item_defaults"), new TypeReference<Map<String, Object>>() {})
+                : Collections.emptyMap();
+
+        // Extract raw params (non-reserved keys)
+        opCfg.rawParams = new LinkedHashMap<>();
+        for (Iterator<Map.Entry<String, JsonNode>> it = node.fields(); it.hasNext(); ) {
+            Map.Entry<String, JsonNode> entry = it.next();
+            if (!RESERVED_KEYS.contains(entry.getKey())) {
+                opCfg.rawParams.put(entry.getKey(), mapper.convertValue(entry.getValue(), Object.class));
+            }
+        }
+
+        return opCfg;
+    }
+
+    public List<String> expandOperatorSequence() throws Exception {
+        return expandOperatorSequenceWithSubFlows().sequence;
+    }
+
+    public ExpandResult expandOperatorSequenceWithSubFlows() throws Exception {
+        SubFlowRef group;
+        if (pipelineGroup.containsKey("main")) {
+            group = pipelineGroup.get("main");
+        } else if (pipelineGroup.size() == 1) {
+            group = pipelineGroup.values().iterator().next();
+        } else {
+            throw new ConfigException("pipeline_group must contain a \"main\" entry or exactly one entry");
+        }
+
+        // Reject ambiguous names
+        for (String name : pipelineConfig.operators.keySet()) {
+            if (pipelineConfig.pipelineMap.containsKey(name)) {
+                throw new ConfigException("name \"" + name + "\" exists in both operators and pipeline_map");
+            }
+        }
+
+        List<String> sequence = new ArrayList<>();
+        Map<String, String> opToSubFlow = new LinkedHashMap<>();
+        Set<String> visiting = new HashSet<>();
+        Set<String> seen = new HashSet<>();
+
+        expandEntries(group.pipeline, "", sequence, opToSubFlow, visiting, seen);
+        return new ExpandResult(sequence, opToSubFlow);
+    }
+
+    private void expandEntries(List<String> entries, String parentPath,
+                               List<String> sequence, Map<String, String> opToSubFlow,
+                               Set<String> visiting, Set<String> seen) throws ConfigException {
+        for (String entry : entries) {
+            if (pipelineConfig.operators.containsKey(entry)) {
+                if (seen.contains(entry)) {
+                    throw new ConfigException("operator \"" + entry + "\" referenced more than once in pipeline tree");
+                }
+                seen.add(entry);
+                sequence.add(entry);
+                opToSubFlow.put(entry, parentPath);
+            } else if (pipelineConfig.pipelineMap.containsKey(entry)) {
+                if (visiting.contains(entry)) {
+                    throw new ConfigException("cycle detected in sub-flow expansion: \"" + entry + "\"");
+                }
+                visiting.add(entry);
+                expandEntries(pipelineConfig.pipelineMap.get(entry).pipeline, entry,
+                        sequence, opToSubFlow, visiting, seen);
+                visiting.remove(entry);
+            } else {
+                throw new ConfigException("pipeline entry \"" + entry + "\" is neither an operator nor a sub-flow");
+            }
+        }
+    }
+
+    private static void validate(Config cfg) throws ConfigException {
+        if (cfg.pipelineConfig.operators.isEmpty()) {
+            throw new ConfigException("pipeline_config.operators is empty");
+        }
+        if (cfg.pipelineGroup.isEmpty()) {
+            throw new ConfigException("pipeline_group is empty");
+        }
+        for (Map.Entry<String, OperatorConfig> entry : cfg.pipelineConfig.operators.entrySet()) {
+            if (entry.getValue().typeName.isEmpty()) {
+                throw new ConfigException("operator \"" + entry.getKey() + "\": missing type_name");
+            }
+        }
+        for (Map.Entry<String, OperatorConfig> entry : cfg.pipelineConfig.operators.entrySet()) {
+            for (String src : entry.getValue().sources) {
+                if (!cfg.pipelineConfig.operators.containsKey(src)) {
+                    throw new ConfigException("operator \"" + entry.getKey() + "\": sources references undefined operator \"" + src + "\"");
+                }
+            }
+        }
+        for (Map.Entry<String, OperatorConfig> entry : cfg.pipelineConfig.operators.entrySet()) {
+            String name = entry.getKey();
+            OperatorConfig opCfg = entry.getValue();
+            for (String skipField : opCfg.skip) {
+                if (!skipField.startsWith("_")) {
+                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must start with underscore");
+                }
+                if (!opCfg.metadata.commonInput.contains(skipField)) {
+                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" not found in $metadata.common_input");
+                }
+            }
+        }
+    }
+
+    private static List<String> readStringList(JsonNode parent, String field) {
+        if (!parent.has(field)) return Collections.emptyList();
+        JsonNode arr = parent.get(field);
+        if (!arr.isArray()) return Collections.emptyList();
+        List<String> result = new ArrayList<>(arr.size());
+        for (JsonNode n : arr) {
+            result.add(n.asText());
+        }
+        return result;
+    }
+
+    // --- Inner types ---
+
+    public static class PipelineConfig {
+        public Map<String, OperatorConfig> operators;
+        public Map<String, SubFlowRef> pipelineMap;
+    }
+
+    public static class SubFlowRef {
+        public List<String> pipeline;
+    }
+
+    public static class FlowContract {
+        public List<String> commonInput = Collections.emptyList();
+        public List<String> itemInput = Collections.emptyList();
+        public List<String> commonOutput = Collections.emptyList();
+        public List<String> itemOutput = Collections.emptyList();
+    }
+
+    public static class Metadata {
+        public List<String> commonInput = Collections.emptyList();
+        public List<String> commonOutput = Collections.emptyList();
+        public List<String> itemInput = Collections.emptyList();
+        public List<String> itemOutput = Collections.emptyList();
+    }
+
+    public static class OperatorConfig {
+        public String typeName;
+        public Metadata metadata;
+        public List<String> skip;
+        public boolean recall;
+        public List<String> sources;
+        public boolean debug;
+        public boolean rowDependency;
+        public boolean forBranchControl;
+        public int dataParallel = 1;
+        public Map<String, Object> commonDefaults = Collections.emptyMap();
+        public Map<String, Object> itemDefaults = Collections.emptyMap();
+        public Map<String, Object> rawParams;
+        public String operatorType; // populated at engine build time
+    }
+
+    public static class ExpandResult {
+        public final List<String> sequence;
+        public final Map<String, String> opToSubFlow;
+
+        public ExpandResult(List<String> sequence, Map<String, String> opToSubFlow) {
+            this.sequence = sequence;
+            this.opToSubFlow = opToSubFlow;
+        }
+    }
+
+    public static class ConfigException extends PineErrors.ConfigError {
+        public ConfigException(String message) {
+            super(message);
+        }
+    }
+}
