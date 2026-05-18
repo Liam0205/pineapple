@@ -20,10 +20,12 @@ Pine-Java 完整实现了全部 18 个内置算子，位于 `pine-java/src/.../o
 
 - `pine-java/src/.../Operator.java` — 算子接口
 - `pine-java/src/.../OperatorInput.java` / `OperatorOutput.java` — IO 类型
-- `pine-java/src/.../Registry.java` — 注册表
-- `pine-java/src/.../operators/AllOperators.java` — 全量注册入口
+- `pine-java/src/.../Registry.java` — 注册表（含独立 Schema 注册与校验）
+- `pine-java/src/.../ParamSpec.java` — 参数规格声明
+- `pine-java/src/.../OperatorSchema.java` — 算子 Schema 定义
+- `pine-java/src/.../operators/AllOperators.java` — 全量注册入口（18 算子含完整 ParamSpec 声明）
 
-Go Schema 仍是唯一事实源；Java 侧实现等效语义，不引入新的 Schema 定义。
+Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.register(OperatorSchema, Supplier<Operator>)`。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON，供 CI 交叉验证。`validateAndExtractParams()` 执行与 Go 等效的严格校验：过滤保留键、检查必填参数、注入默认值、拒绝未声明参数。
 
 ## 算子生命周期
 
@@ -355,7 +357,13 @@ Go Schema 仍是唯一事实源；Java 侧实现等效语义，不引入新的 S
 - `apple_generated/__init__.py`
 - `doc/operators/`
 
-Pine-Java 的 `Codegen.java` 同样可从 Go 导出的 Schema JSON 生成等效产物（`operators.py`、`resources.py`、`__init__.py`、`doc/operators/`），确保两侧 codegen 输出保持一致。
+Pine-Java 的 `Codegen.java` 支持双模式生成：
+
+- `--export-schema <path>` — 从内部 Registry 导出 Schema JSON（供 CI 交叉验证）
+- `--schema-from-registry` — 从内部 Registry 直接生成 Python DSL 产物
+- `-schema <path>` — legacy 模式（读取外部 JSON，保留兼容性）
+
+两侧 codegen 输出保持一致（`operators.py`、`resources.py`、`__init__.py`、`doc/operators/`）。
 
 任何对 Schema 形状、参数类型/默认值或注册表内容的变更都应随后重新生成。CI 通过 generated-diff 门控检查新鲜度。
 

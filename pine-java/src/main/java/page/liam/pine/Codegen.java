@@ -8,32 +8,59 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import page.liam.pine.operators.AllOperators;
+
 /**
- * Codegen reads a Pine operator schema JSON (exported by Go pineapple-codegen -schema-json)
- * and generates equivalent Python DSL bindings.
+ * Codegen reads operator schema and generates equivalent Python DSL bindings.
  *
  * Usage:
+ *   # From external JSON (compat mode — reads Go-exported schema):
  *   java -cp ... page.liam.pine.Codegen -schema schema.json -output apple_generated
+ *
+ *   # From internal Registry (independent mode):
+ *   java -cp ... page.liam.pine.Codegen --schema-from-registry -output apple_generated
+ *
+ *   # Export Registry schema to JSON:
+ *   java -cp ... page.liam.pine.Codegen --export-schema schema-java.json
  */
 public class Codegen {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public static void main(String[] args) throws Exception {
-        String schemaPath = "schema.json";
+        String schemaPath = "";
         String outputDir = "apple_generated";
         String docDir = "";
         String resourceSchemaPath = "";
+        String exportSchemaPath = "";
+        boolean schemaFromRegistry = false;
 
-        for (int i = 0; i < args.length - 1; i++) {
-            if ("-schema".equals(args[i])) schemaPath = args[++i];
-            else if ("-output".equals(args[i])) outputDir = args[++i];
-            else if ("-doc-dir".equals(args[i])) docDir = args[++i];
-            else if ("-resource-schema".equals(args[i])) resourceSchemaPath = args[++i];
+        for (int i = 0; i < args.length; i++) {
+            if ("-schema".equals(args[i]) && i + 1 < args.length) schemaPath = args[++i];
+            else if ("-output".equals(args[i]) && i + 1 < args.length) outputDir = args[++i];
+            else if ("-doc-dir".equals(args[i]) && i + 1 < args.length) docDir = args[++i];
+            else if ("-resource-schema".equals(args[i]) && i + 1 < args.length) resourceSchemaPath = args[++i];
+            else if ("--export-schema".equals(args[i]) && i + 1 < args.length) exportSchemaPath = args[++i];
+            else if ("--schema-from-registry".equals(args[i])) schemaFromRegistry = true;
         }
 
-        List<OperatorSchema> schemas = mapper.readValue(
-                new File(schemaPath),
-                new TypeReference<List<OperatorSchema>>() {});
+        if (!exportSchemaPath.isEmpty()) {
+            AllOperators.ensureRegistered();
+            String json = Registry.exportSchemaJSON();
+            Files.writeString(Paths.get(exportSchemaPath), json);
+            System.out.printf("exported %d operator schemas to %s%n", Registry.all().size(), exportSchemaPath);
+            return;
+        }
+
+        List<OperatorSchema> schemas;
+        if (schemaFromRegistry) {
+            AllOperators.ensureRegistered();
+            schemas = fromRegistry(Registry.all());
+        } else {
+            if (schemaPath.isEmpty()) schemaPath = "schema.json";
+            schemas = mapper.readValue(
+                    new File(schemaPath),
+                    new TypeReference<List<OperatorSchema>>() {});
+        }
 
         generateOperatorsPy(schemas, outputDir);
         generateInitPy(schemas, outputDir);
@@ -51,6 +78,28 @@ public class Codegen {
             generateDocs(schemas, docDir);
             System.out.printf("generated %d operator docs in %s%n", schemas.size(), docDir);
         }
+    }
+
+    private static List<OperatorSchema> fromRegistry(List<page.liam.pine.OperatorSchema> engineSchemas) {
+        List<OperatorSchema> result = new ArrayList<>();
+        for (page.liam.pine.OperatorSchema es : engineSchemas) {
+            OperatorSchema cs = new OperatorSchema();
+            cs.name = es.name;
+            cs.type = es.type.name().toLowerCase();
+            cs.description = es.description;
+            Map<String, ParamSpec> params = new LinkedHashMap<>();
+            for (Map.Entry<String, page.liam.pine.ParamSpec> entry : es.params.entrySet()) {
+                ParamSpec ps = new ParamSpec();
+                ps.type = entry.getValue().type;
+                ps.required = entry.getValue().required;
+                ps.defaultValue = entry.getValue().defaultValue;
+                ps.description = entry.getValue().description;
+                params.put(entry.getKey(), ps);
+            }
+            cs.params = params;
+            result.add(cs);
+        }
+        return result;
     }
 
     private static void generateOperatorsPy(List<OperatorSchema> schemas, String outputDir) throws IOException {
