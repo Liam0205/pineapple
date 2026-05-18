@@ -77,3 +77,4 @@
 - `llmdoc/memory/reflections/pine-java-parity-round-17.md` — Pine-Java 第十七轮（最终轮）Go-parity 审计复盘，记录 6 项 LOW 错误消息措辞对齐（首个零 M/H 轮次），标志 parity 审计从行为修复完全过渡到措辞打磨，审计正式完结。
 - `llmdoc/memory/reflections/pine-java-parity-rounds-18-19.md` — Pine-Java 第十八/十九轮 Go-parity 审计复盘（最后两轮），记录 8 项 LOW 修复（common-mode CancellationToken 遗漏、错误消息类型/值/引号对齐、trace 微秒精度截断），确认 rounds 1-19 全量审计完结，总计约 90 项差异关闭。
 - `llmdoc/memory/reflections/monorepo-restructure-and-java-infra.md` — Monorepo 重构（Go→pine-go/ 子目录）与 Pine-Java 工程基础设施补齐（P0-P3 路线图）复盘，记录 llmdoc 路径批量失效教训、module path 破坏性变更影响、路线图驱动基础设施建设的有效性。
+- `llmdoc/memory/reflections/p2-refactor-cross-validate-scripts.md` — P2 重构 + 跨验证框架扩展 + 开发者脚本基础设施复盘，记录 fixture 路径再次失效、定量描述过时、重构累积效应、工具文档入口缺失四项教训。

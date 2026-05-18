@@ -44,7 +44,7 @@ public class RunCli {
         byte[] configData;
         try {
             configData = Files.readAllBytes(Paths.get(configPath));
-        } catch (Exception e) {
+        } catch (java.io.IOException e) {
             System.err.println("error reading config: " + e.getMessage());
             System.exit(1);
             return;
@@ -53,7 +53,7 @@ public class RunCli {
         byte[] requestData;
         try {
             requestData = Files.readAllBytes(Paths.get(requestPath));
-        } catch (Exception e) {
+        } catch (java.io.IOException e) {
             System.err.println("error reading request: " + e.getMessage());
             System.exit(1);
             return;
@@ -65,7 +65,7 @@ public class RunCli {
                 byte[] resData = Files.readAllBytes(Paths.get(resourcesPath));
                 Map<String, Object> resources = mapper.readValue(resData, new TypeReference<Map<String, Object>>() {});
                 rp = new StaticResourceProvider(resources);
-            } catch (Exception e) {
+            } catch (java.io.IOException e) {
                 System.err.println("error reading static resources: " + e.getMessage());
                 System.exit(1);
                 return;
@@ -75,7 +75,7 @@ public class RunCli {
         Engine engine;
         try {
             engine = Engine.create(configData, rp);
-        } catch (Exception e) {
+        } catch (PineErrors.ConfigError | PineErrors.RegistryError e) {
             System.err.println("error creating engine: " + e.getMessage());
             System.exit(1);
             return;
@@ -84,7 +84,7 @@ public class RunCli {
         Map<String, Object> req;
         try {
             req = mapper.readValue(requestData, new TypeReference<Map<String, Object>>() {});
-        } catch (Exception e) {
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             System.err.println("error parsing request: " + e.getMessage());
             System.exit(1);
             return;
