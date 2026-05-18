@@ -14,6 +14,17 @@
 - `registry.go`
 - `operators/` 下的代表性实现
 
+### Pine-Java 对等实现
+
+Pine-Java 完整实现了全部 18 个内置算子，位于 `pine-java/src/.../operators/`。Java 侧的对等文件为：
+
+- `pine-java/src/.../Operator.java` — 算子接口
+- `pine-java/src/.../OperatorInput.java` / `OperatorOutput.java` — IO 类型
+- `pine-java/src/.../Registry.java` — 注册表
+- `pine-java/src/.../operators/AllOperators.java` — 全量注册入口
+
+Go Schema 仍是唯一事实源；Java 侧实现等效语义，不引入新的 Schema 定义。
+
 ## 算子生命周期
 
 算子实例经历两个阶段。
@@ -343,6 +354,8 @@
 - `apple_generated/operators.py`
 - `apple_generated/__init__.py`
 - `doc/operators/`
+
+Pine-Java 的 `Codegen.java` 同样可从 Go 导出的 Schema JSON 生成等效产物（`operators.py`、`resources.py`、`__init__.py`、`doc/operators/`），确保两侧 codegen 输出保持一致。
 
 任何对 Schema 形状、参数类型/默认值或注册表内容的变更都应随后重新生成。CI 通过 generated-diff 门控检查新鲜度。
 
