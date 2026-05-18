@@ -469,3 +469,21 @@ fixtures/
 | P1 | JSON HTML/Unicode escaping | wire format 字节差异 | API 输出一致 | ✅ 已修复 (GoFormat.createGoCompatMapper + CharacterEscapes) |
 | P1 | RunCli pretty-print format | 缩进/分隔格式差异 | CLI 输出字节一致 | ✅ 已修复 (DefaultPrettyPrinter + Separators config) |
 | — | html_chars_passthrough.json | 防回归 fixture | 验证转义正确性 | ✅ 新增 (2 cases: HTML + U+2028/2029) |
+
+### 第十二轮（2026-05-18 CLI/Server 错误输出格式）
+
+验证所有 Shell 层 CLI 工具的错误输出格式一致性：
+
+| # | 模块 | 漏洞描述 | 严重度 | 可验证 | 建议 |
+|---|------|----------|--------|--------|------|
+| 1 | **RunCli** | Java 抛出未处理异常导致 stack trace 输出；Go 输出 `error <phase>: <message>` 单行格式。 | **中** | 是 | 添加 try-catch 输出 clean 消息 |
+| 2 | **RenderDAGCli** | 同上。 | **中** | 是 | 同上 |
+| 3 | **PineServer main** | Java 启动失败抛 stack trace；Go 用 `log.Fatal` 输出单行。 | **中** | 是 | 添加 try-catch |
+
+#### 第十二轮路线图
+
+| 优先级 | 模块 | 漏洞 | 价值 | 状态 |
+|--------|------|------|------|------|
+| P1 | RunCli error output | stack trace → clean msg | 用户体验一致 | ✅ 已修复 |
+| P1 | RenderDAGCli error output | stack trace → clean msg | 用户体验一致 | ✅ 已修复 |
+| P1 | PineServer startup error | stack trace → clean msg | 用户体验一致 | ✅ 已修复 |
