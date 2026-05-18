@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class PineServer {
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper mapper = GoFormat.createGoCompatMapper();
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();

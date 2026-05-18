@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 import java.util.*;
 
 public class RunCli {
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper mapper = GoFormat.createGoCompatMapper();
 
     public static void main(String[] args) throws Exception {
         AllOperators.ensureRegistered();
