@@ -13,21 +13,24 @@
 
 ## CI workflow 架构
 
-`.github/workflows/ci.yml` 包含 7 个 job：
+`.github/workflows/ci.yml` 包含 10 个 job：
 
 | Job | 职责 | 依赖 |
 |-----|------|------|
 | go-lint | golangci-lint | 无 |
 | python-lint | ruff check | 无 |
+| java-lint | checkstyle | 无 |
 | go-test | Go 测试 + 覆盖率 | 无 |
 | python-test | Python 测试 + 覆盖率 | 无 |
+| java-test | Java 测试 + 覆盖率 | 无 |
 | codegen-check | 重生成 + git diff 校验 | 无 |
+| java-fuzz | Jazzer fuzz 短时运行 | java-test |
 | fuzz | Go native fuzz 短时运行 | go-test |
-| benchmark | Go benchmark + job summary + artifact | go-test |
+| cross-validation | Go vs Java 11 层跨验证 | go-test, java-test |
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
 
-Benchmark job 将 `go test -bench` 输出写入 `benchmark.txt`，同时追加到 `$GITHUB_STEP_SUMMARY` 供 PR/CI 页面直接查看；artifact 作为可下载原始结果保留。
+Cross-validation job 安装 redis-server 后执行 `scripts/cross-validate.sh`，输出写入 `$GITHUB_STEP_SUMMARY` 供 PR 页面直接查看 PASS/FAIL 状态。
 
 ## Go lint
 
