@@ -8,7 +8,7 @@
 // operators/filter/condition.go
 package filter
 
-import pine "github.com/Liam0205/pineapple"
+import pine "github.com/Liam0205/pineapple/pine-go"
 
 func init() {
     pine.Register(pine.OperatorSchema{

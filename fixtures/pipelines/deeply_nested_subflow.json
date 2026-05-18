@@ -1,5 +1,5 @@
 {
-  "name": "nested SubFlow pipeline",
+  "name": "deeply nested SubFlow (depth-3 expansion)",
   "config": {
     "_PINEAPPLE_VERSION": "0.6.6",
     "pipeline_config": {
@@ -14,15 +14,15 @@
             "item_output": ["tag"]
           }
         },
-        "compute_score": {
+        "lua_score": {
           "type_name": "transform_by_lua",
-          "lua_script": "function calc()\n  return item_base * 2\nend",
+          "lua_script": "function calc()\n  return item_val * multiplier\nend",
           "function_for_item": "calc",
           "function_for_common": "",
           "$metadata": {
-            "common_input": [],
+            "common_input": ["multiplier"],
             "common_output": [],
-            "item_input": ["item_base"],
+            "item_input": ["item_val"],
             "item_output": ["item_score"]
           }
         },
@@ -48,60 +48,60 @@
         }
       },
       "pipeline_map": {
-        "enrich": {
-          "pipeline": ["copy_tag", "compute_score"]
+        "inner": {
+          "pipeline": ["lua_score", "sort_desc"]
         },
-        "rank_and_cut": {
-          "pipeline": ["sort_desc", "keep_top2"]
+        "middle": {
+          "pipeline": ["copy_tag", "inner"]
         },
-        "full_pipeline": {
-          "pipeline": ["enrich", "rank_and_cut"]
+        "outer": {
+          "pipeline": ["middle", "keep_top2"]
         }
       }
     },
     "pipeline_group": {
       "main": {
-        "pipeline": ["full_pipeline"]
+        "pipeline": ["outer"]
       }
     },
     "flow_contract": {
-      "common_input": ["tag"],
-      "item_input": ["item_base"],
+      "common_input": ["tag", "multiplier"],
+      "item_input": ["item_val"],
       "common_output": [],
-      "item_output": ["item_base", "tag", "item_score"]
+      "item_output": ["item_val", "tag", "item_score"]
     }
   },
   "cases": [
     {
-      "name": "nested sub-flows: enrich → rank → truncate",
+      "name": "depth-3 SubFlow: outer → middle → inner, score and truncate",
       "request": {
-        "common": {"tag": "promo"},
+        "common": {"tag": "deep", "multiplier": 3},
         "items": [
-          {"item_base": 10.0},
-          {"item_base": 50.0},
-          {"item_base": 30.0}
+          {"item_val": 10.0},
+          {"item_val": 50.0},
+          {"item_val": 30.0}
         ]
       },
       "expected": {
         "common": {},
         "items": [
-          {"item_base": 50.0, "tag": "promo", "item_score": 100},
-          {"item_base": 30.0, "tag": "promo", "item_score": 60}
+          {"item_val": 50.0, "tag": "deep", "item_score": 150},
+          {"item_val": 30.0, "tag": "deep", "item_score": 90}
         ]
       }
     },
     {
-      "name": "fewer items than top_n — all kept",
+      "name": "single item passes through all 3 SubFlow levels",
       "request": {
-        "common": {"tag": "test"},
+        "common": {"tag": "solo", "multiplier": 5},
         "items": [
-          {"item_base": 5.0}
+          {"item_val": 7.0}
         ]
       },
       "expected": {
         "common": {},
         "items": [
-          {"item_base": 5.0, "tag": "test", "item_score": 10}
+          {"item_val": 7.0, "tag": "solo", "item_score": 35}
         ]
       }
     }

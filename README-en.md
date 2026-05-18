@@ -41,6 +41,38 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Row/Column storage** — DataFrame supports both storage modes
 - **Dual-engine consistency** — Go/Java engines verified via CI cross-validation for schema, DAG, and execution parity
 
+## Migrating from Older Versions (Breaking Change)
+
+> Starting from v0.7, the Go engine has moved from the repository root into the `pine-go/` subdirectory. The Go module path has changed accordingly.
+
+### What Changed
+
+| Item | Before | After |
+|------|--------|-------|
+| Module path | `github.com/Liam0205/pineapple` | `github.com/Liam0205/pineapple/pine-go` |
+| Import | `github.com/Liam0205/pineapple/internal/...` | `github.com/Liam0205/pineapple/pine-go/internal/...` |
+| Import | `github.com/Liam0205/pineapple/pkg/...` | `github.com/Liam0205/pineapple/pine-go/pkg/...` |
+| Import | `github.com/Liam0205/pineapple/operators` | `github.com/Liam0205/pineapple/pine-go/operators` |
+| Binary | `go build ./cmd/pineapple-server` | `go build ./pine-go/cmd/pineapple-server` |
+
+### Migration Steps
+
+```bash
+# 1. Bulk-replace import paths
+find . -name '*.go' -exec sed -i \
+  's|github.com/Liam0205/pineapple/|github.com/Liam0205/pineapple/pine-go/|g' {} +
+
+# 2. Fix double-nesting if you referenced the module itself
+find . -name '*.go' -exec sed -i \
+  's|github.com/Liam0205/pineapple/pine-go/pine-go/|github.com/Liam0205/pineapple/pine-go/|g' {} +
+
+# 3. Update go.mod
+go get github.com/Liam0205/pineapple/pine-go@latest
+go mod tidy
+```
+
+If your project uses Pineapple through public APIs (`pine.NewEngine`, `pine.BuildOperator`, etc.), the above steps complete the migration. No semantic changes to internal APIs.
+
 ## Quick Start
 
 ### Prerequisites
@@ -132,7 +164,9 @@ pineapple/
 │   ├── src/main/java/      #   Engine implementation + CLI tools
 │   └── src/test/java/      #   Tests + benchmarks + fuzz
 ├── fixtures/               # Shared test fixtures (used by both Go and Java)
-│   └── pipelines/          #   Pipeline-level fixtures
+│   ├── operators/          #   Operator-level unit fixtures
+│   ├── pipelines/          #   Pipeline-level end-to-end fixtures
+│   └── errors/             #   Error path fixtures
 ├── scripts/                # Developer scripts
 ├── design_doc/             # Design documents
 └── doc/                    # Generated operator docs & reports
@@ -174,9 +208,98 @@ CI runs automatically on every push/PR:
 
 `scripts/cross-validate.sh` verifies consistency between the Go and Java engines:
 
-1. **Schema parity** — Operator schemas exported by both codegen tools (names, param types, required flags) must match
-2. **DAG parity** — Same config input must produce identical DAG output (DOT format) from both engines
+1. **Schema parity** — Operator schemas exported by both codegen tools (names, param types, required flags, defaults) must match
+2. **DAG parity** — Same config input must produce identical DAG output (DOT + Mermaid, including collapse) from both engines
 3. **Execution parity** — Same config + request must yield identical results (after JSON normalization) from both engines
+4. **Column-store parity** — Repeats execution verification in column-store mode
+5. **Error parity** — Invalid configs/requests must produce the same error classification and messages
+6. **Server parity** — HTTP endpoints must return matching status codes, body structure, and Content-Type
+7. **Cancellation parity** — Timeout and runtime error cancellation behavior must match
+
+### Building Cross-Validation for Downstream Projects
+
+If you implement custom operators in both Go and Java and need to guarantee cross-language consistency, you can reuse Pineapple's parity verification framework.
+
+#### Design Principles
+
+1. **Fixture-driven** — All verification is based on shared JSON fixture files, not per-language hardcoded expectations
+2. **Unified CLI interface** — Each engine provides the same CLI tools (`-config`, `-request`), outputting JSON results
+3. **JSON normalization** — Use `sort_keys` + numeric type unification to eliminate platform differences (Go map ordering, float64/Double representation)
+4. **Incrementally extensible** — A new engine backend only needs to implement the CLI interface to join the validation
+
+#### Fixture Formats
+
+**Operator-level fixture** (single operator behavior verification):
+
+```json
+{
+  "operator": "your_operator_name",
+  "cases": [
+    {
+      "name": "descriptive test name",
+      "params": { "param1": "value" },
+      "metadata": {
+        "common_input": [], "common_output": [],
+        "item_input": ["field"], "item_output": ["result"]
+      },
+      "input": { "common": {}, "items": [{"field": 1}] },
+      "expected": { "items": [{"result": 2}] }
+    }
+  ]
+}
+```
+
+**Pipeline-level fixture** (end-to-end execution verification):
+
+```json
+{
+  "name": "fixture description",
+  "config": { "pipeline_config": {...}, "pipeline_group": {...}, "flow_contract": {...} },
+  "cases": [
+    {
+      "name": "case description",
+      "request": { "common": {...}, "items": [...] },
+      "expected": { "common": {...}, "items": [...] }
+    }
+  ]
+}
+```
+
+**Error path fixture**:
+
+```json
+{
+  "name": "error description",
+  "config": { ... },
+  "expected_error": { "type": "ConfigError", "message_contains": "keyword" }
+}
+```
+
+#### JSON Normalization Strategy
+
+When comparing outputs from both engines, you must eliminate these inherent platform differences:
+
+```python
+def normalize_json(text):
+    """Go map order is non-deterministic; numeric types differ."""
+    import json
+    obj = json.loads(text)
+    def unify(v):
+        if isinstance(v, int): return float(v)
+        if isinstance(v, list): return [unify(x) for x in v]
+        if isinstance(v, dict): return {k: unify(x) for k, x in v.items()}
+        return v
+    return json.dumps(unify(obj), sort_keys=True)
+```
+
+#### Integration Steps for Downstream
+
+1. Implement operators on both sides with consistent param names and `$metadata` declarations
+2. Create fixture files in a shared directory
+3. Write a validation script: invoke both CLIs, normalize outputs, compare byte-for-byte
+4. Add to CI: failures block merges
+
+See `scripts/cross-validate.sh` for a complete production implementation.
 
 ## Documentation
 

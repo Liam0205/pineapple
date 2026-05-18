@@ -47,7 +47,7 @@ Each file is named `{operator_name}.json` and contains:
 
 ## File naming
 
-`fixtures/{operator_name}.json` — one file per operator, e.g. `fixtures/filter_condition.json`
+`fixtures/operators/{operator_name}.json` — one file per operator, e.g. `fixtures/operators/filter_condition.json`
 
 ## Coverage
 

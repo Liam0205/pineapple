@@ -74,12 +74,12 @@
       "expected": {
         "common": {},
         "items": [
-          {"item_id": "i6", "item_result": 121.0},
-          {"item_id": "i5", "item_result": 101.0},
-          {"item_id": "i4", "item_result": 81.0},
-          {"item_id": "i3", "item_result": 61.0},
-          {"item_id": "i2", "item_result": 41.0},
-          {"item_id": "i1", "item_result": 21.0}
+          {"item_id": "i6", "item_result": 121},
+          {"item_id": "i5", "item_result": 101},
+          {"item_id": "i4", "item_result": 81},
+          {"item_id": "i3", "item_result": 61},
+          {"item_id": "i2", "item_result": 41},
+          {"item_id": "i1", "item_result": 21}
         ]
       }
     }

@@ -68,11 +68,11 @@ public class PipelineFixtureTest {
                                 new TypeReference<List<Map<String, Object>>>() {})
                                 : Collections.emptyList();
 
-                        assertEquals(expectedCommon, result.common, fullName + " — common mismatch");
+                        assertMapEquals(expectedCommon, result.common, fullName + " — common mismatch");
                         assertEquals(expectedItems.size(), result.items.size(),
                                 fullName + " — item count mismatch");
                         for (int idx = 0; idx < expectedItems.size(); idx++) {
-                            assertEquals(expectedItems.get(idx), result.items.get(idx),
+                            assertMapEquals(expectedItems.get(idx), result.items.get(idx),
                                     fullName + " — items[" + idx + "] mismatch");
                         }
                     }));
@@ -80,6 +80,20 @@ public class PipelineFixtureTest {
             }
         }
         return tests.stream();
+    }
+
+    private static void assertMapEquals(Map<String, Object> expected, Map<String, Object> actual, String msg) {
+        assertEquals(expected.keySet(), actual.keySet(), msg + " (keys differ)");
+        for (String key : expected.keySet()) {
+            Object e = expected.get(key);
+            Object a = actual.get(key);
+            if (e instanceof Number && a instanceof Number) {
+                assertEquals(((Number) e).doubleValue(), ((Number) a).doubleValue(), 1e-9,
+                        msg + " field=" + key);
+            } else {
+                assertEquals(e, a, msg + " field=" + key);
+            }
+        }
     }
 
     private static Path findFixturesDir() {

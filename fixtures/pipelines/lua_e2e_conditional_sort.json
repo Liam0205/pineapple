@@ -97,12 +97,12 @@
         "items": []
       },
       "expected": {
-        "common": {"avg_price": 130.0, "item_count": 4.0},
+        "common": {"avg_price": 130, "item_count": 4},
         "items": [
-          {"item_id": "d", "item_final_price": 240.0},
-          {"item_id": "b", "item_final_price": 160.0},
-          {"item_id": "a", "item_final_price": 80.0},
-          {"item_id": "c", "item_final_price": 40.0}
+          {"item_id": "d", "item_final_price": 240},
+          {"item_id": "b", "item_final_price": 160},
+          {"item_id": "a", "item_final_price": 80},
+          {"item_id": "c", "item_final_price": 40}
         ]
       }
     },
@@ -113,12 +113,12 @@
         "items": []
       },
       "expected": {
-        "common": {"avg_price": 162.5, "item_count": 4.0},
+        "common": {"avg_price": 162.5, "item_count": 4},
         "items": [
-          {"item_id": "d", "item_final_price": 300.0},
-          {"item_id": "b", "item_final_price": 200.0},
-          {"item_id": "a", "item_final_price": 100.0},
-          {"item_id": "c", "item_final_price": 50.0}
+          {"item_id": "d", "item_final_price": 300},
+          {"item_id": "b", "item_final_price": 200},
+          {"item_id": "a", "item_final_price": 100},
+          {"item_id": "c", "item_final_price": 50}
         ]
       }
     },
@@ -129,12 +129,12 @@
         "items": []
       },
       "expected": {
-        "common": {"avg_price": 146.25, "item_count": 4.0},
+        "common": {"avg_price": 146.25, "item_count": 4},
         "items": [
-          {"item_id": "d", "item_final_price": 270.0},
-          {"item_id": "b", "item_final_price": 180.0},
-          {"item_id": "a", "item_final_price": 90.0},
-          {"item_id": "c", "item_final_price": 45.0}
+          {"item_id": "d", "item_final_price": 270},
+          {"item_id": "b", "item_final_price": 180},
+          {"item_id": "a", "item_final_price": 90},
+          {"item_id": "c", "item_final_price": 45}
         ]
       }
     }

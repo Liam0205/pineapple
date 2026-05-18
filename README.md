@@ -41,6 +41,38 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **行存/列存可切换** — DataFrame 支持两种存储模式
 - **双引擎一致性** — Go/Java 引擎通过 CI 交叉验证保证 schema、DAG、执行结果一致
 
+## 从旧版迁移（Breaking Change）
+
+> 自 v0.7 起，Go 引擎从仓库根目录迁移至 `pine-go/` 子目录，Go module path 随之变更。
+
+### 变更内容
+
+| 项目 | 迁移前 | 迁移后 |
+|------|--------|--------|
+| Module path | `github.com/Liam0205/pineapple` | `github.com/Liam0205/pineapple/pine-go` |
+| Import | `github.com/Liam0205/pineapple/internal/...` | `github.com/Liam0205/pineapple/pine-go/internal/...` |
+| Import | `github.com/Liam0205/pineapple/pkg/...` | `github.com/Liam0205/pineapple/pine-go/pkg/...` |
+| Import | `github.com/Liam0205/pineapple/operators` | `github.com/Liam0205/pineapple/pine-go/operators` |
+| Binary | `go build ./cmd/pineapple-server` | `go build ./pine-go/cmd/pineapple-server` |
+
+### 下游迁移步骤
+
+```bash
+# 1. 批量替换 import path
+find . -name '*.go' -exec sed -i \
+  's|github.com/Liam0205/pineapple/|github.com/Liam0205/pineapple/pine-go/|g' {} +
+
+# 2. 修正 module 自身的引用（避免多余的 pine-go/pine-go）
+find . -name '*.go' -exec sed -i \
+  's|github.com/Liam0205/pineapple/pine-go/pine-go/|github.com/Liam0205/pineapple/pine-go/|g' {} +
+
+# 3. 更新 go.mod
+go get github.com/Liam0205/pineapple/pine-go@latest
+go mod tidy
+```
+
+如果你的项目通过 `pine.NewEngine` / `pine.BuildOperator` 等公共 API 使用 Pineapple，上述步骤即可完成迁移。内部 API 无语义变更。
+
 ## Quick Start
 
 ### 环境要求
@@ -132,7 +164,9 @@ pineapple/
 │   ├── src/main/java/      #   引擎实现 + CLI 工具
 │   └── src/test/java/      #   测试 + 基准 + fuzz
 ├── fixtures/               # 共享测试 fixtures（Go/Java 公用）
-│   └── pipelines/          #   Pipeline 级 fixture
+│   ├── operators/          #   算子级单元 fixtures
+│   ├── pipelines/          #   Pipeline 级端到端 fixtures
+│   └── errors/             #   错误路径 fixtures
 ├── scripts/                # 开发者脚本
 ├── design_doc/             # 设计文档
 └── doc/                    # 生成的算子文档 & 报告
@@ -174,9 +208,99 @@ CI 在每次 push/PR 时自动运行：
 
 `scripts/cross-validate.sh` 验证 Go 和 Java 引擎的一致性：
 
-1. **Schema parity** — 两端 codegen 导出的算子 schema（名称、参数类型、必填项）必须一致
-2. **DAG parity** — 相同配置输入，两端渲染的 DAG（DOT 格式）必须一致
+1. **Schema parity** — 两端 codegen 导出的算子 schema（名称、参数类型、必填项、默认值）必须一致
+2. **DAG parity** — 相同配置输入，两端渲染的 DAG（DOT + Mermaid，含 collapse）必须一致
 3. **Execution parity** — 相同配置 + 请求，两端执行结果（JSON 归一化后）必须一致
+4. **Column-store parity** — 以列存模式重复上述执行验证
+5. **Error parity** — 非法配置/请求，两端返回相同的错误分类和消息
+6. **Server parity** — HTTP 端点的 status code、body 结构、Content-Type 一致
+7. **Cancellation parity** — 超时和运行时错误的取消行为一致
+
+### 为下游构建 Cross-Validation 体系
+
+如果你在 Go 和 Java 中同时实现了自定义算子并需要保证跨语言一致性，可以复用 Pineapple 的 parity 校验框架。
+
+#### 设计原则
+
+1. **Fixture 驱动** — 所有验证基于共享 JSON fixture 文件，而非各语言硬编码 expected 值
+2. **CLI 接口统一** — 每个引擎提供相同的 CLI 工具（`-config`、`-request`），输出 JSON 结果
+3. **JSON 归一化比对** — 通过 `sort_keys` + 数值类型统一消除平台差异（Go map 无序、float64/Double 表示差异）
+4. **增量友好** — 新引擎只需实现 CLI 接口即可纳入验证
+
+#### Fixture 格式
+
+**算子级 fixture**（单算子行为验证）：
+
+```json
+{
+  "operator": "your_operator_name",
+  "cases": [
+    {
+      "name": "描述性测试名",
+      "params": { "param1": "value" },
+      "metadata": {
+        "common_input": [], "common_output": [],
+        "item_input": ["field"], "item_output": ["result"]
+      },
+      "input": { "common": {}, "items": [{"field": 1}] },
+      "expected": { "items": [{"result": 2}] }
+    }
+  ]
+}
+```
+
+**Pipeline 级 fixture**（端到端执行验证）：
+
+```json
+{
+  "name": "fixture 描述",
+  "config": { "pipeline_config": {...}, "pipeline_group": {...}, "flow_contract": {...} },
+  "cases": [
+    {
+      "name": "case 描述",
+      "request": { "common": {...}, "items": [...] },
+      "expected": { "common": {...}, "items": [...] }
+    }
+  ]
+}
+```
+
+**错误路径 fixture**：
+
+```json
+{
+  "name": "error 描述",
+  "config": { ... },
+  "expected_error": { "type": "ConfigError", "message_contains": "关键词" }
+}
+```
+
+#### JSON 归一化策略
+
+比对两端输出时，必须消除以下平台固有差异：
+
+```python
+def normalize_json(text):
+    """Go map 顺序不确定，数值类型表示不同"""
+    import json
+    obj = json.loads(text)
+    # 递归将所有 int 统一为 float（消除 Go int vs Java Double）
+    def unify(v):
+        if isinstance(v, int): return float(v)
+        if isinstance(v, list): return [unify(x) for x in v]
+        if isinstance(v, dict): return {k: unify(x) for k, x in v.items()}
+        return v
+    return json.dumps(unify(obj), sort_keys=True)
+```
+
+#### 下游接入步骤
+
+1. 在两侧各实现算子，保证参数名和 `$metadata` 声明一致
+2. 创建 fixture 文件，放入共享目录
+3. 编写验证脚本：分别调用两端 CLI，归一化输出后逐字节比对
+4. 纳入 CI：失败即阻断合并
+
+参考 `scripts/cross-validate.sh` 的完整实现了解实战细节。
 
 ## 文档
 

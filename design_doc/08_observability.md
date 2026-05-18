@@ -198,7 +198,7 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
 #### Metrics Provider 接口
 
 ```go
-import "github.com/Liam0205/pineapple/pkg/metrics"
+import "github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 
 type Provider interface {
     NewCounter(opts MetricOpts) Counter
@@ -243,7 +243,7 @@ package promadapter
 
 import (
     "github.com/prometheus/client_golang/prometheus"
-    "github.com/Liam0205/pineapple/pkg/metrics"
+    "github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
 type provider struct{ r prometheus.Registerer }

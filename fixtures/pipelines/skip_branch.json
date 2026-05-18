@@ -72,8 +72,8 @@
       "expected": {
         "common": {},
         "items": [
-          {"item_price": 100.0, "item_discounted": 90.0},
-          {"item_price": 200.0, "item_discounted": 180.0}
+          {"item_price": 100.0, "item_discounted": 90},
+          {"item_price": 200.0, "item_discounted": 180}
         ]
       }
     },
