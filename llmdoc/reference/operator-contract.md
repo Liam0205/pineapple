@@ -6,13 +6,13 @@
 
 以下文件为唯一事实源：
 
-- `internal/types/operator.go`
-- `internal/types/operator_io.go`
-- `internal/registry/registry.go`
-- `operator.go`
-- `operator_io.go`
-- `registry.go`
-- `operators/` 下的代表性实现
+- `pine-go/internal/types/operator.go`
+- `pine-go/internal/types/operator_io.go`
+- `pine-go/internal/registry/registry.go`
+- `pine-go/operator.go`
+- `pine-go/operator_io.go`
+- `pine-go/registry.go`
+- `pine-go/operators/` 下的代表性实现
 
 ### Pine-Java 对等实现
 
@@ -51,16 +51,16 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ## 必需接口
 
-公共算子接口通过 `operator.go` 暴露，在 `internal/types/operator.go` 中定义：
+公共算子接口通过 `pine-go/operator.go` 暴露，在 `pine-go/internal/types/operator.go` 中定义：
 
 - `Init(params map[string]any) error`
 - `Execute(ctx, input, output) error`
 
-使用 `operator_io.go` 中的 `OperatorInput` 和 `OperatorOutput`，而非直接触及运行时内部。
+使用 `pine-go/operator_io.go` 中的 `OperatorInput` 和 `OperatorOutput`，而非直接触及运行时内部。
 
 ## 注册契约
 
-算子通过 `registry.go` 中的 `pine.Register(schema, factory)` 注册，通常在算子源文件的 `init()` 函数中。
+算子通过 `pine-go/registry.go` 中的 `pine.Register(schema, factory)` 注册，通常在算子源文件的 `init()` 函数中。
 
 ### 必需 Schema 字段
 
@@ -81,7 +81,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ### 严格参数校验
 
-`internal/registry/registry.go` 的 `ValidateAndExtractParams` 现在对传入参数执行严格检查：
+`pine-go/internal/registry/registry.go` 的 `ValidateAndExtractParams` 现在对传入参数执行严格检查：
 
 - 所有未在 `Schema.Params` 中声明的参数名会被拒绝
 - 错误消息会列出全部未声明的参数名
@@ -96,7 +96,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ### 注册失败行为
 
-`internal/registry.Register` 有意严格，在无效定义时 panic，包括：
+`pine-go/internal/registry.Register` 有意严格，在无效定义时 panic，包括：
 
 - 空算子名
 - 无效算子类型
@@ -108,7 +108,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ### 外部构建算子实例
 
-`pine.BuildOperator(typeName, params)` 是 `internal/registry.BuildOperator` 的公共包装器，允许外部消费者（benchmark、测试工具）按类型名构建已注册算子的实例。
+`pine.BuildOperator(typeName, params)` 是 `pine-go/internal/registry.BuildOperator` 的公共包装器，允许外部消费者（benchmark、测试工具）按类型名构建已注册算子的实例。
 
 流程：查找注册表 → 校验参数 → 创建实例 → 调用 `Init(params)` → 返回 `(Operator, OperatorSchema, error)`。
 
@@ -153,7 +153,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ### `ConcurrentSafe`
 
-若算子希望在 `data_parallel > 1` 时进入并发分片执行路径，必须实现 `internal/types/operator.go` 中的 `ConcurrentSafe` 可选接口。
+若算子希望在 `data_parallel > 1` 时进入并发分片执行路径，必须实现 `pine-go/internal/types/operator.go` 中的 `ConcurrentSafe` 可选接口。
 
 推荐模式：
 
@@ -171,7 +171,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ### `MetadataAware`
 
-若算子实现 `internal/types/operator.go` 中的 metadata-aware 接口，引擎将在 `Init()` 后注入字段元数据。
+若算子实现 `pine-go/internal/types/operator.go` 中的 metadata-aware 接口，引擎将在 `Init()` 后注入字段元数据。
 
 典型模式：
 
@@ -195,7 +195,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ### `StatsProvider`
 
-若算子实现 `StatsProvider`，引擎会在 `Engine.OperatorCustomStats()` 中收集该算子的自定义原子统计，并由 `pkg/server/server.go` 挂载到 `/stats` 响应中的 `operator_detail` 字段。
+若算子实现 `StatsProvider`，引擎会在 `Engine.OperatorCustomStats()` 中收集该算子的自定义原子统计，并由 `pine-go/pkg/server/server.go` 挂载到 `/stats` 响应中的 `operator_detail` 字段。
 
 该接口适合暴露零配置排障所需的进程内累计计数，例如 Lua state pool 的 borrow / return / create / active 计数。
 
@@ -215,7 +215,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 - `MetricsAware` 面向外部指标系统，不替代 `/stats`
 - provider 可能是 `metrics.Nop()`，实现必须把 no-op provider 视为正常路径
-- Pineapple core 不依赖具体 Prometheus SDK；算子只依赖 `pkg/metrics` 抽象
+- Pineapple core 不依赖具体 Prometheus SDK；算子只依赖 `pine-go/pkg/metrics` 抽象
 
 ## 输入/输出 API 契约
 
@@ -246,7 +246,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ## 算子类型表
 
-`internal/types/operator.go` 定义六种算子类型。运行时校验检查每次执行使用的输出方法。
+`pine-go/internal/types/operator.go` 定义六种算子类型。运行时校验检查每次执行使用的输出方法。
 
 | 类型 | 预期角色 | 允许的输出方法 |
 |---|---|---|
@@ -288,7 +288,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ## 推荐实现模式
 
-`operators/` 中的内置算子通常遵循此结构：
+`pine-go/operators/` 中的内置算子通常遵循此结构：
 
 1. 包级文档注释描述算子名、类型、参数和元数据契约
 2. `init()` 函数调用 `pine.Register(...)`
@@ -301,19 +301,19 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 代表性示例：
 
-- recall：`operators/recall/static.go`
-- transform：`operators/transform/copy.go`
-- filter：`operators/filter/condition.go`
-- merge：`operators/merge/dedup.go`
-- reorder：`operators/reorder/sort.go`
-- observe：`operators/observe/log.go`
-- 跨服务 transform：`operators/transform/remote_pineapple.go`
-- debug-aware transform：`operators/lua/lua.go`
-- stats + metrics aware transform：`operators/lua/lua.go`、`operators/lua/pool.go`
+- recall：`pine-go/operators/recall/static.go`
+- transform：`pine-go/operators/transform/copy.go`
+- filter：`pine-go/operators/filter/condition.go`
+- merge：`pine-go/operators/merge/dedup.go`
+- reorder：`pine-go/operators/reorder/sort.go`
+- observe：`pine-go/operators/observe/log.go`
+- 跨服务 transform：`pine-go/operators/transform/remote_pineapple.go`
+- debug-aware transform：`pine-go/operators/lua/lua.go`
+- stats + metrics aware transform：`pine-go/operators/lua/lua.go`、`pine-go/operators/lua/pool.go`
 
 ## Lua 沙箱与安全模型
 
-`operators/lua/pool.go` 创建的 Lua VM 实施严格的沙箱隔离：
+`pine-go/operators/lua/pool.go` 创建的 Lua VM 实施严格的沙箱隔离：
 
 - 使用 `glua.Options{SkipOpenLibs: true}` 创建裸 state，默认不加载任何库
 - 仅显式加载安全子集：`base`、`table`、`string`、`math`
@@ -328,13 +328,13 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ### Context 取消传播
 
-`operators/lua/lua.go` 的 `Execute` 方法通过 `L.SetContext(ctx)` / `defer L.RemoveContext()` 把请求 context 注入 Lua VM。GopherLua 在指令边界检查 context cancellation，因此长时间运行的 Lua 脚本会在 context 超时或取消时被中断。
+`pine-go/operators/lua/lua.go` 的 `Execute` 方法通过 `L.SetContext(ctx)` / `defer L.RemoveContext()` 把请求 context 注入 Lua VM。GopherLua 在指令边界检查 context cancellation，因此长时间运行的 Lua 脚本会在 context 超时或取消时被中断。
 
 这是算子尊重 context 的典型模式：即使执行逻辑在外部 VM 中运行，仍然必须传播 Go context 以保证请求取消的及时性。
 
 ### Lua Pool 关闭保护
 
-`operators/lua/pool.go` 的 `newState()` 在 mutex 内检查 `sp.closed` 状态。若 pool 已关闭：
+`pine-go/operators/lua/pool.go` 的 `newState()` 在 mutex 内检查 `sp.closed` 状态。若 pool 已关闭：
 
 - 立即 `L.Close()` 释放刚创建的 state
 - 返回 `errPoolClosed` 错误
@@ -345,7 +345,7 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 ## 元数据契约注释与生成文档
 
 算子源文件中的文档注释由语言特定的解析器提取 metadata contract：
-- Go 侧：`pkg/codegen/docparse.go` 解析包级文档注释中的 `// Operator:` + `Metadata contract` 块
+- Go 侧：`pine-go/pkg/codegen/docparse.go` 解析包级文档注释中的 `// Operator:` + `Metadata contract` 块
 - Java 侧：`Codegen.java` 的 `parseJavadocMetadata()` 解析 Javadoc `/** Operator: ... */` 块
 
 两侧使用相同的标注协议：
@@ -382,7 +382,7 @@ Pine-Java 的 `Codegen.java` 支持双模式生成：
 
 任何对 Schema 形状、参数类型/默认值或注册表内容的变更都应随后重新生成。CI 通过 generated-diff 门控检查新鲜度。
 
-此外，`pkg/codegen/template.go` 中的 `pythonType()` 会把 Schema 参数定义里的 `Type` 字段映射为 Python 类型注解。当前支持的映射为：`"string"` → `str`、`"int"` / `"int64"` → `int`、`"float64"` → `float`、`"bool"` → `bool`；未识别的类型会回退为 `Any`。新增算子参数类型时，需要同时确认 codegen 映射已覆盖，否则生成的 Python helper 会退化为宽泛类型。
+此外，`pine-go/pkg/codegen/template.go` 中的 `pythonType()` 会把 Schema 参数定义里的 `Type` 字段映射为 Python 类型注解。当前支持的映射为：`"string"` → `str`、`"int"` / `"int64"` → `int`、`"float64"` → `float`、`"bool"` → `bool`；未识别的类型会回退为 `Any`。新增算子参数类型时，需要同时确认 codegen 映射已覆盖，否则生成的 Python helper 会退化为宽泛类型。
 
 Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `conditionalParams`）：required 或有 Default 的参数总是写入 `_params` dict；optional 且无 Default 的参数（如 `default_value`）仅在 `is not None` 时条件写入。生成 helper 的 Python 默认参数必须使用 Schema 的 `Default` 值；不要用类型零值覆盖 Go 注册表默认语义。这避免了 Python `None` 被序列化为 JSON `null` 导致 Go 侧误判参数存在，也避免 `order=""`、`timeout=0.0` 等值覆盖 Schema 默认值。
 
@@ -400,9 +400,9 @@ Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `condition
 这些声明被多个系统消费：
 
 - Apple 校验器（`apple/validator.py`）
-- 运行时输入投影（`internal/dataframe/dataframe.go`）
-- DAG 依赖推导（`internal/dag/dag.go`）
-- 生成的算子文档（`pkg/codegen/`）
+- 运行时输入投影（`pine-go/internal/dataframe/dataframe.go`）
+- DAG 依赖推导（`pine-go/internal/dag/dag.go`）
+- 生成的算子文档（`pine-go/pkg/codegen/`）
 
 不正确的元数据因此可同时导致编译时和运行时的错误行为。
 
@@ -455,9 +455,9 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 
 ## 检索指针
 
-- 接口和类型约束：`internal/types/operator.go`
-- IO helper：`internal/types/operator_io.go`
-- 注册表校验和保留键：`internal/registry/registry.go`
-- 公共包装器：`operator.go`、`operator_io.go`、`registry.go`
-- 内置示例：`operators/`
-- Codegen 消费路径：`pkg/codegen/codegen.go`、`pkg/codegen/template.go`、`pkg/codegen/docparse.go`
+- 接口和类型约束：`pine-go/internal/types/operator.go`
+- IO helper：`pine-go/internal/types/operator_io.go`
+- 注册表校验和保留键：`pine-go/internal/registry/registry.go`
+- 公共包装器：`pine-go/operator.go`、`pine-go/operator_io.go`、`pine-go/registry.go`
+- 内置示例：`pine-go/operators/`
+- Codegen 消费路径：`pine-go/pkg/codegen/codegen.go`、`pine-go/pkg/codegen/template.go`、`pine-go/pkg/codegen/docparse.go`

@@ -71,8 +71,10 @@ public class PipelineFixtureTest {
                         assertEquals(expectedCommon, result.common, fullName + " — common mismatch");
                         assertEquals(expectedItems.size(), result.items.size(),
                                 fullName + " — item count mismatch");
-                        assertEquals(new HashSet<>(expectedItems), new HashSet<>(result.items),
-                                fullName + " — items mismatch (set comparison)");
+                        for (int idx = 0; idx < expectedItems.size(); idx++) {
+                            assertEquals(expectedItems.get(idx), result.items.get(idx),
+                                    fullName + " — items[" + idx + "] mismatch");
+                        }
                     }));
                 }
             }
@@ -83,7 +85,7 @@ public class PipelineFixtureTest {
     private static Path findFixturesDir() {
         Path dir = Paths.get(System.getProperty("user.dir"));
         for (int i = 0; i < 5; i++) {
-            Path candidate = dir.resolve("fixtures/pipelines");
+            Path candidate = dir.resolve("pine-go/fixtures/pipelines");
             if (Files.isDirectory(candidate)) return candidate;
             dir = dir.getParent();
             if (dir == null) break;

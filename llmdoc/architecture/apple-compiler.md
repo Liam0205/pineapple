@@ -22,7 +22,7 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 - 将算子调用记录为结构化的 `OpCall` 值
 - 在运行时之前校验声明正确性
 - 将控制流降级为普通算子 + skip 字段
-- 输出匹配 `internal/config/types.go` 的 JSON
+- 输出匹配 `pine-go/internal/config/types.go` 的 JSON
 
 编译器的输出是 Python 和 Go 之间的持久边界。
 
@@ -328,7 +328,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - `debug`
 - 业务参数
 
-这是 Go 配置加载器后续解析为 `internal/config.OperatorConfig` 的对象。
+这是 Go 配置加载器后续解析为 `pine-go/internal/config.OperatorConfig` 的对象。
 
 其中 `sources` 相关的 `_resolve_source` 语义是直接透传：编译器直接返回 `source_type_hint`，不再做名字解析。原因是 source refs 在 DSL 层已经是最终算子名；用户通过 `sources=[...]` 传入的应是显式 `name=` 指定的算子名，编译器只负责原样写入 JSON。
 
@@ -557,7 +557,7 @@ Apple 支持两层 debug 声明：
 两者职责不同：
 
 - 逐算子 `debug` 是细粒度配置，面向单个算子
-- 根级 `debug` 是 flow 级默认开关，沿 `Flow(...)` → 根级 JSON → `internal/config.RootConfig` → `pine.NewEngine()` 传递，并在 Go 侧展开为“所有算子都开启 debug”
+- 根级 `debug` 是 flow 级默认开关，沿 `Flow(...)` → 根级 JSON → `pine-go/internal/config.RootConfig` → `pine.NewEngine()` 传递，并在 Go 侧展开为”所有算子都开启 debug”
 
 这使 `debug` 成为继 `storage_mode`、`log_prefix` 之后第三个遵循同一路径下沉的 root-level 配置字段。
 
@@ -593,8 +593,8 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 
 权威流向：
 
-1. `operators/` 下的 Go 算子 Schema 注册
-2. `pkg/codegen/` 中的 Go codegen
+1. `pine-go/operators/` 下的 Go 算子 Schema 注册
+2. `pine-go/pkg/codegen/` 中的 Go codegen
 3. `apple_generated/` 中生成的 Python helper 类
 4. Apple 编译输出 JSON
 5. Go 运行时消费 JSON
@@ -613,7 +613,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 8. **`sources` 引用也必须遵守声明顺序。** Apple compile time 的 `validate_sources_references` 只允许引用已经出现在当前算子之前的命名上游；不存在的名字报 `does not exist`，存在但尚未出现的名字报 `forward reference`。这保证显式 merge/source 边不会把 DAG 拉成“未来节点依赖过去节点”的因果倒置。
 9. **控制分支守卫会沿 SubFlow 递归传播，且 skip 采用 Lua truthiness。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致；`apple/control.py` 发射的 prior-check 与 Go 调度器的 skip 判定都以 Lua truthiness 为准，只有 `nil` 和 `false` 不触发跳过。
 10. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
-11. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
+11. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `pine-go/internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。
 12. **编译器 traversal 幂等。** `_traverse()` 的局部多 pass 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过复制本地 ops 并把重命名、skip 注入、互斥组收集拆成独立 pass 来保证 `compile_dict()` 可重复调用；如果后续新增 traversal 逻辑需要改写 IR，必须同样保持幂等。
     - 测试覆盖要求应显式包含“同一 Flow 连续编译两次输出完全一致”的场景，并继续覆盖“控制分支内嵌 SubFlow”的路径：至少验证包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 侧效应在该路径上累积。
     - 当前测试拆分为四类：`TestCompileIdempotency` 覆盖重复编译稳定性；`TestRenameControlFields` 覆盖控制字段重命名 pass；`TestInjectInheritedSkips` 覆盖外层 skip 传播 pass；`TestCollectExclusionGroups` 覆盖闭合控制块的互斥组收集。

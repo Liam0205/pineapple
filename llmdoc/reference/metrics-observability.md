@@ -1,20 +1,20 @@
 # 指标与观测参考
 
-本文档描述 Pineapple 0.5.0 起稳定支持的可插拔观测模型：内建 `/stats` 原子统计始终可用，外部监控系统通过 `pkg/metrics` Provider 抽象接入。
+本文档描述 Pineapple 0.5.0 起稳定支持的可插拔观测模型：内建 `/stats` 原子统计始终可用，外部监控系统通过 `pine-go/pkg/metrics` Provider 抽象接入。
 
 ## 权威文件
 
-- `pkg/metrics/metrics.go`
-- `pkg/metrics/nop.go`
-- `pine.go`
-- `internal/runtime/engine_metrics.go`
-- `internal/runtime/scheduler.go`
-- `internal/runtime/stats.go`
-- `internal/types/operator.go`
-- `operators/lua/lua.go`
-- `operators/lua/pool.go`
-- `pkg/server/server.go`
-- `pkg/server/http_metrics.go`
+- `pine-go/pkg/metrics/metrics.go`
+- `pine-go/pkg/metrics/nop.go`
+- `pine-go/pine.go`
+- `pine-go/internal/runtime/engine_metrics.go`
+- `pine-go/internal/runtime/scheduler.go`
+- `pine-go/internal/runtime/stats.go`
+- `pine-go/internal/types/operator.go`
+- `pine-go/operators/lua/lua.go`
+- `pine-go/operators/lua/pool.go`
+- `pine-go/pkg/server/server.go`
+- `pine-go/pkg/server/http_metrics.go`
 
 ## 设计目标
 
@@ -32,9 +32,9 @@ Pineapple 把生产可观测性拆成两条稳定通道：
 
 该拆分允许 Pineapple 默认保持轻依赖，同时让接入方在自己的项目中实现约 80 行级别的 Prometheus adapter。
 
-## `pkg/metrics` 抽象面
+## `pine-go/pkg/metrics` 抽象面
 
-`pkg/metrics/metrics.go` 定义的稳定接口只有三类 metric 和一个 provider：
+`pine-go/pkg/metrics/metrics.go` 定义的稳定接口只有三类 metric 和一个 provider：
 
 - `Counter`
 - `Gauge`
@@ -85,13 +85,13 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 2. `DebugAware`
 3. `MetricsAware`
 
-该顺序是承载性的。像 `operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
+该顺序是承载性的。像 `pine-go/operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
 
 ## 双通道观测模型
 
 ### 通道一：内建原子统计
 
-`internal/runtime/stats.go` 始终维护：
+`pine-go/internal/runtime/stats.go` 始终维护：
 
 - 每算子执行次数、跳过次数、错误次数
 - 每算子总耗时、最大耗时、平均耗时
@@ -106,7 +106,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 
 ### 通道二：外部 Provider metrics
 
-`internal/runtime/engine_metrics.go` 在引擎创建时预声明并缓存 metric handle。当前稳定指标名为：
+`pine-go/internal/runtime/engine_metrics.go` 在引擎创建时预声明并缓存 metric handle。当前稳定指标名为：
 
 **算子级指标：**
 
@@ -140,7 +140,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 ## 服务端观测
 
-`pkg/server/server.go` 支持通过 `server.Config.Metrics` 注入 provider，也支持通过 `server.Config.Middlewares` 在 HTTP 边界层包装整个 handler 链。
+`pine-go/pkg/server/server.go` 支持通过 `server.Config.Metrics` 注入 provider，也支持通过 `server.Config.Middlewares` 在 HTTP 边界层包装整个 handler 链。
 
 该 provider 会同时用于：
 
@@ -151,7 +151,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 ### 内置 HTTP 请求指标中间件（0.6.6 起）
 
-`pkg/server/http_metrics.go` 提供内置的 `httpMetricsMiddleware`，作为**最内层**中间件自动应用于所有 HTTP 路由，测量 handler 处理耗时（不含用户 middleware 开销）。
+`pine-go/pkg/server/http_metrics.go` 提供内置的 `httpMetricsMiddleware`，作为**最内层**中间件自动应用于所有 HTTP 路由，测量 handler 处理耗时（不含用户 middleware 开销）。
 
 指标名：
 
@@ -199,7 +199,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 ### `StatsProvider`
 
-定义于 `internal/types/operator.go`，用于把算子内部累计统计暴露给 `/stats`：
+定义于 `pine-go/internal/types/operator.go`，用于把算子内部累计统计暴露给 `/stats`：
 
 - 方法：`OperatorStats() map[string]int64`
 - 数据应是稳定、便于诊断的累计数值
@@ -207,7 +207,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 ### `MetricsAware`
 
-定义于 `internal/types/operator.go`，用于接收外部 provider：
+定义于 `pine-go/internal/types/operator.go`，用于接收外部 provider：
 
 - 方法：`SetMetricsProvider(p metrics.Provider)`
 - 适合在算子内部预创建或缓存自己的 metric handle
@@ -222,14 +222,14 @@ Lua runtime 现在同时实现两种扩展接口：
 
 ### `/stats` 侧
 
-`operators/lua/pool.go` 通过原子计数维护：
+`pine-go/operators/lua/pool.go` 通过原子计数维护：
 
 - `borrow_count`
 - `return_count`
 - `create_count`
 - `active_count`
 
-`operators/lua/lua.go` 的 `OperatorStats()` 将这些计数暴露到 `/stats.operator_detail[operatorName]`。
+`pine-go/operators/lua/lua.go` 的 `OperatorStats()` 将这些计数暴露到 `/stats.operator_detail[operatorName]`。
 
 ### 外部 metrics 侧
 
@@ -263,13 +263,13 @@ Pineapple 仓库内不提供 Prometheus 具体实现。推荐模式是：
 
 ## 检索指针
 
-- 接口定义：`pkg/metrics/metrics.go`
-- no-op 默认实现：`pkg/metrics/nop.go`
-- 引擎入口与 option：`pine.go`
-- 引擎级 metric 预创建：`internal/runtime/engine_metrics.go`
-- 调度热路径记录：`internal/runtime/scheduler.go`
-- 原子统计：`internal/runtime/stats.go`
-- 算子扩展接口：`internal/types/operator.go`
-- Lua 参考实现：`operators/lua/lua.go`、`operators/lua/pool.go`
-- HTTP `/stats` 与 reload 指标：`pkg/server/server.go`
-- 内置 HTTP 请求指标中间件：`pkg/server/http_metrics.go`
+- 接口定义：`pine-go/pkg/metrics/metrics.go`
+- no-op 默认实现：`pine-go/pkg/metrics/nop.go`
+- 引擎入口与 option：`pine-go/pine.go`
+- 引擎级 metric 预创建：`pine-go/internal/runtime/engine_metrics.go`
+- 调度热路径记录：`pine-go/internal/runtime/scheduler.go`
+- 原子统计：`pine-go/internal/runtime/stats.go`
+- 算子扩展接口：`pine-go/internal/types/operator.go`
+- Lua 参考实现：`pine-go/operators/lua/lua.go`、`pine-go/operators/lua/pool.go`
+- HTTP `/stats` 与 reload 指标：`pine-go/pkg/server/server.go`
+- 内置 HTTP 请求指标中间件：`pine-go/pkg/server/http_metrics.go`

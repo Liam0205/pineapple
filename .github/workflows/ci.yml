@@ -30,6 +30,10 @@ on:
       - "LICENSE"
       - "README.md"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != 'master' }}
+
 jobs:
   go-lint:
     runs-on: ubuntu-latest
@@ -37,8 +41,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: pine-go/go.mod
       - uses: golangci/golangci-lint-action@v9
+        with:
+          working-directory: pine-go
 
   python-lint:
     runs-on: ubuntu-latest
@@ -50,20 +56,37 @@ jobs:
       - run: pip install ruff
       - run: ruff check apple/
 
+  java-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pine-java
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+      - run: mvn checkstyle:check -B
+
   go-test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pine-go
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: pine-go/go.mod
       - run: go test -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload Go coverage
         uses: actions/upload-artifact@v7
         if: always()
         with:
           name: go-coverage
-          path: coverage.out
+          path: pine-go/coverage.out
           retention-days: 30
 
   python-test:
@@ -72,7 +95,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: pine-go/go.mod
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -97,8 +120,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "11"
-      - name: Run fixture tests
-        run: mvn test -B -q
+          cache: maven
+      - run: mvn test -B -q
+      - name: Upload Java coverage
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: java-coverage
+          path: pine-java/target/site/jacoco/
+          retention-days: 30
 
   java-benchmark:
     runs-on: ubuntu-latest
@@ -126,6 +156,32 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  java-fuzz:
+    runs-on: ubuntu-latest
+    needs: java-test
+    defaults:
+      run:
+        working-directory: pine-java
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+      - name: Fuzz Config.load
+        run: mvn test -B -Dtest="JazzerFuzzTest#fuzzConfigLoad" -Djazzer.instrument="page.liam.pine.**"
+        env:
+          JAZZER_FUZZ: "1"
+      - name: Fuzz DAG.build
+        run: mvn test -B -Dtest="JazzerFuzzTest#fuzzDAGBuild" -Djazzer.instrument="page.liam.pine.**"
+        env:
+          JAZZER_FUZZ: "1"
+      - name: Fuzz Engine.create
+        run: mvn test -B -Dtest="JazzerFuzzTest#fuzzEngineCreate" -Djazzer.instrument="page.liam.pine.**"
+        env:
+          JAZZER_FUZZ: "1"
+
   cross-validation:
     runs-on: ubuntu-latest
     needs: [go-test, java-test]
@@ -134,7 +190,7 @@ jobs:
       - name: Verify fixture parity
         shell: bash
         run: |
-          GO_FIXTURES=$(find fixtures/pipelines -name "*.json" | sort | wc -l)
+          GO_FIXTURES=$(find pine-go/fixtures/pipelines -name "*.json" | sort | wc -l)
           echo "Pipeline fixtures: $GO_FIXTURES files"
           echo "Both Go and Java test jobs passed on the same fixtures."
           echo
@@ -147,24 +203,30 @@ jobs:
 
   codegen-check:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pine-go
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: pine-go/go.mod
       - name: Run codegen
-        run: go run ./cmd/pineapple-codegen -output apple_generated -doc-dir doc/operators -operators-dir operators
+        run: go run ./cmd/pineapple-codegen -output ../apple_generated -doc-dir ../doc/operators -operators-dir operators
       - name: Check no diff
         run: git diff --exit-code
 
   fuzz:
     runs-on: ubuntu-latest
     needs: go-test
+    defaults:
+      run:
+        working-directory: pine-go
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: pine-go/go.mod
       - name: Fuzz config.Load
         run: go test -run=^$ -fuzz=FuzzLoad -fuzztime=30s -parallel=4 ./internal/config/
       - name: Fuzz dag.Build
@@ -177,11 +239,14 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     needs: go-test
+    defaults:
+      run:
+        working-directory: pine-go
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: pine-go/go.mod
       - name: Run benchmarks
         shell: bash
         run: |
@@ -207,5 +272,5 @@ jobs:
         if: always()
         with:
           name: benchmark-results
-          path: benchmark.txt
+          path: pine-go/benchmark.txt
           retention-days: 30

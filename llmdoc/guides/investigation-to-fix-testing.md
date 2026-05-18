@@ -28,7 +28,7 @@
 
 测试策略：
 
-- 补 Go engine 集成测试（`internal/` 或 `integration/` 层）
+- 补 Go engine 集成测试（`pine-go/internal/` 或 `pine-go/integration/` 层）
 - 使用真实或测试专用算子构建最小 pipeline 复现问题
 - 负面 E2E 验证错误路径下的返回结构（包括 trace/stats 等观测字段）
 
@@ -39,7 +39,7 @@
 测试策略：
 
 - 在 Go 注册中修改 Schema
-- 运行 `go run ./cmd/pineapple-codegen` 重生成
+- 运行 `go run ./pine-go/cmd/pineapple-codegen` 重生成
 - CI `codegen-check` 自动校验 `git diff --exit-code`
 - 若涉及类型映射（`pythonType()`），确认 codegen 映射已覆盖新类型
 
@@ -83,7 +83,7 @@
 
 遵循 `conventions.md` 中描述的四层测试结构：
 
-1. `internal/` 和 `pkg/` 子系统单元测试
+1. `pine-go/internal/` 和 `pine-go/pkg/` 子系统单元测试
 2. 算子包单元测试
 3. Go 引擎集成测试
 4. Python DSL 跨语言测试

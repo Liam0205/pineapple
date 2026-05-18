@@ -8,7 +8,6 @@ public class ColumnFrame implements Frame {
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private Map<String, Object> common;
     private Map<String, Object[]> columns;
-    private BitSet[] presence;
     private int rowCount;
 
     public ColumnFrame(Map<String, Object> common, List<Map<String, Object>> items) {
@@ -21,7 +20,6 @@ public class ColumnFrame implements Frame {
             for (Map<String, Object> item : items) {
                 allFields.addAll(item.keySet());
             }
-            this.presence = new BitSet[0];
             Map<String, BitSet> presenceMap = new LinkedHashMap<>();
 
             for (String field : allFields) {
