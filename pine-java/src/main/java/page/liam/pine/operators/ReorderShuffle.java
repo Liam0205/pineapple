@@ -16,7 +16,7 @@ import java.util.*;
 public class ReorderShuffle extends AbstractOperator {
 
     @Override
-    public void init(Map<String, Object> params) {}
+    public void init(OperatorParams params) {}
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
@@ -24,14 +24,14 @@ public class ReorderShuffle extends AbstractOperator {
         if (n == 0) return;
 
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < commonInput.size(); i++) {
+        for (int i = 0; i < commonInput().size(); i++) {
             if (i > 0) sb.append('|');
-            sb.append(anyToString(input.common(commonInput.get(i))));
+            sb.append(anyToString(input.common(commonInput().get(i))));
         }
         sb.append('|');
         String saltPrefix = sb.toString();
 
-        String itemField = itemInput.get(0);
+        String itemField = itemInput().get(0);
         double[] ranks = new double[n];
         long[] ids = new long[n];
         Integer[] indices = new Integer[n];

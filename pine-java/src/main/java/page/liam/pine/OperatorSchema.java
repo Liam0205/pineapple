@@ -13,6 +13,6 @@ public class OperatorSchema {
         this.name = name;
         this.type = type;
         this.description = description;
-        this.params = params != null ? params : Collections.emptyMap();
+        this.params = params != null ? Collections.unmodifiableMap(params) : Collections.emptyMap();
     }
 }

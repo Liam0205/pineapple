@@ -8,7 +8,7 @@ public interface Frame {
     int itemCount();
     OperatorInput buildInput(List<String> commonFields, List<String> itemFields,
                              Map<String, Object> commonDefaults, Map<String, Object> itemDefaults);
-    void applyOutput(OperatorOutput out, String opName, boolean recall) throws Exception;
+    void applyOutput(OperatorOutput out, String opName, boolean recall);
     Map<String, Object> toResultCommon(List<String> commonOut);
     List<Map<String, Object>> toResultItems(List<String> itemOut);
 

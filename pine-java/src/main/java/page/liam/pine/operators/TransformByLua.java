@@ -30,10 +30,10 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     private boolean debug;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
-        script = (String) params.get("lua_script");
-        String funcForItem = (String) params.getOrDefault("function_for_item", "");
-        String funcForCommon = (String) params.getOrDefault("function_for_common", "");
+    public void init(OperatorParams params) {
+        script = params.getString("lua_script");
+        String funcForItem = params.getString("function_for_item", "");
+        String funcForCommon = params.getString("function_for_common", "");
 
         if (funcForItem.isEmpty() && funcForCommon.isEmpty()) {
             throw new IllegalArgumentException("lua: exactly one of function_for_item or function_for_common must be set");
@@ -89,9 +89,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (debug) {
-            int fields = commonInput.size();
+            int fields = commonInput().size();
             int nonNil = 0;
-            for (String f : commonInput) {
+            for (String f : commonInput()) {
                 if (input.common(f) != null) nonNil++;
             }
             int itemCount = input.itemCount();
@@ -132,7 +132,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
-        for (String field : commonInput) {
+        for (String field : commonInput()) {
             globals.set(field, toLua(input.common(field)));
         }
 
@@ -141,12 +141,12 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             throw new Exception("lua: function \"" + funcName + "\" not found");
         }
 
-        int nret = itemOutput.size();
+        int nret = itemOutput().size();
         int n = input.itemCount();
 
         for (int i = 0; i < n; i++) {
             if (token.isCancelled()) break;
-            for (String field : itemInput) {
+            for (String field : itemInput()) {
                 globals.set(field, toLua(input.item(i, field)));
             }
             Varargs results;
@@ -157,7 +157,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             }
             for (int j = 0; j < nret; j++) {
                 Object val = toJava(results.arg(j + 1));
-                output.setItem(i, itemOutput.get(j), val);
+                output.setItem(i, itemOutput().get(j), val);
             }
         }
     }
@@ -165,12 +165,12 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     private void executeForCommon(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
         if (token.isCancelled()) return;
 
-        for (String field : commonInput) {
+        for (String field : commonInput()) {
             globals.set(field, toLua(input.common(field)));
         }
 
         int n = input.itemCount();
-        for (String field : itemInput) {
+        for (String field : itemInput()) {
             LuaTable tbl = new LuaTable();
             for (int i = 0; i < n; i++) {
                 tbl.set(i + 1, toLua(input.item(i, field)));
@@ -185,11 +185,11 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             throw new Exception("lua: function \"" + funcName + "\" not found");
         }
 
-        int nret = commonOutput.size();
+        int nret = commonOutput().size();
         Varargs results = fn.invoke(LuaValue.NONE);
         for (int j = 0; j < nret; j++) {
             Object val = toJava(results.arg(j + 1));
-            output.setCommon(commonOutput.get(j), val);
+            output.setCommon(commonOutput().get(j), val);
         }
     }
 

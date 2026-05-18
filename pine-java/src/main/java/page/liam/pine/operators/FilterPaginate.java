@@ -2,8 +2,11 @@ package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorInput;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.OperatorParams;
 
 import java.util.Map;
 
@@ -17,15 +20,15 @@ import java.util.Map;
  */
 public class FilterPaginate extends AbstractOperator {
     @Override
-    public void init(Map<String, Object> params) {}
+    public void init(OperatorParams params) {}
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         int n = input.itemCount();
         if (n == 0) return;
 
-        int page = toInt(input.common(commonInput.get(0)));
-        int size = toInt(input.common(commonInput.get(1)));
+        int page = toInt(input.common(commonInput().get(0)));
+        int size = toInt(input.common(commonInput().get(1)));
         if (size <= 0) size = 10;
         if (page < 0) page = 0;
 

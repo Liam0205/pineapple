@@ -15,9 +15,13 @@ public class Registry {
             "for_branch_control", "data_parallel"
     ));
 
-    private static final Map<String, OperatorEntry> operators = new LinkedHashMap<>();
+    private static final Registry GLOBAL = new Registry();
 
-    public static void register(OperatorSchema schema, Supplier<Operator> factory) {
+    private final Map<String, OperatorEntry> operators = new LinkedHashMap<>();
+
+    public static Registry global() { return GLOBAL; }
+
+    public void register(OperatorSchema schema, Supplier<Operator> factory) {
         if (schema.name == null || schema.name.isEmpty()) {
             throw new PineErrors.RegistryError("", "Register called with empty name");
         }
@@ -39,9 +43,73 @@ public class Registry {
         operators.put(schema.name, new OperatorEntry(schema, factory));
     }
 
-    @Deprecated
-    public static void register(String name, OperatorType type, Supplier<Operator> factory) {
-        register(new OperatorSchema(name, type, name, Collections.emptyMap()), factory);
+    public Operator buildOperator(String typeName, Map<String, Object> rawParams) {
+        OperatorEntry entry = operators.get(typeName);
+        if (entry == null) {
+            throw new PineErrors.RegistryError(typeName, "operator type not registered");
+        }
+
+        Map<String, Object> params = validateAndExtractParams(entry.schema, rawParams);
+
+        Operator op = entry.factory.get();
+        try {
+            op.init(new OperatorParams(params));
+        } catch (RuntimeException e) {
+            throw new PineErrors.RegistryError(typeName, "Init failed: " + e.getMessage());
+        }
+        return op;
+    }
+
+    public Optional<OperatorType> getType(String typeName) {
+        OperatorEntry entry = operators.get(typeName);
+        return entry != null ? Optional.of(entry.schema.type) : Optional.empty();
+    }
+
+    public Optional<OperatorSchema> getSchema(String typeName) {
+        OperatorEntry entry = operators.get(typeName);
+        return entry != null ? Optional.of(entry.schema) : Optional.empty();
+    }
+
+    public List<OperatorSchema> all() {
+        List<OperatorSchema> result = new ArrayList<>();
+        for (OperatorEntry entry : operators.values()) {
+            result.add(entry.schema);
+        }
+        result.sort(Comparator.comparing(s -> s.name));
+        return result;
+    }
+
+    public String exportSchemaJSON() throws Exception {
+        List<Map<String, Object>> schemas = new ArrayList<>();
+        for (OperatorSchema s : all()) {
+            Map<String, Object> obj = new LinkedHashMap<>();
+            obj.put("Name", s.name);
+            String typeName = s.type.name().charAt(0) + s.type.name().substring(1).toLowerCase();
+            obj.put("Type", typeName);
+            obj.put("Description", s.description);
+            Map<String, Object> params = new LinkedHashMap<>();
+            for (Map.Entry<String, ParamSpec> p : s.params.entrySet()) {
+                Map<String, Object> spec = new LinkedHashMap<>();
+                spec.put("Type", p.getValue().type);
+                spec.put("Required", p.getValue().required);
+                spec.put("Default", p.getValue().defaultValue);
+                spec.put("Description", p.getValue().description);
+                params.put(p.getKey(), spec);
+            }
+            obj.put("Params", params);
+            schemas.add(obj);
+        }
+        return mapper.writeValueAsString(schemas);
+    }
+
+    public void reset() {
+        operators.clear();
+    }
+
+    // --- Static convenience methods delegating to global instance ---
+
+    public static void registerGlobal(OperatorSchema schema, Supplier<Operator> factory) {
+        GLOBAL.register(schema, factory);
     }
 
     public static Map<String, Object> validateAndExtractParams(
@@ -76,69 +144,6 @@ public class Registry {
         }
 
         return params;
-    }
-
-    public static Operator buildOperator(String typeName, Map<String, Object> rawParams) throws Exception {
-        OperatorEntry entry = operators.get(typeName);
-        if (entry == null) {
-            throw new PineErrors.RegistryError(typeName, "operator type not registered");
-        }
-
-        Map<String, Object> params = validateAndExtractParams(entry.schema, rawParams);
-
-        Operator op = entry.factory.get();
-        try {
-            op.init(params);
-        } catch (Exception e) {
-            throw new PineErrors.RegistryError(typeName, "Init failed: " + e.getMessage());
-        }
-        return op;
-    }
-
-    public static OperatorType getType(String typeName) {
-        OperatorEntry entry = operators.get(typeName);
-        return entry != null ? entry.schema.type : null;
-    }
-
-    public static OperatorSchema getSchema(String typeName) {
-        OperatorEntry entry = operators.get(typeName);
-        return entry != null ? entry.schema : null;
-    }
-
-    public static List<OperatorSchema> all() {
-        List<OperatorSchema> result = new ArrayList<>();
-        for (OperatorEntry entry : operators.values()) {
-            result.add(entry.schema);
-        }
-        result.sort(Comparator.comparing(s -> s.name));
-        return result;
-    }
-
-    public static String exportSchemaJSON() throws Exception {
-        List<Map<String, Object>> schemas = new ArrayList<>();
-        for (OperatorSchema s : all()) {
-            Map<String, Object> obj = new LinkedHashMap<>();
-            obj.put("Name", s.name);
-            String typeName = s.type.name().charAt(0) + s.type.name().substring(1).toLowerCase();
-            obj.put("Type", typeName);
-            obj.put("Description", s.description);
-            Map<String, Object> params = new LinkedHashMap<>();
-            for (Map.Entry<String, ParamSpec> p : s.params.entrySet()) {
-                Map<String, Object> spec = new LinkedHashMap<>();
-                spec.put("Type", p.getValue().type);
-                spec.put("Required", p.getValue().required);
-                spec.put("Default", p.getValue().defaultValue);
-                spec.put("Description", p.getValue().description);
-                params.put(p.getKey(), spec);
-            }
-            obj.put("Params", params);
-            schemas.add(obj);
-        }
-        return mapper.writeValueAsString(schemas);
-    }
-
-    public static void reset() {
-        operators.clear();
     }
 
     private static class OperatorEntry {
