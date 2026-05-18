@@ -1,0 +1,108 @@
+{
+  "name": "common_defaults and item_defaults behavior",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "copy_factor": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "common_defaults": {"factor": 10},
+          "$metadata": {
+            "common_input": ["factor"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["factor"]
+          }
+        },
+        "label_by_lua": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function label()\n  return priority .. '_tagged'\nend",
+          "function_for_item": "label",
+          "function_for_common": "",
+          "item_defaults": {"priority": "low"},
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["priority"],
+            "item_output": ["label"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["copy_factor", "label_by_lua"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id", "factor", "label"]
+    }
+  },
+  "cases": [
+    {
+      "name": "all fields present — no defaults triggered",
+      "request": {
+        "common": {"factor": 5},
+        "items": [
+          {"id": "a", "priority": "high"},
+          {"id": "b", "priority": "medium"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "a", "factor": 5, "label": "high_tagged"},
+          {"id": "b", "factor": 5, "label": "medium_tagged"}
+        ]
+      }
+    },
+    {
+      "name": "common field missing — common_defaults fills gap",
+      "request": {
+        "common": {},
+        "items": [
+          {"id": "x", "priority": "urgent"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x", "factor": 10, "label": "urgent_tagged"}
+        ]
+      }
+    },
+    {
+      "name": "item field missing — item_defaults fills gap",
+      "request": {
+        "common": {"factor": 3},
+        "items": [
+          {"id": "p"},
+          {"id": "q", "priority": "high"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "p", "factor": 3, "label": "low_tagged"},
+          {"id": "q", "factor": 3, "label": "high_tagged"}
+        ]
+      }
+    },
+    {
+      "name": "null values — defaults replace nil",
+      "request": {
+        "common": {"factor": null},
+        "items": [
+          {"id": "z", "priority": null}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "z", "factor": 10, "label": "low_tagged"}
+        ]
+      }
+    }
+  ]
+}

@@ -80,7 +80,11 @@ func RenderMermaid(g *Graph) string {
 
 	b.WriteString("\n")
 
-	for opType, colors := range mermaidClasses {
+	for _, opType := range types.AllOperatorTypes {
+		colors, ok := mermaidClasses[opType]
+		if !ok {
+			continue
+		}
 		className := strings.ToLower(string(opType))
 		fmt.Fprintf(&b, "    classDef %s fill:%s,stroke:%s\n", className, colors[0], colors[1])
 	}

@@ -1,0 +1,33 @@
+{
+  "name": "Config error: pipeline references nonexistent operator name",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "real_op": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [{"item_id": "x"}],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["real_op", "ghost_op_not_in_operators"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id"]
+    }
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "ghost_op_not_in_operators"
+  }
+}

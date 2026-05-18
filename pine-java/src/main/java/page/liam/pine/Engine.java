@@ -595,7 +595,7 @@ public class Engine {
                 for (String src : opCfg.sources) {
                     if (!seen.contains(src)) {
                         throw new PineErrors.ValidationError(
-                                "operator \"" + name + "\": sources references \"" + src + "\" which appears later in the sequence (forward reference)");
+                                "operator \"" + name + "\": sources references \"" + src + "\" which is declared after the current operator (forward reference)");
                     }
                 }
             }

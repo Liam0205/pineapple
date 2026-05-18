@@ -1,0 +1,36 @@
+{
+  "name": "Validation error: sources forward reference (merge references later operator)",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "merge_a": {
+          "type_name": "merge_dedup",
+          "sources": ["merge_b"],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["id"], "item_output": []
+          }
+        },
+        "merge_b": {
+          "type_name": "merge_dedup",
+          "sources": [],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["id"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["merge_a", "merge_b"]}
+    },
+    "flow_contract": {
+      "common_input": [], "item_input": [],
+      "common_output": [], "item_output": ["id"]
+    }
+  },
+  "expected_error": {
+    "type": "ValidationError",
+    "message_contains": "forward reference"
+  }
+}

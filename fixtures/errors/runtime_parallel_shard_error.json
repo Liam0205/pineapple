@@ -1,0 +1,36 @@
+{
+  "name": "Runtime error: data_parallel shard failure propagation",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "error_lua": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function fail()\n  error('shard_failure')\nend",
+          "function_for_item": "fail",
+          "function_for_common": "",
+          "data_parallel": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["y"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["error_lua"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["x", "y"]
+    }
+  },
+  "request": {"common": {}, "items": [{"x": 1}, {"x": 2}, {"x": 3}, {"x": 4}]},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "shard_failure"
+  }
+}

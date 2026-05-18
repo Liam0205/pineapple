@@ -4,6 +4,7 @@ import page.liam.pine.operators.AllOperators;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Collections;
 
 public class RenderDAGCli {
     public static void main(String[] args) throws Exception {
@@ -25,7 +26,8 @@ public class RenderDAGCli {
         }
 
         byte[] data = Files.readAllBytes(Paths.get(configPath));
-        Engine engine = Engine.create(data, (ResourceProvider) null);
+        ResourceProvider rp = new StaticResourceProvider(Collections.emptyMap());
+        Engine engine = Engine.create(data, rp);
         String output = engine.renderDAG(format, collapse);
         System.out.print(output);
     }
