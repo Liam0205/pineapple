@@ -7,6 +7,14 @@ import page.liam.pine.OperatorOutput;
 
 import java.util.Map;
 
+/**
+ * Operator: transform_size
+ * Metadata contract
+ *   CommonInput:  []
+ *   CommonOutput: [<target_field>]
+ *   ItemInput:    []
+ *   ItemOutput:   []
+ */
 public class TransformSize extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
     @Override
     public void init(Map<String, Object> params) {}

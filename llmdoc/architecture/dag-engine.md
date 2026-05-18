@@ -709,7 +709,9 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 `TransformByLua` 使用 LuaJ（`org.luaj.vm2`）实现：
 
 - `ConcurrentLinkedQueue` 池化 Globals 实例
-- 池在 execute 期间跟踪 `usedKeys`，归还时仅 nil 这些 key（非全表遍历）
+- 构造时记录 `baselineKeys`（脚本加载后全局表的 key 集合）
+- Borrow 时对 state 的全部 baseline key 做值快照
+- Return 时执行完整 baseline restoration：删除所有非 baseline key，恢复被修改的 baseline key 值
 - 池有 `Close()` 方法与 volatile `closed` 标志，用于热加载生命周期管理
 - Borrow 时检查 `closed` 状态，已关闭则抛出异常
 - 沙箱：仅加载 `base`、`table`、`string`、`math`、`package`（LuaJ 编译器依赖），但 `require` 和 `package` 全局变量置为 NIL；移除 `io`、`os`、`debug`、`dofile`、`loadfile`
@@ -724,6 +726,16 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 - Merge: `merge_dedup`
 - Reorder: `reorder_sort`、`reorder_shuffle_by_salt`
 - Observe: `observe_log`
+
+### 跨运行时格式兼容（GoFormat）
+
+`GoFormat.java` 提供静态方法复制 Go 标准库数值格式化行为：
+
+- `sprint(Object)` — 等效 Go `fmt.Sprint`；nil → `"<nil>"`，整数值 float → 无小数点
+- `formatFloatF(double)` — 等效 Go `strconv.FormatFloat(d, 'f', -1, 64)`
+- `formatG(double)` — 等效 Go `fmt.Sprintf("%g", d)`；保留完整精度
+
+消费者：`TransformResourceLookup`（key coerce）、`TransformRedisGet`（key 拼接）、`FilterCondition`（条件比较值）。
 
 ### 资源管理
 
@@ -740,6 +752,7 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 - `--export-schema <path>` — 从内部 Registry 导出 Schema JSON
 - `--schema-from-registry` — 从内部 Registry 直接生成 Python DSL 产物
 - `-schema <path>` — legacy 模式（读取外部 JSON，保留兼容性）
+- `-ops-dir <path>` — 指定算子 Java 源码目录，启用 Javadoc metadata contract 解析（等同 Go `pkg/codegen/docparse.go`）
 
 ### Schema 独立性
 

@@ -5,6 +5,11 @@ import page.liam.pine.*;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Operator: recall_resource
+ * Metadata contract
+ *   ItemOutput: [<fields present in the resource items>]
+ */
 public class RecallResource extends AbstractOperator implements ResourceAware {
     private String resourceName;
     private ResourceProvider resourceProvider;

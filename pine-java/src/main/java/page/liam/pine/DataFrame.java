@@ -153,6 +153,9 @@ public class DataFrame implements Frame {
             // 5. Additions
             for (Map<String, Object> added : out.getAddedItems()) {
                 Map<String, Object> row = new LinkedHashMap<>(added);
+                for (Map.Entry<String, Object> entry : row.entrySet()) {
+                    validateValue(entry.getValue());
+                }
                 if (recall) {
                     row.put("_source", opName);
                 }

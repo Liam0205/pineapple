@@ -1,12 +1,21 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.*;
+import page.liam.pine.GoFormat;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
 import java.util.*;
 
+/**
+ * Operator: transform_redis_get
+ * Metadata contract
+ *   CommonInput:  [<key_suffix_fields...>]
+ *   CommonOutput: [<result_field>, <cache_hit_field>]
+ *   ItemInput:    []
+ *   ItemOutput:   []
+ */
 public class TransformRedisGet extends AbstractOperator implements ConcurrentSafe {
     private JedisPool pool;
     private String keyPrefix;
@@ -110,13 +119,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     }
 
     static String sprintValue(Object v) {
-        if (v == null) return "<nil>";
-        if (v instanceof Number) {
-            double d = ((Number) v).doubleValue();
-            if (d == (long) d && !Double.isInfinite(d)) return Long.toString((long) d);
-            return Double.toString(d);
-        }
-        return v.toString();
+        return GoFormat.sprint(v);
     }
 
     private static int toInt(Object v) {

@@ -193,6 +193,7 @@ public class ColumnFrame implements Frame {
                         row.put("_source", opName);
                     }
                     for (Map.Entry<String, Object> fe : row.entrySet()) {
+                        validateValue(fe.getValue());
                         String field = fe.getKey();
                         Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
                         if (col.length < rowCount) {
