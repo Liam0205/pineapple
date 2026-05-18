@@ -8,6 +8,7 @@ public class ColumnFrame implements Frame {
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
     private Map<String, Object> common;
     private Map<String, Object[]> columns;
+    private Map<String, BitSet> presenceByField = new LinkedHashMap<>();
     private int rowCount;
 
     public ColumnFrame(Map<String, Object> common, List<Map<String, Object>> items) {
@@ -38,8 +39,6 @@ public class ColumnFrame implements Frame {
             rebuildPresenceArray(presenceMap);
         }
     }
-
-    private Map<String, BitSet> presenceByField = new LinkedHashMap<>();
 
     private void rebuildPresenceArray(Map<String, BitSet> pm) {
         this.presenceByField = pm;
