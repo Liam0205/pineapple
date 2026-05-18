@@ -32,7 +32,7 @@ public class ReorderSort extends AbstractOperator {
                 ascending = false;
                 break;
             default:
-                throw new IllegalArgumentException("reorder_sort: unsupported order: " + order);
+                throw new IllegalArgumentException("reorder_sort: unsupported order \"" + order + "\"");
         }
     }
 

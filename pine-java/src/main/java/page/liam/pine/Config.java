@@ -223,10 +223,10 @@ public class Config {
             OperatorConfig opCfg = entry.getValue();
             for (String skipField : opCfg.skip) {
                 if (!skipField.startsWith("_")) {
-                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must start with underscore");
+                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must start with '_' (control fields are engine-internal)");
                 }
                 if (!opCfg.metadata.commonInput.contains(skipField)) {
-                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" not found in $metadata.common_input");
+                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must also appear in $metadata.common_input to ensure correct DAG ordering");
                 }
             }
         }
