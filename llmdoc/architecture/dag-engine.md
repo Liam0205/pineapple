@@ -668,8 +668,9 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 
 - **引擎编译流水线**：JSON 解析 → 算子序列展开（含 SubFlow）→ sources 前向引用校验（`Engine.validateSourcesOrder`）→ 算子实例构建 → DAG 推导
 - **Option pattern**：`Engine.create(jsonConfig, options...)` 接受 `withMetrics`、`withResources`、`withLogPrefix`、`withDebug` 四种 option，语义与 Go 的 `pine.NewEngine(jsonConfig, opts...)` 一致
+- **引擎编译重构**：`CompiledOperator` 聚合运行时配置（debug、metrics、resources）；`OperatorParams` 类型化包装替代原始 `Map<String,Object>` 用于 `Operator.init()`；Registry 从 static-only 重构为 instance-based（`GLOBAL` singleton + instance methods）
 - **DAG 推导**：屏障边 + 数据冒险边 + 显式 sources 边 + 传递性归约 + 拓扑排序
-- **并发调度**：ForkJoinPool + CompletableFuture 事件驱动唤醒，语义等同 Go 侧的 per-operator goroutine + done channel 模型（无轮询）
+- **并发调度**：注入式 `ExecutorService`（默认 ForkJoinPool.commonPool）+ CompletableFuture 事件驱动唤醒，语义等同 Go 侧的 per-operator goroutine + done channel 模型（无轮询）
 - **DataFrame**：`Frame` 接口抽象，`DataFrame`（行存）和 `ColumnFrame`（列存），通过 `storage_mode` 配置选择
 - **data_parallel**：`ParallelExecutor` 实现 Transform 级并行分片，要求 `ConcurrentSafe` 接口
 - **双通道观测**：`Stats` 原子统计 + 可插拔 `Provider`（`metrics/Provider.java`），默认 `NopProvider`（等同 Go 的 `metrics.Nop()`）
@@ -694,9 +695,18 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 - `/dag` 校验 `collapse` 参数（负值 → 400）并捕获 renderDAG 异常
 - `Engine.execute` 返回 `Result` 带 error 字段（partial result 模式，对应 Go 的 `(result, err)` 返回）
 
+### CLI 错误输出契约
+
+Java CLI 工具（`RunCli`、`RenderDAGCli`、`PineServer` 启动路径）遵循 Go 格式的 clean 错误输出：
+
+- 格式：`"error <context>: <message>"`，无 stack trace 泄露
+- 每种已知异常类型有独立 catch 子句（`IOException`、`ConfigError|RegistryError`、`JsonProcessingException`），不使用通用 `Exception` catch
+- 进程以 `System.exit(1)` 退出
+- 与 Go 侧 `log.Fatalf("error ...: %v", err)` 的输出格式字节级对齐
+
 ### 算子执行上下文
 
-- **CancellationToken**（volatile boolean）：Java 对 Go `context.Context` 取消传播的等价实现
+- **CancellationToken**（interface + AtomicBoolean 实现）：Java 对 Go `context.Context` 取消传播的等价实现；定义为 interface，有 `SimpleCancellationToken`（请求级）和 `ChildCancellationToken`（shard 级）两个实现
 - 全部 18 个算子的 `execute()` 方法接受 `CancellationToken token` 作为第一参数
 - 引擎为每次请求创建一个 request-level token，首个 fatal error 时取消。`ParallelExecutor` 额外创建 shard-level child token：各 shard 接收 child token 而非 parent，首个 shard 失败时仅取消 child token（等同 Go 的 per-shard `context.WithCancel`），shard 启动前同时检查 parent 和 child 两级取消状态
 - 长时间循环（Lua item 迭代、parallel shard）检查 `token.isCancelled()`
@@ -763,7 +773,7 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 
 ### Schema 独立性
 
-Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。两侧通过 CI 三层交叉验证（Schema diff、Config fixtures、Execution 比对）保持对齐，无运行时耦合。
+Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。两侧通过 CI 七层交叉验证（`scripts/cross-validate.sh`：Schema/Codegen、Render-DAG、Execution、Column-store、Error、Server HTTP、Cancellation）保持对齐，无运行时耦合。
 
 ## 检索指针
 
@@ -802,3 +812,5 @@ Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`Ope
 - DebugAware：`pine-java/src/.../DebugAware.java`
 - MetricsAware：`pine-java/src/.../MetricsAware.java`
 - Codegen：`pine-java/src/.../Codegen.java`
+- OperatorParams：`pine-java/src/.../OperatorParams.java`
+- CLI 错误输出：`pine-java/src/.../cli/RunCli.java`、`pine-java/src/.../cli/RenderDAGCli.java`
