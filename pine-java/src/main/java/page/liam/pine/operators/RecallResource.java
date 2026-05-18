@@ -43,12 +43,14 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
             throw new PineErrors.OperatorException("recall_resource: resource \"" + resourceName + "\" is not a List");
         }
 
-        for (Object item : items) {
+        for (int i = 0; i < items.size(); i++) {
+            Object item = items.get(i);
             if (item instanceof Map) {
                 Map<String, Object> m = (Map<String, Object>) item;
                 output.addItem(new java.util.LinkedHashMap<>(m));
             } else {
-                throw new PineErrors.OperatorException("recall_resource: item is not a Map");
+                throw new PineErrors.OperatorException("recall_resource: items[" + i + "] is " +
+                        (item == null ? "null" : item.getClass().getSimpleName()) + ", want Map");
             }
         }
     }

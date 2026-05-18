@@ -27,6 +27,9 @@ public final class GoFormat {
             if (v instanceof Long || v instanceof Integer) {
                 return Long.toString(((Number) v).longValue());
             }
+            if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
+                return "-0";
+            }
             if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e6) {
                 return Long.toString((long) d);
             }
@@ -61,6 +64,12 @@ public final class GoFormat {
      * Uses Double.toString for shortest round-trip representation.
      */
     public static String formatFloatF(double d) {
+        if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
+            return "-0";
+        }
+        if (Double.isNaN(d)) return "NaN";
+        if (d == Double.POSITIVE_INFINITY) return "+Inf";
+        if (d == Double.NEGATIVE_INFINITY) return "-Inf";
         if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e18) {
             return Long.toString((long) d);
         }

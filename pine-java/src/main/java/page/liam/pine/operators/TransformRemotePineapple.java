@@ -143,7 +143,8 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         try {
             result = mapper.readValue(respBody, new TypeReference<>() {});
         } catch (Exception e) {
-            throw new PineErrors.OperatorException("transform_by_remote_pineapple: parse response: " + e.getMessage(), e);
+            handleError(output, "parse response: " + e.getMessage(), e);
+            return;
         }
 
         Object errObj = result.get("error");

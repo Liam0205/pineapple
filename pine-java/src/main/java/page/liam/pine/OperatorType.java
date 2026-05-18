@@ -61,6 +61,13 @@ public enum OperatorType {
         if (violations.isEmpty()) {
             return null;
         }
-        return "operator type " + name().toLowerCase() + " must not call " + violations;
+        String typeName = name().charAt(0) + name().substring(1).toLowerCase();
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < violations.size(); i++) {
+            if (i > 0) sb.append(" ");
+            sb.append(violations.get(i));
+        }
+        sb.append("]");
+        return "operator type " + typeName + " must not call " + sb;
     }
 }

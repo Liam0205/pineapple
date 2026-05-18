@@ -738,7 +738,7 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 - `sprint` 支持 `List<?>` 和数组类型，输出 `"[a b c]"` 空格分隔格式（匹配 Go `fmt.Sprint` 对 slice 的行为）
 - `formatG` 将 `Infinity` / `-Infinity` 输出为 `"+Inf"` / `"-Inf"`（Go 惯例）
 - `formatG` 对 magnitude ∈ [1e-4, 1e-3) 的小数通过 `BigDecimal.toPlainString()` 转换为定点表示
-- `formatG` 保留 `-0.0` 的符号位（输出 `"-0"` 而非 `"0"`），通过 `Double.doubleToRawLongBits` 检测
+- `sprint`、`formatFloatF`、`formatG` 均保留 `-0.0` 的符号位（输出 `"-0"` 而非 `"0"`），通过 `Double.doubleToRawLongBits` 在各自的整数快捷路径前检测
 
 消费者：`TransformResourceLookup`（key coerce）、`TransformRedisGet`（key 拼接）、`FilterCondition`（条件比较值格式化，替代旧的 `formatValue` 方法）、`ReorderShuffle`（salt 格式化，替代旧的 `formatFloatG` 方法）。第六轮 parity 审计中移除了 `FilterCondition.formatValue` 和 `ReorderShuffle.formatFloatG`，统一使用 `GoFormat` 作为跨算子格式化单一事实源。
 

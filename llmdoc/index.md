@@ -68,3 +68,8 @@
 - `llmdoc/memory/reflections/pine-java-parity-rounds-7-8.md` — Pine-Java 第七/八轮 Go-parity 审计复盘，记录 CancellationToken parent-child 层级隔离、ResourceAware 编译期注入、GoFormat 1e6 阈值修正、Throwable 结构化包装四项核心修复与注入时机设计教训。
 - `llmdoc/memory/reflections/pine-java-parity-round-9.md` — Pine-Java 第九轮 Go-parity 审计复盘，记录 OperatorException checked 边界（error vs panic 映射）、CompletableFuture 事件驱动调度器、GoFormat 边角（Infinity/List/小数阈值）、Server 响应体对齐，以及 fixture-based 格式化验证缺位的教训。
 - `llmdoc/memory/reflections/pine-java-parity-round-10.md` — Pine-Java 第十轮 Go-parity 审计复盘，记录约定引入未全扫描导致的清扫轮、IEEE 754 -0.0 符号位跨运行时差异、JSON key 排序确定性、验证消息类型信息缺失教训。
+- `llmdoc/memory/reflections/pine-java-parity-round-11.md` — Pine-Java 第十一轮 Go-parity 审计复盘，记录 applyOutput 错误分类 cargo-cult 简化、wire format 警告前缀与 item 索引遗漏、debug 日志计数对象错误，以及 parity gap 收敛信号（仅 4 项）。
+- `llmdoc/memory/reflections/pine-java-parity-round-12.md` — Pine-Java 第十二轮 Go-parity 审计复盘，记录类型违规 OperatorException 边界遗漏、ParallelExecutor 错误归属占位符、Registry.buildOperator 错误包装缺失、ValidateOutput 格式对齐，以及 OperatorException 迁移长尾效应的再次验证。
+- `llmdoc/memory/reflections/pine-java-parity-round-13.md` — Pine-Java 第十三轮 Go-parity 审计复盘，记录 TransformResourceLookup OperatorException 遗漏（迁移四轮未清）、GoFormat sprint -0.0 多路径盲区、TransformRemotePineapple handleError 路由语义差异、Engine debug 日志对齐。
+- `llmdoc/memory/reflections/pine-java-parity-round-14.md` — Pine-Java 第十四轮 Go-parity 审计复盘，记录 GoFormat -0.0 三轮命中全部三条路径（formatG→sprint→formatFloatF）、OperatorException 迁移第五轮仍发现 IllegalArgumentException、Engine.applyOutput 双重包装（简化重构引入新 bug）。
+- `llmdoc/memory/reflections/pine-java-parity-round-15.md` — Pine-Java 第十五轮 Go-parity 审计复盘，记录 GoFormat.formatFloatF NaN/Infinity 显式守卫（同模块 edge case 第四轮重复验证）、TransformNormalize 错误消息格式对齐，以及审计收敛信号（0 HIGH/2 MEDIUM deferred）。

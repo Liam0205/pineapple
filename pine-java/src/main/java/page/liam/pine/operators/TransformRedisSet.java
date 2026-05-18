@@ -56,7 +56,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
 
         int n = commonInput.size();
         if (n < 2) {
-            throw new IllegalArgumentException("transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
+            throw new PineErrors.OperatorException("transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
         }
 
         String key = keyPrefix + TransformRedisGet.buildKeySuffix(input, commonInput.subList(0, n - 1));
@@ -66,7 +66,10 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
             switch (dataType) {
                 case "set": {
                     List<String> members = toStringList(value);
-                    if (members == null || members.isEmpty()) return;
+                    if (members == null || members.isEmpty()) {
+                        if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
+                        return;
+                    }
                     Pipeline pipe = jedis.pipelined();
                     pipe.del(key);
                     pipe.sadd(key, members.toArray(new String[0]));
@@ -76,7 +79,10 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                 }
                 case "list": {
                     List<String> members = toStringList(value);
-                    if (members == null || members.isEmpty()) return;
+                    if (members == null || members.isEmpty()) {
+                        if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
+                        return;
+                    }
                     Pipeline pipe = jedis.pipelined();
                     pipe.del(key);
                     pipe.rpush(key, members.toArray(new String[0]));

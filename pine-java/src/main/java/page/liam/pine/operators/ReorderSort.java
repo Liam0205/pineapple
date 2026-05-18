@@ -45,7 +45,11 @@ public class ReorderSort extends AbstractOperator {
         List<int[]> entries = new ArrayList<>(n);
         double[] vals = new double[n];
         for (int i = 0; i < n; i++) {
-            vals[i] = toDouble(input.item(i, field));
+            try {
+                vals[i] = toDouble(input.item(i, field));
+            } catch (PineErrors.OperatorException e) {
+                throw new PineErrors.OperatorException("reorder_sort: item[" + i + "]." + field + ": " + e.getMessage(), e);
+            }
             entries.add(new int[]{i});
         }
 

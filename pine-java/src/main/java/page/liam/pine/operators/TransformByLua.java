@@ -89,8 +89,11 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (debug) {
-            int fields = input.rawCommon().size();
-            int nonNil = (int) input.rawCommon().values().stream().filter(v -> v != null).count();
+            int fields = commonInput.size();
+            int nonNil = 0;
+            for (String f : commonInput) {
+                if (input.common(f) != null) nonNil++;
+            }
             int itemCount = input.itemCount();
             String mode = isItemMode ? "item" : "common";
             System.err.printf("[pine:debug] operator=\"%s\" common_input fields=%d non_nil=%d items=%d mode=%s func=%s%n",
@@ -104,7 +107,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 executeForCommon(globals, input, output);
             }
         } catch (LuaError e) {
-            throw new PineErrors.OperatorException("lua error: " + e.getMessage(), e);
+            throw new PineErrors.OperatorException("lua: " + e.getMessage(), e);
         } catch (PineErrors.OperatorException e) {
             throw e;
         } catch (Exception e) {
@@ -143,7 +146,12 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             for (String field : itemInput) {
                 globals.set(field, toLua(input.item(i, field)));
             }
-            Varargs results = fn.invoke(LuaValue.NONE);
+            Varargs results;
+            try {
+                results = fn.invoke(LuaValue.NONE);
+            } catch (LuaError e) {
+                throw new Exception("lua: item[" + i + "]: " + e.getMessage(), e);
+            }
             for (int j = 0; j < nret; j++) {
                 Object val = toJava(results.arg(j + 1));
                 output.setItem(i, itemOutput.get(j), val);
