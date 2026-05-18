@@ -366,9 +366,9 @@ fixtures/
 | Execution parity cases | 43 (row) + 43 (column) |
 | DAG render checks | 90 |
 | Error parity fixtures | 15 |
-| Server HTTP checks | 20 |
+| Server HTTP checks | 21 |
 | Cancellation checks | 2 |
-| Schema parity | 完整（含 defaults） |
+| Schema parity | 完整（含 defaults + Python byte-level） |
 
 ### 对新语言后端的扩展性
 
@@ -430,3 +430,24 @@ fixtures/
 | P1 | Server /health method | 405 vs 200 分歧 | 端点行为一致 | ✅ 已修复 (Go 添加 method guard + test [15b]) |
 | P2 | Server nil common | 错误消息分歧 | 错误路径一致 | ✅ 已修复 (Java `req.get` + test [15c]) |
 | P3 | RunCli trailing newline | 字节级输出一致 | 防潜在对比失败 | ✅ 已修复 (Java println) |
+
+### 第十轮（2026-05-18 邻近层扩展审计）
+
+将审计范围扩展到引擎/Shell 层邻近区域：资源管理、Metrics 发射、Codegen 输出、JSON 序列化、Engine 生命周期：
+
+| # | 模块 | 漏洞描述 | 严重度 | 可验证 | 建议 |
+|---|------|----------|--------|--------|------|
+| 1 | **Stats JSON key ordering** | Go `encoding/json` 对 map 键字母排序；Java `ConcurrentHashMap` 迭代顺序不确定。`/stats` 响应中 operator 名顺序不同。 | **中** | 是（curl） | Java `snapshot()` 改用 `TreeMap` |
+| 2 | **Codegen whitespace** | Go 模板 vs Java PrintWriter 可能产生不同空白行。 | 中（待验证） | 是 | 实际验证为 false positive：生成输出字节级一致 |
+| 3 | **Resource Fetcher context** | Go `Fetcher` 接收 `context.Context`（可取消）；Java 无 context 参数。 | 低 | 否（内部） | 接受的平台差异（仅影响 shutdown 时序） |
+| 4 | **Resource Stop timeout** | Go `wg.Wait()` 无限等待；Java `awaitTermination(5s)`。 | 低 | 否（内部） | 接受的平台差异 |
+| 5 | **Codegen string escaping** | Go `%q` vs Java `escapeString()` 对异国字符可能不同。 | 低 | 理论上 | 当前无异国默认值，无实际风险 |
+
+#### 第十轮路线图
+
+| 优先级 | 模块 | 漏洞 | 价值 | 状态 |
+|--------|------|------|------|------|
+| P1 | Stats key ordering | operator 名字母排序 | API 消费者可见 | ✅ 已修复 (Java TreeMap + test [7b]) |
+| P2 | Codegen Python output | 字节级对比 | CI 可验证 | ✅ 验证为一致 + 加字节对比测试 |
+| P3 | Resource context/timeout | 内部差异 | 无消费者影响 | ⏸️ 接受的平台差异 |
+| P3 | Codegen string escaping | 异国字符默认值 | 当前无实际触发 | ⏸️ 仅记录 |
