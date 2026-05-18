@@ -85,7 +85,7 @@ Pineapple 最重要的边界是以 `pine-go/internal/config/types.go` 为根的 
 - 测试 fixture 与任一语言实现
 - Go 运行时与 Java 运行时（双引擎共享同一 JSON 契约）
 
-这就是跨语言测试使用 `pine-go/testdata/e2e_apple_dsl.json` 等文件而非直接桥接的原因。Pine-Java 的 `FixtureTest` / `PipelineFixtureTest` 同样消费 Go 侧的 `pine-go/fixtures/` 做对等验证（Java 通过 `../pine-go/fixtures/` 相对路径访问）。
+这就是跨语言测试使用 `pine-go/testdata/e2e_apple_dsl.json` 等文件而非直接桥接的原因。共享 fixture 位于仓库根 `fixtures/` 目录（子目录：`operators/` 单算子、`pipelines/` 端到端管道、`errors/` 错误路径）。Go 和 Java 测试均从同一路径读取，Pine-Java 的 `FixtureTest` / `PipelineFixtureTest` 通过相对路径 `../fixtures/` 访问。
 
 ### Go 算子 Schema 是唯一事实源
 
@@ -97,6 +97,21 @@ Go 中注册的算子 Schema 驱动：
 - Pine-Java 侧通过 Schema JSON 做 codegen 和注册时对齐
 
 Python DSL 消费这些契约但不重新定义它们。Java 侧实现等效语义但不引入新的 Schema 事实源。
+
+### 开发者脚本基础设施
+
+`scripts/` 提供 14 个标准化脚本覆盖完整开发流程：
+
+- `apple-compile.sh` — 编译 Apple DSL 为 JSON
+- `codegen.sh` — 从 Registry 生成 Python DSL 代码
+- `cross-validate.sh` — Go vs Java 七层跨验证
+- `run-pipeline.sh` — 指定后端执行管道
+- `render-dag.sh` — 渲染 DAG 可视化
+- `go-test.sh` / `java-test.sh` / `test-all.sh` — 分语言和全量测试
+- `go-bench.sh` / `java-bench.sh` — 性能基准
+- `go-fuzz.sh` / `java-fuzz.sh` — Fuzz 测试
+- `lint.sh` — 三语言统一 lint（ruff + golangci-lint + checkstyle）
+- `bump-version.sh` — 跨三处同步版本号
 
 ### 引擎实例构建后不可变
 

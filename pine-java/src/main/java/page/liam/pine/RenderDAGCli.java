@@ -28,7 +28,7 @@ public class RenderDAGCli {
         byte[] data;
         try {
             data = Files.readAllBytes(Paths.get(configPath));
-        } catch (Exception e) {
+        } catch (java.io.IOException e) {
             System.err.println("error reading config: " + e.getMessage());
             System.exit(1);
             return;
@@ -38,7 +38,7 @@ public class RenderDAGCli {
         try {
             ResourceProvider rp = new StaticResourceProvider(Collections.emptyMap());
             engine = Engine.create(data, rp);
-        } catch (Exception e) {
+        } catch (PineErrors.ConfigError | PineErrors.RegistryError e) {
             System.err.println("error creating engine: " + e.getMessage());
             System.exit(1);
             return;
@@ -47,7 +47,7 @@ public class RenderDAGCli {
         String output;
         try {
             output = engine.renderDAG(format, collapse);
-        } catch (Exception e) {
+        } catch (IllegalArgumentException e) {
             System.err.println("error rendering DAG: " + e.getMessage());
             System.exit(1);
             return;

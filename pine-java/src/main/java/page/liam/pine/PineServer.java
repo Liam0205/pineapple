@@ -101,7 +101,7 @@ public class PineServer {
         com.sun.net.httpserver.HttpHandler wrap(com.sun.net.httpserver.HttpHandler next);
     }
 
-    private List<Middleware> middlewares = new ArrayList<>();
+    private final List<Middleware> middlewares = new ArrayList<>();
 
     public void addMiddleware(Middleware mw) {
         this.middlewares.add(mw);
@@ -233,7 +233,7 @@ public class PineServer {
                 sendResponse(exchange, 413, Map.of("error", "request body too large"));
                 return;
             }
-            Map<String, Object> req = mapper.readValue(body, new TypeReference<>() {});
+            Map<String, Object> req = mapper.readValue(body, new TypeReference<Map<String, Object>>() {});
 
             @SuppressWarnings("unchecked")
             Map<String, Object> common = (Map<String, Object>) req.get("common");
