@@ -41,7 +41,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
         String resultField = commonOutput.get(0);
         String cacheHitField = commonOutput.get(1);
 
@@ -100,14 +100,23 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
 
     static String buildKeySuffix(OperatorInput input, List<String> fields) {
         if (fields.isEmpty()) return "";
-        if (fields.size() == 1) return String.valueOf(input.common(fields.get(0)));
+        if (fields.size() == 1) return sprintValue(input.common(fields.get(0)));
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < fields.size(); i++) {
             if (i > 0) sb.append(':');
-            Object v = input.common(fields.get(i));
-            sb.append(v != null ? v : "");
+            sb.append(sprintValue(input.common(fields.get(i))));
         }
         return sb.toString();
+    }
+
+    static String sprintValue(Object v) {
+        if (v == null) return "<nil>";
+        if (v instanceof Number) {
+            double d = ((Number) v).doubleValue();
+            if (d == (long) d && !Double.isInfinite(d)) return Long.toString((long) d);
+            return Double.toString(d);
+        }
+        return v.toString();
     }
 
     private static int toInt(Object v) {

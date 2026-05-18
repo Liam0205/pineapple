@@ -1,6 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
+import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 
@@ -18,7 +19,7 @@ public class TransformNormalize extends AbstractOperator {
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
         int n = input.itemCount();
         if (n == 0) return;
 

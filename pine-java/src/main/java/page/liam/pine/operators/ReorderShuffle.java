@@ -11,7 +11,7 @@ public class ReorderShuffle extends AbstractOperator {
     public void init(Map<String, Object> params) {}
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         int n = input.itemCount();
         if (n == 0) return;
 
@@ -70,10 +70,25 @@ public class ReorderShuffle extends AbstractOperator {
         if (v instanceof String) return (String) v;
         if (v instanceof Number) {
             double d = ((Number) v).doubleValue();
-            if (d == (long) d) return Long.toString((long) d);
-            return Double.toString(d);
+            if (d == (long) d && !Double.isInfinite(d)) return Long.toString((long) d);
+            return formatFloatG(d);
         }
         return v.toString();
+    }
+
+    private static String formatFloatG(double d) {
+        String s = Double.toString(d);
+        // Normalize Java's scientific notation (1.5E8) to Go's format (1.5e+08)
+        int eIdx = s.indexOf('E');
+        if (eIdx < 0) return s;
+        String mantissa = s.substring(0, eIdx);
+        String expStr = s.substring(eIdx + 1);
+        int exp = Integer.parseInt(expStr);
+        if (exp >= 0) {
+            return mantissa + "e+" + String.format("%02d", exp);
+        } else {
+            return mantissa + "e-" + String.format("%02d", -exp);
+        }
     }
 
     private static long parseUint64(String s) {

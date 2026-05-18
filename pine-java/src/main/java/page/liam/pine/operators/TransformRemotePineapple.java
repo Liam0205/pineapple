@@ -67,7 +67,7 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
         List<String> cReq = commonReq.isEmpty() ? commonInput : commonReq;
         List<String> iReq = itemReq.isEmpty() ? itemInput : itemReq;
         List<String> cResp = commonResp.isEmpty() ? commonOutput : commonResp;
@@ -93,6 +93,8 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
 
         byte[] body = mapper.writeValueAsBytes(reqBody);
 
+        if (token.isCancelled()) return;
+
         HttpRequest httpReq = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(timeout)
@@ -100,19 +102,21 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
 
-        HttpResponse<byte[]> resp;
+        HttpResponse<java.io.InputStream> resp;
         try {
             if (!allowPrivate) {
                 validateHostAtDialTime(host);
             }
-            resp = client.send(httpReq, HttpResponse.BodyHandlers.ofByteArray());
+            resp = client.send(httpReq, HttpResponse.BodyHandlers.ofInputStream());
         } catch (Exception e) {
             handleError(output, "request failed: " + e.getMessage(), e);
             return;
         }
 
-        byte[] respBody = resp.body();
-        if (respBody.length > maxResponseSize) {
+        byte[] respBody;
+        try (java.io.InputStream is = resp.body()) {
+            respBody = readLimited(is, maxResponseSize);
+        } catch (Exception e) {
             handleError(output, "response body exceeds " + maxResponseSize + " bytes limit", null);
             return;
         }
@@ -136,18 +140,18 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
         List<Map<String, Object>> respItems = (List<Map<String, Object>>) result.getOrDefault("items", Collections.emptyList());
 
         for (int i = 0; i < commonOutput.size() && i < cResp.size(); i++) {
-            Object val = respCommon.get(cResp.get(i));
-            if (val != null) {
-                output.setCommon(commonOutput.get(i), val);
+            String remoteField = cResp.get(i);
+            if (respCommon.containsKey(remoteField)) {
+                output.setCommon(commonOutput.get(i), respCommon.get(remoteField));
             }
         }
 
         for (int j = 0; j < input.itemCount() && j < respItems.size(); j++) {
             Map<String, Object> respItem = respItems.get(j);
             for (int i = 0; i < itemOutput.size() && i < iResp.size(); i++) {
-                Object val = respItem.get(iResp.get(i));
-                if (val != null) {
-                    output.setItem(j, itemOutput.get(i), val);
+                String remoteField = iResp.get(i);
+                if (respItem.containsKey(remoteField)) {
+                    output.setItem(j, itemOutput.get(i), respItem.get(remoteField));
                 }
             }
         }
@@ -205,5 +209,20 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     private static long toLong(Object v) {
         if (v instanceof Number) return ((Number) v).longValue();
         return 0;
+    }
+
+    private static byte[] readLimited(java.io.InputStream in, long limit) throws Exception {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] tmp = new byte[8192];
+        long total = 0;
+        int n;
+        while ((n = in.read(tmp)) != -1) {
+            total += n;
+            if (total > limit) {
+                throw new RuntimeException("response too large");
+            }
+            buf.write(tmp, 0, n);
+        }
+        return buf.toByteArray();
     }
 }

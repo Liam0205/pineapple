@@ -195,15 +195,15 @@ public class ResourceManager implements ResourceProvider {
     /**
      * Returns the current value for a named resource.
      * Lock-free read via volatile field.
-     * Returns null if the resource does not exist or is not yet loaded.
+     * Returns GetResult(null, false) if the resource does not exist or is not yet loaded.
      */
     @Override
-    public Object get(String name) {
+    public GetResult get(String name) {
         ManagedResource r = resources.get(name);
         if (r == null || !r.loaded) {
-            return null;
+            return new GetResult(null, false);
         }
-        return r.value;
+        return new GetResult(r.value, true);
     }
 
     /**
@@ -226,14 +226,17 @@ public class ResourceManager implements ResourceProvider {
     }
 
     public void validateDeps(Map<String, Config.OperatorConfig> operators) {
+        List<String> missing = new ArrayList<>();
         for (Map.Entry<String, Config.OperatorConfig> entry : operators.entrySet()) {
             Object rn = entry.getValue().rawParams.get("resource_name");
             if (rn instanceof String && !((String) rn).isEmpty()) {
                 if (!resources.containsKey((String) rn)) {
-                    throw new IllegalArgumentException(
-                            "operator \"" + entry.getKey() + "\" references resource \"" + rn + "\" which is not registered");
+                    missing.add("operator \"" + entry.getKey() + "\" references resource \"" + rn + "\" which is not registered");
                 }
             }
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException(String.join("; ", missing));
         }
     }
 }

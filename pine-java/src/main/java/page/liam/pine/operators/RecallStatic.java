@@ -1,6 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
+import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 
@@ -21,11 +22,20 @@ public class RecallStatic extends AbstractOperator {
         if (!(raw instanceof List)) {
             throw new IllegalArgumentException("recall_static: 'items' must be a list");
         }
-        items = (List<Map<String, Object>>) raw;
+        List<?> list = (List<?>) raw;
+        for (int i = 0; i < list.size(); i++) {
+            if (!(list.get(i) instanceof Map)) {
+                throw new IllegalArgumentException("recall_static: items[" + i + "] must be a map");
+            }
+        }
+        items = new java.util.ArrayList<>(list.size());
+        for (Object o : list) {
+            items.add(new HashMap<>((Map<String, Object>) o));
+        }
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         for (Map<String, Object> item : items) {
             Map<String, Object> copy = new HashMap<>(item);
             output.addItem(copy);
