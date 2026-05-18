@@ -110,9 +110,8 @@ public class PineServer {
     private volatile boolean started;
 
     /**
-     * Register a middleware. Must be called before {@link #start()};
-     * calling after start throws IllegalStateException.
-     * Not thread-safe — all registrations must happen on a single thread.
+     * Register a middleware. Must be called before {@link #start()}.
+     * Concurrent registration is not a supported use pattern.
      */
     public synchronized void addMiddleware(Middleware mw) {
         if (started) {
