@@ -27,7 +27,7 @@ public class FixtureTest {
     @TestFactory
     @SuppressWarnings("unchecked")
     Stream<DynamicNode> fixtureTests() throws Exception {
-        File fixtureDir = new File("../pine-go/fixtures");
+        File fixtureDir = new File("../fixtures");
         if (!fixtureDir.exists()) {
             return Stream.empty();
         }
