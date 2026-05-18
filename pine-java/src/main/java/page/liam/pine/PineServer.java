@@ -62,6 +62,9 @@ public class PineServer {
     }
 
     public void start() throws Exception {
+        started = true;
+        middlewares = Collections.unmodifiableList(middlewares);
+
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
         loadConfig(configData); // initial load — not counted as reload
         lastReloadDurationNs = 0;
@@ -101,9 +104,13 @@ public class PineServer {
         com.sun.net.httpserver.HttpHandler wrap(com.sun.net.httpserver.HttpHandler next);
     }
 
-    private final List<Middleware> middlewares = new ArrayList<>();
+    private List<Middleware> middlewares = new ArrayList<>();
+    private volatile boolean started;
 
     public void addMiddleware(Middleware mw) {
+        if (started) {
+            throw new IllegalStateException("cannot add middleware after server has started");
+        }
         this.middlewares.add(mw);
     }
 
