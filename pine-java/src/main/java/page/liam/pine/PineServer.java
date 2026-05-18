@@ -236,7 +236,7 @@ public class PineServer {
             Map<String, Object> req = mapper.readValue(body, new TypeReference<>() {});
 
             @SuppressWarnings("unchecked")
-            Map<String, Object> common = (Map<String, Object>) req.getOrDefault("common", Collections.emptyMap());
+            Map<String, Object> common = (Map<String, Object>) req.get("common");
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> items = (List<Map<String, Object>>) req.getOrDefault("items", Collections.emptyList());
 

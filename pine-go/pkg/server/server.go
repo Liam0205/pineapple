@@ -266,7 +266,11 @@ func (s *Server) watchConfig(ctx context.Context, path string) {
 	}
 }
 
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

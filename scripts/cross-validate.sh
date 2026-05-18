@@ -786,6 +786,30 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
     echo "    [15] Content-Type headers → match across all endpoints"
   fi
 
+  # Test 15b: POST /health → 405 method not allowed (both sides)
+  srv_total=$((srv_total + 1))
+  go_health_post=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$GO_PORT/health")
+  java_health_post=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$JAVA_PORT/health")
+  if [[ "$go_health_post" == "$java_health_post" && "$go_health_post" == "405" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [15b] POST /health → 405 match"
+  else
+    fail "server HTTP: POST /health method check (Go=$go_health_post, Java=$java_health_post)"
+  fi
+
+  # Test 15c: POST /execute without "common" key → 400 + error message parity
+  srv_total=$((srv_total + 1))
+  go_nocommon_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute")
+  java_nocommon_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute")
+  go_nocommon_msg=$(curl -s -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
+  java_nocommon_msg=$(curl -s -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
+  if [[ "$go_nocommon_code" == "$java_nocommon_code" && "$go_nocommon_msg" == "$java_nocommon_msg" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [15c] POST /execute (no common) → $go_nocommon_code + error='$go_nocommon_msg'"
+  else
+    fail "server HTTP: missing common (Go=$go_nocommon_code/'$go_nocommon_msg', Java=$java_nocommon_code/'$java_nocommon_msg')"
+  fi
+
   srv_cleanup
 fi
 

@@ -61,6 +61,6 @@ public class RunCli {
         output.put("items", result.items);
 
         String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(output);
-        System.out.print(json);
+        System.out.println(json);
     }
 }
