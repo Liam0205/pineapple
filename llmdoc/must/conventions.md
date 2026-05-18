@@ -120,6 +120,10 @@ Go 侧 `cmd/pineapple-codegen/main.go` 从自身注册表生成；Java 侧 `Code
 
 ## 外部 I/O 与并发安全默认值
 
+### 跨运行时格式一致性
+
+Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 工具类（`sprint`、`formatFloatF`、`formatG`）复制 Go 标准库行为。不应依赖 Java 原生 `Double.toString()` 或 `String.format("%g",...)` 的默认行为。
+
 ### 有界读取
 
 读取外部响应时必须使用 `io.LimitReader(body, limit+1)`，禁止裸 `io.ReadAll`。读取后若 `len(data) > limit` 则视为溢出错误。`max_response_size` 类参数的默认值为 10MB。

@@ -5,6 +5,14 @@ import page.liam.pine.*;
 
 import java.util.*;
 
+/**
+ * Operator: observe_log
+ * Metadata contract
+ *   CommonInput:  [<fields to observe>]
+ *   CommonOutput: []
+ *   ItemInput:    [<fields to observe>]
+ *   ItemOutput:   []
+ */
 public class ObserveLog extends AbstractOperator {
     private static final ObjectMapper mapper = new ObjectMapper();
     private String prefix = "";

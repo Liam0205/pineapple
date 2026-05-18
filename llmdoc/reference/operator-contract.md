@@ -344,7 +344,18 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 ## 元数据契约注释与生成文档
 
-算子源文件中的 Go 文档注释由 `pkg/codegen/docparse.go` 解析，生成 `doc/operators/` 中的 Markdown 文档。
+算子源文件中的文档注释由语言特定的解析器提取 metadata contract：
+- Go 侧：`pkg/codegen/docparse.go` 解析包级文档注释中的 `// Operator:` + `Metadata contract` 块
+- Java 侧：`Codegen.java` 的 `parseJavadocMetadata()` 解析 Javadoc `/** Operator: ... */` 块
+
+两侧使用相同的标注协议：
+
+    Operator: <operator_name>
+    Metadata contract
+      CommonInput:  [<fields>]
+      CommonOutput: [<fields>]
+      ItemInput:    [<fields>]
+      ItemOutput:   [<fields>]
 
 重要边界：
 
@@ -394,6 +405,16 @@ Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `condition
 - 生成的算子文档（`pkg/codegen/`）
 
 不正确的元数据因此可同时导致编译时和运行时的错误行为。
+
+## 跨运行时格式化（GoFormat）
+
+Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis key 拼接、lookup table key coerce），必须使用 `GoFormat` 工具类：
+
+- `GoFormat.sprint(v)` — 替代 `String.valueOf(v)`
+- `GoFormat.formatFloatF(d)` — 替代 `Double.toString(d)` 用于十进制表示
+- `GoFormat.formatG(d)` — 替代 `String.format("%g", d)`
+
+新增算子若对用户值做字符串转换，且该结果参与跨运行时比较（Redis key、fixture 断言），应使用 GoFormat。
 
 ## 常见陷阱
 

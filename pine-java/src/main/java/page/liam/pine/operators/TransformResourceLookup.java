@@ -1,9 +1,16 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.*;
+import page.liam.pine.GoFormat;
 
 import java.util.Map;
 
+/**
+ * Operator: transform_resource_lookup
+ * Metadata contract
+ *   ItemInput:  [<lookup_key>]
+ *   ItemOutput: [<output_field>]
+ */
 public class TransformResourceLookup extends AbstractOperator implements ConcurrentSafe, ResourceAware {
     private String resourceName;
     private String lookupKey;
@@ -68,7 +75,7 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
             if (d == (long) d) {
                 return Long.toString((long) d);
             }
-            return Double.toString(d);
+            return GoFormat.formatFloatF(d);
         }
         return String.valueOf(v);
     }

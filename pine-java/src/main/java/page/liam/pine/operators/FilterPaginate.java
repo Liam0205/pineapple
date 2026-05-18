@@ -7,6 +7,14 @@ import page.liam.pine.OperatorOutput;
 
 import java.util.Map;
 
+/**
+ * Operator: filter_paginate
+ * Metadata contract
+ *   CommonInput:  [<page_field>, <size_field>]
+ *   CommonOutput: []
+ *   ItemInput:    []
+ *   ItemOutput:   []
+ */
 public class FilterPaginate extends AbstractOperator {
     @Override
     public void init(Map<String, Object> params) {}

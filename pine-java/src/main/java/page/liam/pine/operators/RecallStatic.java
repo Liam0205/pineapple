@@ -9,6 +9,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Operator: recall_static
+ * Metadata contract
+ *   CommonInput:  []
+ *   CommonOutput: []
+ *   ItemInput:    []
+ *   ItemOutput:   [item_id, ...]
+ */
 public class RecallStatic extends AbstractOperator {
     private List<Map<String, Object>> items;
 
