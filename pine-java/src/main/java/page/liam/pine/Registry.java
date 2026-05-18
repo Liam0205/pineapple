@@ -106,6 +106,7 @@ public class Registry {
         for (OperatorEntry entry : operators.values()) {
             result.add(entry.schema);
         }
+        result.sort(Comparator.comparing(s -> s.name));
         return result;
     }
 

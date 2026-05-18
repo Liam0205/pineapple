@@ -68,10 +68,19 @@ public class Codegen {
         generateInitPy(schemas, outputDir);
         System.out.printf("generated %d operators in %s%n", schemas.size(), outputDir);
 
+        // Generate resources: from explicit path, or from ResourceRegistry in registry mode
+        List<ResourceSchema> resourceSchemas = null;
         if (!resourceSchemaPath.isEmpty()) {
-            List<ResourceSchema> resourceSchemas = mapper.readValue(
+            resourceSchemas = mapper.readValue(
                     new File(resourceSchemaPath),
                     new TypeReference<List<ResourceSchema>>() {});
+        } else if (schemaFromRegistry) {
+            List<ResourceSchema> fromReg = ResourceRegistry.all();
+            if (!fromReg.isEmpty()) {
+                resourceSchemas = fromReg;
+            }
+        }
+        if (resourceSchemas != null && !resourceSchemas.isEmpty()) {
             generateResourcesPy(resourceSchemas, outputDir);
             System.out.printf("generated %d resources in %s%n", resourceSchemas.size(), outputDir);
         }
@@ -198,7 +207,6 @@ public class Codegen {
                 w.println("            debug=debug,");
                 w.println("            name=name or \"\",");
                 w.println("        )");
-                w.println();
             }
         }
     }
@@ -206,15 +214,14 @@ public class Codegen {
     private static void generateInitPy(List<OperatorSchema> schemas, String outputDir) throws IOException {
         Path path = Paths.get(outputDir, "__init__.py");
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
-            w.println("# auto-generated from pine operator schema -- DO NOT EDIT");
+            w.println("# auto-generated from pine operator schema — DO NOT EDIT");
             for (OperatorSchema schema : schemas) {
                 w.printf("from .operators import %sOp%n", toCamelCase(schema.name));
             }
             w.println();
             w.print("__all__ = [");
             for (int i = 0; i < schemas.size(); i++) {
-                if (i > 0) w.print(", ");
-                w.printf("\"%sOp\"", toCamelCase(schemas.get(i).name));
+                w.printf("\"%sOp\", ", toCamelCase(schemas.get(i).name));
             }
             w.println("]");
         }
@@ -258,21 +265,35 @@ public class Codegen {
         if (v instanceof Boolean) return (Boolean) v ? "True" : "False";
         if (v instanceof Number) {
             double d = ((Number) v).doubleValue();
-            if (d == (long) d) return Long.toString((long) d);
-            return Double.toString(d);
+            if (d == (long) d && !Double.isInfinite(d)) return Long.toString((long) d);
+            return GoFormat.formatG(d);
         }
         return "\"" + escapeString(v.toString()) + "\"";
     }
 
     private static String escapeString(String s) {
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t")
-                .replace("\0", "\\0")
-                .replace("\b", "\\b")
-                .replace("\f", "\\f");
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"':  sb.append("\\\""); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                case '\0': sb.append("\\0"); break;
+                case '\b': sb.append("\\b"); break;
+                case '\f': sb.append("\\f"); break;
+                default:
+                    if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                    break;
+            }
+        }
+        return sb.toString();
     }
 
     private static void generateDocs(List<OperatorSchema> schemas, String docDir, String opsDir) throws IOException {
@@ -347,7 +368,7 @@ public class Codegen {
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(idxPath))) {
             w.println("# Operator Reference");
             w.println();
-            w.println("> Auto-generated from pine operator schema. Do not edit manually.");
+            w.println("> Auto-generated from Go operator source code. Do not edit manually.");
             for (Map.Entry<String, List<String[]>> entry : typeOps.entrySet()) {
                 w.println();
                 w.printf("## %s%n%n", entry.getKey());
@@ -570,15 +591,14 @@ public class Codegen {
         // Generate resources_init.py
         Path initPath = Paths.get(outputDir, "resources_init.py");
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(initPath))) {
-            w.println("# auto-generated from pine resource schema -- DO NOT EDIT");
+            w.println("# auto-generated from pine resource schema — DO NOT EDIT");
             for (ResourceSchema schema : schemas) {
                 w.printf("from .resources import %sResource%n", toCamelCase(schema.name));
             }
             w.println();
             w.print("__all__ = [");
             for (int i = 0; i < schemas.size(); i++) {
-                if (i > 0) w.print(", ");
-                w.printf("\"%sResource\"", toCamelCase(schemas.get(i).name));
+                w.printf("\"%sResource\", ", toCamelCase(schemas.get(i).name));
             }
             w.println("]");
         }
