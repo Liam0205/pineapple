@@ -9,15 +9,17 @@ import (
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 	_ "github.com/Liam0205/pineapple/pine-go/operators"
+	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
 
 func main() {
 	configPath := flag.String("config", "", "path to pipeline JSON config")
 	requestPath := flag.String("request", "", "path to request JSON (with common and items fields)")
+	resourcesPath := flag.String("static-resources", "", "path to static resources JSON (optional)")
 	flag.Parse()
 
 	if *configPath == "" || *requestPath == "" {
-		fmt.Fprintln(os.Stderr, "Usage: pineapple-run -config <pipeline.json> -request <request.json>")
+		fmt.Fprintln(os.Stderr, "Usage: pineapple-run -config <pipeline.json> -request <request.json> [-static-resources <resources.json>]")
 		os.Exit(1)
 	}
 
@@ -45,7 +47,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	result, err := engine.Execute(context.Background(), &req)
+	ctx := context.Background()
+
+	if *resourcesPath != "" {
+		resData, err := os.ReadFile(*resourcesPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error reading static resources: %v\n", err)
+			os.Exit(1)
+		}
+		var resources map[string]any
+		if err := json.Unmarshal(resData, &resources); err != nil {
+			fmt.Fprintf(os.Stderr, "error parsing static resources: %v\n", err)
+			os.Exit(1)
+		}
+		ctx = resource.WithResources(ctx, resource.NewStatic(resources))
+	}
+
+	result, err := engine.Execute(ctx, &req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "execution error: %v\n", err)
 		os.Exit(1)

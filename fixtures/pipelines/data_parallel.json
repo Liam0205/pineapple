@@ -94,6 +94,21 @@
           {"id": "y", "tag": "vip", "item_scene": "search"}
         ]
       }
+    },
+    {
+      "name": "single item with parallelism>1 — degenerate shard",
+      "request": {
+        "common": {"tag": "solo", "scene": "home"},
+        "items": [
+          {"id": "z"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "z", "tag": "solo", "item_scene": "home"}
+        ]
+      }
     }
   ]
 }

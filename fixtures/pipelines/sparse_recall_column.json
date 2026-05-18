@@ -1,0 +1,66 @@
+{
+  "name": "Sparse recall additions in column-store mode (multiple recalls with different fields)",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_a": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [{"item_id": 1, "score": 90}, {"item_id": 2, "score": 80}],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "score"]
+          }
+        },
+        "recall_b": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [{"item_id": 3, "tag": "hot"}, {"item_id": 4, "tag": "new"}],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "tag"]
+          }
+        },
+        "merge_step": {
+          "type_name": "merge_dedup",
+          "sources": ["recall_a", "recall_b"],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["item_id", "score", "tag"], "item_output": []
+          }
+        },
+        "sort_id": {
+          "type_name": "reorder_sort",
+          "order": "asc",
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["item_id"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["recall_a", "recall_b", "merge_step", "sort_id"]}
+    },
+    "flow_contract": {
+      "common_input": [], "item_input": [],
+      "common_output": [], "item_output": ["item_id", "score", "tag"]
+    },
+    "storage_mode": "column"
+  },
+  "cases": [
+    {
+      "name": "sparse recalls merge sorted by item_id",
+      "request": {"common": {}, "items": []},
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": 1, "score": 90},
+          {"item_id": 2, "score": 80},
+          {"item_id": 3, "tag": "hot"},
+          {"item_id": 4, "tag": "new"}
+        ]
+      }
+    }
+  ]
+}

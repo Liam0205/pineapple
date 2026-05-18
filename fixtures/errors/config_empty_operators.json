@@ -1,0 +1,21 @@
+{
+  "name": "Config error: empty operators map",
+  "config": {
+    "pipeline_config": {
+      "operators": {}
+    },
+    "pipeline_group": {
+      "main": {"pipeline": []}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": []
+    }
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "operators"
+  }
+}

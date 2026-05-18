@@ -1,0 +1,37 @@
+{
+  "name": "Validation error: missing required common input field",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [{"item_id": "a", "item_score": 1.0}],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_score"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["recall_items"]}
+    },
+    "flow_contract": {
+      "common_input": ["user_id"],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id", "item_score"]
+    }
+  },
+  "request": {
+    "common": {},
+    "items": []
+  },
+  "expected_error": {
+    "type": "ValidationError",
+    "message_contains": "user_id"
+  }
+}

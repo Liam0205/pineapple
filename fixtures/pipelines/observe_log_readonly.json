@@ -1,0 +1,86 @@
+{
+  "name": "observe_log read-only operator (non-barrier DAG semantic)",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "copy_tag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": ["tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["tag"]
+          }
+        },
+        "logger": {
+          "type_name": "observe_log",
+          "log_prefix": "parity_test",
+          "$metadata": {
+            "common_input": ["tag"],
+            "common_output": [],
+            "item_input": ["id", "tag"],
+            "item_output": []
+          }
+        },
+        "score_lua": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function compute()\n  return tostring(id) .. '_' .. tostring(tag)\nend",
+          "function_for_item": "compute",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["id", "tag"],
+            "item_output": ["combined"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["copy_tag", "logger", "score_lua"]}
+    },
+    "flow_contract": {
+      "common_input": ["tag"],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id", "tag", "combined"]
+    }
+  },
+  "cases": [
+    {
+      "name": "observe does not alter execution result",
+      "request": {
+        "common": {"tag": "v2"},
+        "items": [
+          {"id": "alpha"},
+          {"id": "beta"},
+          {"id": "gamma"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "alpha", "tag": "v2", "combined": "alpha_v2"},
+          {"id": "beta", "tag": "v2", "combined": "beta_v2"},
+          {"id": "gamma", "tag": "v2", "combined": "gamma_v2"}
+        ]
+      }
+    },
+    {
+      "name": "single item — observe still executes without error",
+      "request": {
+        "common": {"tag": "single"},
+        "items": [
+          {"id": "only"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "only", "tag": "single", "combined": "only_single"}
+        ]
+      }
+    }
+  ]
+}
