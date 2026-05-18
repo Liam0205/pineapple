@@ -1,7 +1,11 @@
 package page.liam.pine;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.core.util.DefaultIndenter;
+import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+import com.fasterxml.jackson.core.util.Separators;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import page.liam.pine.operators.AllOperators;
 
 import java.nio.file.Files;
@@ -10,6 +14,14 @@ import java.util.*;
 
 public class RunCli {
     private static final ObjectMapper mapper = GoFormat.createGoCompatMapper();
+    private static final ObjectWriter prettyWriter = mapper.writer(
+            new DefaultPrettyPrinter(
+                    Separators.createDefaultInstance()
+                            .withObjectFieldValueSpacing(Separators.Spacing.AFTER)
+                            .withObjectEmptySeparator("")
+                            .withArrayEmptySeparator("")
+            ).withArrayIndenter(DefaultIndenter.SYSTEM_LINEFEED_INSTANCE)
+    );
 
     public static void main(String[] args) throws Exception {
         AllOperators.ensureRegistered();
@@ -60,7 +72,7 @@ public class RunCli {
         output.put("common", result.common);
         output.put("items", result.items);
 
-        String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(output);
+        String json = prettyWriter.writeValueAsString(output);
         System.out.println(json);
     }
 }
