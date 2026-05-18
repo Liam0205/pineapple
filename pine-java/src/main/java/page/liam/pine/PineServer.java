@@ -87,8 +87,9 @@ public class PineServer {
         }
 
         httpServer = HttpServer.create(new InetSocketAddress(port), 0);
-        httpServer.setExecutor(Executors.newFixedThreadPool(
-                Runtime.getRuntime().availableProcessors() * 2));
+        httpExecutor = Executors.newFixedThreadPool(
+                Runtime.getRuntime().availableProcessors() * 2);
+        httpServer.setExecutor(httpExecutor);
 
         httpServer.createContext("/health", wrapHandler("/health", this::handleHealth));
         httpServer.createContext("/execute", wrapHandler("/execute", this::handleExecute));
@@ -165,12 +166,17 @@ public class PineServer {
         return "other";
     }
 
+    private ExecutorService httpExecutor;
+
     public void stop() {
         if (watcherExecutor != null) {
             watcherExecutor.shutdownNow();
         }
         if (httpServer != null) {
-            httpServer.stop(5); // waits up to 5s for in-flight exchanges to complete
+            httpServer.stop(5);
+        }
+        if (httpExecutor != null) {
+            httpExecutor.shutdownNow();
         }
     }
 

@@ -118,7 +118,8 @@ public class Engine {
             boolean effectiveDebug = globalDebug || opCfg.debug;
 
             Operator op = Registry.global().buildOperator(opCfg.typeName, opCfg.rawParams);
-            OperatorType opType = Registry.global().getType(opCfg.typeName).get();
+            OperatorType opType = Registry.global().getType(opCfg.typeName)
+                    .orElseThrow(() -> new IllegalStateException("operator type not registered: " + opCfg.typeName));
             String effectiveOperatorType = opType.name().toLowerCase();
             opCfg.operatorType = effectiveOperatorType;
 
