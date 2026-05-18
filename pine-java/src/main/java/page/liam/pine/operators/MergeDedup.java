@@ -7,6 +7,14 @@ import page.liam.pine.OperatorOutput;
 
 import java.util.*;
 
+/**
+ * Operator: merge_dedup
+ * Metadata contract
+ *   CommonInput:  []
+ *   CommonOutput: []
+ *   ItemInput:    [item_id, _source]
+ *   ItemOutput:   [item_id]
+ */
 public class MergeDedup extends AbstractOperator {
     private String strategy;
 

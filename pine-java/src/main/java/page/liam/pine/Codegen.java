@@ -32,12 +32,14 @@ public class Codegen {
         String docDir = "";
         String resourceSchemaPath = "";
         String exportSchemaPath = "";
+        String opsDir = "";
         boolean schemaFromRegistry = false;
 
         for (int i = 0; i < args.length; i++) {
             if ("-schema".equals(args[i]) && i + 1 < args.length) schemaPath = args[++i];
             else if ("-output".equals(args[i]) && i + 1 < args.length) outputDir = args[++i];
             else if ("-doc-dir".equals(args[i]) && i + 1 < args.length) docDir = args[++i];
+            else if ("-ops-dir".equals(args[i]) && i + 1 < args.length) opsDir = args[++i];
             else if ("-resource-schema".equals(args[i]) && i + 1 < args.length) resourceSchemaPath = args[++i];
             else if ("--export-schema".equals(args[i]) && i + 1 < args.length) exportSchemaPath = args[++i];
             else if ("--schema-from-registry".equals(args[i])) schemaFromRegistry = true;
@@ -75,7 +77,7 @@ public class Codegen {
         }
 
         if (!docDir.isEmpty()) {
-            generateDocs(schemas, docDir);
+            generateDocs(schemas, docDir, opsDir);
             System.out.printf("generated %d operator docs in %s%n", schemas.size(), docDir);
         }
     }
@@ -165,7 +167,7 @@ public class Codegen {
                 w.println("        debug: bool = False,");
                 w.println("        name: str | None = None,");
                 w.printf("    ) -> \"%s\":%n", className);
-                w.println("        params = {");
+                w.println("        _params = {");
                 for (String pName : paramNames) {
                     ParamSpec spec = schema.params.get(pName);
                     if (spec.required || spec.defaultValue != null) {
@@ -179,10 +181,10 @@ public class Codegen {
                         .collect(Collectors.toList());
                 for (String pName : conditional) {
                     w.printf("        if %s is not None:%n", pName);
-                    w.printf("            params[\"%s\"] = %s%n", pName, pName);
+                    w.printf("            _params[\"%s\"] = %s%n", pName, pName);
                 }
                 w.println("        return self._apply(");
-                w.println("            params=params,");
+                w.println("            params=_params,");
                 w.println("            common_input=common_input,");
                 w.println("            common_output=common_output,");
                 w.println("            item_input=item_input,");
@@ -204,16 +206,15 @@ public class Codegen {
     private static void generateInitPy(List<OperatorSchema> schemas, String outputDir) throws IOException {
         Path path = Paths.get(outputDir, "__init__.py");
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
-            w.println("# auto-generated — DO NOT EDIT");
-            w.println("from .operators import (");
+            w.println("# auto-generated from pine operator schema -- DO NOT EDIT");
             for (OperatorSchema schema : schemas) {
-                w.printf("    %sOp,%n", toCamelCase(schema.name));
+                w.printf("from .operators import %sOp%n", toCamelCase(schema.name));
             }
-            w.println(")");
             w.println();
-            w.println("__all__ = [");
-            for (OperatorSchema schema : schemas) {
-                w.printf("    \"%sOp\",%n", toCamelCase(schema.name));
+            w.print("__all__ = [");
+            for (int i = 0; i < schemas.size(); i++) {
+                if (i > 0) w.print(", ");
+                w.printf("\"%sOp\"", toCamelCase(schemas.get(i).name));
             }
             w.println("]");
         }
@@ -268,11 +269,20 @@ public class Codegen {
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
-                .replace("\t", "\\t");
+                .replace("\t", "\\t")
+                .replace("\0", "\\0")
+                .replace("\b", "\\b")
+                .replace("\f", "\\f");
     }
 
-    private static void generateDocs(List<OperatorSchema> schemas, String docDir) throws IOException {
+    private static void generateDocs(List<OperatorSchema> schemas, String docDir, String opsDir) throws IOException {
         Files.createDirectories(Paths.get(docDir));
+
+        // Parse metadata contracts from operator source files
+        Map<String, MetadataDoc> metadataDocs = Collections.emptyMap();
+        if (opsDir != null && !opsDir.isEmpty()) {
+            metadataDocs = parseOperatorDocs(opsDir);
+        }
 
         Map<String, List<String[]>> typeOps = new TreeMap<>();
 
@@ -298,6 +308,19 @@ public class Codegen {
                     String pdesc = spec.description != null ? spec.description : "";
                     w.printf("| %s | %s | %s | %s | %s |%n",
                             pName, spec.type, spec.required ? "Yes" : "No", defVal, pdesc);
+                }
+
+                MetadataDoc md = metadataDocs.get(schema.name);
+                if (md != null && (md.commonInput != null || md.commonOutput != null || md.itemInput != null || md.itemOutput != null)) {
+                    w.println();
+                    w.println("## Metadata Contract");
+                    w.println();
+                    w.println("| Field | Typical Usage |");
+                    w.println("|-------|---------------|");
+                    if (md.commonInput != null)  w.println("| CommonInput | `" + md.commonInput + "` |");
+                    if (md.commonOutput != null) w.println("| CommonOutput | `" + md.commonOutput + "` |");
+                    if (md.itemInput != null)    w.println("| ItemInput | `" + md.itemInput + "` |");
+                    if (md.itemOutput != null)   w.println("| ItemOutput | `" + md.itemOutput + "` |");
                 }
 
                 w.println();
@@ -332,6 +355,106 @@ public class Codegen {
                 w.println("|----------|-------------|");
                 for (String[] op : entry.getValue()) {
                     w.printf("| [%s](%s.md) | %s |%n", op[0], op[0], op[1]);
+                }
+            }
+        }
+    }
+
+    // --- Metadata doc parsing ---
+
+    private static class MetadataDoc {
+        String commonInput, commonOutput, itemInput, itemOutput;
+    }
+
+    private static Map<String, MetadataDoc> parseOperatorDocs(String sourceDir) throws IOException {
+        Map<String, MetadataDoc> result = new HashMap<>();
+        Path dir = Paths.get(sourceDir);
+        if (!Files.isDirectory(dir)) return result;
+
+        Files.walk(dir)
+                .filter(p -> p.toString().endsWith(".java"))
+                .filter(p -> !p.getFileName().toString().equals("AllOperators.java"))
+                .forEach(p -> {
+                    try {
+                        parseJavadocMetadata(p, result);
+                    } catch (IOException e) {
+                        // skip files that can't be read
+                    }
+                });
+
+        return result;
+    }
+
+    private static void parseJavadocMetadata(Path file, Map<String, MetadataDoc> result) throws IOException {
+        List<String> lines = Files.readAllLines(file);
+        String operatorName = null;
+        MetadataDoc doc = new MetadataDoc();
+        boolean inJavadoc = false;
+        boolean inMetadata = false;
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+
+            // Track Javadoc comment boundaries
+            if (trimmed.startsWith("/**")) {
+                inJavadoc = true;
+                inMetadata = false;
+                operatorName = null;
+                doc = new MetadataDoc();
+                // Check if the Operator: is on the same line
+                String content = trimmed.substring(3);
+                if (content.contains("Operator:")) {
+                    int idx = content.indexOf("Operator:");
+                    operatorName = content.substring(idx + 9).replace("*/", "").trim();
+                }
+                continue;
+            }
+            if (inJavadoc && trimmed.contains("*/")) {
+                inJavadoc = false;
+                if (operatorName != null && !operatorName.isEmpty()) {
+                    if (doc.commonInput != null || doc.commonOutput != null ||
+                        doc.itemInput != null || doc.itemOutput != null) {
+                        result.put(operatorName, doc);
+                    }
+                }
+                continue;
+            }
+            if (!inJavadoc) continue;
+
+            // Strip leading " * " from Javadoc lines
+            String content = trimmed;
+            if (content.startsWith("*")) {
+                content = content.substring(1).trim();
+            }
+
+            if (content.startsWith("Operator:")) {
+                operatorName = content.substring(9).trim();
+                continue;
+            }
+            if (content.startsWith("Metadata contract")) {
+                inMetadata = true;
+                continue;
+            }
+            // End metadata on other section headers
+            if (inMetadata && !content.isEmpty() &&
+                !content.startsWith("CommonInput:") && !content.startsWith("CommonOutput:") &&
+                !content.startsWith("ItemInput:") && !content.startsWith("ItemOutput:")) {
+                // Known section headers that end metadata
+                if (content.startsWith("Type:") || content.startsWith("Description:") ||
+                    content.startsWith("Params:") || content.startsWith("Operator:")) {
+                    inMetadata = false;
+                }
+            }
+
+            if (inMetadata) {
+                if (content.startsWith("CommonInput:")) {
+                    doc.commonInput = content.substring(12).trim();
+                } else if (content.startsWith("CommonOutput:")) {
+                    doc.commonOutput = content.substring(13).trim();
+                } else if (content.startsWith("ItemInput:")) {
+                    doc.itemInput = content.substring(10).trim();
+                } else if (content.startsWith("ItemOutput:")) {
+                    doc.itemOutput = content.substring(11).trim();
                 }
             }
         }
@@ -447,16 +570,15 @@ public class Codegen {
         // Generate resources_init.py
         Path initPath = Paths.get(outputDir, "resources_init.py");
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(initPath))) {
-            w.println("# auto-generated — DO NOT EDIT");
-            w.println("from .resources import (");
+            w.println("# auto-generated from pine resource schema -- DO NOT EDIT");
             for (ResourceSchema schema : schemas) {
-                w.printf("    %sResource,%n", toCamelCase(schema.name));
+                w.printf("from .resources import %sResource%n", toCamelCase(schema.name));
             }
-            w.println(")");
             w.println();
-            w.println("__all__ = [");
-            for (ResourceSchema schema : schemas) {
-                w.printf("    \"%sResource\",%n", toCamelCase(schema.name));
+            w.print("__all__ = [");
+            for (int i = 0; i < schemas.size(); i++) {
+                if (i > 0) w.print(", ");
+                w.printf("\"%sResource\"", toCamelCase(schemas.get(i).name));
             }
             w.println("]");
         }

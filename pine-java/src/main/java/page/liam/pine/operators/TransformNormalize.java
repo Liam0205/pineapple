@@ -7,6 +7,14 @@ import page.liam.pine.OperatorOutput;
 
 import java.util.Map;
 
+/**
+ * Operator: transform_normalize
+ * Metadata contract
+ *   CommonInput:  []
+ *   CommonOutput: []
+ *   ItemInput:    [<field>]
+ *   ItemOutput:   [<output_field>]
+ */
 public class TransformNormalize extends AbstractOperator {
     private String method;
 

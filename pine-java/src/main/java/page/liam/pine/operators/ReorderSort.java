@@ -9,6 +9,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Operator: reorder_sort
+ * Metadata contract
+ *   CommonInput:  []
+ *   CommonOutput: []
+ *   ItemInput:    [<field>]
+ *   ItemOutput:   []
+ */
 public class ReorderSort extends AbstractOperator {
     private boolean ascending;
 

@@ -16,13 +16,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class PineServer {
     private static final ObjectMapper mapper = new ObjectMapper();
-    private static final int DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
+    private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
     private final String configPath;
     private final int port;
     private final page.liam.pine.metrics.Provider metricsProvider;
-    private int maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES;
+    private long maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES;
     private HttpServer httpServer;
     private ScheduledExecutorService watcherExecutor;
 
@@ -64,6 +64,7 @@ public class PineServer {
     public void start() throws Exception {
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
         loadConfig(configData); // initial load — not counted as reload
+        lastModified = Files.getLastModifiedTime(Paths.get(configPath)).toMillis();
 
         // Read max_request_body_size from config if present
         try {
@@ -126,7 +127,7 @@ public class PineServer {
             httpRequestsTotal = metricsProvider.newCounter(
                     new page.liam.pine.metrics.MetricOpts("pine_http_requests_total", "HTTP request count", "method", "path", "status"));
             httpRequestDuration = metricsProvider.newHistogram(
-                    new page.liam.pine.metrics.HistogramOpts("pine_http_request_duration_seconds", "HTTP request duration", null, "method", "path"));
+                    new page.liam.pine.metrics.HistogramOpts("pine_http_request_duration_seconds", "HTTP request duration", new double[]{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}, "method", "path"));
         }
         return exchange -> {
             long start = System.nanoTime();
@@ -135,11 +136,19 @@ public class PineServer {
             } finally {
                 double duration = (System.nanoTime() - start) / 1_000_000_000.0;
                 String method = exchange.getRequestMethod();
-                String status = String.valueOf(exchange.getResponseCode());
+                String status = statusBucket(exchange.getResponseCode());
                 httpRequestsTotal.with(method, path, status).inc();
                 httpRequestDuration.with(method, path).observe(duration);
             }
         };
+    }
+
+    private static String statusBucket(int code) {
+        if (code >= 200 && code < 300) return "2xx";
+        if (code >= 300 && code < 400) return "3xx";
+        if (code >= 400 && code < 500) return "4xx";
+        if (code >= 500 && code < 600) return "5xx";
+        return "other";
     }
 
     public void stop() {
@@ -366,10 +375,10 @@ public class PineServer {
         }
     }
 
-    private static byte[] readLimitedBody(java.io.InputStream in, int limit) throws IOException {
+    private static byte[] readLimitedBody(java.io.InputStream in, long limit) throws IOException {
         java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
         byte[] tmp = new byte[8192];
-        int total = 0;
+        long total = 0;
         int n;
         while ((n = in.read(tmp)) != -1) {
             total += n;

@@ -12,6 +12,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
 
+/**
+ * Operator: transform_by_remote_pineapple
+ * Metadata contract
+ *   CommonInput:  [<local_common_fields...>]
+ *   CommonOutput: [<local_common_output_fields...>]
+ *   ItemInput:    [<local_item_fields...>]
+ *   ItemOutput:   [<local_item_output_fields...>]
+ */
 public class TransformRemotePineapple extends AbstractOperator implements ConcurrentSafe {
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final long DEFAULT_MAX_RESPONSE = 10L * 1024 * 1024;

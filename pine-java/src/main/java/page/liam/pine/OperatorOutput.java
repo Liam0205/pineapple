@@ -11,7 +11,9 @@ public class OperatorOutput {
     private Exception warning;
 
     public void setWarning(Exception w) {
-        this.warning = w;
+        if (this.warning == null) {
+            this.warning = w;
+        }
     }
 
     public Exception getWarning() {

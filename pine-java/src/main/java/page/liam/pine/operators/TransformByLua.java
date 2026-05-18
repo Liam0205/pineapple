@@ -8,11 +8,20 @@ import org.luaj.vm2.lib.*;
 import org.luaj.vm2.lib.jse.JsePlatform;
 import org.luaj.vm2.compiler.LuaC;
 
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider, DebugAware {
+/**
+ * Operator: transform_by_lua
+ * Metadata contract
+ *   CommonInput:  [<common fields read as scalar globals>]
+ *   CommonOutput: [<return values from function_for_common>]
+ *   ItemInput:    [<item fields — scalars in item mode, lists in common mode>]
+ *   ItemOutput:   [<return values from function_for_item>]
+ */
+public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider, DebugAware, MetricsAware {
     private String script;
     private String funcName;
     private boolean isItemMode;
@@ -63,20 +72,34 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     @Override
+    public void setMetricsProvider(page.liam.pine.metrics.Provider provider) {
+        String name = this.operatorName != null ? this.operatorName : "unknown";
+        pool.setMetrics(
+            provider.newCounter(new page.liam.pine.metrics.MetricOpts(
+                "pine_lua_pool_borrow_total", "Total Lua state borrows.", "operator")).with(name),
+            provider.newCounter(new page.liam.pine.metrics.MetricOpts(
+                "pine_lua_pool_return_total", "Total Lua state returns.", "operator")).with(name),
+            provider.newCounter(new page.liam.pine.metrics.MetricOpts(
+                "pine_lua_pool_create_total", "Total Lua states created.", "operator")).with(name),
+            provider.newGauge(new page.liam.pine.metrics.MetricOpts(
+                "pine_lua_pool_active", "Lua states currently borrowed.", "operator")).with(name)
+        );
+    }
+
+    @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
         if (debug) {
             System.err.println("[pine-debug] " + operatorName + " common_input=" + input.rawCommon());
         }
         Globals globals = pool.borrow();
-        java.util.Set<String> usedKeys = new java.util.HashSet<>();
         try {
             if (isItemMode) {
-                executeForItem(token, globals, input, output, usedKeys);
+                executeForItem(token, globals, input, output);
             } else {
-                executeForCommon(globals, input, output, usedKeys);
+                executeForCommon(globals, input, output);
             }
         } finally {
-            pool.returnState(globals, usedKeys);
+            pool.returnState(globals);
         }
     }
 
@@ -91,10 +114,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         );
     }
 
-    private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output, java.util.Set<String> usedKeys) throws Exception {
+    private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
-            usedKeys.add(field);
         }
 
         LuaValue fn = globals.get(funcName);
@@ -109,7 +131,6 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             if (token.isCancelled()) break;
             for (String field : itemInput) {
                 globals.set(field, toLua(input.item(i, field)));
-                usedKeys.add(field);
             }
             Varargs results = fn.invoke(LuaValue.NONE);
             for (int j = 0; j < nret; j++) {
@@ -119,10 +140,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
     }
 
-    private void executeForCommon(Globals globals, OperatorInput input, OperatorOutput output, java.util.Set<String> usedKeys) throws Exception {
+    private void executeForCommon(Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
-            usedKeys.add(field);
         }
 
         int n = input.itemCount();
@@ -132,7 +152,6 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 tbl.set(i + 1, toLua(input.item(i, field)));
             }
             globals.set(field, tbl);
-            usedKeys.add(field);
         }
 
         LuaValue fn = globals.get(funcName);
@@ -188,36 +207,94 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         final AtomicLong createCount = new AtomicLong();
         final AtomicLong activeCount = new AtomicLong();
 
+        private Counter mBorrow, mReturn, mCreate;
+        private Gauge mActive;
+
+        private final Set<String> baselineKeys;
+        private final ConcurrentHashMap<Globals, Map<String, LuaValue>> snapshots = new ConcurrentHashMap<>();
+
         LuaPool(String script) {
             this.initScript = script;
+            // Build baseline key set from a fresh sandboxed globals after loading script
+            Globals g = createSandboxedGlobals();
+            g.load(initScript).call();
+            baselineKeys = snapshotKeys(g);
+            pool.offer(g);
+            createCount.incrementAndGet();
+        }
+
+        void setMetrics(Counter borrow, Counter ret, Counter create, Gauge active) {
+            this.mBorrow = borrow;
+            this.mReturn = ret;
+            this.mCreate = create;
+            this.mActive = active;
         }
 
         Globals borrow() {
             if (closed) throw new IllegalStateException("lua pool is closed");
             borrowCount.incrementAndGet();
             activeCount.incrementAndGet();
+            if (mBorrow != null) mBorrow.inc();
+            if (mActive != null) mActive.add(1);
             Globals g = pool.poll();
             if (g == null) {
                 createCount.incrementAndGet();
+                if (mCreate != null) mCreate.inc();
                 g = createSandboxedGlobals();
                 g.load(initScript).call();
             }
+            snapshots.put(g, snapshotBaselineValues(g));
             return g;
         }
 
-        void returnState(Globals g, java.util.Collection<String> usedKeys) {
+        void returnState(Globals g) {
             returnCount.incrementAndGet();
             activeCount.decrementAndGet();
+            if (mReturn != null) mReturn.inc();
+            if (mActive != null) mActive.add(-1);
             if (closed) return;
-            for (String key : usedKeys) {
-                g.set(key, LuaValue.NIL);
-            }
+            Map<String, LuaValue> snap = snapshots.remove(g);
+            resetToBaseline(g, snap);
             pool.offer(g);
         }
 
         void close() {
             closed = true;
             pool.clear();
+        }
+
+        private Set<String> snapshotKeys(Globals g) {
+            Set<String> keys = new HashSet<>();
+            LuaValue k = LuaValue.NIL;
+            while (true) {
+                Varargs n = g.next(k);
+                if ((k = n.arg1()).isnil()) break;
+                if (k.isstring()) keys.add(k.tojstring());
+            }
+            return keys;
+        }
+
+        private Map<String, LuaValue> snapshotBaselineValues(Globals g) {
+            Map<String, LuaValue> snap = new HashMap<>();
+            for (String k : baselineKeys) {
+                snap.put(k, g.get(k));
+            }
+            return snap;
+        }
+
+        private void resetToBaseline(Globals g, Map<String, LuaValue> snap) {
+            if (snap == null) return;
+            // Remove non-baseline keys
+            Set<String> currentKeys = snapshotKeys(g);
+            for (String k : currentKeys) {
+                if (!baselineKeys.contains(k)) {
+                    g.set(k, LuaValue.NIL);
+                }
+            }
+            // Restore modified baseline keys
+            for (Map.Entry<String, LuaValue> e : snap.entrySet()) {
+                g.set(e.getKey(), e.getValue());
+            }
         }
     }
 }
