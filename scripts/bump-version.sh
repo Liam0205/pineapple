@@ -18,6 +18,7 @@
 # The script does NOT commit, tag, or push. Review the diff and do that yourself.
 
 set -euo pipefail
+shopt -s globstar
 
 if [[ $# -ne 1 ]]; then
   echo "Usage: $0 <new-version>"
@@ -55,7 +56,7 @@ perl -0pi -e "s|<version>[^<]+</version>(\\s*<packaging>jar</packaging>)|<versio
 # --- 4. JSON fixtures and examples ---
 echo "[4/8] Updating _PINEAPPLE_VERSION in fixtures and examples"
 updated_files=()
-for f in pipeline.json pine-go/testdata/*.json pine-go/fixtures/**/*.json; do
+for f in pipeline.json pine-go/testdata/*.json fixtures/**/*.json; do
   [[ -f "$f" ]] || continue
   if grep -q '"_PINEAPPLE_VERSION"' "$f"; then
     perl -0pi -e "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"

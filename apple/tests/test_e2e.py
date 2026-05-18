@@ -240,7 +240,7 @@ class TestE2E:
             ["go", "test", "./integration/", "-run", "TestDeepNestedE2E", "-v", "-count=1"],
             capture_output=True,
             text=True,
-                cwd=os.path.join(os.path.dirname(__file__), "..", "..", "pine-go"),
+            cwd=os.path.join(os.path.dirname(__file__), "..", "..", "pine-go"),
             timeout=60,
         )
         print(result.stdout)
