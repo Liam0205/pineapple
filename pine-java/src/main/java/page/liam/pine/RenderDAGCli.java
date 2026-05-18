@@ -25,10 +25,34 @@ public class RenderDAGCli {
             System.exit(1);
         }
 
-        byte[] data = Files.readAllBytes(Paths.get(configPath));
-        ResourceProvider rp = new StaticResourceProvider(Collections.emptyMap());
-        Engine engine = Engine.create(data, rp);
-        String output = engine.renderDAG(format, collapse);
+        byte[] data;
+        try {
+            data = Files.readAllBytes(Paths.get(configPath));
+        } catch (Exception e) {
+            System.err.println("error reading config: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        Engine engine;
+        try {
+            ResourceProvider rp = new StaticResourceProvider(Collections.emptyMap());
+            engine = Engine.create(data, rp);
+        } catch (Exception e) {
+            System.err.println("error creating engine: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        String output;
+        try {
+            output = engine.renderDAG(format, collapse);
+        } catch (Exception e) {
+            System.err.println("error rendering DAG: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
         System.out.print(output);
     }
 }
