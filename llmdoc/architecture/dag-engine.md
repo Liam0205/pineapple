@@ -672,7 +672,8 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 - **并发调度**：ForkJoinPool + CountDownLatch 信号量，语义等同 Go 侧的 per-operator goroutine + done channel 模型
 - **DataFrame**：`Frame` 接口抽象，`DataFrame`（行存）和 `ColumnFrame`（列存），通过 `storage_mode` 配置选择
 - **data_parallel**：`ParallelExecutor` 实现 Transform 级并行分片，要求 `ConcurrentSafe` 接口
-- **双通道观测**：`Stats` 原子统计 + `EngineMetrics` 可插拔 Provider（`metrics/Provider.java`），默认 `NopProvider`
+- **双通道观测**：`Stats` 原子统计 + 可插拔 `Provider`（`metrics/Provider.java`），默认 `NopProvider`（等同 Go 的 `metrics.Nop()`）
+- **注入顺序**：引擎编译算子时按 MetadataAware → DebugAware → MetricsAware 固定顺序注入，与 Go 侧一致
 - **结构化错误**：5 种错误类型 — `ConfigError`、`RegistryError`、`ValidationError`、`ExecutionError`、`PanicError`（区分 `getMessage()` 外部安全信息与 `detailedError()` 内部栈信息）
 
 ### Server 对等
@@ -686,13 +687,32 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构：
 - HTTP metrics middleware（`pine_http_requests_total`、`pine_http_request_duration_seconds`）
 - Reload metrics（`pine_config_reload_total`、`pine_config_reload_errors_total`、`pine_config_reload_duration_seconds`）
 - `_return_trace` 请求参数支持
+- `max_request_body_size` 从 JSON 配置读取（等同 Go 的 `server.Config.MaxRequestBodySize`）
+- 流式 `readLimitedBody` 防 OOM（分块读取，超限拒绝）
+- `validateResourceDeps` 在初始加载和热加载时均调用（与 Go 行为一致）
+- `/stats` 在无 engine snapshot 时返回 503
+- `/dag` 校验 `collapse` 参数（负值 → 400）并捕获 renderDAG 异常
+- `Engine.execute` 返回 `Result` 带 error 字段（partial result 模式，对应 Go 的 `(result, err)` 返回）
+
+### 算子执行上下文
+
+- **CancellationToken**（volatile boolean）：Java 对 Go `context.Context` 取消传播的等价实现
+- 全部 18 个算子的 `execute()` 方法接受 `CancellationToken token` 作为第一参数
+- 引擎为每次请求创建一个 token，首个 fatal error 时取消（等同 Go 的 `ctx, cancel := context.WithCancel`）
+- 长时间循环（Lua item 迭代、parallel shard）检查 `token.isCancelled()`
+- 不提供指令级 VM 中断（LuaJ 平台限制）——仅循环级协作式取消
+- **DebugAware 接口**：引擎注入 operatorName + debug flag；`TransformByLua` 利用它进行 debug 日志输出
+- **MetricsAware 接口**：引擎注入 `metrics.Provider`；算子可注册自定义指标
 
 ### Lua VM 池化与沙箱
 
 `TransformByLua` 使用 LuaJ（`org.luaj.vm2`）实现：
 
 - `ConcurrentLinkedQueue` 池化 Globals 实例
-- 沙箱：仅加载 `base`、`table`、`string`、`math`，移除 `io`、`os`、`debug`、`require`、`package`、`dofile`、`loadfile`
+- 池在 execute 期间跟踪 `usedKeys`，归还时仅 nil 这些 key（非全表遍历）
+- 池有 `Close()` 方法与 volatile `closed` 标志，用于热加载生命周期管理
+- Borrow 时检查 `closed` 状态，已关闭则抛出异常
+- 沙箱：仅加载 `base`、`table`、`string`、`math`、`package`（LuaJ 编译器依赖），但 `require` 和 `package` 全局变量置为 NIL；移除 `io`、`os`、`debug`、`dofile`、`loadfile`
 
 ### 算子全覆盖
 
@@ -758,4 +778,7 @@ Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`Ope
 - 可插拔指标接口：`pine-java/src/.../metrics/Provider.java`
 - 结构化错误：`pine-java/src/.../PineErrors.java`
 - 算子注册表：`pine-java/src/.../Registry.java`
+- CancellationToken：`pine-java/src/.../CancellationToken.java`
+- DebugAware：`pine-java/src/.../DebugAware.java`
+- MetricsAware：`pine-java/src/.../MetricsAware.java`
 - Codegen：`pine-java/src/.../Codegen.java`

@@ -6,16 +6,19 @@ import page.liam.pine.metrics.Gauge;
 import org.luaj.vm2.*;
 import org.luaj.vm2.lib.*;
 import org.luaj.vm2.lib.jse.JsePlatform;
+import org.luaj.vm2.compiler.LuaC;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider {
+public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider, DebugAware {
     private String script;
     private String funcName;
     private boolean isItemMode;
     private LuaPool pool;
+    private String operatorName;
+    private boolean debug;
 
     @Override
     public void init(Map<String, Object> params) throws Exception {
@@ -49,16 +52,31 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     @Override
-    public void execute(OperatorInput input, OperatorOutput output) throws Exception {
+    public void setDebug(String operatorName, boolean debug) {
+        this.operatorName = operatorName;
+        this.debug = debug;
+    }
+
+    @Override
+    public boolean isDebug() {
+        return debug;
+    }
+
+    @Override
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+        if (debug) {
+            System.err.println("[pine-debug] " + operatorName + " common_input=" + input.rawCommon());
+        }
         Globals globals = pool.borrow();
+        java.util.Set<String> usedKeys = new java.util.HashSet<>();
         try {
             if (isItemMode) {
-                executeForItem(globals, input, output);
+                executeForItem(token, globals, input, output, usedKeys);
             } else {
-                executeForCommon(globals, input, output);
+                executeForCommon(globals, input, output, usedKeys);
             }
         } finally {
-            pool.returnState(globals);
+            pool.returnState(globals, usedKeys);
         }
     }
 
@@ -73,9 +91,10 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         );
     }
 
-    private void executeForItem(Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
+    private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output, java.util.Set<String> usedKeys) throws Exception {
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
+            usedKeys.add(field);
         }
 
         LuaValue fn = globals.get(funcName);
@@ -87,8 +106,10 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         int n = input.itemCount();
 
         for (int i = 0; i < n; i++) {
+            if (token.isCancelled()) break;
             for (String field : itemInput) {
                 globals.set(field, toLua(input.item(i, field)));
+                usedKeys.add(field);
             }
             Varargs results = fn.invoke(LuaValue.NONE);
             for (int j = 0; j < nret; j++) {
@@ -98,9 +119,10 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
     }
 
-    private void executeForCommon(Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
+    private void executeForCommon(Globals globals, OperatorInput input, OperatorOutput output, java.util.Set<String> usedKeys) throws Exception {
         for (String field : commonInput) {
             globals.set(field, toLua(input.common(field)));
+            usedKeys.add(field);
         }
 
         int n = input.itemCount();
@@ -110,6 +132,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 tbl.set(i + 1, toLua(input.item(i, field)));
             }
             globals.set(field, tbl);
+            usedKeys.add(field);
         }
 
         LuaValue fn = globals.get(funcName);
@@ -126,14 +149,15 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     private static Globals createSandboxedGlobals() {
-        Globals globals = JsePlatform.standardGlobals();
-        // Remove dangerous functions (sandbox)
+        Globals globals = new Globals();
+        globals.load(new org.luaj.vm2.lib.BaseLib());
+        globals.load(new org.luaj.vm2.lib.PackageLib());
+        globals.load(new org.luaj.vm2.lib.TableLib());
+        globals.load(new org.luaj.vm2.lib.StringLib());
+        globals.load(new org.luaj.vm2.lib.MathLib());
+        LuaC.install(globals);
         globals.set("dofile", LuaValue.NIL);
         globals.set("loadfile", LuaValue.NIL);
-        globals.set("io", LuaValue.NIL);
-        globals.set("os", LuaValue.NIL);
-        globals.set("luajava", LuaValue.NIL);
-        globals.set("debug", LuaValue.NIL);
         globals.set("require", LuaValue.NIL);
         globals.set("package", LuaValue.NIL);
         return globals;
@@ -158,6 +182,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     static class LuaPool {
         private final ConcurrentLinkedQueue<Globals> pool = new ConcurrentLinkedQueue<>();
         private final String initScript;
+        private volatile boolean closed;
         final AtomicLong borrowCount = new AtomicLong();
         final AtomicLong returnCount = new AtomicLong();
         final AtomicLong createCount = new AtomicLong();
@@ -168,6 +193,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
 
         Globals borrow() {
+            if (closed) throw new IllegalStateException("lua pool is closed");
             borrowCount.incrementAndGet();
             activeCount.incrementAndGet();
             Globals g = pool.poll();
@@ -179,10 +205,19 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             return g;
         }
 
-        void returnState(Globals g) {
+        void returnState(Globals g, java.util.Collection<String> usedKeys) {
             returnCount.incrementAndGet();
             activeCount.decrementAndGet();
+            if (closed) return;
+            for (String key : usedKeys) {
+                g.set(key, LuaValue.NIL);
+            }
             pool.offer(g);
+        }
+
+        void close() {
+            closed = true;
+            pool.clear();
         }
     }
 }

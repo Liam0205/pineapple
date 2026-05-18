@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Engine {
+    private static volatile boolean logPrefixSet = false;
+
     private final List<CompiledOperator> operators;
     private final DAG dag;
     private final Config.FlowContract contract;
@@ -91,10 +93,15 @@ public class Engine {
 
         validateSourcesOrder(sequence, cfg.pipelineConfig.operators);
 
-        // Resolve log_prefix: Option > JSON config
+        // Resolve log_prefix: Option > JSON config (set once only, like Go's sync.Once)
         String logPrefix = eo.logPrefix != null ? eo.logPrefix : cfg.logPrefix;
-        if (!logPrefix.isEmpty()) {
-            System.setProperty("pine.log.prefix", logPrefix);
+        if (!logPrefix.isEmpty() && !logPrefixSet) {
+            synchronized (Engine.class) {
+                if (!logPrefixSet) {
+                    System.setProperty("pine.log.prefix", logPrefix);
+                    logPrefixSet = true;
+                }
+            }
         }
 
         // Resolve global debug: Option > JSON config
@@ -129,6 +136,13 @@ public class Engine {
                 );
             }
 
+            if (op instanceof DebugAware) {
+                ((DebugAware) op).setDebug(name, opCfg.debug);
+            }
+            if (op instanceof MetricsAware && eo.metricsProvider != null) {
+                ((MetricsAware) op).setMetricsProvider(eo.metricsProvider);
+            }
+
             if (opCfg.dataParallel < 0) {
                 throw new IllegalArgumentException("operator \"" + name + "\": data_parallel must be >= 1, got " + opCfg.dataParallel);
             }
@@ -152,7 +166,7 @@ public class Engine {
 
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
         Stats stats = new Stats();
-        EngineMetrics em = eo.metricsProvider != null ? new EngineMetrics(eo.metricsProvider) : null;
+        EngineMetrics em = new EngineMetrics(eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
         return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode);
     }
 
@@ -167,14 +181,24 @@ public class Engine {
             }
         }
 
+        if (items != null && !items.isEmpty() && !contract.itemInput.isEmpty()) {
+            for (int i = 0; i < items.size(); i++) {
+                Map<String, Object> item = items.get(i);
+                for (String field : contract.itemInput) {
+                    if (!item.containsKey(field)) {
+                        throw new PineErrors.ValidationError(
+                                "item[" + i + "] missing required item input field \"" + field + "\"");
+                    }
+                }
+            }
+        }
+
         Frame frame = Frame.create(storageMode, common, items);
         int n = operators.size();
 
         long dagStart = System.nanoTime();
         stats.recordRun();
-        if (engineMetrics != null) {
-            engineMetrics.schedulerRuns.inc();
-        }
+        engineMetrics.schedulerRuns.inc();
 
         CountDownLatch[] applied = new CountDownLatch[n];
         for (int i = 0; i < n; i++) {
@@ -185,6 +209,7 @@ public class Engine {
         List<Warning> warnings = Collections.synchronizedList(new ArrayList<>());
         AtomicReference<Exception> fatalError = new AtomicReference<>();
         CountDownLatch cancelLatch = new CountDownLatch(1);
+        CancellationToken cancellationToken = new CancellationToken();
         AtomicLong activeOps = new AtomicLong();
         ForkJoinPool pool = ForkJoinPool.commonPool();
         CountDownLatch allDone = new CountDownLatch(n);
@@ -221,9 +246,7 @@ public class Engine {
                         long duration = System.nanoTime() - startTime;
                         traces[idx] = new OpTrace(cop.name, startTime, duration, true, null, null);
                         stats.recordSkip(cop.name);
-                        if (engineMetrics != null) {
-                            engineMetrics.opSkipTotal.with(cop.name).inc();
-                        }
+                        engineMetrics.opSkipTotal.with(cop.name).inc();
                         return;
                     }
 
@@ -258,18 +281,16 @@ public class Engine {
                     // Execute
                     long current = activeOps.incrementAndGet();
                     stats.recordConcurrency(current);
-                    if (engineMetrics != null) {
-                        engineMetrics.activeOps.add(1);
-                    }
+                    engineMetrics.activeOps.add(1);
 
                     OperatorOutput output;
                     Exception execErr = null;
                     try {
                         if (opCfg.dataParallel > 1) {
-                            output = ParallelExecutor.execute(cop.instance, input, opCfg.dataParallel);
+                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, opCfg.dataParallel);
                         } else {
                             output = new OperatorOutput();
-                            cop.instance.execute(input, output);
+                            cop.instance.execute(cancellationToken, input, output);
                         }
                     } catch (Exception e) {
                         output = null;
@@ -289,20 +310,17 @@ public class Engine {
 
                     long duration = System.nanoTime() - startTime;
                     activeOps.decrementAndGet();
-                    if (engineMetrics != null) {
-                        engineMetrics.activeOps.add(-1);
-                    }
+                    engineMetrics.activeOps.add(-1);
 
                     if (execErr != null) {
                         traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, null);
                         stats.recordError(cop.name, duration);
-                        if (engineMetrics != null) {
-                            engineMetrics.opErrorTotal.with(cop.name).inc();
-                            engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-                        }
+                        engineMetrics.opErrorTotal.with(cop.name).inc();
+                        engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
                         if (fatalError.compareAndSet(null,
                                 new PineErrors.ExecutionError(cop.name, execErr))) {
-                            cancelLatch.countDown();
+                            cancellationToken.cancel();
+                        cancelLatch.countDown();
                         }
                         return;
                     }
@@ -319,23 +337,37 @@ public class Engine {
                     }
 
                     // Apply output
-                    frame.applyOutput(output, cop.name, opCfg.recall);
+                    try {
+                        frame.applyOutput(output, cop.name, opCfg.recall);
+                    } catch (Exception applyErr) {
+                        long applyDuration = System.nanoTime() - startTime;
+                        traces[idx] = new OpTrace(cop.name, startTime, applyDuration, false, inputSnapshot, outputSnapshot);
+                        stats.recordError(cop.name, applyDuration);
+                        engineMetrics.opErrorTotal.with(cop.name).inc();
+                        engineMetrics.opExecDuration.with(cop.name).observe(applyDuration / 1_000_000_000.0);
+                        if (fatalError.compareAndSet(null,
+                                new PineErrors.ExecutionError(cop.name, applyErr))) {
+                            cancellationToken.cancel();
+                        cancelLatch.countDown();
+                        }
+                        return;
+                    }
 
                     traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
                     stats.recordExec(cop.name, duration);
-                    if (engineMetrics != null) {
-                        engineMetrics.opExecTotal.with(cop.name).inc();
-                        engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-                    }
+                    engineMetrics.opExecTotal.with(cop.name).inc();
+                    engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
 
                 } catch (Exception e) {
                     if (fatalError.compareAndSet(null,
                             new PineErrors.ExecutionError(opName, e))) {
+                        cancellationToken.cancel();
                         cancelLatch.countDown();
                     }
                 } catch (Error e) {
                     if (fatalError.compareAndSet(null,
                             new PineErrors.PanicError(opName, e))) {
+                        cancellationToken.cancel();
                         cancelLatch.countDown();
                     }
                 } finally {
@@ -349,24 +381,19 @@ public class Engine {
 
         // DAG-level metrics
         long dagDuration = System.nanoTime() - dagStart;
-        if (engineMetrics != null) {
-            engineMetrics.dagExecDuration.observe(dagDuration / 1_000_000_000.0);
-            if (fatalError.get() != null) {
-                engineMetrics.dagExecTotal.with("error").inc();
-            } else {
-                engineMetrics.dagExecTotal.with("success").inc();
-            }
-            int executed = 0;
-            for (OpTrace t : traces) {
-                if (t != null && !t.skipped) executed++;
-            }
-            engineMetrics.dagOpsExecuted.observe(executed);
+        engineMetrics.dagExecDuration.observe(dagDuration / 1_000_000_000.0);
+        if (fatalError.get() != null) {
+            engineMetrics.dagExecTotal.with("error").inc();
+        } else {
+            engineMetrics.dagExecTotal.with("success").inc();
         }
+        int executed = 0;
+        for (OpTrace t : traces) {
+            if (t != null && !t.skipped) executed++;
+        }
+        engineMetrics.dagOpsExecuted.observe(executed);
 
         Exception err = fatalError.get();
-        if (err != null) {
-            throw err;
-        }
 
         // Collect non-null traces
         List<OpTrace> traceList = new ArrayList<>();
@@ -374,11 +401,11 @@ public class Engine {
             if (t != null) traceList.add(t);
         }
 
-        // Project result
+        // Project result (even on error, return partial result)
         Map<String, Object> resultCommon = frame.toResultCommon(contract.commonOutput);
         List<Map<String, Object>> resultItems = frame.toResultItems(contract.itemOutput);
 
-        return new Result(resultCommon, resultItems, warnings, traceList);
+        return new Result(resultCommon, resultItems, warnings, traceList, err);
     }
 
     // --- Public API ---
@@ -482,13 +509,20 @@ public class Engine {
         public final List<Map<String, Object>> items;
         public final List<Warning> warnings;
         public final List<OpTrace> trace;
+        public final Exception error;
 
         public Result(Map<String, Object> common, List<Map<String, Object>> items,
                       List<Warning> warnings, List<OpTrace> trace) {
+            this(common, items, warnings, trace, null);
+        }
+
+        public Result(Map<String, Object> common, List<Map<String, Object>> items,
+                      List<Warning> warnings, List<OpTrace> trace, Exception error) {
             this.common = common;
             this.items = items;
             this.warnings = warnings;
             this.trace = trace;
+            this.error = error;
         }
     }
 

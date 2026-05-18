@@ -9,11 +9,11 @@ public class ParallelExecutor {
 
     private ParallelExecutor() {}
 
-    public static OperatorOutput execute(Operator op, OperatorInput input, int parallelism) throws Exception {
+    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism) throws Exception {
         int total = input.itemCount();
         if (parallelism <= 1 || total == 0) {
             OperatorOutput output = new OperatorOutput();
-            op.execute(input, output);
+            op.execute(token, input, output);
             return output;
         }
 
@@ -38,7 +38,7 @@ public class ParallelExecutor {
 
         if (shards.size() == 1) {
             OperatorOutput output = new OperatorOutput();
-            op.execute(shards.get(0), output);
+            op.execute(token, shards.get(0), output);
             return output;
         }
 
@@ -50,9 +50,17 @@ public class ParallelExecutor {
         for (OperatorInput shard : shards) {
             futures.add(pool.submit(() -> {
                 if (cancelled.get()) return null;
-                OperatorOutput out = new OperatorOutput();
-                op.execute(shard, out);
-                return out;
+                try {
+                    OperatorOutput out = new OperatorOutput();
+                    op.execute(token, shard, out);
+                    return out;
+                } catch (Throwable t) {
+                    if (firstError.compareAndSet(null, t instanceof Exception ? (Exception) t
+                            : new RuntimeException("panic in shard", t))) {
+                        cancelled.set(true);
+                    }
+                    return null;
+                }
             }));
         }
 
