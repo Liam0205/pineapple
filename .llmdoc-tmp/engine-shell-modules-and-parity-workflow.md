@@ -363,10 +363,10 @@ fixtures/
 
 | 指标 | 值 |
 |------|-----|
-| Execution parity cases | 40 (row) + 40 (column) |
-| DAG render checks | 88 |
-| Error parity fixtures | 9 |
-| Server HTTP checks | 18 |
+| Execution parity cases | 43 (row) + 43 (column) |
+| DAG render checks | 90 |
+| Error parity fixtures | 15 |
+| Server HTTP checks | 20 |
 | Cancellation checks | 2 |
 | Schema parity | 完整（含 defaults） |
 
@@ -412,3 +412,21 @@ fixtures/
 | P2 | for_branch_control | 无副作用验证 | 配置健壮性 | ✅ 已修复 (skip_branch.json 加标记) |
 | P3 | 重复 operator ref | 错误消息 | 错误路径覆盖 | ✅ 已修复 (config_duplicate_operator_ref.json) |
 | P3 | 非法 storage_mode | 回退行为 | 边界 case | ⏸️ 隐式覆盖（execution parity 保证 fallback 一致）|
+
+### 第九轮（2026-05-18 全新深度审计）
+
+在第八轮完成后（含 P3 3.1 Java validateValue field name 修复），对全部引擎/Shell 层代码做 fresh audit：
+
+| # | 模块 | 漏洞描述 | 严重度 | 可验证 | 建议 |
+|---|------|----------|--------|--------|------|
+| 1 | **HTTP Server `/health`** | Go `handleHealth` **无 HTTP method 检查**：接受任意方法（POST/PUT/DELETE→200）。Java 明确拒绝非 GET 返回 405。 | **中** | 是（curl） | Go 添加 `if r.Method != http.MethodGet` 守卫 |
+| 2 | **HTTP Server `/execute`** | 请求 JSON 无 "common" key 时行为分歧：Go 得到 nil→ValidationError `"request.Common must not be nil"`；Java 用 `getOrDefault(emptyMap)` 绕过 nil check→不同错误消息。 | 低 | 是（curl） | Java 改用 `req.get("common")` 保持 nil 传播 |
+| 3 | **RunCli 输出** | Go `json.Encoder.Encode()` 追加 `\n`，Java `System.out.print(json)` 不追加。Shell `$()` 截断 trailing newline 导致 cross-validate 掩盖差异。 | 低 | 间接规避 | Java 改为 `println` |
+
+#### 第九轮路线图
+
+| 优先级 | 模块 | 漏洞 | 价值 | 状态 |
+|--------|------|------|------|------|
+| P1 | Server /health method | 405 vs 200 分歧 | 端点行为一致 | ✅ 已修复 (Go 添加 method guard + test [15b]) |
+| P2 | Server nil common | 错误消息分歧 | 错误路径一致 | ✅ 已修复 (Java `req.get` + test [15c]) |
+| P3 | RunCli trailing newline | 字节级输出一致 | 防潜在对比失败 | ✅ 已修复 (Java println) |
