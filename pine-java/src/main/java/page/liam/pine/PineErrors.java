@@ -13,22 +13,46 @@ public final class PineErrors {
         public ConfigError(String message, Throwable cause) {
             super(message, cause);
         }
+
+        @Override
+        public String getMessage() {
+            return "pine: config error: " + super.getMessage();
+        }
     }
 
     public static class RegistryError extends RuntimeException {
         private final String operator;
 
         public RegistryError(String operator, String message) {
-            super("operator \"" + operator + "\": " + message);
+            super(message);
             this.operator = operator;
         }
 
         public String getOperator() { return operator; }
+
+        @Override
+        public String getMessage() {
+            return "pine: registry error [" + operator + "]: " + super.getMessage();
+        }
     }
 
     public static class ValidationError extends IllegalArgumentException {
         public ValidationError(String message) {
             super(message);
+        }
+
+        @Override
+        public String getMessage() {
+            return "pine: validation error: " + super.getMessage();
+        }
+    }
+
+    public static class OperatorException extends Exception {
+        public OperatorException(String message) {
+            super(message);
+        }
+        public OperatorException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
@@ -36,11 +60,16 @@ public final class PineErrors {
         private final String operator;
 
         public ExecutionError(String operator, Throwable cause) {
-            super("operator \"" + operator + "\" execution failed: " + cause.getMessage(), cause);
+            super(cause.getMessage(), cause);
             this.operator = operator;
         }
 
         public String getOperator() { return operator; }
+
+        @Override
+        public String getMessage() {
+            return "pine: execution error in operator \"" + operator + "\": " + getCause().getMessage();
+        }
     }
 
     public static class PanicError extends RuntimeException {
@@ -48,7 +77,7 @@ public final class PineErrors {
         private final String stack;
 
         public PanicError(String operator, Throwable cause) {
-            super("operator \"" + operator + "\" panicked: " + cause.getClass().getSimpleName(), cause);
+            super(cause.getMessage(), cause);
             this.operator = operator;
             StringWriter sw = new StringWriter();
             cause.printStackTrace(new PrintWriter(sw));
@@ -63,7 +92,9 @@ public final class PineErrors {
 
         @Override
         public String getMessage() {
-            return "operator \"" + operator + "\" panicked: " + getCause().getClass().getSimpleName();
+            String causeMsg = getCause().getMessage();
+            if (causeMsg == null) causeMsg = getCause().toString();
+            return "pine: panic in operator \"" + operator + "\": " + causeMsg;
         }
     }
 }

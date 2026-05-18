@@ -87,9 +87,14 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws Exception {
+    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (debug) {
-            System.err.println("[pine-debug] " + operatorName + " common_input=" + input.rawCommon());
+            int fields = input.rawCommon().size();
+            int nonNil = (int) input.rawCommon().values().stream().filter(v -> v != null).count();
+            int itemCount = input.itemCount();
+            String mode = isItemMode ? "item" : "common";
+            System.err.printf("[pine:debug] operator=\"%s\" common_input fields=%d non_nil=%d items=%d mode=%s func=%s%n",
+                operatorName, fields, nonNil, itemCount, mode, funcName);
         }
         Globals globals = pool.borrow();
         try {
@@ -98,6 +103,12 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             } else {
                 executeForCommon(globals, input, output);
             }
+        } catch (LuaError e) {
+            throw new PineErrors.OperatorException("lua error: " + e.getMessage(), e);
+        } catch (PineErrors.OperatorException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new PineErrors.OperatorException(e.getMessage(), e);
         } finally {
             pool.returnState(globals);
         }
