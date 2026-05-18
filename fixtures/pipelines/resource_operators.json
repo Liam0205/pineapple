@@ -1,0 +1,112 @@
+{
+  "name": "resource operators (recall_resource + transform_resource_lookup)",
+  "static_resources": {
+    "user_tags": {
+      "u1": "vip",
+      "u2": "normal",
+      "u3": "vip"
+    },
+    "hot_items": [
+      {"item_id": "h1", "item_score": 95.0},
+      {"item_id": "h2", "item_score": 88.0},
+      {"item_id": "h3", "item_score": 72.0}
+    ]
+  },
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "recall_hot": {
+          "type_name": "recall_resource",
+          "resource_name": "hot_items",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_score"]
+          }
+        },
+        "dispatch_uid": {
+          "type_name": "transform_dispatch",
+          "$metadata": {
+            "common_input": ["user_id"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_user_id"]
+          }
+        },
+        "enrich_tag": {
+          "type_name": "transform_resource_lookup",
+          "resource_name": "user_tags",
+          "lookup_key": "item_user_id",
+          "output_field": "user_tag",
+          "default_value": "unknown",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_user_id"],
+            "item_output": ["user_tag"]
+          }
+        },
+        "sort_score": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["recall_hot", "dispatch_uid", "enrich_tag", "sort_score"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["user_id"],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id", "item_score", "user_tag"]
+    }
+  },
+  "cases": [
+    {
+      "name": "recall from resource, dispatch uid, lookup tag (vip user)",
+      "request": {
+        "common": {"user_id": "u1"},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "h1", "item_score": 95.0, "user_tag": "vip"},
+          {"item_id": "h2", "item_score": 88.0, "user_tag": "vip"},
+          {"item_id": "h3", "item_score": 72.0, "user_tag": "vip"}
+        ]
+      }
+    },
+    {
+      "name": "unknown user gets default tag",
+      "request": {
+        "common": {"user_id": "u999"},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "h1", "item_score": 95.0, "user_tag": "unknown"},
+          {"item_id": "h2", "item_score": 88.0, "user_tag": "unknown"},
+          {"item_id": "h3", "item_score": 72.0, "user_tag": "unknown"}
+        ]
+      }
+    }
+  ]
+}

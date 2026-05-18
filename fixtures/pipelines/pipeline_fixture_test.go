@@ -10,12 +10,14 @@ import (
 
 	pine "github.com/Liam0205/pineapple"
 	_ "github.com/Liam0205/pineapple/operators"
+	"github.com/Liam0205/pineapple/pkg/resource"
 )
 
 type pipelineFixture struct {
-	Name   string          `json:"name"`
-	Config json.RawMessage `json:"config"`
-	Cases  []pipelineCase  `json:"cases"`
+	Name            string                    `json:"name"`
+	Config          json.RawMessage           `json:"config"`
+	StaticResources map[string]any            `json:"static_resources"`
+	Cases           []pipelineCase            `json:"cases"`
 }
 
 type pipelineCase struct {
@@ -65,7 +67,13 @@ func TestPipelineFixtures(t *testing.T) {
 						Common: tc.Request.Common,
 						Items:  tc.Request.Items,
 					}
-					result, err := engine.Execute(context.Background(), req)
+
+					ctx := context.Background()
+					if len(pf.StaticResources) > 0 {
+						ctx = resource.WithResources(ctx, resource.NewStatic(pf.StaticResources))
+					}
+
+					result, err := engine.Execute(ctx, req)
 					if err != nil {
 						t.Fatalf("Execute: %v", err)
 					}
