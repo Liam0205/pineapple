@@ -1,12 +1,41 @@
 package page.liam.pine;
 
-/**
- * Lightweight cancellation signal, analogous to Go's context.Context cancel channel.
- * Operators should periodically check isCancelled() during long operations.
- */
-public class CancellationToken {
-    private volatile boolean cancelled;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-    public boolean isCancelled() { return cancelled; }
-    public void cancel() { cancelled = true; }
+public interface CancellationToken {
+    boolean isCancelled();
+    void cancel();
+
+    static CancellationToken create() {
+        return new SimpleCancellationToken();
+    }
+
+    static CancellationToken childOf(CancellationToken parent) {
+        return new ChildCancellationToken(parent);
+    }
+}
+
+class SimpleCancellationToken implements CancellationToken {
+    private final AtomicBoolean cancelled = new AtomicBoolean();
+
+    @Override
+    public boolean isCancelled() { return cancelled.get(); }
+
+    @Override
+    public void cancel() { cancelled.set(true); }
+}
+
+class ChildCancellationToken implements CancellationToken {
+    private final AtomicBoolean cancelled = new AtomicBoolean();
+    private final CancellationToken parent;
+
+    ChildCancellationToken(CancellationToken parent) {
+        this.parent = parent;
+    }
+
+    @Override
+    public boolean isCancelled() { return cancelled.get() || parent.isCancelled(); }
+
+    @Override
+    public void cancel() { cancelled.set(true); }
 }

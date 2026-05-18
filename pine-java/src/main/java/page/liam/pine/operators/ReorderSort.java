@@ -4,11 +4,11 @@ import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
+import page.liam.pine.OperatorParams;
 import page.liam.pine.PineErrors;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Operator: reorder_sort
@@ -22,8 +22,8 @@ public class ReorderSort extends AbstractOperator {
     private boolean ascending;
 
     @Override
-    public void init(Map<String, Object> params) throws Exception {
-        String order = (String) params.getOrDefault("order", "desc");
+    public void init(OperatorParams params) {
+        String order = params.getString("order", "desc");
         switch (order) {
             case "asc":
                 ascending = true;
@@ -41,7 +41,7 @@ public class ReorderSort extends AbstractOperator {
         int n = input.itemCount();
         if (n == 0) return;
 
-        String field = itemInput.get(0);
+        String field = itemInput().get(0);
         List<int[]> entries = new ArrayList<>(n);
         double[] vals = new double[n];
         for (int i = 0; i < n; i++) {

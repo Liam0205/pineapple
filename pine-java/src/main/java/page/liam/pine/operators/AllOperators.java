@@ -24,7 +24,7 @@ public class AllOperators {
 
     private static void registerAll() {
         // 1. transform_copy
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_copy",
                         OperatorType.TRANSFORM,
@@ -36,7 +36,7 @@ public class AllOperators {
                 TransformCopy::new);
 
         // 2. transform_dispatch
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_dispatch",
                         OperatorType.TRANSFORM,
@@ -45,7 +45,7 @@ public class AllOperators {
                 TransformDispatch::new);
 
         // 3. transform_normalize
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_normalize",
                         OperatorType.TRANSFORM,
@@ -57,7 +57,7 @@ public class AllOperators {
                 TransformNormalize::new);
 
         // 4. transform_size
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_size",
                         OperatorType.TRANSFORM,
@@ -66,7 +66,7 @@ public class AllOperators {
                 TransformSize::new);
 
         // 5. transform_by_lua
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_by_lua",
                         OperatorType.TRANSFORM,
@@ -82,7 +82,7 @@ public class AllOperators {
                 TransformByLua::new);
 
         // 6. transform_resource_lookup
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_resource_lookup",
                         OperatorType.TRANSFORM,
@@ -100,7 +100,7 @@ public class AllOperators {
                 TransformResourceLookup::new);
 
         // 7. transform_redis_get
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_redis_get",
                         OperatorType.TRANSFORM,
@@ -122,7 +122,7 @@ public class AllOperators {
                 TransformRedisGet::new);
 
         // 8. transform_redis_set
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_redis_set",
                         OperatorType.TRANSFORM,
@@ -146,7 +146,7 @@ public class AllOperators {
                 TransformRedisSet::new);
 
         // 9. transform_by_remote_pineapple (>10 params, use Map.ofEntries)
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_by_remote_pineapple",
                         OperatorType.TRANSFORM,
@@ -178,7 +178,7 @@ public class AllOperators {
                 TransformRemotePineapple::new);
 
         // 10. recall_static
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "recall_static",
                         OperatorType.RECALL,
@@ -190,7 +190,7 @@ public class AllOperators {
                 RecallStatic::new);
 
         // 11. recall_resource
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "recall_resource",
                         OperatorType.RECALL,
@@ -202,7 +202,7 @@ public class AllOperators {
                 RecallResource::new);
 
         // 12. filter_condition
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "filter_condition",
                         OperatorType.FILTER,
@@ -214,7 +214,7 @@ public class AllOperators {
                 FilterCondition::new);
 
         // 13. filter_truncate
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "filter_truncate",
                         OperatorType.FILTER,
@@ -226,7 +226,7 @@ public class AllOperators {
                 FilterTruncate::new);
 
         // 14. filter_paginate
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "filter_paginate",
                         OperatorType.FILTER,
@@ -235,7 +235,7 @@ public class AllOperators {
                 FilterPaginate::new);
 
         // 15. merge_dedup
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "merge_dedup",
                         OperatorType.MERGE,
@@ -247,7 +247,7 @@ public class AllOperators {
                 MergeDedup::new);
 
         // 16. reorder_sort
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "reorder_sort",
                         OperatorType.REORDER,
@@ -259,7 +259,7 @@ public class AllOperators {
                 ReorderSort::new);
 
         // 17. reorder_shuffle_by_salt
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "reorder_shuffle_by_salt",
                         OperatorType.REORDER,
@@ -268,7 +268,7 @@ public class AllOperators {
                 ReorderShuffle::new);
 
         // 18. observe_log
-        Registry.register(
+        Registry.registerGlobal(
                 new OperatorSchema(
                         "observe_log",
                         OperatorType.OBSERVE,

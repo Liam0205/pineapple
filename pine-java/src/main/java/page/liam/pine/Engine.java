@@ -6,11 +6,12 @@ import page.liam.pine.operators.AllOperators;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Engine {
-    private static volatile boolean logPrefixSet = false;
+    private static final AtomicBoolean logPrefixSet = new AtomicBoolean();
 
     private final List<CompiledOperator> operators;
     private final DAG dag;
@@ -19,9 +20,11 @@ public class Engine {
     private final Stats stats;
     private final EngineMetrics engineMetrics;
     private final String storageMode;
+    private final ExecutorService executor;
 
     private Engine(List<CompiledOperator> operators, DAG dag, Config.FlowContract contract,
-                   ResourceProvider resourceProvider, Stats stats, EngineMetrics engineMetrics, String storageMode) {
+                   ResourceProvider resourceProvider, Stats stats, EngineMetrics engineMetrics,
+                   String storageMode, ExecutorService executor) {
         this.operators = operators;
         this.dag = dag;
         this.contract = contract;
@@ -29,6 +32,7 @@ public class Engine {
         this.stats = stats;
         this.engineMetrics = engineMetrics;
         this.storageMode = storageMode;
+        this.executor = executor;
     }
 
     // --- Option pattern ---
@@ -43,6 +47,7 @@ public class Engine {
         ResourceProvider resources;
         String logPrefix;
         Boolean debug;
+        ExecutorService executor;
     }
 
     public static Option withMetrics(Provider provider) {
@@ -61,9 +66,13 @@ public class Engine {
         return opts -> opts.debug = debug;
     }
 
+    public static Option withExecutor(ExecutorService executor) {
+        return opts -> opts.executor = executor;
+    }
+
     // --- Factory methods ---
 
-    public static Engine create(byte[] jsonConfig, Option... options) throws Exception {
+    public static Engine create(byte[] jsonConfig, Option... options) throws PineErrors.ConfigError {
         EngineOptions eo = new EngineOptions();
         for (Option opt : options) {
             opt.apply(eo);
@@ -71,20 +80,20 @@ public class Engine {
         return createInternal(jsonConfig, eo);
     }
 
-    public static Engine create(byte[] jsonConfig, ResourceProvider resources) throws Exception {
+    public static Engine create(byte[] jsonConfig, ResourceProvider resources) throws PineErrors.ConfigError {
         EngineOptions eo = new EngineOptions();
         eo.resources = resources;
         return createInternal(jsonConfig, eo);
     }
 
-    public static Engine create(byte[] jsonConfig, ResourceProvider resources, Provider metricsProvider) throws Exception {
+    public static Engine create(byte[] jsonConfig, ResourceProvider resources, Provider metricsProvider) throws PineErrors.ConfigError {
         EngineOptions eo = new EngineOptions();
         eo.resources = resources;
         eo.metricsProvider = metricsProvider;
         return createInternal(jsonConfig, eo);
     }
 
-    private static Engine createInternal(byte[] jsonConfig, EngineOptions eo) throws Exception {
+    private static Engine createInternal(byte[] jsonConfig, EngineOptions eo) throws PineErrors.ConfigError {
         AllOperators.ensureRegistered();
         Config cfg = Config.load(jsonConfig);
         Config.ExpandResult expanded = cfg.expandOperatorSequenceWithSubFlows();
@@ -95,13 +104,8 @@ public class Engine {
 
         // Resolve log_prefix: Option > JSON config (set once only, like Go's sync.Once)
         String logPrefix = eo.logPrefix != null ? eo.logPrefix : cfg.logPrefix;
-        if (!logPrefix.isEmpty() && !logPrefixSet) {
-            synchronized (Engine.class) {
-                if (!logPrefixSet) {
-                    System.setProperty("pine.log.prefix", logPrefix);
-                    logPrefixSet = true;
-                }
-            }
+        if (!logPrefix.isEmpty() && logPrefixSet.compareAndSet(false, true)) {
+            System.setProperty("pine.log.prefix", logPrefix);
         }
 
         // Resolve global debug: Option > JSON config
@@ -111,17 +115,14 @@ public class Engine {
         for (String name : sequence) {
             Config.OperatorConfig opCfg = cfg.pipelineConfig.operators.get(name);
 
-            if (globalDebug && !opCfg.debug) {
-                opCfg.debug = true;
-            }
+            boolean effectiveDebug = globalDebug || opCfg.debug;
 
-            Operator op = Registry.buildOperator(opCfg.typeName, opCfg.rawParams);
-            OperatorType opType = Registry.getType(opCfg.typeName);
-            opCfg.operatorType = opType != null ? opType.name().toLowerCase() : "transform";
+            Operator op = Registry.global().buildOperator(opCfg.typeName, opCfg.rawParams);
+            OperatorType opType = Registry.global().getType(opCfg.typeName).get();
+            String effectiveOperatorType = opType.name().toLowerCase();
+            opCfg.operatorType = effectiveOperatorType;
 
-            if (opType == OperatorType.RECALL) {
-                opCfg.recall = true;
-            }
+            boolean effectiveRecall = opCfg.recall || opType == OperatorType.RECALL;
 
             if (op instanceof MetadataAware) {
                 List<String> commonIn = new ArrayList<>(opCfg.metadata.commonInput);
@@ -137,7 +138,7 @@ public class Engine {
             }
 
             if (op instanceof DebugAware) {
-                ((DebugAware) op).setDebug(name, opCfg.debug);
+                ((DebugAware) op).setDebug(name, effectiveDebug);
             }
             if (op instanceof MetricsAware) {
                 ((MetricsAware) op).setMetricsProvider(
@@ -151,38 +152,40 @@ public class Engine {
                 ((ResourceAware) op).setResourceProvider(eo.resources);
             }
 
-            if (opCfg.dataParallel < 0) {
-                throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " + opCfg.dataParallel);
+            int effectiveDataParallel = opCfg.dataParallel;
+            if (effectiveDataParallel < 0) {
+                throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " + effectiveDataParallel);
             }
-            if (opCfg.dataParallel == 0) {
-                opCfg.dataParallel = 1;
+            if (effectiveDataParallel == 0) {
+                effectiveDataParallel = 1;
             }
-            if (opCfg.dataParallel > 1) {
+            if (effectiveDataParallel > 1) {
                 if (opType != OperatorType.TRANSFORM) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " is only supported for Transform operators, got " + opType.name().toLowerCase());
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + effectiveDataParallel + " is only supported for Transform operators, got " + opType.name().toLowerCase());
                 }
                 if (!opCfg.metadata.commonOutput.isEmpty()) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires empty $metadata.common_output for Transform operators");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + effectiveDataParallel + " requires empty $metadata.common_output for Transform operators");
                 }
                 if (!(op instanceof ConcurrentSafe)) {
-                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + opCfg.dataParallel + " requires the operator to implement ConcurrentSafe interface (type \"" + opCfg.typeName + "\" does not)");
+                    throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel=" + effectiveDataParallel + " requires the operator to implement ConcurrentSafe interface (type \"" + opCfg.typeName + "\" does not)");
                 }
             }
 
-            compiledOps.add(new CompiledOperator(name, op, opCfg));
+            compiledOps.add(new CompiledOperator(name, op, opCfg, effectiveDebug, effectiveRecall, effectiveDataParallel, effectiveOperatorType));
         }
 
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
         Stats stats = new Stats();
         EngineMetrics em = new EngineMetrics(eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
-        return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode);
+        ExecutorService pool = eo.executor != null ? eo.executor : ForkJoinPool.commonPool();
+        return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode, pool);
     }
 
-    public Result execute(Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
-        return execute(new CancellationToken(), common, items);
+    public Result execute(Map<String, Object> common, List<Map<String, Object>> items) {
+        return execute(CancellationToken.create(), common, items);
     }
 
-    public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) throws Exception {
+    public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) {
         if (common == null) {
             throw new PineErrors.ValidationError("request.Common must not be nil");
         }
@@ -222,23 +225,18 @@ public class Engine {
         OpTrace[] traces = new OpTrace[n];
         List<Warning> warnings = Collections.synchronizedList(new ArrayList<>());
         AtomicReference<Exception> fatalError = new AtomicReference<>();
-        CancellationToken cancellationToken = new CancellationToken() {
-            @Override
-            public boolean isCancelled() {
-                return super.isCancelled() || externalToken.isCancelled();
-            }
-        };
+        CancellationToken cancellationToken = CancellationToken.childOf(externalToken);
         AtomicLong activeOps = new AtomicLong();
-        ForkJoinPool pool = ForkJoinPool.commonPool();
+
+        ScheduleContext ctx = new ScheduleContext(frame, applied, traces, warnings, fatalError, cancellationToken, activeOps);
 
         for (int i = 0; i < n; i++) {
             final int idx = i;
-            pool.execute(() -> {
+            executor.execute(() -> {
                 String opName = operators.get(idx).name;
                 try {
                     DAG.Node node = dag.nodes.get(idx);
                     CompiledOperator cop = operators.get(idx);
-                    Config.OperatorConfig opCfg = cop.config;
 
                     for (int pred : node.preds) {
                         try {
@@ -252,145 +250,7 @@ public class Engine {
 
                     if (fatalError.get() != null) return;
 
-                    long startTime = System.nanoTime();
-
-                    // Evaluate skip
-                    boolean skipped = false;
-                    for (String skipField : opCfg.skip) {
-                        Object skipVal = frame.common(skipField);
-                        if (skipVal != null && !Boolean.FALSE.equals(skipVal)) {
-                            skipped = true;
-                            break;
-                        }
-                    }
-
-                    if (skipped) {
-                        long duration = System.nanoTime() - startTime;
-                        traces[idx] = new OpTrace(cop.name, startTime, duration, true, null, null);
-                        stats.recordSkip(cop.name);
-                        engineMetrics.opSkipTotal.with(cop.name).inc();
-                        return;
-                    }
-
-                    // Build input
-                    List<String> commonInput = new ArrayList<>(opCfg.metadata.commonInput);
-                    for (String skipField : opCfg.skip) {
-                        commonInput.remove(skipField);
-                    }
-
-                    OperatorInput input = frame.buildInput(
-                            commonInput,
-                            opCfg.metadata.itemInput,
-                            opCfg.commonDefaults,
-                            opCfg.itemDefaults
-                    );
-
-                    // Debug: capture input snapshot
-                    Map<String, Object> inputSnapshot = null;
-                    if (opCfg.debug) {
-                        inputSnapshot = snapshotInput(input);
-                    }
-
-                    // Execute
-                    long current = activeOps.incrementAndGet();
-                    stats.recordConcurrency(current);
-                    engineMetrics.activeOps.add(1);
-
-                    OperatorOutput output;
-                    Exception execErr = null;
-                    try {
-                        if (opCfg.dataParallel > 1) {
-                            output = ParallelExecutor.execute(cancellationToken, cop.instance, input, opCfg.dataParallel, cop.name);
-                        } else {
-                            output = new OperatorOutput();
-                            cop.instance.execute(cancellationToken, input, output);
-                        }
-                    } catch (PineErrors.OperatorException e) {
-                        output = null;
-                        execErr = e;
-                    } catch (RuntimeException e) {
-                        output = null;
-                        execErr = e;
-                    }
-
-                    // Validate output type constraints
-                    if (execErr == null && output != null) {
-                        OperatorType opType = Registry.getType(opCfg.typeName);
-                        if (opType != null) {
-                            String violation = opType.validateOutput(output);
-                            if (violation != null) {
-                                execErr = new PineErrors.OperatorException("type violation: " + violation);
-                            }
-                        }
-                    }
-
-                    long duration = System.nanoTime() - startTime;
-                    activeOps.decrementAndGet();
-                    engineMetrics.activeOps.add(-1);
-
-                    if (execErr != null) {
-                        traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, null);
-                        stats.recordError(cop.name, duration);
-                        engineMetrics.opErrorTotal.with(cop.name).inc();
-                        engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-                        Exception wrapped;
-                        if (execErr instanceof PineErrors.PanicError) {
-                            wrapped = execErr;
-                        } else if (execErr instanceof PineErrors.OperatorException) {
-                            wrapped = new PineErrors.ExecutionError(cop.name, execErr);
-                        } else {
-                            // RuntimeException (NPE, AIOOBE, etc.) -> PanicError
-                            wrapped = new PineErrors.PanicError(cop.name, execErr);
-                        }
-                        if (fatalError.compareAndSet(null, wrapped)) {
-                            cancellationToken.cancel();
-                            for (CompletableFuture<Void> f : applied) {
-                                f.complete(null);
-                            }
-                        }
-                        return;
-                    }
-
-                    // Collect warning
-                    if (output.getWarning() != null) {
-                        warnings.add(new Warning(cop.name, output.getWarning()));
-                    }
-
-                    // Debug: capture output snapshot
-                    Map<String, Object> outputSnapshot = null;
-                    if (opCfg.debug) {
-                        outputSnapshot = snapshotOutput(output);
-                        int inputSize = input.itemCount();
-                        int outputSize = inputSize + output.getAddedItems().size() - output.getRemovedItems().size();
-                        String inputJson = inputSnapshot != null ? toJson(inputSnapshot) : "{}";
-                        String outputJson = toJson(outputSnapshot);
-                        System.err.printf("[pine-debug] operator=\"%s\" duration=%s input_size=%d output_size=%d input=%s output=%s%n",
-                                cop.name, formatDuration(duration), inputSize, outputSize, inputJson, outputJson);
-                    }
-
-                    // Apply output
-                    try {
-                        frame.applyOutput(output, cop.name, opCfg.recall);
-                    } catch (Exception applyErr) {
-                        traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
-                        stats.recordError(cop.name, duration);
-                        engineMetrics.opErrorTotal.with(cop.name).inc();
-                        engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-                        Exception wrapped = new PineErrors.ExecutionError(cop.name,
-                                new Exception("apply output: " + applyErr.getMessage(), applyErr));
-                        if (fatalError.compareAndSet(null, wrapped)) {
-                            cancellationToken.cancel();
-                            for (CompletableFuture<Void> f : applied) {
-                                f.complete(null);
-                            }
-                        }
-                        return;
-                    }
-
-                    traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
-                    stats.recordExec(cop.name, duration);
-                    engineMetrics.opExecTotal.with(cop.name).inc();
-                    engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
+                    runOperator(ctx, idx, cop);
 
                 } catch (Exception e) {
                     if (fatalError.compareAndSet(null,
@@ -447,6 +307,150 @@ public class Engine {
         List<Map<String, Object>> resultItems = frame.toResultItems(contract.itemOutput);
 
         return new Result(resultCommon, resultItems, warnings, traceList, err);
+    }
+
+    private void runOperator(ScheduleContext ctx, int idx, CompiledOperator cop) throws PineErrors.OperatorException {
+        Config.OperatorConfig opCfg = cop.config;
+
+        long startTime = System.nanoTime();
+
+        // Evaluate skip
+        boolean skipped = false;
+        for (String skipField : opCfg.skip) {
+            Object skipVal = ctx.frame.common(skipField);
+            if (skipVal != null && !Boolean.FALSE.equals(skipVal)) {
+                skipped = true;
+                break;
+            }
+        }
+
+        if (skipped) {
+            long duration = System.nanoTime() - startTime;
+            ctx.traces[idx] = new OpTrace(cop.name, startTime, duration, true, null, null);
+            stats.recordSkip(cop.name);
+            engineMetrics.opSkipTotal.with(cop.name).inc();
+            return;
+        }
+
+        // Build input
+        List<String> commonInput = new ArrayList<>(opCfg.metadata.commonInput);
+        for (String skipField : opCfg.skip) {
+            commonInput.remove(skipField);
+        }
+
+        OperatorInput input = ctx.frame.buildInput(
+                commonInput,
+                opCfg.metadata.itemInput,
+                opCfg.commonDefaults,
+                opCfg.itemDefaults
+        );
+
+        // Debug: capture input snapshot
+        Map<String, Object> inputSnapshot = null;
+        if (cop.debug) {
+            inputSnapshot = snapshotInput(input);
+        }
+
+        // Execute
+        long current = ctx.activeOps.incrementAndGet();
+        stats.recordConcurrency(current);
+        engineMetrics.activeOps.add(1);
+
+        OperatorOutput output;
+        Exception execErr = null;
+        try {
+            if (cop.dataParallel > 1) {
+                output = ParallelExecutor.execute(ctx.cancellationToken, cop.instance, input, cop.dataParallel, cop.name, executor);
+            } else {
+                output = new OperatorOutput();
+                cop.instance.execute(ctx.cancellationToken, input, output);
+            }
+        } catch (PineErrors.OperatorException e) {
+            output = null;
+            execErr = e;
+        } catch (RuntimeException e) {
+            output = null;
+            execErr = e;
+        }
+
+        // Validate output type constraints
+        if (execErr == null && output != null) {
+            Optional<OperatorType> opTypeOpt2 = Registry.global().getType(opCfg.typeName);
+            if (opTypeOpt2.isPresent()) {
+                String violation = opTypeOpt2.get().validateOutput(output);
+                if (violation != null) {
+                    execErr = new PineErrors.OperatorException("type violation: " + violation);
+                }
+            }
+        }
+
+        long duration = System.nanoTime() - startTime;
+        ctx.activeOps.decrementAndGet();
+        engineMetrics.activeOps.add(-1);
+
+        if (execErr != null) {
+            ctx.traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, null);
+            stats.recordError(cop.name, duration);
+            engineMetrics.opErrorTotal.with(cop.name).inc();
+            engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
+            Exception wrapped;
+            if (execErr instanceof PineErrors.PanicError) {
+                wrapped = execErr;
+            } else if (execErr instanceof PineErrors.OperatorException) {
+                wrapped = new PineErrors.ExecutionError(cop.name, execErr);
+            } else {
+                // RuntimeException (NPE, AIOOBE, etc.) -> PanicError
+                wrapped = new PineErrors.PanicError(cop.name, execErr);
+            }
+            if (ctx.fatalError.compareAndSet(null, wrapped)) {
+                ctx.cancellationToken.cancel();
+                for (CompletableFuture<Void> f : ctx.applied) {
+                    f.complete(null);
+                }
+            }
+            return;
+        }
+
+        // Collect warning
+        if (output.getWarning() != null) {
+            ctx.warnings.add(new Warning(cop.name, output.getWarning()));
+        }
+
+        // Debug: capture output snapshot
+        Map<String, Object> outputSnapshot = null;
+        if (cop.debug) {
+            outputSnapshot = snapshotOutput(output);
+            int inputSize = input.itemCount();
+            int outputSize = inputSize + output.getAddedItems().size() - output.getRemovedItems().size();
+            String inputJson = inputSnapshot != null ? toJson(inputSnapshot) : "{}";
+            String outputJson = toJson(outputSnapshot);
+            System.err.printf("[pine-debug] operator=\"%s\" duration=%s input_size=%d output_size=%d input=%s output=%s%n",
+                    cop.name, formatDuration(duration), inputSize, outputSize, inputJson, outputJson);
+        }
+
+        // Apply output
+        try {
+            ctx.frame.applyOutput(output, cop.name, cop.recall);
+        } catch (Exception applyErr) {
+            ctx.traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
+            stats.recordError(cop.name, duration);
+            engineMetrics.opErrorTotal.with(cop.name).inc();
+            engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
+            Exception wrapped = new PineErrors.ExecutionError(cop.name,
+                    new Exception("apply output: " + applyErr.getMessage(), applyErr));
+            if (ctx.fatalError.compareAndSet(null, wrapped)) {
+                ctx.cancellationToken.cancel();
+                for (CompletableFuture<Void> f : ctx.applied) {
+                    f.complete(null);
+                }
+            }
+            return;
+        }
+
+        ctx.traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
+        stats.recordExec(cop.name, duration);
+        engineMetrics.opExecTotal.with(cop.name).inc();
+        engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
     }
 
     // --- Public API ---
@@ -543,15 +547,46 @@ public class Engine {
 
     // --- Inner types ---
 
+    private static class ScheduleContext {
+        final Frame frame;
+        final CompletableFuture<Void>[] applied;
+        final OpTrace[] traces;
+        final List<Warning> warnings;
+        final AtomicReference<Exception> fatalError;
+        final CancellationToken cancellationToken;
+        final AtomicLong activeOps;
+
+        ScheduleContext(Frame frame, CompletableFuture<Void>[] applied, OpTrace[] traces,
+                        List<Warning> warnings, AtomicReference<Exception> fatalError,
+                        CancellationToken cancellationToken, AtomicLong activeOps) {
+            this.frame = frame;
+            this.applied = applied;
+            this.traces = traces;
+            this.warnings = warnings;
+            this.fatalError = fatalError;
+            this.cancellationToken = cancellationToken;
+            this.activeOps = activeOps;
+        }
+    }
+
     public static class CompiledOperator {
         public final String name;
         public final Operator instance;
         public final Config.OperatorConfig config;
+        public final boolean debug;
+        public final boolean recall;
+        public final int dataParallel;
+        public final String operatorType;
 
-        public CompiledOperator(String name, Operator instance, Config.OperatorConfig config) {
+        public CompiledOperator(String name, Operator instance, Config.OperatorConfig config,
+                                boolean debug, boolean recall, int dataParallel, String operatorType) {
             this.name = name;
             this.instance = instance;
             this.config = config;
+            this.debug = debug;
+            this.recall = recall;
+            this.dataParallel = dataParallel;
+            this.operatorType = operatorType;
         }
     }
 
