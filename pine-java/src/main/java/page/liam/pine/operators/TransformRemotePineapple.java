@@ -46,6 +46,11 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
 
         url = "http://" + host + ":" + port + endpoint;
 
+        URI parsedUrl = URI.create(url);
+        if (parsedUrl.getScheme() == null || parsedUrl.getHost() == null) {
+            throw new IllegalArgumentException("transform_by_remote_pineapple: malformed URL: " + url);
+        }
+
         double timeoutSec = 5.0;
         Object t = params.get("timeout");
         if (t instanceof Number) timeoutSec = ((Number) t).doubleValue();

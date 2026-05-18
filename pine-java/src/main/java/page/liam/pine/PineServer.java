@@ -24,6 +24,7 @@ public class PineServer {
     private final page.liam.pine.metrics.Provider metricsProvider;
     private long maxRequestBodyBytes = DEFAULT_MAX_REQUEST_BODY_BYTES;
     private HttpServer httpServer;
+    private ExecutorService httpExecutor;
     private ScheduledExecutorService watcherExecutor;
 
     private final AtomicLong reloadCount = new AtomicLong();
@@ -165,8 +166,6 @@ public class PineServer {
         if (code >= 200) return "2xx";
         return "other";
     }
-
-    private ExecutorService httpExecutor;
 
     public void stop() {
         if (watcherExecutor != null) {

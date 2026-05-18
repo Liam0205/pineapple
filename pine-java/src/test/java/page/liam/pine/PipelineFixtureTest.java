@@ -33,6 +33,7 @@ public class PipelineFixtureTest {
 
                 // Skip fixtures that require external services (e.g., redis)
                 if (root.has("requires") && root.get("requires").isArray()) {
+                    System.out.println("Skipping fixture: " + fixtureName + " (requires: " + root.get("requires") + ")");
                     continue;
                 }
 
