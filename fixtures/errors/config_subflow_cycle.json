@@ -1,0 +1,37 @@
+{
+  "name": "Config error: SubFlow cycle detection",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "noop": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function noop(item) return item end",
+          "function_for_item": "noop",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["x"]
+          }
+        }
+      },
+      "pipeline_map": {
+        "group_a": {"pipeline": ["noop", "group_b"]},
+        "group_b": {"pipeline": ["group_a"]}
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["group_a"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["x"]
+    }
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "cycle"
+  }
+}

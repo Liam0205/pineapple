@@ -1,0 +1,64 @@
+{
+  "name": "filter_condition removes all items — empty result",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "remove_banned": {
+          "type_name": "filter_condition",
+          "value": "banned",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["status"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["remove_banned"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["status"],
+      "common_output": [],
+      "item_output": ["status"]
+    }
+  },
+  "cases": [
+    {
+      "name": "all items banned — empty result",
+      "request": {
+        "common": {},
+        "items": [
+          {"status": "banned"},
+          {"status": "banned"},
+          {"status": "banned"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": []
+      }
+    },
+    {
+      "name": "partial removal — keeps non-banned",
+      "request": {
+        "common": {},
+        "items": [
+          {"status": "active"},
+          {"status": "banned"},
+          {"status": "active"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"status": "active"},
+          {"status": "active"}
+        ]
+      }
+    }
+  ]
+}

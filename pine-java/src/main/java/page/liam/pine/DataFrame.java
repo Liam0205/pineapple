@@ -101,7 +101,7 @@ public class DataFrame implements Frame {
         try {
             // 1. Common writes
             for (Map.Entry<String, Object> entry : out.getCommonWrites().entrySet()) {
-                validateValue(entry.getValue());
+                validateValue(entry.getKey(), entry.getValue());
                 common.put(entry.getKey(), entry.getValue());
             }
 
@@ -111,8 +111,8 @@ public class DataFrame implements Frame {
                 if (idx < 0 || idx >= items.size()) {
                     throw new IndexOutOfBoundsException("SetItem index " + idx + " out of range [0, " + items.size() + ")");
                 }
-                for (Object v : entry.getValue().values()) {
-                    validateValue(v);
+                for (Map.Entry<String, Object> fe : entry.getValue().entrySet()) {
+                    validateValue(fe.getKey(), fe.getValue());
                 }
                 items.get(idx).putAll(entry.getValue());
             }
@@ -154,7 +154,7 @@ public class DataFrame implements Frame {
             for (Map<String, Object> added : out.getAddedItems()) {
                 Map<String, Object> row = new LinkedHashMap<>(added);
                 for (Map.Entry<String, Object> entry : row.entrySet()) {
-                    validateValue(entry.getValue());
+                    validateValue(entry.getKey(), entry.getValue());
                 }
                 if (recall) {
                     row.put("_source", opName);
@@ -200,13 +200,26 @@ public class DataFrame implements Frame {
         }
     }
 
-    private static void validateValue(Object v) {
+    private static void validateValue(String field, Object v) {
         if (v == null) return;
         if (v instanceof String) return;
-        if (v instanceof Number) return;
+        if (v instanceof Number) {
+            if (v instanceof Double) {
+                double d = (Double) v;
+                if (Double.isNaN(d) || Double.isInfinite(d)) {
+                    throw new IllegalArgumentException("field \"" + field + "\": NaN/Inf is not a valid JSON value");
+                }
+            } else if (v instanceof Float) {
+                float f = (Float) v;
+                if (Float.isNaN(f) || Float.isInfinite(f)) {
+                    throw new IllegalArgumentException("field \"" + field + "\": NaN/Inf is not a valid JSON value");
+                }
+            }
+            return;
+        }
         if (v instanceof Boolean) return;
         if (v instanceof Map) return;
         if (v instanceof List) return;
-        throw new IllegalArgumentException("unsupported value type: " + v.getClass().getName());
+        throw new IllegalArgumentException("field \"" + field + "\": unsupported value type: " + v.getClass().getName());
     }
 }

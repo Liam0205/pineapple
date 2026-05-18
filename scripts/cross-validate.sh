@@ -115,6 +115,17 @@ else
   fail "codegen schema structural divergence"
 fi
 
+# 1b. Codegen Python output byte-level parity
+echo "    Comparing generated Python output..."
+"$WORK_DIR/pineapple-codegen" -output "$WORK_DIR/python-go" >/dev/null 2>&1
+java_run page.liam.pine.Codegen --schema-from-registry -output "$WORK_DIR/python-java" >/dev/null 2>&1
+if diff -r "$WORK_DIR/python-go" "$WORK_DIR/python-java" >/dev/null 2>&1; then
+  pass "codegen Python output parity (byte-level match)"
+else
+  fail "codegen Python output divergence"
+  diff -r "$WORK_DIR/python-go" "$WORK_DIR/python-java" >&2 || true
+fi
+
 # ---------- 2. Render-DAG parity ----------
 echo
 echo "==> [2/7] Render-DAG parity"
@@ -631,6 +642,25 @@ else:
     fail "server HTTP: /stats operator keys divergence (Go=$go_op_keys, Java=$java_op_keys)"
   fi
 
+  # Test 7b: GET /stats → operator name ordering parity (JSON key order)
+  srv_total=$((srv_total + 1))
+  go_op_names=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(list(d.get('operators', {}).keys()))
+")
+  java_op_names=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(list(d.get('operators', {}).keys()))
+")
+  if [[ "$go_op_names" == "$java_op_names" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [7b] GET /stats → operator name ordering match"
+  else
+    fail "server HTTP: /stats operator ordering (Go=$go_op_names, Java=$java_op_names)"
+  fi
+
   # Test 8: POST /execute (bad JSON) → verify 400 body contains "error" field
   srv_total=$((srv_total + 1))
   go_400_body=$(curl -s -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$GO_PORT/execute")
@@ -784,6 +814,30 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
   if $ct_pass; then
     srv_pass=$((srv_pass + 1))
     echo "    [15] Content-Type headers → match across all endpoints"
+  fi
+
+  # Test 15b: POST /health → 405 method not allowed (both sides)
+  srv_total=$((srv_total + 1))
+  go_health_post=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$GO_PORT/health")
+  java_health_post=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$JAVA_PORT/health")
+  if [[ "$go_health_post" == "$java_health_post" && "$go_health_post" == "405" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [15b] POST /health → 405 match"
+  else
+    fail "server HTTP: POST /health method check (Go=$go_health_post, Java=$java_health_post)"
+  fi
+
+  # Test 15c: POST /execute without "common" key → 400 + error message parity
+  srv_total=$((srv_total + 1))
+  go_nocommon_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute")
+  java_nocommon_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute")
+  go_nocommon_msg=$(curl -s -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
+  java_nocommon_msg=$(curl -s -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
+  if [[ "$go_nocommon_code" == "$java_nocommon_code" && "$go_nocommon_msg" == "$java_nocommon_msg" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [15c] POST /execute (no common) → $go_nocommon_code + error='$go_nocommon_msg'"
+  else
+    fail "server HTTP: missing common (Go=$go_nocommon_code/'$go_nocommon_msg', Java=$java_nocommon_code/'$java_nocommon_msg')"
   fi
 
   srv_cleanup
