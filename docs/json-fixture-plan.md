@@ -1,10 +1,10 @@
-# JSON Fixture 统一测试 & Java-Pine 计划
+# JSON Fixture 统一测试 & Pine-Java 计划
 
 ## 目标
 
 将 Pineapple 从纯 Go 引擎扩展为 Go + Java 双引擎架构：
 - 共享 JSON fixture 进行 cross-validation，消除 training-serving skew
-- Java-Pine 作为完整引擎，支持独立加载 pipeline config 并执行
+- Pine-Java 作为完整引擎，支持独立加载 pipeline config 并执行
 - 包含 codegen（生成 Python DSL 绑定）和 HTTP server
 
 ## 架构对照

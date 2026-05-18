@@ -4,15 +4,15 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Python/Go 契约、blank-import 注册、版本同步、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Python/Go/Java 契约、blank-import 注册、版本同步、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）。
 
 ## overview/
 
-- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Python DSL + Go 运行时拆分的设计决策；其中包括可复用 HTTP server 的职责边界与 middleware 注入位置。
+- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Python DSL + Go/Java 双运行时拆分的设计决策；其中包括可复用 HTTP server 的职责边界与 middleware 注入位置。
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`、`debug`）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`、`debug`）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）、Pine-Java 完整功能对等描述（18 算子、Option pattern、ColumnFrame、结构化错误、Lua 池化沙箱、Server/Codegen）。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
 
 ## guides/
