@@ -2,10 +2,10 @@
 
 每次 Pineapple 任务开始前，按顺序阅读以下文档：
 
-1. `llmdoc/must/conventions.md` — 跨代码库约定：JSON 边界、注册模式、命名规范、版本同步、codegen 新鲜度、测试规范。
-   - 深入阅读场景：涉及发布/版本、生成文件、算子命名、全仓贡献模式的任务。
+1. `llmdoc/must/conventions.md` — 跨代码库约定：JSON 边界、注册模式、命名规范、版本同步、codegen 新鲜度、测试规范、Go/Java 双运行时对等。
+   - 深入阅读场景：涉及发布/版本、生成文件、算子命名、全仓贡献模式、跨运行时对齐的任务。
 
-2. `llmdoc/overview/project-overview.md` — 项目定位、系统边界，以及为何 Pineapple 拆分为 Python 声明和 Go 执行两层。
+2. `llmdoc/overview/project-overview.md` — 项目定位、系统边界，以及为何 Pineapple 拆分为 Python 声明和 Go/Java 执行两层。
    - 深入阅读场景：涉及入口点、包分发、公共 API 或变更归属判断的任务。
 
 3. `llmdoc/architecture/dag-engine.md` — 核心执行模型：引擎编译、DAG 推导、调度器、DataFrame 语义、算子类型规则、行依赖。
