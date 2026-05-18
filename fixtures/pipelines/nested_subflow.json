@@ -1,0 +1,109 @@
+{
+  "name": "nested SubFlow pipeline",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "copy_tag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": ["tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["tag"]
+          }
+        },
+        "compute_score": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function calc()\n  return item_base * 2\nend",
+          "function_for_item": "calc",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_base"],
+            "item_output": ["item_score"]
+          }
+        },
+        "sort_desc": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": []
+          }
+        },
+        "keep_top2": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "enrich": {
+          "pipeline": ["copy_tag", "compute_score"]
+        },
+        "rank_and_cut": {
+          "pipeline": ["sort_desc", "keep_top2"]
+        },
+        "full_pipeline": {
+          "pipeline": ["enrich", "rank_and_cut"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["full_pipeline"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["tag"],
+      "item_input": ["item_base"],
+      "common_output": [],
+      "item_output": ["item_base", "tag", "item_score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "nested sub-flows: enrich → rank → truncate",
+      "request": {
+        "common": {"tag": "promo"},
+        "items": [
+          {"item_base": 10.0},
+          {"item_base": 50.0},
+          {"item_base": 30.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_base": 50.0, "tag": "promo", "item_score": 100.0},
+          {"item_base": 30.0, "tag": "promo", "item_score": 60.0}
+        ]
+      }
+    },
+    {
+      "name": "fewer items than top_n — all kept",
+      "request": {
+        "common": {"tag": "test"},
+        "items": [
+          {"item_base": 5.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_base": 5.0, "tag": "test", "item_score": 10.0}
+        ]
+      }
+    }
+  ]
+}

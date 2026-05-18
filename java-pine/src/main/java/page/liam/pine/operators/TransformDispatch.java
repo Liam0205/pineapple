@@ -6,7 +6,7 @@ import page.liam.pine.OperatorOutput;
 
 import java.util.Map;
 
-public class TransformDispatch extends AbstractOperator {
+public class TransformDispatch extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
     @Override
     public void init(Map<String, Object> params) {}
 

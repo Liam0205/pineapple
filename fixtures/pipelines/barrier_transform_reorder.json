@@ -1,0 +1,110 @@
+{
+  "name": "barrier semantics (transform before reorder)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "normalize_score": {
+          "type_name": "transform_normalize",
+          "method": "min_max",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["raw_score"],
+            "item_output": ["norm_score"]
+          }
+        },
+        "add_bonus": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function bonus()\n  return norm_score + 0.1\nend",
+          "function_for_item": "bonus",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["norm_score"],
+            "item_output": ["final_score"]
+          }
+        },
+        "sort_final": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["final_score"],
+            "item_output": []
+          }
+        },
+        "paginate": {
+          "type_name": "filter_paginate",
+          "$metadata": {
+            "common_input": ["page", "size"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "scoring": {
+          "pipeline": ["normalize_score", "add_bonus"]
+        },
+        "output_stage": {
+          "pipeline": ["sort_final", "paginate"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["scoring", "output_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["page", "size"],
+      "item_input": ["raw_score"],
+      "common_output": [],
+      "item_output": ["raw_score", "norm_score", "final_score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "normalize → bonus → sort → paginate page 0",
+      "request": {
+        "common": {"page": 0, "size": 2},
+        "items": [
+          {"raw_score": 10.0},
+          {"raw_score": 50.0},
+          {"raw_score": 30.0},
+          {"raw_score": 90.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"raw_score": 90.0, "norm_score": 1.0, "final_score": 1.1},
+          {"raw_score": 50.0, "norm_score": 0.5, "final_score": 0.6}
+        ]
+      }
+    },
+    {
+      "name": "normalize → bonus → sort → paginate page 1",
+      "request": {
+        "common": {"page": 1, "size": 2},
+        "items": [
+          {"raw_score": 10.0},
+          {"raw_score": 50.0},
+          {"raw_score": 30.0},
+          {"raw_score": 90.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"raw_score": 30.0, "norm_score": 0.25, "final_score": 0.35},
+          {"raw_score": 10.0, "norm_score": 0.0, "final_score": 0.1}
+        ]
+      }
+    }
+  ]
+}

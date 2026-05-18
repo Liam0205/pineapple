@@ -1,0 +1,99 @@
+{
+  "name": "skip/branch via Lua control flag",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "set_flag": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function check_vip()\n  if user_level >= 3 then\n    return true\n  else\n    return false\n  end\nend",
+          "function_for_common": "check_vip",
+          "function_for_item": "",
+          "$metadata": {
+            "common_input": ["user_level"],
+            "common_output": ["_skip_discount"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "apply_discount": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function discount()\n  return item_price * 0.9\nend",
+          "function_for_item": "discount",
+          "function_for_common": "",
+          "skip": "_skip_discount",
+          "$metadata": {
+            "common_input": ["_skip_discount"],
+            "common_output": [],
+            "item_input": ["item_price"],
+            "item_output": ["item_discounted"]
+          }
+        },
+        "truncate_top2": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["set_flag", "apply_discount", "truncate_top2"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["user_level"],
+      "item_input": ["item_price"],
+      "common_output": [],
+      "item_output": ["item_price", "item_discounted"]
+    }
+  },
+  "cases": [
+    {
+      "name": "non-VIP user gets discount applied",
+      "request": {
+        "common": {"user_level": 1},
+        "items": [
+          {"item_price": 100.0},
+          {"item_price": 200.0},
+          {"item_price": 300.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_price": 100.0, "item_discounted": 90.0},
+          {"item_price": 200.0, "item_discounted": 180.0}
+        ]
+      }
+    },
+    {
+      "name": "VIP user skips discount (flag is truthy)",
+      "request": {
+        "common": {"user_level": 3},
+        "items": [
+          {"item_price": 100.0},
+          {"item_price": 200.0},
+          {"item_price": 300.0}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_price": 100.0},
+          {"item_price": 200.0}
+        ]
+      }
+    }
+  ]
+}

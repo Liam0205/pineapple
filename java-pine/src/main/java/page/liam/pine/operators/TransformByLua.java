@@ -8,7 +8,7 @@ import org.luaj.vm2.lib.jse.JsePlatform;
 
 import java.util.Map;
 
-public class TransformByLua extends AbstractOperator {
+public class TransformByLua extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
     private String script;
     private String funcName;
     private boolean isItemMode;

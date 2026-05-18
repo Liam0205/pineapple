@@ -1,0 +1,81 @@
+{
+  "name": "transform_copy then filter_truncate",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "copy_score": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": ["boost"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["boost"]
+          }
+        },
+        "truncate": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["copy_score", "truncate"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["boost"],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id", "boost"]
+    }
+  },
+  "cases": [
+    {
+      "name": "3 items truncated to 2, boost copied from common",
+      "request": {
+        "common": {"boost": 1.5},
+        "items": [
+          {"id": "a"},
+          {"id": "b"},
+          {"id": "c"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "a", "boost": 1.5},
+          {"id": "b", "boost": 1.5}
+        ]
+      }
+    },
+    {
+      "name": "fewer items than top_n — no truncation",
+      "request": {
+        "common": {"boost": 2.0},
+        "items": [
+          {"id": "x"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x", "boost": 2.0}
+        ]
+      }
+    }
+  ]
+}
