@@ -28,7 +28,7 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
     @SuppressWarnings("unchecked")
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (resourceProvider == null) {
-            throw new PineErrors.OperatorException("recall_resource: no resource provider");
+            throw new PineErrors.OperatorException("recall_resource: no resource provider in context");
         }
         ResourceProvider.GetResult result = resourceProvider.get(resourceName);
         if (!result.exists()) {
@@ -40,7 +40,8 @@ public class RecallResource extends AbstractOperator implements ResourceAware {
         if (raw instanceof List) {
             items = (List<?>) raw;
         } else {
-            throw new PineErrors.OperatorException("recall_resource: resource \"" + resourceName + "\" is not a List");
+            throw new PineErrors.OperatorException("recall_resource: resource \"" + resourceName + "\" is " +
+                    (raw == null ? "null" : raw.getClass().getSimpleName()) + ", want []map[string]any");
         }
 
         for (int i = 0; i < items.size(); i++) {

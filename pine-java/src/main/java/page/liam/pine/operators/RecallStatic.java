@@ -28,12 +28,12 @@ public class RecallStatic extends AbstractOperator {
             throw new IllegalArgumentException("recall_static: missing required param 'items'");
         }
         if (!(raw instanceof List)) {
-            throw new IllegalArgumentException("recall_static: 'items' must be a list");
+            throw new IllegalArgumentException("recall_static: 'items' must be a JSON array, got " + raw.getClass().getSimpleName());
         }
         List<?> list = (List<?>) raw;
         for (int i = 0; i < list.size(); i++) {
             if (!(list.get(i) instanceof Map)) {
-                throw new IllegalArgumentException("recall_static: items[" + i + "] must be a map");
+                throw new IllegalArgumentException("recall_static: items[" + i + "] must be an object, got " + (list.get(i) == null ? "null" : list.get(i).getClass().getSimpleName()));
             }
         }
         items = new java.util.ArrayList<>(list.size());

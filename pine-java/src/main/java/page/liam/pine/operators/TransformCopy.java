@@ -38,7 +38,7 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
             case "item_to_item":
                 break;
             default:
-                throw new IllegalArgumentException("transform_copy: unsupported direction: " + direction);
+                throw new IllegalArgumentException("transform_copy: unsupported direction \"" + direction + "\"");
         }
     }
 

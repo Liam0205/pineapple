@@ -260,7 +260,7 @@ public class PineServer {
                 for (OpTrace t : result.trace) {
                     Map<String, Object> tm = new LinkedHashMap<>();
                     tm.put("name", t.name);
-                    tm.put("duration_ms", t.durationNs / 1_000_000.0);
+                    tm.put("duration_ms", (t.durationNs / 1000) / 1000.0);
                     if (t.skipped) {
                         tm.put("skipped", true);
                     }
