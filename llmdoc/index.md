@@ -61,3 +61,4 @@
 - `llmdoc/memory/reflections/buildinput-sparse-fix.md` — BuildInput 稀疏语义修复复盘，记录 missing vs explicit-nil 边界、row/column parity 与文档纠偏点。
 - `llmdoc/memory/reflections/security-audit-fixes.md` — 安全与正确性审计修复复盘，记录 Lua 沙箱白名单、PanicError 信息分级、Registry 严格参数、HTTP 超时加固、控制流声明期校验等决策。
 - `llmdoc/memory/reflections/medium-severity-audit-fixes.md` — 第二轮中等严重度审计修复复盘，记录 Server struct 重构、watchConfig 生命周期、SSRF 防护模型、LimitReader 安全默认、Redis 错误透传模式。
+- `llmdoc/memory/reflections/pine-java-full-implementation.md` — Pine-Java 从零到 Schema 独立的完整实现复盘，记录双独立源决策、cancelLatch 模式、命名延迟成本、三层交叉验证架构。

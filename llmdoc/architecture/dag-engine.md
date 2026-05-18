@@ -715,12 +715,15 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 
 ### Codegen
 
-`Codegen.java` 读取 Go 导出的 Schema JSON，生成：
+`Codegen.java` 支持双模式操作：
 
-- `operators.py` — 类型化算子 helper
-- `__init__.py` — 导出聚合
-- `resources.py` — 类型化资源 helper
-- `doc/operators/*.md` — 算子文档
+- `--export-schema <path>` — 从内部 Registry 导出 Schema JSON
+- `--schema-from-registry` — 从内部 Registry 直接生成 Python DSL 产物
+- `-schema <path>` — legacy 模式（读取外部 JSON，保留兼容性）
+
+### Schema 独立性
+
+Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。两侧通过 CI 三层交叉验证（Schema diff、Config fixtures、Execution 比对）保持对齐，无运行时耦合。
 
 ## 检索指针
 
