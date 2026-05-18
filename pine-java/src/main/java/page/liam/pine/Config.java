@@ -31,6 +31,17 @@ public class Config {
         } catch (Exception e) {
             throw new PineErrors.ConfigError("failed to parse config JSON: " + e.getMessage());
         }
+        Config cfg;
+        try {
+            cfg = parseRoot(root);
+        } catch (IllegalArgumentException e) {
+            throw new PineErrors.ConfigError("invalid config structure: " + e.getMessage());
+        }
+        validate(cfg);
+        return cfg;
+    }
+
+    private static Config parseRoot(JsonNode root) {
         Config cfg = new Config();
         cfg.pineappleVersion = root.has("_PINEAPPLE_VERSION") ? root.get("_PINEAPPLE_VERSION").asText() : "";
         cfg.logPrefix = root.has("log_prefix") ? root.get("log_prefix").asText() : "";
@@ -88,7 +99,6 @@ public class Config {
             }
         }
 
-        validate(cfg);
         return cfg;
     }
 
@@ -99,7 +109,14 @@ public class Config {
         opCfg.debug = node.has("debug") && node.get("debug").asBoolean();
         opCfg.rowDependency = node.has("row_dependency") && node.get("row_dependency").asBoolean();
         opCfg.forBranchControl = node.has("for_branch_control") && node.get("for_branch_control").asBoolean();
-        opCfg.dataParallel = node.has("data_parallel") ? node.get("data_parallel").asInt(1) : 1;
+        opCfg.dataParallel = 1;
+        if (node.has("data_parallel")) {
+            JsonNode dp = node.get("data_parallel");
+            if (!dp.isInt()) {
+                throw new IllegalArgumentException("field \"data_parallel\" must be an integer, got " + dp.getNodeType());
+            }
+            opCfg.dataParallel = dp.asInt();
+        }
         opCfg.sources = node.has("sources") ? readStringList(node, "sources") : Collections.emptyList();
 
         // Parse skip
@@ -240,9 +257,14 @@ public class Config {
     private static List<String> readStringList(JsonNode parent, String field) {
         if (!parent.has(field)) return Collections.emptyList();
         JsonNode arr = parent.get(field);
-        if (!arr.isArray()) return Collections.emptyList();
+        if (!arr.isArray()) {
+            throw new IllegalArgumentException("field \"" + field + "\" must be an array, got " + arr.getNodeType());
+        }
         List<String> result = new ArrayList<>(arr.size());
         for (JsonNode n : arr) {
+            if (!n.isTextual()) {
+                throw new IllegalArgumentException("field \"" + field + "\" array elements must be strings, got " + n.getNodeType());
+            }
             result.add(n.asText());
         }
         return result;
