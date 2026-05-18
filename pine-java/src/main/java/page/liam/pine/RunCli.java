@@ -41,19 +41,55 @@ public class RunCli {
             System.exit(1);
         }
 
-        byte[] configData = Files.readAllBytes(Paths.get(configPath));
-        byte[] requestData = Files.readAllBytes(Paths.get(requestPath));
+        byte[] configData;
+        try {
+            configData = Files.readAllBytes(Paths.get(configPath));
+        } catch (Exception e) {
+            System.err.println("error reading config: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        byte[] requestData;
+        try {
+            requestData = Files.readAllBytes(Paths.get(requestPath));
+        } catch (Exception e) {
+            System.err.println("error reading request: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
 
         ResourceProvider rp = null;
         if (!resourcesPath.isEmpty()) {
-            byte[] resData = Files.readAllBytes(Paths.get(resourcesPath));
-            Map<String, Object> resources = mapper.readValue(resData, new TypeReference<Map<String, Object>>() {});
-            rp = new StaticResourceProvider(resources);
+            try {
+                byte[] resData = Files.readAllBytes(Paths.get(resourcesPath));
+                Map<String, Object> resources = mapper.readValue(resData, new TypeReference<Map<String, Object>>() {});
+                rp = new StaticResourceProvider(resources);
+            } catch (Exception e) {
+                System.err.println("error reading static resources: " + e.getMessage());
+                System.exit(1);
+                return;
+            }
         }
 
-        Engine engine = Engine.create(configData, rp);
+        Engine engine;
+        try {
+            engine = Engine.create(configData, rp);
+        } catch (Exception e) {
+            System.err.println("error creating engine: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
 
-        Map<String, Object> req = mapper.readValue(requestData, new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> req;
+        try {
+            req = mapper.readValue(requestData, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            System.err.println("error parsing request: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
         Map<String, Object> common = req.containsKey("common")
                 ? mapper.convertValue(req.get("common"), new TypeReference<Map<String, Object>>() {})
                 : Collections.emptyMap();
