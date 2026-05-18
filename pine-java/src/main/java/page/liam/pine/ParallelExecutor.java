@@ -8,7 +8,7 @@ public class ParallelExecutor {
 
     private ParallelExecutor() {}
 
-    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism) throws PineErrors.OperatorException {
+    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism, String operatorName) throws PineErrors.OperatorException {
         int total = input.itemCount();
         if (parallelism <= 1 || total == 0) {
             OperatorOutput output = new OperatorOutput();
@@ -69,7 +69,7 @@ public class ParallelExecutor {
                     }
                     return null;
                 } catch (Throwable t) {
-                    Exception ex = new PineErrors.PanicError("parallel-shard", t);
+                    Exception ex = new PineErrors.PanicError(operatorName, t);
                     if (firstError.compareAndSet(null, ex)) {
                         shardToken.cancel();
                     }

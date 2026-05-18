@@ -522,74 +522,6 @@ Pine-Java 是 Pine-Go (Pineapple) 引擎的 Java 移植，用于 MaxCompute UDF 
 - OperatorOutput.SetWarning 的 first-wins/last-wins 影响 ParallelExecutor 多 shard warning 合并结果
 - Codegen `_params` vs `params` 不会导致运行时错误（Python 允许局部变量与参数同名），但产出代码不同导致 CI diff 失败
 
-## 第十轮审计 (2026-05-15)
-
-### 第九轮修复复验
-
-| 项 | 结论 |
-|---|------|
-| H1 GoFormat.formatG 小数阈值 [1e-4,1e-3) | ✓ 确认修复 |
-| H2 GoFormat.formatFloatF 非整数精度 | ✓ 确认修复 |
-| H3 TransformRedisSet.toStringList → GoFormat.sprint | ✓ 确认修复 |
-| H4 Server JSON Body → 400 | ✓ 确认修复 |
-| H5 ValidationError common/items null | ✓ 确认修复 |
-| H6 全局错误消息 "pine:" 前缀 | ⚠️ RegistryError 遗漏（新 H1）|
-| H7 CompletableFuture 调度器 | ✓ 确认修复 |
-| M1 GoFormat.sprint ≥1e6 formatG | ✓ 确认修复 |
-| M2 GoFormat.sprint Infinity → "+Inf"/"-Inf" | ✓ 确认修复 |
-| M5 CompletableFuture 零延迟 | ✓ 确认修复 |
-| M6 外部 token cancel 联动 | ✓ 确认修复 |
-| M7 OperatorException checked exception | ⚠️ RecallResource 遗漏（新 M2）|
-| M9 TransformByLua debug 日志 | ✓ 确认修复 |
-| M11 /dag collapse 消息统一 | ✓ 确认修复 |
-
-### 新发现
-
-经独立重审，排除前轮误报后确认 7 项有效差异。
-
-#### 🔴 HIGH 严重度
-
-| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
-|---|--------|---------|-----------|----------|
-| H1 | RegistryError 缺 "pine:" 前缀 | `"pine: registry error [op]: msg"` (`errors.go:20`) | `"operator \"op\": msg"` (PineErrors.java:27) — 无 "pine:" 前缀，无 "registry error" 标签 | ✅ |
-| H2 | PanicError getMessage() 仅输出类名 | `"pine: panic in operator %q: %v"` 含完整 panic 值 | `"... " + getCause().getClass().getSimpleName()` 仅类名（如 "NullPointerException"），丢失具体消息 | ✅ |
-
-#### 🟡 MEDIUM 严重度
-
-| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
-|---|--------|---------|-----------|----------|
-| M1 | data_parallel 校验消息缺类型信息 | `"data_parallel=N is only supported for Transform operators, got recall"` 含实际类型 | `"data_parallel=N is only supported for Transform operators"` 无 "got xxx" | ✅ |
-| M2 | RecallResource 抛 IllegalStateException → PanicError | `return error` → scheduler 包装为 ExecutionError | `throw new IllegalStateException(...)` → RuntimeException → 被 Engine 包装为 PanicError | ✅ |
-
-#### 🟢 LOW 严重度
-
-| # | 差异点 | 说明 | 修复状态 |
-|---|--------|------|----------|
-| L1 | GoFormat.formatG(-0.0) 返回 "0" | Go `fmt.Sprintf("%g", -0.0)` = `"-0"` 保留符号位；Java `d == 0` 为 true → 返回 `"0"` | ✅ |
-| L2 | TransformByLua debug 日志前缀格式 | Go `[pine:debug] operator="name"` (冒号 + operator= 标签)；Java `[pine-debug] name` (连字符 + 无标签) | ✅ |
-| L3 | observe_log JSON key 排序 | Go `encoding/json` 对 map key 字母序排序；Java Jackson 保持 LinkedHashMap 插入序 | ✅ |
-
-### 排除项（验证为无效）
-
-| 原始项 | 排除原因 |
-|--------|----------|
-| /stats JSON 字段顺序 | JSON 规范不要求 key 有序，两侧数据相同 |
-| Codegen toPythonLiteral 差异 | 功能等价：Java 已用 GoFormat.formatG 对齐 Go %g |
-| Server reload 时序问题 | 两侧均 2s 轮询 + mtime 检测，逻辑相同 |
-| GoFormat.sprint 数组处理 | Java 实现正确，格式 "[a b]" 已对齐 Go |
-| Engine 外层 catch 双重包装 | 内层逻辑 return 后外层 catch 仅兜底基础设施异常，无双重包装 |
-
-### 第十轮决策
-
-全部 7 项修复 Java 侧：
-- H1: RegistryError.getMessage() 重写，对齐 Go `"pine: registry error [op]: msg"` 格式
-- H2: PanicError.getMessage() 改用 `getCause().getMessage()` 输出完整信息（null 时回退 toString）
-- M1: data_parallel 校验消息补 `", got <type>"` 和 `"$metadata.common_output"` 及 `"(type \"xxx\" does not)"` 对齐 Go
-- M2: RecallResource 全部 IllegalStateException → OperatorException
-- L1: formatG(-0.0) 检测 IEEE 754 负零位模式，返回 `"-0"`
-- L2: TransformByLua debug 前缀 `[pine-debug] name` → `[pine:debug] operator="name"`
-- L3: ObserveLog snapshot/row 改用 TreeMap 对齐 Go 字母序 JSON 输出
-
 ## 第八轮审计 (2026-05-15)
 
 ### 第七轮修复复验
@@ -758,3 +690,328 @@ Server 修复（H4/H5/M11）：
 - 外部 token cancel 联动
 - allDone 超时保护
 
+## 第十轮审计 (2026-05-15)
+
+### 第九轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 GoFormat.formatG 小数阈值 [1e-4,1e-3) | ✓ 确认修复 |
+| H2 GoFormat.formatFloatF 非整数精度 | ✓ 确认修复 |
+| H3 TransformRedisSet.toStringList → GoFormat.sprint | ✓ 确认修复 |
+| H4 Server JSON Body → 400 | ✓ 确认修复 |
+| H5 ValidationError common/items null | ✓ 确认修复 |
+| H6 全局错误消息 "pine:" 前缀 | ⚠️ RegistryError 遗漏（新 H1）|
+| H7 CompletableFuture 调度器 | ✓ 确认修复 |
+| M1 GoFormat.sprint ≥1e6 formatG | ✓ 确认修复 |
+| M2 GoFormat.sprint Infinity → "+Inf"/"-Inf" | ✓ 确认修复 |
+| M5 CompletableFuture 零延迟 | ✓ 确认修复 |
+| M6 外部 token cancel 联动 | ✓ 确认修复 |
+| M7 OperatorException checked exception | ⚠️ RecallResource 遗漏（新 M2）|
+| M9 TransformByLua debug 日志 | ✓ 确认修复 |
+| M11 /dag collapse 消息统一 | ✓ 确认修复 |
+
+### 新发现
+
+经独立重审，排除前轮误报后确认 7 项有效差异。
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | RegistryError 缺 "pine:" 前缀 | `"pine: registry error [op]: msg"` (`errors.go:20`) | `"operator \"op\": msg"` (PineErrors.java:27) — 无 "pine:" 前缀，无 "registry error" 标签 | ✅ |
+| H2 | PanicError getMessage() 仅输出类名 | `"pine: panic in operator %q: %v"` 含完整 panic 值 | `"... " + getCause().getClass().getSimpleName()` 仅类名（如 "NullPointerException"），丢失具体消息 | ✅ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | data_parallel 校验消息缺类型信息 | `"data_parallel=N is only supported for Transform operators, got recall"` 含实际类型 | `"data_parallel=N is only supported for Transform operators"` 无 "got xxx" | ✅ |
+| M2 | RecallResource 抛 IllegalStateException → PanicError | `return error` → scheduler 包装为 ExecutionError | `throw new IllegalStateException(...)` → RuntimeException → 被 Engine 包装为 PanicError | ✅ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | GoFormat.formatG(-0.0) 返回 "0" | Go `fmt.Sprintf("%g", -0.0)` = `"-0"` 保留符号位；Java `d == 0` 为 true → 返回 `"0"` | ✅ |
+| L2 | TransformByLua debug 日志前缀格式 | Go `[pine:debug] operator="name"` (冒号 + operator= 标签)；Java `[pine-debug] name` (连字符 + 无标签) | ✅ |
+| L3 | observe_log JSON key 排序 | Go `encoding/json` 对 map key 字母序排序；Java Jackson 保持 LinkedHashMap 插入序 | ✅ |
+
+### 排除项（验证为无效）
+
+| 原始项 | 排除原因 |
+|--------|----------|
+| /stats JSON 字段顺序 | JSON 规范不要求 key 有序，两侧数据相同 |
+| Codegen toPythonLiteral 差异 | 功能等价：Java 已用 GoFormat.formatG 对齐 Go %g |
+| Server reload 时序问题 | 两侧均 2s 轮询 + mtime 检测，逻辑相同 |
+| GoFormat.sprint 数组处理 | Java 实现正确，格式 "[a b]" 已对齐 Go |
+| Engine 外层 catch 双重包装 | 内层逻辑 return 后外层 catch 仅兜底基础设施异常，无双重包装 |
+
+### 第十轮决策
+
+全部 7 项修复 Java 侧：
+- H1: RegistryError.getMessage() 重写，对齐 Go `"pine: registry error [op]: msg"` 格式
+- H2: PanicError.getMessage() 改用 `getCause().getMessage()` 输出完整信息（null 时回退 toString）
+- M1: data_parallel 校验消息补 `", got <type>"` 和 `"$metadata.common_output"` 及 `"(type \"xxx\" does not)"` 对齐 Go
+- M2: RecallResource 全部 IllegalStateException → OperatorException
+- L1: formatG(-0.0) 检测 IEEE 754 负零位模式，返回 `"-0"`
+- L2: TransformByLua debug 前缀 `[pine-debug] name` → `[pine:debug] operator="name"`
+- L3: ObserveLog snapshot/row 改用 TreeMap 对齐 Go 字母序 JSON 输出
+
+## 第十一轮审计 (2026-05-15)
+
+### 第十轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 RegistryError "pine:" 前缀 | ✓ 确认修复 |
+| H2 PanicError getMessage() 完整消息 | ✓ 确认修复 |
+| M1 data_parallel 校验消息含类型 | ✓ 确认修复 |
+| M2 RecallResource → OperatorException | ✓ 确认修复 |
+| L1 formatG(-0.0) → "-0" | ✓ 确认修复 |
+| L2 TransformByLua [pine:debug] | ✓ 确认修复 |
+| L3 ObserveLog TreeMap | ✓ 确认修复 |
+
+### 新发现
+
+经三组并行独立审计（错误/调度器、18 算子、Server/Codegen/Config），确认 4 项有效新差异。
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | ApplyOutput 错误包装类型 | `scheduler.go:257` — applyErr 始终包装为 `ExecutionError{Err: "apply output: <err>"}` | `Engine.java:373-387` — RuntimeException → PanicError（frame 抛 IOOBE/IAE 等成为 PanicError 而非 ExecutionError）| ✅ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | /execute warnings 缺 operator 前缀 | `pine.go:220` — `fmt.Errorf("operator %q: %w", w.Operator, w.Err)` → wire 含算子名 | `PineServer.java:252` — `w.err.getMessage()` → wire 无算子名 | ✅ |
+| M2 | TransformByLua debug log 计数来源 | `lua.go:100` — `len(o.CommonInput)` (metadata 声明字段数) | `TransformByLua.java:92` — `input.rawCommon().size()` (DataFrame 全部字段数) | ✅ |
+| M3 | TransformByLua 错误缺 item 索引 | `lua.go:149` — `"lua: item[%d]: %w"` 含失败条目索引 | `TransformByLua.java:107` — `"lua error: <msg>"` 无索引 | ✅ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | Trace duration_ms 精度 | Go 截断到微秒 (`Microseconds()/1000.0`)；Java 保留纳秒 (`ns/1e6`) | ⬜ 已接受 |
+| L2 | Scheduler-level debug log 缺失 | Go 输出 per-operator `[pine-debug] operator=... duration=... input_size=... output_size=...`；Java 仅有 trace snapshot | ⬜ |
+| L3 | validateSourcesOrder 错误消息措辞 | Go "declared after the current operator"；Java "appears later in the sequence" | ⬜ 已接受 |
+| L4 | TransformRedisSet failOnError=true 缺日志 | Go 始终 `log.Printf` 后再 return error；Java 仅 throw 不 log | ⬜ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| /stats JSON key 顺序 | JSON 规范不要求 key 有序 |
+| Server HTTP 超时 | com.sun.net.httpserver 平台限制（已知接受）|
+| CancellationToken vs context | 平台限制（已知接受）|
+| Debug trace 错误路径含 inputSnapshot | Java 行为更好（已知接受）|
+| 外层 catch Goroutine panic 恢复 | Java 更健壮（已知接受）|
+
+### 第十一轮决策
+
+全部 4 项修复 Java 侧：
+- H1: ApplyOutput catch block 改为始终包装 ExecutionError + "apply output:" 前缀消息，对齐 Go
+- M1: /execute warnings 格式改为 `"operator \"name\": message"` 对齐 Go wire 格式
+- M2: TransformByLua debug log 改用 `commonInput.size()` 计数 metadata 声明字段
+- M3: TransformByLua item 循环中 catch LuaError 包装 `"lua: item[N]: message"` 含索引
+
+## 第十二轮审计 (2026-05-15)
+
+### 第十一轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 ApplyOutput → ExecutionError | ✓ 确认修复 |
+| M1 warnings operator 前缀 | ✓ 确认修复 |
+| M2 TransformByLua debug commonInput.size() | ✓ 确认修复 |
+| M3 TransformByLua item 索引 | ✓ 确认修复 |
+
+### 新发现
+
+经深度边界审计（Config/DataFrame/Frame/Registry/OperatorType），确认 3 项差异 + 1 项措辞。
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | Type violation 错误归类为 PanicError | `scheduler.go:172` — `fmt.Errorf("type violation: ...")` 是普通 error → ExecutionError | `Engine.java:322` — `new IllegalStateException(...)` (RuntimeException) → PanicError | ✅ 改为 OperatorException |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | ParallelExecutor PanicError 用 "parallel-shard" 占位名 | Go 传入 `cop.Name`；Java API 不接收算子名 | ✅ 添加 operatorName 参数 |
+| L2 | Init 错误未包装 RegistryError | Go `BuildOperator` 包装为 `RegistryError{Init failed: ...}`；Java 直接抛原始异常 | ✅ try-catch 包装 |
+| L3 | ValidateOutput 消息格式（大小写/逗号） | Go: `"operator type Recall must not call [SetCommon SetItem]"`；Java: `"... recall ... [SetCommon, SetItem]"` | ✅ |
+
+### 第十二轮决策
+
+全部 4 项修复 Java 侧：
+- M1: type violation 改用 OperatorException（被 catch 归为 ExecutionError）
+- L1: ParallelExecutor.execute 添加 operatorName 参数
+- L2: Registry.buildOperator 包装 Init 异常为 RegistryError
+- L3: ValidateOutput 消息用首字母大写类型名 + 空格分隔 violations
+
+## 第十三轮审计 (2026-05-15)
+
+### 第十二轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| M1 type violation → OperatorException | ✓ 确认修复 |
+| L1 ParallelExecutor operatorName 参数 | ✓ 确认修复 |
+| L2 Registry.buildOperator Init → RegistryError | ✓ 确认修复 |
+| L3 ValidateOutput 消息格式对齐 | ✓ 确认修复 |
+
+### 全量复验摘要
+
+三组并行独立审计（Engine/调度器/Registry、全部 18 算子、Server/Codegen/Config/Frame）。**前轮全部修复项验证通过**，无回归。
+
+### 新发现
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | TransformResourceLookup 抛 IllegalStateException → PanicError | `resource_lookup.go:67-77` — `return fmt.Errorf(...)` → ExecutionError | `TransformResourceLookup.java:42,46,50` — `throw new IllegalStateException(...)` → PanicError | ✅ |
+| M2 | TransformRemotePineapple JSON unmarshal 绕过 handleError | `remote_pineapple.go:204` — unmarshal 错误经 `handleError` 尊重 failOnError | `TransformRemotePineapple.java:146` — 直接 `throw OperatorException`，忽略 failOnError=false | ✅ |
+| M3 | GoFormat.sprint(-0.0) 返回 "0" | Go `fmt.Sprint(float64(-0))` = `"-0"`（%g 保留符号位） | Java 整数快速路径 `d == Math.floor(d)` 拦截 → `Long.toString(0)` = `"0"` | ✅ |
+
+#### 🟢 LOW 严重度
+
+| # | 差异点 | 说明 | 修复状态 |
+|---|--------|------|----------|
+| L1 | 调度器缺 per-operator debug 日志 | Go `scheduler.go:231` 输出 `[pine-debug] operator=... duration=... input_size=... output_size=...`；Java 仅有 trace snapshot | ✅ |
+| L2 | TransformByLua 错误前缀 "lua error:" vs "lua:" | Go: `"lua: item[N]: msg"`；Java: `"lua error: msg"` | ✅ |
+| L3 | TransformRedisGet warning 消息格式 | Go: `"transform_redis_get: SMembers(key): err"` 结构化；Java: 传入原始 exception | ✅ |
+| L4 | TransformRedisSet 非 list 值静默跳过无日志 | Go `log.Printf("value for key X is not []string")`；Java 无输出 | ✅ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| Codegen float literal 外部 JSON 模式差异 | 仅影响外部 schema compat 模式，注册模式一致 |
+| Codegen string escape \x00 vs \0 | 均为合法 Python escape |
+| Server trace duration_ms 精度 | 亚微秒差异，实际不可观测 |
+| Server JSON 尾部换行 | 标准 JSON 解析器兼容 |
+| 各 Registry/Config 错误消息措辞差异 | 仅开发者可见，非 wire 格式 |
+
+### 第十三轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| M1 | 修 Java | TransformResourceLookup: 3x IllegalStateException → OperatorException |
+| M2 | 修 Java | TransformRemotePineapple: JSON unmarshal 错误走 handleError 尊重 failOnError |
+| M3 | 修 Java | GoFormat.sprint: 整数快速路径前添加 -0.0 检测 |
+| L1 | 修 Java | Engine: 添加 per-operator debug 日志 (duration/input_size/output_size/JSON) |
+| L2 | 修 Java | TransformByLua: 错误前缀 "lua error:" → "lua:" |
+| L3 | 修 Java | TransformRedisGet: warning 消息结构化 (SMembers/LRange/Get + key) |
+| L4 | 修 Java | TransformRedisSet: set/list case 非列表值增加 stderr 日志 |
+
+## 第十四轮审计 (2026-05-15)
+
+### 第十三轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| M1 TransformResourceLookup OperatorException | ✓ 确认修复 |
+| M2 TransformRemotePineapple handleError 路由 | ✓ 确认修复 |
+| M3 GoFormat.sprint(-0.0) 负零检测 | ✓ 确认修复 |
+| L1 Engine per-operator debug 日志 | ✓ 确认修复 |
+| L2 TransformByLua 错误前缀 "lua:" | ✓ 确认修复 |
+| L3 TransformRedisGet structured warning | ✓ 确认修复 |
+| L4 TransformRedisSet 非列表值日志 | ✓ 确认修复 |
+
+### 全量复验摘要
+
+三组并行独立审计（Engine/调度器/错误体系/GoFormat/Registry、全部 18 算子、Server/Codegen/Config/Frame）。**前轮全部修复项验证通过**，无回归。
+
+### 新发现
+
+#### 🔴 HIGH 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| H1 | GoFormat.formatFloatF(-0.0) 丢失负号 | `strconv.FormatFloat(-0, 'f', -1, 64)` = `"-0"` | 整数快捷路径 `Math.abs(-0.0)=0.0 < 1e18` → `Long.toString(0)` = `"0"` (`GoFormat.java:67-68`) | ✅ |
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | ReorderSort 错误消息缺上下文 | `"reorder_sort: item[2].score: cannot convert string to float64"` (`sort.go:74`) | `"cannot convert java.lang.String to double"` (`ReorderSort.java:72`) — 缺算子前缀/索引/字段名 | ✅ |
+| M2 | TransformRedisSet common_input<2 异常类型 | 返回 `error` → ExecutionError (`redis_set.go:101`) | 抛 `IllegalArgumentException` → PanicError (`TransformRedisSet.java:59`) | ✅ |
+| M3 | TransformByLua debug nonNil 统计范围 | 仅统计 commonInput 声明字段非 nil 数 (`lua.go:99-103`) | 统计 rawCommon() 全部非 nil 值 (`TransformByLua.java:93`) | ✅ |
+| M4 | Engine.applyOutput 多一层 OperatorException 包装 | `ExecutionError{fmt.Errorf("apply output: ...")}` (`scheduler.go:255`) | `ExecutionError(name, new OperatorException("apply output: ..."))` (`Engine.java:379-380`) | ✅ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| Engine.renderDAG 错误类型 (IllegalArgumentException vs ValidationError) | /dag handler 统一 catch → 400，wire 行为等效 |
+| recall_resource 错误消息缺 item 索引/实际类型 | ~~开发者调试信息~~ → 已附带修复（加索引+类型） |
+| transform_resource_lookup 错误消息缺 "in context" | 措辞差异，不影响功能 |
+| debug 日志 duration 格式差异 (Go time.Duration vs Java 自定义) | 仅影响日志可读性 |
+| /health 方法限制 | 已接受（Java 更严格，无害） |
+| HTTP 超时配置 | 平台限制（com.sun.net.httpserver 无等效 API） |
+| JSON 响应尾部换行 | 已接受 |
+| Codegen string escape (\x vs \u) | 均为合法 Python escape |
+| merge_dedup key 归一化 | JSON 反序列化后均为 Double，实际不触发 |
+
+### 第十四轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| H1 | 修 Java | formatFloatF 整数快捷路径前添加 -0.0 检测 |
+| M1 | 修 Java | ReorderSort: 错误消息加算子前缀 + item 索引 + 字段名 |
+| M2 | 修 Java | TransformRedisSet: IllegalArgumentException → OperatorException |
+| M3 | 修 Java | TransformByLua: nonNil 改为仅统计 commonInput 声明字段 |
+| M4 | 修 Java | Engine.applyOutput: 去掉多余 OperatorException 包装层 |
+| 附带 | 修 Java | RecallResource: 错误消息加 item 索引和实际类型 |
+| 附带 | 修 Java | TransformRedisGet: failOnError 错误消息加 Redis 命令名 |
+
+## 第十五轮审计 (2026-05-15)
+
+### 第十四轮修复复验
+
+| 项 | 结论 |
+|---|------|
+| H1 GoFormat.formatFloatF(-0.0) | ✓ rawLongBits 检查在快捷路径前 |
+| M1 ReorderSort 错误消息上下文 | ✓ 含算子前缀+索引+字段名 |
+| M2 TransformRedisSet 异常类型 | ✓ OperatorException |
+| M3 TransformByLua debug nonNil | ✓ 仅遍历 commonInput |
+| M4 Engine.applyOutput 包装层级 | ✓ 单层包装 |
+| RecallResource 错误消息 | ✓ 含 item 索引+类型 |
+| TransformRedisGet failOnError 命令名 | ✓ 含 SMembers/LRange/Get |
+
+### 全量复验摘要
+
+三组并行独立审计（Engine/GoFormat/Registry、全部 18 算子、Server/Codegen/Config/Frame）。**前轮全部修复项验证通过**，无回归。execute() 路径 OperatorException 迁移已完成。
+
+### 新发现
+
+#### 🟡 MEDIUM 严重度
+
+| # | 差异点 | Go 行为 | Java 行为 | 修复状态 |
+|---|--------|---------|-----------|----------|
+| M1 | GoFormat.formatFloatF(±Infinity) | `strconv.FormatFloat(+Inf,'f',-1,64)` = `"+Inf"` | `Double.toString(Infinity)` = `"Infinity"` (`GoFormat.java:75`) | ✅ |
+| M2 | TransformNormalize 错误消息缺上下文 | `"transform_normalize: item[%d].%s: %w"` (`normalize.go:67`) | `"cannot convert ... to double"` 无算子前缀/索引/字段名 (`TransformNormalize.java:40,60`) | ✅ |
+
+### 排除项
+
+| 项 | 理由 |
+|---|------|
+| Server /execute ValidationError 响应字段集 | Go omitempty 也省略空字段，wire 等效 |
+| TransformRedisSet failOnError=true 日志行为 | Go 额外 log.Printf，仅影响日志 |
+| TransformRedisSet/RemotePineapple setWarning 异常类型 | Go error vs Java Exception/RuntimeException，消息等效 |
+| Registry/Config 消息文本措辞 | 开发者可见，非 wire 格式 |
+| trace duration_ms 精度 | 亚微秒差异不可观测 |
+| Codegen string escape | 均为合法 Python escape |
+
+### 第十五轮决策
+
+| # | 决策 | 备注 |
+|---|------|------|
+| M1 | 修 Java | formatFloatF: NaN/±Infinity 显式守卫 |
+| M2 | 修 Java | TransformNormalize: 错误消息加算子前缀 + item 索引 + 字段名 |
