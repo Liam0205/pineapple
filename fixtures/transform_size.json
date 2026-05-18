@@ -1,0 +1,39 @@
+{
+  "operator": "transform_size",
+  "cases": [
+    {
+      "name": "counts three items",
+      "params": {},
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": ["item_count"],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [{"id": 1}, {"id": 2}, {"id": 3}]
+      },
+      "expected": {
+        "common": {"item_count": 3}
+      }
+    },
+    {
+      "name": "empty items returns zero",
+      "params": {},
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": ["item_count"],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {"item_count": 0}
+      }
+    }
+  ]
+}

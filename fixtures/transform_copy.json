@@ -1,0 +1,90 @@
+{
+  "operator": "transform_copy",
+  "cases": [
+    {
+      "name": "common_to_common copies multiple fields",
+      "params": { "direction": "common_to_common" },
+      "metadata": {
+        "common_input": ["src_a", "src_b"],
+        "item_input": [],
+        "common_output": ["dst_a", "dst_b"],
+        "item_output": []
+      },
+      "input": {
+        "common": { "src_a": "hello", "src_b": 42.0 },
+        "items": []
+      },
+      "expected": {
+        "common": { "dst_a": "hello", "dst_b": 42.0 }
+      }
+    },
+    {
+      "name": "common_to_item broadcasts value to all items",
+      "params": { "direction": "common_to_item" },
+      "metadata": {
+        "common_input": ["user_tag"],
+        "item_input": [],
+        "common_output": [],
+        "item_output": ["item_tag"]
+      },
+      "input": {
+        "common": { "user_tag": "vip" },
+        "items": [{ "id": 1 }, { "id": 2 }]
+      },
+      "expected": {
+        "items": [{ "item_tag": "vip" }, { "item_tag": "vip" }]
+      }
+    },
+    {
+      "name": "item_to_item copies per-item field",
+      "params": { "direction": "item_to_item" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["price"],
+        "common_output": [],
+        "item_output": ["original_price"]
+      },
+      "input": {
+        "common": {},
+        "items": [{ "price": 10.0 }, { "price": 20.0 }]
+      },
+      "expected": {
+        "items": [{ "original_price": 10.0 }, { "original_price": 20.0 }]
+      }
+    },
+    {
+      "name": "item_to_common collects values into list",
+      "params": { "direction": "item_to_common" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["price"],
+        "common_output": ["price_list"],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [{ "price": 10.0 }, { "price": 20.0 }, { "price": 30.0 }]
+      },
+      "expected": {
+        "common": { "price_list": [10.0, 20.0, 30.0] }
+      }
+    },
+    {
+      "name": "common_to_item with empty items produces no writes",
+      "params": { "direction": "common_to_item" },
+      "metadata": {
+        "common_input": ["tag"],
+        "item_input": [],
+        "common_output": [],
+        "item_output": ["item_tag"]
+      },
+      "input": {
+        "common": { "tag": "test" },
+        "items": []
+      },
+      "expected": {
+        "items": []
+      }
+    }
+  ]
+}

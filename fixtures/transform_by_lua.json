@@ -1,0 +1,202 @@
+{
+  "operator": "transform_by_lua",
+  "cases": [
+    {
+      "name": "item function applies discount for young user",
+      "params": {
+        "lua_script": "function adjust_price()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend",
+        "function_for_item": "adjust_price",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": ["user_age"],
+        "item_input": ["item_price"],
+        "common_output": [],
+        "item_output": ["item_adjusted"]
+      },
+      "input": {
+        "common": { "user_age": 15.0 },
+        "items": [
+          { "item_price": 100.0 },
+          { "item_price": 200.0 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "item_adjusted": 80.0 },
+          { "item_adjusted": 160.0 }
+        ]
+      }
+    },
+    {
+      "name": "item function no discount for adult user",
+      "params": {
+        "lua_script": "function adjust_price()\n  if user_age < 18 then\n    return item_price * 0.8\n  else\n    return item_price\n  end\nend",
+        "function_for_item": "adjust_price",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": ["user_age"],
+        "item_input": ["item_price"],
+        "common_output": [],
+        "item_output": ["item_adjusted"]
+      },
+      "input": {
+        "common": { "user_age": 25.0 },
+        "items": [
+          { "item_price": 100.0 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "item_adjusted": 100.0 }
+        ]
+      }
+    },
+    {
+      "name": "common function computes aggregate stats",
+      "params": {
+        "lua_script": "function compute_stats()\n  local sum = 0\n  local max_val = -math.huge\n  for i = 1, #item_price do\n    local p = item_price[i] or 0\n    sum = sum + p\n    if p > max_val then max_val = p end\n  end\n  return sum / #item_price, max_val\nend",
+        "function_for_item": "",
+        "function_for_common": "compute_stats"
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_price"],
+        "common_output": ["avg_price", "max_price"],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_price": 100.0 },
+          { "item_price": 200.0 },
+          { "item_price": 300.0 }
+        ]
+      },
+      "expected": {
+        "common": {
+          "avg_price": 200.0,
+          "max_price": 300.0
+        }
+      }
+    },
+    {
+      "name": "common function returns boolean false",
+      "params": {
+        "lua_script": "function evaluate()\n  if (item_count > 0) then return false else return true end\nend",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "metadata": {
+        "common_input": ["item_count"],
+        "item_input": [],
+        "common_output": ["_if_1"],
+        "item_output": []
+      },
+      "input": {
+        "common": { "item_count": 5.0 },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "_if_1": false
+        }
+      }
+    },
+    {
+      "name": "common function returns boolean true",
+      "params": {
+        "lua_script": "function evaluate()\n  if (item_count > 0) then return false else return true end\nend",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "metadata": {
+        "common_input": ["item_count"],
+        "item_input": [],
+        "common_output": ["_if_1"],
+        "item_output": []
+      },
+      "input": {
+        "common": { "item_count": 0.0 },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "_if_1": true
+        }
+      }
+    },
+    {
+      "name": "item function with multiple return values",
+      "params": {
+        "lua_script": "function f() return item_x * 2, item_x + 10 end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_x"],
+        "common_output": [],
+        "item_output": ["double", "plus10"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_x": 5.0 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "double": 10.0, "plus10": 15.0 }
+        ]
+      }
+    },
+    {
+      "name": "item function with empty items produces no writes",
+      "params": {
+        "lua_script": "function f() return 1 end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": ["out"]
+      },
+      "input": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "items": []
+      }
+    },
+    {
+      "name": "item function with string concatenation",
+      "params": {
+        "lua_script": "function f() return \"hello_\" .. item_name end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_name"],
+        "common_output": [],
+        "item_output": ["greeting"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_name": "world" }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "greeting": "hello_world" }
+        ]
+      }
+    }
+  ]
+}

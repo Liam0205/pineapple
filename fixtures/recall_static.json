@@ -1,0 +1,49 @@
+{
+  "operator": "recall_static",
+  "cases": [
+    {
+      "name": "recalls configured items",
+      "params": {
+        "items": [
+          { "item_id": "x", "val": 10 },
+          { "item_id": "y", "val": 20 }
+        ]
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "added_items": [
+          { "item_id": "x", "val": 10 },
+          { "item_id": "y", "val": 20 }
+        ]
+      }
+    },
+    {
+      "name": "empty items config adds nothing",
+      "params": {
+        "items": []
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "added_items": []
+      }
+    }
+  ]
+}

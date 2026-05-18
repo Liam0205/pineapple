@@ -1,0 +1,66 @@
+{
+  "operator": "transform_dispatch",
+  "cases": [
+    {
+      "name": "dispatches common field to all items",
+      "params": {},
+      "metadata": {
+        "common_input": ["scene"],
+        "item_input": [],
+        "common_output": [],
+        "item_output": ["item_scene"]
+      },
+      "input": {
+        "common": { "scene": "homepage" },
+        "items": [
+          { "item_id": "a" },
+          { "item_id": "b" },
+          { "item_id": "c" }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "item_scene": "homepage" },
+          { "item_scene": "homepage" },
+          { "item_scene": "homepage" }
+        ]
+      }
+    },
+    {
+      "name": "empty items produces no writes",
+      "params": {},
+      "metadata": {
+        "common_input": ["scene"],
+        "item_input": [],
+        "common_output": [],
+        "item_output": ["item_scene"]
+      },
+      "input": {
+        "common": { "scene": "test" },
+        "items": []
+      },
+      "expected": {
+        "items": []
+      }
+    },
+    {
+      "name": "missing common field dispatches nil",
+      "params": {},
+      "metadata": {
+        "common_input": ["missing"],
+        "item_input": [],
+        "common_output": [],
+        "item_output": ["item_missing"]
+      },
+      "input": {
+        "common": {},
+        "items": [{ "item_id": "a" }]
+      },
+      "expected": {
+        "items": [
+          { "item_missing": null }
+        ]
+      }
+    }
+  ]
+}

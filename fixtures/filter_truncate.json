@@ -1,0 +1,84 @@
+{
+  "operator": "filter_truncate",
+  "cases": [
+    {
+      "name": "truncate to top 2 items",
+      "params": { "top_n": 2 },
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "a" },
+          { "item_id": "b" },
+          { "item_id": "c" },
+          { "item_id": "d" }
+        ]
+      },
+      "expected": {
+        "removed_indices": [2, 3]
+      }
+    },
+    {
+      "name": "no truncation when top_n exceeds item count",
+      "params": { "top_n": 10 },
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "a" },
+          { "item_id": "b" }
+        ]
+      },
+      "expected": {
+        "removed_indices": []
+      }
+    },
+    {
+      "name": "top_n zero removes all items",
+      "params": { "top_n": 0 },
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "a" },
+          { "item_id": "b" }
+        ]
+      },
+      "expected": {
+        "removed_indices": [0, 1]
+      }
+    },
+    {
+      "name": "empty items list",
+      "params": { "top_n": 5 },
+      "metadata": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "removed_indices": []
+      }
+    }
+  ]
+}
