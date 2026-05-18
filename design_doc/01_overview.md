@@ -4,9 +4,10 @@
 
 | 名称 | 组件 | 语言 |
 |------|------|------|
-| **Pine** | 执行引擎 | Go |
+| **Pine-Go** | 主执行引擎 | Go |
+| **Pine-Java** | 第二执行引擎（行为与 Pine-Go 一致） | Java |
 | **Apple** | DSL 引擎 | Python |
-| **Pineapple** | 二者协同使用的完整系统 | Go + Python |
+| **Pineapple** | 以上组件协同使用的完整系统 | Go + Java + Python |
 
 ## 定位
 
@@ -25,29 +26,33 @@
 
 | 组件 | 名称 | 技术选型 | 对比 DragonFly |
 |------|------|----------|---------------|
-| 执行引擎 | Pine | Go | DragonFly 用 C++ |
+| 执行引擎 | Pine-Go | Go | DragonFly 用 C++ |
+| 执行引擎 | Pine-Java | Java | — |
 | DSL 引擎 | Apple | Python | 相同 |
 | 配置格式 | — | JSON | 相同 |
-| 嵌入脚本 | — | Lua | DragonFly 无此层，靠自定义 C++ 算子解决 |
+| 嵌入脚本 | — | Lua (Go: gopher-lua, Java: luaj) | DragonFly 无此层，靠自定义 C++ 算子解决 |
 
 ## 运行流程
 
 ```
 Python DSL  ──(执行)──▶  JSON 配置文件
                               │
-                              ▼
-               Go 引擎解析 JSON 配置
-                              │
-                              ▼
-         解析算子输入/输出，数据驱动隐式构建 DAG
-                              │
-                              ▼
-                  基于 DAG 拓扑排序并行执行算子
+                   ┌──────────┴──────────┐
+                   ▼                     ▼
+          Pine-Go 解析配置        Pine-Java 解析配置
+                   │                     │
+                   ▼                     ▼
+    数据驱动隐式构建 DAG      数据驱动隐式构建 DAG
+                   │                     │
+                   ▼                     ▼
+    基于 DAG 拓扑排序并行执行  基于 DAG 拓扑排序并行执行
 ```
+
+两个引擎对相同输入产生相同输出，由 CI 交叉验证保证一致性。
 
 ## 核心设计要点
 
-1. **算子 (Operator)** 是基本计算单元，由 Go 实现。分为通用算子和自定义算子。
+1. **算子 (Operator)** 是基本计算单元，由 Go/Java 实现。分为通用算子和自定义算子。
 2. **Python DSL** 是面向算法同学的声明式接口；运行 DSL 产出 JSON 配置，不参与运行时计算。
 3. **JSON 配置** 是引擎与 DSL 之间的契约；引擎据此解析算子依赖，构建 DAG。
 4. **数据驱动的隐式构图**: 算子声明输入/输出数据字段，引擎自动推导依赖关系和 DAG 拓扑。
@@ -62,7 +67,7 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 
 Apple DSL compiler 在编译时将当前 Python 包版本 (`apple._version.__version__`) 注入到 JSON 配置的 `_PINEAPPLE_VERSION` 字段。该字段为信息性标记，引擎加载时 **不做版本严格校验**（forward-compatible 策略）。
 
-Go 侧版本常量 (`version.go: Version`) 与 Python 侧 (`apple/_version.py: __version__`) 始终保持同步。
+Go 侧版本常量 (`pine-go/version.go: Version`) 与 Python 侧 (`apple/_version.py: __version__`) 始终保持同步。
 
 ### 版本 bump 流程
 
@@ -73,12 +78,14 @@ bash scripts/bump-version.sh 0.3.0
 ```
 
 脚本依次执行：
-1. 更新 `version.go` Go 常量
+1. 更新 `pine-go/version.go` Go 常量
 2. 更新 `apple/_version.py` Python 版本
-3. 替换所有 `testdata/*.json` 和 `pipeline.json` 中的 `_PINEAPPLE_VERSION`
-4. 重跑 codegen（`apple_generated/` + `doc/operators/`）
-5. 运行 Go 测试
-6. 运行 Python 测试
+3. 更新 `pine-java/pom.xml` Maven 版本
+4. 替换所有 `fixtures/**/*.json` 中的 `_PINEAPPLE_VERSION`
+5. 重跑 codegen（`apple_generated/` + `doc/operators/`）
+6. 运行 Go 测试
+7. 运行 Java 测试
+8. 运行 Python 测试
 
 脚本完成后，review diff 并手动 commit + tag + push。
 

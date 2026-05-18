@@ -4,7 +4,7 @@
 
 | Layer | Form | Description |
 |-------|------|-------------|
-| Go engine | Go module (`go get github.com/Liam0205/pineapple`) | Engine, operator interfaces, built-in operators |
+| Go engine | Go module (`go get github.com/Liam0205/pineapple/pine-go`) | Engine, operator interfaces, built-in operators |
 | Java engine | Maven artifact `page.liam:pine-java` | Engine, operator interfaces, built-in operators |
 | Server library | `pkg/server` package (Go) | Reusable HTTP service framework |
 | Codegen library | `pkg/codegen` package (Go) / `page.liam.pine.Codegen` (Java) | Reusable Python binding generator |
@@ -17,7 +17,7 @@
 ### Go
 
 ```bash
-go get github.com/Liam0205/pineapple
+go get github.com/Liam0205/pineapple/pine-go
 ```
 
 ### Java
@@ -56,7 +56,7 @@ Third parties add custom operators **without modifying pineapple source**.
 
 ```
 my-project/
-├── go.mod                    # require github.com/Liam0205/pineapple
+├── go.mod                    # require github.com/Liam0205/pineapple/pine-go
 ├── operators/
 │   ├── my_scorer/
 │   │   └── scorer.go         # init() { pine.Register(schema, factory) }
@@ -96,7 +96,7 @@ package my_scorer
 
 import (
     "context"
-    pine "github.com/Liam0205/pineapple"
+    pine "github.com/Liam0205/pineapple/pine-go"
 )
 
 func init() {
@@ -166,9 +166,9 @@ import (
     "flag"
     "log"
 
-    _ "github.com/Liam0205/pineapple/operators" // Built-in operators
+    _ "github.com/Liam0205/pineapple/pine-go/operators" // Built-in operators
     _ "my-project/operators"                      // Custom operators
-    "github.com/Liam0205/pineapple/pkg/server"
+    "github.com/Liam0205/pineapple/pine-go/pkg/server"
 )
 
 func main() {
@@ -204,9 +204,9 @@ import (
     "fmt"
     "os"
 
-    _ "github.com/Liam0205/pineapple/operators"
+    _ "github.com/Liam0205/pineapple/pine-go/operators"
     _ "my-project/operators"
-    "github.com/Liam0205/pineapple/pkg/codegen"
+    "github.com/Liam0205/pineapple/pine-go/pkg/codegen"
 )
 
 func main() {

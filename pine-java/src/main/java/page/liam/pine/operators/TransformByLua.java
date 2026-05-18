@@ -219,7 +219,13 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     private static Object toJava(LuaValue v) {
         if (v.isnil()) return null;
         if (v.isboolean()) return v.toboolean();
-        if (v.isnumber()) return v.todouble();
+        if (v.isnumber()) {
+            double d = v.todouble();
+            if (d == Math.floor(d) && !Double.isInfinite(d) && d >= Long.MIN_VALUE && d <= Long.MAX_VALUE) {
+                return (long) d;
+            }
+            return d;
+        }
         if (v.isstring()) return v.tojstring();
         return v.tojstring();
     }

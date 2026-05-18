@@ -1,0 +1,29 @@
+{
+  "name": "Config error: multiple pipeline_group entries without main",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "op_a": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": ["tag"], "common_output": [],
+            "item_input": [], "item_output": ["tag"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "group_a": {"pipeline": ["op_a"]},
+      "group_b": {"pipeline": ["op_a"]}
+    },
+    "flow_contract": {
+      "common_input": ["tag"], "item_input": [],
+      "common_output": [], "item_output": ["tag"]
+    }
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "main"
+  }
+}
