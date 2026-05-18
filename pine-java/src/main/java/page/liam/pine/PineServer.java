@@ -57,7 +57,7 @@ public class PineServer {
             reloadErrorTotal = metricsProvider.newCounter(
                     new page.liam.pine.metrics.MetricOpts("pine_config_reload_errors_total", "Config reload error count"));
             reloadDuration = metricsProvider.newHistogram(
-                    new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration", null));
+                    new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration", new double[]{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}));
         }
     }
 
@@ -144,10 +144,10 @@ public class PineServer {
     }
 
     private static String statusBucket(int code) {
-        if (code >= 200 && code < 300) return "2xx";
-        if (code >= 300 && code < 400) return "3xx";
-        if (code >= 400 && code < 500) return "4xx";
-        if (code >= 500 && code < 600) return "5xx";
+        if (code >= 500) return "5xx";
+        if (code >= 400) return "4xx";
+        if (code >= 300) return "3xx";
+        if (code >= 200) return "2xx";
         return "other";
     }
 

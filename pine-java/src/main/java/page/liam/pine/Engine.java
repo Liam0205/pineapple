@@ -139,8 +139,9 @@ public class Engine {
             if (op instanceof DebugAware) {
                 ((DebugAware) op).setDebug(name, opCfg.debug);
             }
-            if (op instanceof MetricsAware && eo.metricsProvider != null) {
-                ((MetricsAware) op).setMetricsProvider(eo.metricsProvider);
+            if (op instanceof MetricsAware) {
+                ((MetricsAware) op).setMetricsProvider(
+                    eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
             }
 
             if (opCfg.dataParallel < 0) {
@@ -340,11 +341,10 @@ public class Engine {
                     try {
                         frame.applyOutput(output, cop.name, opCfg.recall);
                     } catch (Exception applyErr) {
-                        long applyDuration = System.nanoTime() - startTime;
-                        traces[idx] = new OpTrace(cop.name, startTime, applyDuration, false, inputSnapshot, outputSnapshot);
-                        stats.recordError(cop.name, applyDuration);
+                        traces[idx] = new OpTrace(cop.name, startTime, duration, false, inputSnapshot, outputSnapshot);
+                        stats.recordError(cop.name, duration);
                         engineMetrics.opErrorTotal.with(cop.name).inc();
-                        engineMetrics.opExecDuration.with(cop.name).observe(applyDuration / 1_000_000_000.0);
+                        engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
                         if (fatalError.compareAndSet(null,
                                 new PineErrors.ExecutionError(cop.name, applyErr))) {
                             cancellationToken.cancel();
@@ -526,14 +526,14 @@ public class Engine {
         }
     }
 
-    private static void validateSourcesOrder(List<String> sequence, Map<String, Config.OperatorConfig> operators) {
+    private static void validateSourcesOrder(List<String> sequence, Map<String, Config.OperatorConfig> operators) throws PineErrors.ConfigError {
         Set<String> seen = new HashSet<>();
         for (String name : sequence) {
             Config.OperatorConfig opCfg = operators.get(name);
             if (opCfg != null) {
                 for (String src : opCfg.sources) {
                     if (!seen.contains(src)) {
-                        throw new IllegalArgumentException(
+                        throw new PineErrors.ConfigError(
                                 "operator \"" + name + "\": sources references \"" + src + "\" which appears later in the sequence (forward reference)");
                     }
                 }

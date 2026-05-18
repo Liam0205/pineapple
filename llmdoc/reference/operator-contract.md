@@ -408,11 +408,18 @@ Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `condition
 
 ## 跨运行时格式化（GoFormat）
 
-Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis key 拼接、lookup table key coerce），必须使用 `GoFormat` 工具类：
+Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis key 拼接、lookup table key coerce、条件比较值格式化），必须使用 `GoFormat` 工具类：
 
 - `GoFormat.sprint(v)` — 替代 `String.valueOf(v)`
 - `GoFormat.formatFloatF(d)` — 替代 `Double.toString(d)` 用于十进制表示
 - `GoFormat.formatG(d)` — 替代 `String.format("%g", d)`
+
+所有需要跨运行时格式一致性的算子均应通过 GoFormat 实现。已完成统一的消费者：
+
+- `TransformResourceLookup` — key coerce
+- `TransformRedisGet` — key 拼接
+- `FilterCondition` — 条件比较值（原 `formatValue` 已移除）
+- `ReorderShuffle` — salt 格式化（原 `formatFloatG` 已移除）
 
 新增算子若对用户值做字符串转换，且该结果参与跨运行时比较（Redis key、fixture 断言），应使用 GoFormat。
 
