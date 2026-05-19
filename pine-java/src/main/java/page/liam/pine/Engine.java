@@ -203,7 +203,7 @@ public class Engine {
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
         Stats stats = new Stats();
         EngineMetrics em = new EngineMetrics(eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
-        ExecutorService pool = eo.executor != null ? eo.executor : ForkJoinPool.commonPool();
+        ExecutorService pool = eo.executor != null ? eo.executor : Executors.newVirtualThreadPerTaskExecutor();
         return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode, pool);
     }
 
