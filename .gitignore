@@ -39,3 +39,4 @@ design_doc/ref_more.md
 .coverage
 blog
 java-pine/target/
+.llmdoc-tmp/
