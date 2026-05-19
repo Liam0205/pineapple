@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/Liam0205/pineapple/pine-go/internal/config"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
 
@@ -51,10 +52,14 @@ func BenchmarkBuildInput(b *testing.B) {
 	for _, tm := range testModes {
 		b.Run(tm.name, func(b *testing.B) {
 			f := NewFrame(tm.mode, common, items)
+			spec := &config.InputFieldSpec{
+				StrictCommon: []string{"user_id", "age"},
+				StrictItem:   fields,
+			}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = f.BuildInput([]string{"user_id", "age"}, fields, nil, nil)
+				_, _ = f.BuildInput("bench_op", spec)
 			}
 		})
 	}

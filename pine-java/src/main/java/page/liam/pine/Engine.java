@@ -130,6 +130,23 @@ public class Engine {
 
             boolean effectiveRecall = opCfg.recall || opType == OperatorType.RECALL;
 
+            if (op instanceof ConsumesRowSet) {
+                opCfg.consumesRowSet = true;
+            }
+            if (op instanceof MutatesRowSet) {
+                opCfg.mutatesRowSet = true;
+            }
+            if (op instanceof AdditiveWritesRowSet) {
+                opCfg.additiveWritesRowSet = true;
+            }
+            // Validate row-set marker constraints
+            if (opCfg.additiveWritesRowSet && opCfg.mutatesRowSet) {
+                throw new PineErrors.ConfigError("operator \"" + name + "\": AdditiveWritesRowSet and MutatesRowSet are mutually exclusive");
+            }
+            if (opType == OperatorType.RECALL && !opCfg.additiveWritesRowSet) {
+                throw new PineErrors.ConfigError("operator \"" + name + "\": Recall type must implement AdditiveWritesRowSet");
+            }
+
             if (op instanceof MetadataAware) {
                 List<String> commonIn = new ArrayList<>(opCfg.metadata.commonInput);
                 for (String skipField : opCfg.skip) {
@@ -178,6 +195,9 @@ public class Engine {
             }
 
             compiledOps.add(new CompiledOperator(name, op, opCfg, effectiveDebug, effectiveRecall, effectiveDataParallel, effectiveOperatorType));
+
+            // Pre-compute InputFieldSpec for BuildInput
+            opCfg.inputSpec = InputFieldSpec.compute(opCfg.metadata, opCfg.commonDefaults, opCfg.itemDefaults, opCfg.skip);
         }
 
         DAG dag = DAG.build(sequence, cfg.pipelineConfig.operators, opToSubFlow);
@@ -339,17 +359,7 @@ public class Engine {
         }
 
         // Build input
-        List<String> commonInput = new ArrayList<>(opCfg.metadata.commonInput);
-        for (String skipField : opCfg.skip) {
-            commonInput.remove(skipField);
-        }
-
-        OperatorInput input = ctx.frame.buildInput(
-                commonInput,
-                opCfg.metadata.itemInput,
-                opCfg.commonDefaults,
-                opCfg.itemDefaults
-        );
+        OperatorInput input = ctx.frame.buildInput(cop.name, opCfg.inputSpec);
 
         // Debug: capture input snapshot
         Map<String, Object> inputSnapshot = null;

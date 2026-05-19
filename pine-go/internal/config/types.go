@@ -53,10 +53,12 @@ type OperatorConfig struct {
 	Meta             Metadata       `json:"$metadata"`
 	CodeInfo         string         `json:"$code_info,omitempty"`
 	Skip             []string       `json:"-"`
-	Recall           bool           `json:"recall,omitempty"`
-	Sources          []string       `json:"sources,omitempty"`
-	Debug            bool           `json:"debug,omitempty"`
-	RowDependency    bool           `json:"row_dependency,omitempty"`
+	Recall               bool           `json:"recall,omitempty"`
+	Sources              []string       `json:"sources,omitempty"`
+	Debug                bool           `json:"debug,omitempty"`
+	ConsumesRowSet       bool           `json:"consumes_row_set,omitempty"`
+	MutatesRowSet        bool           `json:"mutates_row_set,omitempty"`
+	AdditiveWritesRowSet bool           `json:"additive_writes_row_set,omitempty"`
 	CommonDefaults   map[string]any `json:"common_defaults,omitempty"`
 	ItemDefaults     map[string]any `json:"item_defaults,omitempty"`
 	ForBranchControl bool           `json:"for_branch_control,omitempty"`
@@ -69,4 +71,54 @@ type OperatorConfig struct {
 	// RawParams holds business parameters (everything except reserved keys).
 	// Populated by custom unmarshal.
 	RawParams map[string]any `json:"-"`
+
+	// InputSpec is pre-computed at engine build time from Meta + Defaults + Skip.
+	// BuildInput uses this to avoid per-field default lookups at runtime.
+	InputSpec *InputFieldSpec `json:"-"`
+}
+
+// DefaultedField pairs a field name with its pre-known default value.
+type DefaultedField struct {
+	Name    string
+	Default any
+}
+
+// InputFieldSpec separates input fields into strict (error on nil) and
+// defaulted (substitute default on nil). Computed once at engine build time.
+type InputFieldSpec struct {
+	StrictCommon    []string
+	DefaultedCommon []DefaultedField
+	StrictItem      []string
+	DefaultedItem   []DefaultedField
+}
+
+// ComputeInputFieldSpec creates the InputFieldSpec from metadata, defaults, and skip fields.
+func ComputeInputFieldSpec(meta Metadata, commonDefaults, itemDefaults map[string]any, skip []string) *InputFieldSpec {
+	spec := &InputFieldSpec{}
+
+	skipSet := make(map[string]struct{}, len(skip))
+	for _, s := range skip {
+		skipSet[s] = struct{}{}
+	}
+
+	for _, field := range meta.CommonInput {
+		if _, skipped := skipSet[field]; skipped {
+			continue
+		}
+		if d, ok := commonDefaults[field]; ok {
+			spec.DefaultedCommon = append(spec.DefaultedCommon, DefaultedField{Name: field, Default: d})
+		} else {
+			spec.StrictCommon = append(spec.StrictCommon, field)
+		}
+	}
+
+	for _, field := range meta.ItemInput {
+		if d, ok := itemDefaults[field]; ok {
+			spec.DefaultedItem = append(spec.DefaultedItem, DefaultedField{Name: field, Default: d})
+		} else {
+			spec.StrictItem = append(spec.StrictItem, field)
+		}
+	}
+
+	return spec
 }

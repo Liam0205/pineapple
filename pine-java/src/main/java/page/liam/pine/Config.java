@@ -12,8 +12,8 @@ public class Config {
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final Set<String> RESERVED_KEYS = new HashSet<>(Arrays.asList(
             "type_name", "$metadata", "$code_info", "skip", "recall", "sources",
-            "debug", "row_dependency", "common_defaults", "item_defaults",
-            "for_branch_control", "data_parallel"
+            "debug", "consumes_row_set", "mutates_row_set", "additive_writes_row_set",
+            "common_defaults", "item_defaults", "for_branch_control", "data_parallel"
     ));
 
     public String pineappleVersion;
@@ -107,7 +107,9 @@ public class Config {
         opCfg.typeName = node.has("type_name") ? node.get("type_name").asText() : "";
         opCfg.recall = node.has("recall") && node.get("recall").asBoolean();
         opCfg.debug = node.has("debug") && node.get("debug").asBoolean();
-        opCfg.rowDependency = node.has("row_dependency") && node.get("row_dependency").asBoolean();
+        opCfg.consumesRowSet = node.has("consumes_row_set") && node.get("consumes_row_set").asBoolean();
+        opCfg.mutatesRowSet = node.has("mutates_row_set") && node.get("mutates_row_set").asBoolean();
+        opCfg.additiveWritesRowSet = node.has("additive_writes_row_set") && node.get("additive_writes_row_set").asBoolean();
         opCfg.forBranchControl = node.has("for_branch_control") && node.get("for_branch_control").asBoolean();
         opCfg.dataParallel = 1;
         if (node.has("data_parallel")) {
@@ -302,13 +304,16 @@ public class Config {
         public boolean recall;
         public List<String> sources;
         public boolean debug;
-        public boolean rowDependency;
+        public boolean consumesRowSet;
+        public boolean mutatesRowSet;
+        public boolean additiveWritesRowSet;
         public boolean forBranchControl;
         public int dataParallel = 1;
         public Map<String, Object> commonDefaults = Collections.emptyMap();
         public Map<String, Object> itemDefaults = Collections.emptyMap();
         public Map<String, Object> rawParams;
         public String operatorType; // populated at engine build time
+        public InputFieldSpec inputSpec; // pre-computed at engine build time
     }
 
     public static class ExpandResult {

@@ -38,6 +38,8 @@ func init() {
 // SortOp sorts items by a numeric field.
 type SortOp struct {
 	pine.MetadataHolder
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 	ascending bool
 }
 
@@ -76,11 +78,11 @@ func (o *SortOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Op
 		entries[i] = entry{idx: i, val: v}
 	}
 
-	// Sort
+	// Sort (stable to match Java/Python TimSort behavior)
 	if o.ascending {
-		sort.Slice(entries, func(i, j int) bool { return entries[i].val < entries[j].val })
+		sort.SliceStable(entries, func(i, j int) bool { return entries[i].val < entries[j].val })
 	} else {
-		sort.Slice(entries, func(i, j int) bool { return entries[i].val > entries[j].val })
+		sort.SliceStable(entries, func(i, j int) bool { return entries[i].val > entries[j].val })
 	}
 
 	// Build order

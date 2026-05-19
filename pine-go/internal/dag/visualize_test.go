@@ -16,14 +16,16 @@ func buildTestGraph(t *testing.T) *Graph {
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
 		},
 		"recall_b": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
 		},
 		"transform_c": {
@@ -35,9 +37,11 @@ func buildTestGraph(t *testing.T) *Graph {
 			},
 		},
 		"filter_d": {
-			TypeName:     "filter_condition",
-			OperatorType: string(types.OpTypeFilter),
-			Meta:         config.Metadata{ItemInput: []string{"score_norm"}},
+			TypeName:       "filter_condition",
+			OperatorType:   string(types.OpTypeFilter),
+			ConsumesRowSet: true,
+			MutatesRowSet:  true,
+			Meta:           config.Metadata{ItemInput: []string{"score_norm"}},
 		},
 	}
 
@@ -109,28 +113,35 @@ func TestRenderMermaid(t *testing.T) {
 }
 
 func TestTransitiveReduction(t *testing.T) {
-	// Build a graph where barrier would create redundant transitive edges.
-	// recall_a(writes X) → filter_b(barrier) → transform_c(reads X)
-	// Without reduction: recall_a→filter_b, recall_a→transform_c, filter_b→transform_c
-	// Build() now applies transitive reduction, so the graph should only have:
-	//   recall_a→filter_b, filter_b→transform_c
+	// Build a graph where row-set semantics create redundant transitive edges.
+	// recall_a(writes X, additive _row_set_) → filter_b(ConsumesRowSet+MutatesRowSet, reads X) → transform_c(reads X)
+	// Without reduction: recall_a→filter_b (RAW on X + _row_set_), recall_a→transform_c (RAW on X), filter_b→transform_c (WAW on X if filter writes X, or WAR)
+	// Actually: recall_a writes X additively. filter_b reads X (RAW from recall_a) and consumes _row_set_ (RAW from recall_a additive writer).
+	// filter_b also MutatesRowSet, so it becomes lastMutWriter of _row_set_.
+	// transform_c reads X: RAW from recall_a (recall_a is still additive writer of X, not cleared because filter_b doesn't write X).
+	// So edges: recall_a→filter_b, recall_a→transform_c. No filter_b→transform_c unless transform_c also ConsumesRowSet.
+	// For this test to demonstrate transitive reduction, let's add ConsumesRowSet to transform_c.
 	sequence := []string{"recall_a", "filter_b", "transform_c"}
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"x"}},
 		},
 		"filter_b": {
-			TypeName:     "filter_condition",
-			OperatorType: string(types.OpTypeFilter),
-			Meta:         config.Metadata{ItemInput: []string{"x"}},
+			TypeName:       "filter_condition",
+			OperatorType:   string(types.OpTypeFilter),
+			ConsumesRowSet: true,
+			MutatesRowSet:  true,
+			Meta:           config.Metadata{ItemInput: []string{"x"}},
 		},
 		"transform_c": {
-			TypeName:     "noop",
-			OperatorType: string(types.OpTypeTransform),
-			Meta:         config.Metadata{ItemInput: []string{"x"}},
+			TypeName:       "noop",
+			OperatorType:   string(types.OpTypeTransform),
+			ConsumesRowSet: true,
+			Meta:           config.Metadata{ItemInput: []string{"x"}},
 		},
 	}
 
@@ -140,6 +151,7 @@ func TestTransitiveReduction(t *testing.T) {
 	}
 
 	// After reduction, recall_a→transform_c should NOT exist as a direct edge
+	// because it's implied by recall_a→filter_b→transform_c
 	for _, s := range g.Nodes[0].Succs {
 		if s == 2 {
 			t.Error("transitive reduction should remove recall_a→transform_c (implied by recall_a→filter_b→transform_c)")
@@ -178,14 +190,16 @@ func buildTwoSubFlowGraph(t *testing.T) *Graph {
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
 		},
 		"recall_b": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
 		},
 		"transform_c": {
@@ -197,14 +211,18 @@ func buildTwoSubFlowGraph(t *testing.T) *Graph {
 			},
 		},
 		"filter_d": {
-			TypeName:     "filter_condition",
-			OperatorType: string(types.OpTypeFilter),
-			Meta:         config.Metadata{ItemInput: []string{"score_norm"}},
+			TypeName:       "filter_condition",
+			OperatorType:   string(types.OpTypeFilter),
+			ConsumesRowSet: true,
+			MutatesRowSet:  true,
+			Meta:           config.Metadata{ItemInput: []string{"score_norm"}},
 		},
 		"reorder_e": {
-			TypeName:     "reorder_sort",
-			OperatorType: string(types.OpTypeReorder),
-			Meta:         config.Metadata{ItemInput: []string{"score_norm"}},
+			TypeName:       "reorder_sort",
+			OperatorType:   string(types.OpTypeReorder),
+			ConsumesRowSet: true,
+			MutatesRowSet:  true,
+			Meta:           config.Metadata{ItemInput: []string{"score_norm"}},
 		},
 	}
 	opToSubFlow := map[string]string{
@@ -288,19 +306,24 @@ func TestRenderCollapsedMixedSubFlows(t *testing.T) {
 	operators := map[string]config.OperatorConfig{
 		"standalone_a": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"x"}},
 		},
 		"grouped_b": {
-			TypeName:     "filter_condition",
-			OperatorType: string(types.OpTypeFilter),
-			Meta:         config.Metadata{ItemInput: []string{"x"}},
+			TypeName:       "filter_condition",
+			OperatorType:   string(types.OpTypeFilter),
+			ConsumesRowSet: true,
+			MutatesRowSet:  true,
+			Meta:           config.Metadata{ItemInput: []string{"x"}},
 		},
 		"grouped_c": {
-			TypeName:     "reorder_sort",
-			OperatorType: string(types.OpTypeReorder),
-			Meta:         config.Metadata{ItemInput: []string{"x"}},
+			TypeName:       "reorder_sort",
+			OperatorType:   string(types.OpTypeReorder),
+			ConsumesRowSet: true,
+			MutatesRowSet:  true,
+			Meta:           config.Metadata{ItemInput: []string{"x"}},
 		},
 	}
 	opToSubFlow := map[string]string{
@@ -335,14 +358,16 @@ func buildNestedSubFlowGraph(t *testing.T) *Graph {
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
 		},
 		"recall_b": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
 		},
 		"merge_c": {
@@ -356,9 +381,11 @@ func buildNestedSubFlowGraph(t *testing.T) *Graph {
 			Meta:         config.Metadata{ItemInput: []string{"score"}, ItemOutput: []string{"score_norm"}},
 		},
 		"filter_e": {
-			TypeName:     "filter_condition",
-			OperatorType: string(types.OpTypeFilter),
-			Meta:         config.Metadata{ItemInput: []string{"score_norm"}},
+			TypeName:       "filter_condition",
+			OperatorType:   string(types.OpTypeFilter),
+			ConsumesRowSet: true,
+			MutatesRowSet:  true,
+			Meta:           config.Metadata{ItemInput: []string{"score_norm"}},
 		},
 	}
 	opToSubFlow := map[string]string{
@@ -445,8 +472,9 @@ func buildDeepNestedGraph(t *testing.T) *Graph {
 	operators := map[string]config.OperatorConfig{
 		"recall_top": {
 			TypeName:     "recall_static",
-			OperatorType: string(types.OpTypeRecall),
-			Recall:       true,
+			OperatorType:         string(types.OpTypeRecall),
+			Recall:               true,
+			AdditiveWritesRowSet: true,
 			Meta:         config.Metadata{ItemOutput: []string{"item_id", "item_score"}},
 		},
 		"ctrl_if": {

@@ -65,39 +65,55 @@ public class ColumnFrame implements Frame {
     }
 
     @Override
-    public OperatorInput buildInput(List<String> commonFields, List<String> itemFields,
-                                    Map<String, Object> commonDefaults, Map<String, Object> itemDefaults) {
+    public OperatorInput buildInput(String opName, InputFieldSpec spec) throws PineErrors.OperatorException {
         rwLock.readLock().lock();
         try {
             Map<String, Object> cs = new LinkedHashMap<>();
-            for (String field : commonFields) {
-                if (common.containsKey(field)) {
-                    Object v = common.get(field);
-                    if (v == null && commonDefaults.containsKey(field)) {
-                        v = commonDefaults.get(field);
-                    }
-                    cs.put(field, v);
-                } else if (commonDefaults.containsKey(field)) {
-                    cs.put(field, commonDefaults.get(field));
+
+            // Strict common fields: must exist and be non-nil
+            for (String field : spec.strictCommon) {
+                Object v = common.get(field);
+                if (!common.containsKey(field) || v == null) {
+                    throw new PineErrors.OperatorException(
+                            "operator \"" + opName + "\": required field \"" + field + "\" is nil in common");
+                }
+                cs.put(field, v);
+            }
+            // Defaulted common fields: substitute default on nil/missing
+            for (InputFieldSpec.DefaultedField df : spec.defaultedCommon) {
+                Object v = common.get(df.name);
+                if (!common.containsKey(df.name) || v == null) {
+                    cs.put(df.name, df.defaultValue);
+                } else {
+                    cs.put(df.name, v);
                 }
             }
 
             List<Map<String, Object>> its = new ArrayList<>(rowCount);
             for (int i = 0; i < rowCount; i++) {
                 Map<String, Object> row = new LinkedHashMap<>();
-                for (String field : itemFields) {
-                    BitSet bits = presenceByField.get(field);
+
+                // Strict item fields: must be present and non-nil
+                for (String field : spec.strictItem) {
                     Object[] col = columns.get(field);
-                    if (col != null && bits != null && bits.get(i)) {
-                        Object v = col[i];
-                        if (v == null && itemDefaults.containsKey(field)) {
-                            v = itemDefaults.get(field);
-                        }
-                        row.put(field, v);
-                    } else if (itemDefaults.containsKey(field)) {
-                        row.put(field, itemDefaults.get(field));
+                    BitSet bits = presenceByField.get(field);
+                    if (col == null || bits == null || !bits.get(i) || col[i] == null) {
+                        throw new PineErrors.OperatorException(
+                                "operator \"" + opName + "\": required field \"" + field + "\" is nil on item[" + i + "]");
+                    }
+                    row.put(field, col[i]);
+                }
+                // Defaulted item fields: substitute default on nil/missing
+                for (InputFieldSpec.DefaultedField df : spec.defaultedItem) {
+                    Object[] col = columns.get(df.name);
+                    BitSet bits = presenceByField.get(df.name);
+                    if (col != null && bits != null && bits.get(i) && col[i] != null) {
+                        row.put(df.name, col[i]);
+                    } else {
+                        row.put(df.name, df.defaultValue);
                     }
                 }
+
                 its.add(row);
             }
 

@@ -64,3 +64,24 @@ type ConcurrentSafe = types.ConcurrentSafe
 
 // ConcurrentSafeMarker is an embeddable struct that satisfies ConcurrentSafe.
 type ConcurrentSafeMarker = types.ConcurrentSafeMarker
+
+// ConsumesRowSet marks operators that iterate items and need the row set
+// stable before execution. The DAG builder treats them as readers of _row_set_.
+type ConsumesRowSet = types.ConsumesRowSet
+
+// ConsumesRowSetMarker is an embeddable struct that satisfies ConsumesRowSet.
+type ConsumesRowSetMarker = types.ConsumesRowSetMarker
+
+// MutatesRowSet marks operators that change which items exist or their order.
+// The DAG builder treats them as mutating writers of _row_set_.
+type MutatesRowSet = types.MutatesRowSet
+
+// MutatesRowSetMarker is an embeddable struct that satisfies MutatesRowSet.
+type MutatesRowSetMarker = types.MutatesRowSetMarker
+
+// AdditiveWritesRowSet marks operators that append new items to the row set
+// without reading or modifying existing items. Mutually exclusive with MutatesRowSet.
+type AdditiveWritesRowSet = types.AdditiveWritesRowSet
+
+// AdditiveWritesRowSetMarker is an embeddable struct that satisfies AdditiveWritesRowSet.
+type AdditiveWritesRowSetMarker = types.AdditiveWritesRowSetMarker

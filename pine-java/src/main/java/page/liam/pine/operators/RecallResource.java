@@ -10,7 +10,7 @@ import java.util.Map;
  * Metadata contract
  *   ItemOutput: [<fields present in the resource items>]
  */
-public class RecallResource extends AbstractOperator implements ResourceAware {
+public class RecallResource extends AbstractOperator implements ResourceAware, page.liam.pine.AdditiveWritesRowSet {
     private String resourceName;
     private ResourceProvider resourceProvider;
 

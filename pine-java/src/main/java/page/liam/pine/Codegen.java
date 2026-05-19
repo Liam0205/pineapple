@@ -172,7 +172,7 @@ public class Codegen {
                 w.println("        item_defaults: dict | None = None,");
                 w.println("        common_defaults: dict | None = None,");
                 boolean isRecall = "recall".equalsIgnoreCase(schema.type);
-                w.println("        row_dependency: bool = False,");
+                w.println("        consumes_row_set: bool = False,");
                 w.println("        debug: bool = False,");
                 w.println("        name: str | None = None,");
                 w.printf("    ) -> \"%s\":%n", className);
@@ -203,7 +203,7 @@ public class Codegen {
                 if (isRecall) {
                     w.println("            recall=True,");
                 }
-                w.println("            row_dependency=row_dependency,");
+                w.println("            consumes_row_set=consumes_row_set,");
                 w.println("            debug=debug,");
                 w.println("            name=name or \"\",");
                 w.println("        )");

@@ -18,7 +18,7 @@ import java.util.List;
  *   ItemInput:    [<field>]
  *   ItemOutput:   []
  */
-public class ReorderSort extends AbstractOperator {
+public class ReorderSort extends AbstractOperator implements page.liam.pine.ConsumesRowSet, page.liam.pine.MutatesRowSet {
     private boolean ascending;
 
     @Override
@@ -70,9 +70,12 @@ public class ReorderSort extends AbstractOperator {
     }
 
     private static double toDouble(Object v) throws PineErrors.OperatorException {
+        if (v instanceof Boolean) {
+            throw new PineErrors.OperatorException("cannot convert bool to float64");
+        }
         if (v instanceof Number) {
             return ((Number) v).doubleValue();
         }
-        throw new PineErrors.OperatorException("cannot convert " + (v == null ? "null" : v.getClass().getName()) + " to double");
+        throw new PineErrors.OperatorException("cannot convert " + (v == null ? "<nil>" : v.getClass().getSimpleName()) + " to float64");
     }
 }

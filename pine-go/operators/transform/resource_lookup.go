@@ -44,6 +44,7 @@ func init() {
 type ResourceLookupOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
+	pine.ConsumesRowSetMarker
 	resourceName string
 	lookupKey    string
 	outputField  string

@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *   ItemInput:    [<item fields — scalars in item mode, lists in common mode>]
  *   ItemOutput:   [<return values from function_for_item>]
  */
-public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider, DebugAware, MetricsAware {
+public class TransformByLua extends AbstractOperator implements ConcurrentSafe, ConsumesRowSet, StatsProvider, DebugAware, MetricsAware {
     private String script;
     private String funcName;
     private boolean isItemMode;

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/Liam0205/pineapple/pine-go/internal/config"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
 
@@ -79,49 +80,60 @@ func (f *ColumnFrame) Item(index int, field string) any {
 }
 
 func (f *ColumnFrame) BuildInput(
-	commonFields []string,
-	itemFields []string,
-	commonDefaults map[string]any,
-	itemDefaults map[string]any,
-) *types.OperatorInput {
+	opName string,
+	spec *config.InputFieldSpec,
+) (*types.OperatorInput, error) {
 	f.mu.RLock()
-	cs := make(map[string]any, len(commonFields))
-	for _, field := range commonFields {
+	defer f.mu.RUnlock()
+
+	totalCommon := len(spec.StrictCommon) + len(spec.DefaultedCommon)
+	cs := make(map[string]any, totalCommon)
+
+	// Strict common fields: must exist and be non-nil
+	for _, field := range spec.StrictCommon {
 		v, exists := f.common[field]
-		if exists {
-			if v == nil {
-				if d, ok := commonDefaults[field]; ok {
-					v = d
-				}
-			}
-			cs[field] = v
-		} else if d, ok := commonDefaults[field]; ok {
-			cs[field] = d
+		if !exists || v == nil {
+			return nil, fmt.Errorf("operator %q: required field %q is nil in common", opName, field)
+		}
+		cs[field] = v
+	}
+	// Defaulted common fields: substitute default on nil/missing
+	for _, df := range spec.DefaultedCommon {
+		v, exists := f.common[df.Name]
+		if !exists || v == nil {
+			cs[df.Name] = df.Default
+		} else {
+			cs[df.Name] = v
 		}
 	}
 
+	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem)
 	its := make([]map[string]any, f.rowCount)
 	for i := 0; i < f.rowCount; i++ {
-		row := make(map[string]any, len(itemFields))
-		for _, field := range itemFields {
+		row := make(map[string]any, totalItem)
+
+		// Strict item fields: must be present and non-nil
+		for _, field := range spec.StrictItem {
 			col, colExists := f.columns[field]
-			if colExists && f.present[field][i] {
-				v := col[i]
-				if v == nil {
-					if d, ok := itemDefaults[field]; ok {
-						v = d
-					}
-				}
-				row[field] = v
-			} else if d, ok := itemDefaults[field]; ok {
-				row[field] = d
+			if !colExists || !f.present[field][i] || col[i] == nil {
+				return nil, fmt.Errorf("operator %q: required field %q is nil on item[%d]", opName, field, i)
+			}
+			row[field] = col[i]
+		}
+		// Defaulted item fields: substitute default on nil/missing
+		for _, df := range spec.DefaultedItem {
+			col, colExists := f.columns[df.Name]
+			if colExists && f.present[df.Name][i] && col[i] != nil {
+				row[df.Name] = col[i]
+			} else {
+				row[df.Name] = df.Default
 			}
 		}
+
 		its[i] = row
 	}
-	f.mu.RUnlock()
 
-	return types.NewOperatorInput(cs, its)
+	return types.NewOperatorInput(cs, its), nil
 }
 
 func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error {

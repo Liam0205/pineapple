@@ -41,6 +41,8 @@ func init() {
 // ShuffleBySaltOp reorders items via deterministic FNV hashing.
 type ShuffleBySaltOp struct {
 	pine.MetadataHolder
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 }
 
 func (o *ShuffleBySaltOp) Init(params map[string]any) error { return nil }

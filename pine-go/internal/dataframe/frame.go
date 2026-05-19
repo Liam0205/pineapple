@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"github.com/Liam0205/pineapple/pine-go/internal/config"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
 
@@ -21,7 +22,7 @@ type Frame interface {
 	ItemCount() int
 	Item(index int, field string) any
 
-	BuildInput(commonFields, itemFields []string, commonDefaults, itemDefaults map[string]any) *types.OperatorInput
+	BuildInput(opName string, spec *config.InputFieldSpec) (*types.OperatorInput, error)
 	ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error
 	ToResult(commonOut, itemOut []string) *types.Result
 }
@@ -46,12 +47,10 @@ func New(common map[string]any, items []map[string]any) Frame {
 
 func BuildInput(
 	f Frame,
-	commonFields []string,
-	itemFields []string,
-	commonDefaults map[string]any,
-	itemDefaults map[string]any,
-) *types.OperatorInput {
-	return f.BuildInput(commonFields, itemFields, commonDefaults, itemDefaults)
+	opName string,
+	spec *config.InputFieldSpec,
+) (*types.OperatorInput, error) {
+	return f.BuildInput(opName, spec)
 }
 
 func ApplyOutput(f Frame, out *types.OperatorOutput, opName string, recall bool) error {

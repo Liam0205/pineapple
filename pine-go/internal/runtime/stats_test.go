@@ -98,14 +98,18 @@ func TestStatsIntegrationWithRun(t *testing.T) {
 		Name:     "op_a",
 		Instance: &setCommonOp{field: "x", value: 10.0},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	opB := &CompiledOperator{
 		Name:     "op_b",
 		Instance: &readAndSetOp{readField: "x", writeField: "y"},
 		Config: config.OperatorConfig{
-			TypeName: "rw", Meta: config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
+			TypeName:  "rw",
+			Meta:      config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil),
 		},
 	}
 

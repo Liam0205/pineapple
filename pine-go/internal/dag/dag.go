@@ -31,7 +31,8 @@ type Graph struct {
 // It applies type-aware dependency rules:
 //   - Transform: field-level RAW/WAW/WAR hazard tracking
 //   - Recall: additive writes (parallel with other Recalls), RAW from upstream Transforms
-//   - Filter/Merge/Reorder: barrier semantics (all prior ops finish before, all later ops wait)
+//   - ConsumesRowSet: reads _row_set_ sentinel (waits for row set to stabilize)
+//   - MutatesRowSet: mutating write to _row_set_ sentinel (serializes row-set mutations)
 //   - Observe: read-only RAW dependencies, does not block downstream
 func Build(sequence []string, operators map[string]config.OperatorConfig, opToSubFlow map[string]string) (*Graph, error) {
 	g := &Graph{
@@ -54,15 +55,11 @@ func Build(sequence []string, operators map[string]config.OperatorConfig, opToSu
 		g.NameToIndex[name] = i
 	}
 
-	// Phase 1: Add barrier edges for Filter/Merge/Reorder
-	addBarrierEdges(g, sequence, operators)
-
-	// Phase 2: Apply data hazards for common and item fields separately
-	// (only for non-barrier operators; barrier edges already enforce ordering)
+	// Apply data hazards for common and item fields separately
 	addEdges(g, sequence, operators, true)  // common fields
 	addEdges(g, sequence, operators, false) // item fields
 
-	// Phase 3: Add explicit edges for merge sources
+	// Add explicit edges for merge sources
 	for i, name := range sequence {
 		opCfg := operators[name]
 		for _, src := range opCfg.Sources {
@@ -76,7 +73,7 @@ func Build(sequence []string, operators map[string]config.OperatorConfig, opToSu
 		}
 	}
 
-	// Phase 4: Transitive reduction — remove edges implied by longer paths.
+	// Transitive reduction — remove edges implied by longer paths.
 	reduce(g)
 
 	// Validate: no cycles
@@ -87,35 +84,11 @@ func Build(sequence []string, operators map[string]config.OperatorConfig, opToSu
 	return g, nil
 }
 
-// addBarrierEdges adds barrier edges for Filter, Merge, and Reorder operators.
-// A barrier operator requires all preceding operators to complete before it starts,
-// and all subsequent operators to wait for it to complete.
-func addBarrierEdges(g *Graph, sequence []string, operators map[string]config.OperatorConfig) {
-	n := len(sequence)
-
-	for i, name := range sequence {
-		opCfg := operators[name]
-		opType := types.OperatorType(opCfg.OperatorType)
-		if !opType.IsBarrier() {
-			continue
-		}
-
-		// All preceding operators (in DSL order) must finish before this barrier
-		for j := 0; j < i; j++ {
-			addEdge(g, j, i)
-		}
-
-		// All subsequent operators (in DSL order) must wait for this barrier
-		for j := i + 1; j < n; j++ {
-			addEdge(g, i, j)
-		}
-	}
-}
-
 // fieldTracker tracks the writers and active readers for a single field.
 // It distinguishes additive writes (recall AddItem) from mutating writes
-// (regular SetItem) — additive writes don't conflict with each other but
-// still create RAW dependencies for downstream readers.
+// (regular SetItem). Additive writes (A) follow the rule: "A acts as W
+// toward R/W, acts as R toward other A" — i.e., A-A has no ordering
+// constraint, but A still participates in WAR/WAW edges with R and W.
 type fieldTracker struct {
 	lastMutWriter   int   // last mutating (SetItem) writer; -1 if none
 	additiveWriters []int // AddItem writers (recall) since last mutating write
@@ -124,12 +97,12 @@ type fieldTracker struct {
 
 // addEdges scans the operator sequence and adds data-hazard edges.
 // If isCommon=true, processes common_input/common_output; otherwise item_input/item_output.
-// For item fields, recall operators use additive write semantics (AddItem):
-// they don't conflict with each other (no WAW/WAR), but downstream readers
-// still depend on them (RAW).
 //
-// Barrier operators (Filter/Merge/Reorder) are skipped here since their
-// ordering is fully determined by addBarrierEdges.
+// Additive write hazard rules (A = Additive, R = Read, W = mutating Write):
+//   AAR=WAR, AAW=WAW, RAA=RAW, WAA=WAW, AAA=RAR(no-op)
+//
+// ConsumesRowSet operators read _row_set_ sentinel (waits for row set to stabilize).
+// MutatesRowSet operators perform mutating writes to _row_set_ (serializes mutations).
 func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorConfig, isCommon bool) {
 	fields := make(map[string]*fieldTracker)
 
@@ -144,45 +117,7 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 
 	for i, name := range sequence {
 		opCfg := operators[name]
-		opType := types.OperatorType(opCfg.OperatorType)
 		meta := opCfg.Meta
-
-		// Barrier operators already have full ordering via addBarrierEdges
-		if opType.IsBarrier() {
-			// Still need to update field tracking state so that post-barrier
-			// operators see the barrier as writer/reader where appropriate.
-			var writeFields []string
-			if isCommon {
-				writeFields = meta.CommonOutput
-			} else {
-				writeFields = meta.ItemOutput
-			}
-			for _, field := range writeFields {
-				ft := getOrCreate(field)
-				ft.lastMutWriter = i
-				ft.additiveWriters = nil
-				ft.activeReaders = nil
-			}
-			var readFields []string
-			if isCommon {
-				readFields = meta.CommonInput
-			} else {
-				readFields = meta.ItemInput
-			}
-			for _, field := range readFields {
-				ft := getOrCreate(field)
-				// Reset readers: barrier consumed everything before it
-				ft.activeReaders = []int{i}
-			}
-			// Reset row-set sentinel: barrier mutates the item collection
-			if !isCommon {
-				ft := getOrCreate(rowSetSentinel)
-				ft.lastMutWriter = i
-				ft.additiveWriters = nil
-				ft.activeReaders = nil
-			}
-			continue
-		}
 
 		var readFields, writeFields []string
 		if isCommon {
@@ -193,16 +128,16 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 			writeFields = meta.ItemOutput
 		}
 
-		isAdditiveWrite := !isCommon && opType == types.OpTypeRecall
+		isAdditiveWrite := !isCommon && opCfg.AdditiveWritesRowSet
 
 		// Inject implicit row-set tracking for item pass.
-		// Recall → additive writer on _row_set_ (parallel with other recalls).
-		// RowDependency → reader of _row_set_ (waits for recalls and barriers).
+		// AdditiveWritesRowSet → additive writer on _row_set_ (parallel with other additive writers).
+		// ConsumesRowSet → reader of _row_set_ (waits for additive writers and row-set mutators).
 		if !isCommon {
 			if isAdditiveWrite {
 				writeFields = append(writeFields[:len(writeFields):len(writeFields)], rowSetSentinel)
 			}
-			if opCfg.RowDependency {
+			if opCfg.ConsumesRowSet {
 				readFields = append(readFields[:len(readFields):len(readFields)], rowSetSentinel)
 			}
 		}
@@ -218,12 +153,7 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 			for _, aw := range ft.additiveWriters {
 				addEdge(g, aw, i)
 			}
-			// Observe is read-only and non-blocking: it gets RAW deps but does
-			// not register as an active reader, so later writers won't create
-			// WAR edges waiting for the Observe to finish.
-			if opType != types.OpTypeObserve {
-				ft.activeReaders = append(ft.activeReaders, i)
-			}
+			ft.activeReaders = append(ft.activeReaders, i)
 		}
 
 		// Process writes
@@ -231,8 +161,16 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 			ft := getOrCreate(field)
 
 			if isAdditiveWrite {
-				// Additive write (recall AddItem): no incoming WAW/WAR edges.
-				// Just record as an additive writer for future RAW edges.
+				// Additive write (recall AddItem): wait for preceding mutators
+				// and active readers, then record as additive writer.
+				if ft.lastMutWriter >= 0 {
+					addEdge(g, ft.lastMutWriter, i)
+				}
+				for _, reader := range ft.activeReaders {
+					if reader != i {
+						addEdge(g, reader, i)
+					}
+				}
 				ft.additiveWriters = append(ft.additiveWriters, i)
 			} else {
 				// Mutating write (regular SetItem): full WAW + WAR handling.
@@ -255,6 +193,25 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 				ft.additiveWriters = nil
 				ft.activeReaders = nil
 			}
+		}
+
+		// MutatesRowSet: mutating write to _row_set_
+		if !isCommon && opCfg.MutatesRowSet {
+			ft := getOrCreate(rowSetSentinel)
+			if ft.lastMutWriter >= 0 {
+				addEdge(g, ft.lastMutWriter, i)
+			}
+			for _, aw := range ft.additiveWriters {
+				addEdge(g, aw, i)
+			}
+			for _, reader := range ft.activeReaders {
+				if reader != i {
+					addEdge(g, reader, i)
+				}
+			}
+			ft.lastMutWriter = i
+			ft.additiveWriters = ft.additiveWriters[:0]
+			ft.activeReaders = ft.activeReaders[:0]
 		}
 	}
 }

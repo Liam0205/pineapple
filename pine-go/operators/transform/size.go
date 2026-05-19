@@ -4,7 +4,7 @@
 //
 // Params: (none)
 //
-// This operator should be used with row_dependency=true in the DSL so that
+// This operator implements ConsumesRowSet so that
 // it waits for all recalls and barriers to stabilize the item set.
 //
 // Metadata contract (typical usage):
@@ -35,6 +35,7 @@ func init() {
 type SizeOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
+	pine.ConsumesRowSetMarker
 }
 
 func (o *SizeOp) Init(params map[string]any) error { return nil }

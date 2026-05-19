@@ -18,7 +18,7 @@ import java.util.Objects;
  *   ItemInput:    [<field>]
  *   ItemOutput:   []
  */
-public class FilterCondition extends AbstractOperator {
+public class FilterCondition extends AbstractOperator implements page.liam.pine.ConsumesRowSet, page.liam.pine.MutatesRowSet {
     private Object value;
 
     @Override

@@ -19,7 +19,7 @@
 //   direction="common_to_common":
 //     CommonInput:  [<source_fields...>]
 //     CommonOutput: [<target_fields...>]
-//   direction="item_to_common" (typically used with row_dependency):
+//   direction="item_to_common" (typically used with consumes_row_set):
 //     ItemInput:    [<source_field>]
 //     CommonOutput: [<target_field>]   (collects all item values into a list)
 package transform
@@ -48,6 +48,7 @@ func init() {
 type CopyOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
+	pine.ConsumesRowSetMarker
 	direction string
 }
 

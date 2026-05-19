@@ -11,7 +11,8 @@ public class Registry {
 
     private static final Set<String> RESERVED_KEYS = new HashSet<>(Arrays.asList(
             "type_name", "$metadata", "$code_info", "skip", "recall", "sources",
-            "debug", "row_dependency", "common_defaults", "item_defaults",
+            "debug", "consumes_row_set", "mutates_row_set", "additive_writes_row_set",
+            "common_defaults", "item_defaults",
             "for_branch_control", "data_parallel"
     ));
 

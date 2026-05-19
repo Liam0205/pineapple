@@ -16,7 +16,7 @@ import java.util.*;
  *   ItemInput:    [item_id, _source]
  *   ItemOutput:   [item_id]
  */
-public class MergeDedup extends AbstractOperator {
+public class MergeDedup extends AbstractOperator implements page.liam.pine.ConsumesRowSet, page.liam.pine.MutatesRowSet {
     private String strategy;
 
     @Override

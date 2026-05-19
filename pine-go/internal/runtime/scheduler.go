@@ -118,17 +118,17 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 			}
 
 			// Build input — frame methods are concurrency-safe.
-			commonInput := cop.Config.Meta.CommonInput
-			for _, skipField := range cop.Config.Skip {
-				commonInput = filterOutField(commonInput, skipField)
+			input, buildErr := dataframe.BuildInput(frame, cop.Name, cop.Config.InputSpec)
+			if buildErr != nil {
+				fatalOnce.Do(func() {
+					fatalErr = &types.ExecutionError{
+						Operator: cop.Name,
+						Err:      buildErr,
+					}
+					cancel()
+				})
+				return
 			}
-			input := dataframe.BuildInput(
-				frame,
-				commonInput,
-				cop.Config.Meta.ItemInput,
-				cop.Config.CommonDefaults,
-				cop.Config.ItemDefaults,
-			)
 
 			// Capture input snapshot for debug operators
 			var inputSnapshot map[string]any
@@ -365,14 +365,4 @@ func snapshotOutput(out *types.OperatorOutput) map[string]any {
 		snap["removed_items"] = removed
 	}
 	return snap
-}
-
-func filterOutField(ss []string, exclude string) []string {
-	out := make([]string, 0, len(ss))
-	for _, s := range ss {
-		if s != exclude {
-			out = append(out, s)
-		}
-	}
-	return out
 }
