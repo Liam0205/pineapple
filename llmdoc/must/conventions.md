@@ -93,6 +93,19 @@ Go、Java 和 Python 各自维护独立的算子 Schema 注册表，互不依赖
 - 任一侧可独立生成 codegen 产物（Go 从自身 Registry，Java 通过 `--schema-from-registry`）
 - 共享 fixture 位于仓库根 `fixtures/` 目录（三子目录：`operators/`、`pipelines/`、`errors/`），三侧通过相对路径访问
 
+## 跨引擎对等性必须覆盖能力等价
+
+跨引擎 parity 不仅要求"已有功能的输入输出一致"（函数等价），还要求"下游可用的集成模式一致"（能力等价）。
+
+Pineapple 是基础设施。它的正确性不仅是 API 的输出，还包括它对构建于其上的业务施加的开发范式约束。验证维度：
+
+- **函数等价**：已知端点、已知参数 → 相同输出（cross-validate 已覆盖）
+- **能力等价**：下游能否用相同模式扩展功能（middleware 拦截自定义路径、handler 注册、回调注入）
+- **负空间行为**：未注册路径、未知参数、边界条件在各引擎间表现一致
+- **开发范式对等**：下游项目的典型使用方式（如通过 middleware 添加 /metrics 端点）在三引擎间可行
+
+教训来源：Java PineServer 缺少根 fallback context 导致 middleware 无法拦截自定义路径，Go 侧自然支持。19 轮审计未覆盖此维度。
+
 ## 测试变更应遵循已有测试结构
 
 Pineapple 的持久测试模式有五层：
