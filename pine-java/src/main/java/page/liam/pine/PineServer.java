@@ -96,6 +96,7 @@ public class PineServer {
         httpServer.createContext("/execute", wrapHandler("/execute", this::handleExecute));
         httpServer.createContext("/stats", wrapHandler("/stats", this::handleStats));
         httpServer.createContext("/dag", wrapHandler("/dag", this::handleDAG));
+        httpServer.createContext("/", wrapHandler("_other", this::handleNotFound));
 
         httpServer.start();
 
@@ -223,6 +224,10 @@ public class PineServer {
             if (reloadErrorTotal != null) reloadErrorTotal.inc();
             System.err.println("[pine-server] reload failed: " + e.getMessage());
         }
+    }
+
+    private void handleNotFound(HttpExchange exchange) throws IOException {
+        sendResponse(exchange, 404, Map.of("error", "not found"));
     }
 
     private void handleHealth(HttpExchange exchange) throws IOException {

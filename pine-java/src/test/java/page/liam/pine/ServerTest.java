@@ -181,4 +181,57 @@ public class ServerTest {
         HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
         assertEquals(400, resp.statusCode());
     }
+
+    @Test
+    @Order(7)
+    void testUnknownPathReturns404Json() throws Exception {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl() + "/unknown"))
+                .GET()
+                .build();
+
+        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+        assertEquals(404, resp.statusCode());
+
+        Map<String, Object> body = mapper.readValue(resp.body(), new TypeReference<>() {});
+        assertEquals("not found", body.get("error"));
+    }
+
+    @Test
+    @Order(8)
+    void testMiddlewareCanInterceptCustomPath() throws Exception {
+        Path tmpConfig = Files.createTempFile("pine-mw-test-", ".json");
+        Files.write(tmpConfig, Files.readAllBytes(configFile));
+
+        int mwPort = findFreePort();
+        PineServer mwServer = new PineServer(tmpConfig.toString(), mwPort);
+        mwServer.addMiddleware(next -> exchange -> {
+            if ("/metrics".equals(exchange.getRequestURI().getPath())) {
+                byte[] body = "{\"custom\":true}".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.getResponseBody().close();
+                return;
+            }
+            next.handle(exchange);
+        });
+        mwServer.start();
+
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create("http://localhost:" + mwPort + "/metrics"))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, resp.statusCode());
+
+            Map<String, Object> body = mapper.readValue(resp.body(), new TypeReference<>() {});
+            assertEquals(true, body.get("custom"));
+        } finally {
+            mwServer.stop();
+            Files.deleteIfExists(tmpConfig);
+        }
+    }
 }
