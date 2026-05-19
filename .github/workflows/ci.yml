@@ -124,7 +124,8 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e ".[dev]"
-      - run: python -m pytest tests/ -v --timeout=30
+      - run: pip install pytest-cov
+      - run: python -m pytest tests/ -v --timeout=30 --cov=pine --cov-report=xml:coverage.xml
       - name: Upload pine-python coverage
         uses: actions/upload-artifact@v7
         if: always()
