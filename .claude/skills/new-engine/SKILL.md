@@ -12,7 +12,7 @@ description: 构造一个新语言的 pine-foo 引擎实现，遵循「先对齐
 Pine-Java 验证了这一路径的有效性：
 
 1. **Phase 1 — 逐字翻译**：以 Go 实现为 ground truth，直接翻译数据结构和逻辑，不追求目标语言的惯用写法。
-2. **Phase 2 — 行为对齐**：通过 cross-validate 字节级对比消除 wire format 差异。
+2. **Phase 2 — 行为对齐**：通过 cross-validate 字节级对比消除 wire format 差异。可使用 `engine-cross-validate` 技巧将新的 pine-foo 接入交叉验证框架。
 3. **Phase 3 — 语言重构**：在行为完全一致的前提下，应用目标语言的最佳实践。
 
 这种顺序确保了每一步的重构都有 cross-validate 作为安全网，不会引入行为回归。

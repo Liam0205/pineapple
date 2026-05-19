@@ -1,0 +1,176 @@
+name: Nightly Differential Fuzz
+
+on:
+  schedule:
+    - cron: "0 14 * * *"  # 22:00 UTC+8
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Number of fuzz rounds"
+        default: "5000"
+      stability-runs:
+        description: "Stability check reruns per case"
+        default: "3"
+
+jobs:
+  differential-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: pine-go/go.mod
+          cache-dependency-path: pine-go/go.sum
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+
+      - name: Build Go binary
+        run: go build -o pineapple-run ./cmd/pineapple-run/
+        working-directory: pine-go
+
+      - name: Install Python engine
+        run: pip install -e ".[dev]"
+        working-directory: pine-python
+
+      - name: Build Java engine
+        run: mvn package -B -q -DskipTests
+        working-directory: pine-java
+
+      - name: Run differential fuzz
+        timeout-minutes: 295
+        run: |
+          python3 scripts/differential-fuzz.py \
+            --rounds ${{ inputs.rounds || '5000' }} \
+            --stability-runs ${{ inputs.stability-runs || '3' }} \
+            --go-bin pine-go/pineapple-run \
+            --engines go,python,java \
+            --save-dir /tmp/diff-fuzz-nightly \
+            2>&1 | tee diff-fuzz-output.log || true
+
+      - name: Evaluate results
+        if: always()
+        id: evaluate
+        run: |
+          echo "### Final Status" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          tail -30 diff-fuzz-output.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          FAIL_COUNT=$(grep -oP 'FAIL: \K[0-9]+' diff-fuzz-output.log | tail -1 || echo "0")
+          UNSTABLE_COUNT=$(grep -oP 'UNSTABLE: \K[0-9]+' diff-fuzz-output.log | tail -1 || echo "0")
+
+          if [[ "$FAIL_COUNT" -gt 0 || "$UNSTABLE_COUNT" -gt 0 ]]; then
+            echo "has_divergences=true" >> "$GITHUB_OUTPUT"
+            echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
+            echo "unstable_count=$UNSTABLE_COUNT" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_divergences=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package divergences
+        if: steps.evaluate.outputs.has_divergences == 'true'
+        run: |
+          cd /tmp/diff-fuzz-nightly
+          tar czf /tmp/diff-fuzz-divergences.tar.gz \
+            divergence_*/ unstable_*/ 2>/dev/null || true
+
+      - name: Upload divergences
+        if: steps.evaluate.outputs.has_divergences == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: diff-fuzz-divergences-${{ github.run_number }}
+          path: /tmp/diff-fuzz-divergences.tar.gz
+          retention-days: 14
+
+      - name: Open issue on divergence
+        if: steps.evaluate.outputs.has_divergences == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FAIL_COUNT="${{ steps.evaluate.outputs.fail_count }}"
+          UNSTABLE_COUNT="${{ steps.evaluate.outputs.unstable_count }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ARTIFACT_URL="${RUN_URL}#artifacts"
+
+          gh issue create \
+            --title "Nightly diff-fuzz: ${FAIL_COUNT} failures, ${UNSTABLE_COUNT} unstable ($(date -u +%Y-%m-%d))" \
+            --label "bug,fuzz" \
+            --body "$(cat <<EOF
+          ## Nightly Differential Fuzz Divergence
+
+          | | |
+          |---|---|
+          | **Run** | ${RUN_URL} |
+          | **Date** | $(date -u +%Y-%m-%d) |
+          | **Failures** | ${FAIL_COUNT} |
+          | **Unstable** | ${UNSTABLE_COUNT} |
+          | **Artifact** | [diff-fuzz-divergences-${{ github.run_number }}](${ARTIFACT_URL}) |
+
+          ### Reproduce locally
+
+          1. Download and extract the artifact:
+             \`\`\`bash
+             # Download from: ${ARTIFACT_URL}
+             tar xzf diff-fuzz-divergences.tar.gz
+             cd divergence_NNNNNN/  # pick a case
+             \`\`\`
+
+          2. Run each engine on the case:
+             \`\`\`bash
+             # Go
+             cd pine-go && go run ./cmd/pineapple-run/ -config /path/to/config.json -request /path/to/request.json
+
+             # Python
+             cd pine-python && python -m pine.cli.run -config /path/to/config.json -request /path/to/request.json
+
+             # Java
+             cd pine-java && mvn -q exec:java -Dexec.mainClass="page.liam.pine.Main" -Dexec.args="-config /path/to/config.json -request /path/to/request.json"
+             \`\`\`
+
+          3. Compare outputs. Each case directory contains:
+             - \`config.json\` — pipeline configuration
+             - \`request.json\` — input request
+             - \`info.txt\` — which engines diverged and their return codes
+             - \`{go,python,java}_output.json\` — actual output from each engine
+
+          ### Last 30 lines of fuzz output
+          \`\`\`
+          $(tail -30 diff-fuzz-output.log)
+          \`\`\`
+          EOF
+          )"
+
+      - name: Open issue on workflow failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue create \
+            --title "Nightly diff-fuzz: workflow failed ($(date -u +%Y-%m-%d))" \
+            --label "bug,infra" \
+            --body "$(cat <<EOF
+          ## Nightly Differential Fuzz Workflow Failure
+
+          The nightly diff-fuzz workflow failed due to an infrastructure error
+          (build failure, dependency issue, or script crash).
+
+          | | |
+          |---|---|
+          | **Run** | ${RUN_URL} |
+          | **Date** | $(date -u +%Y-%m-%d) |
+
+          Check the [workflow logs](${RUN_URL}) for details.
+          EOF
+          )"
