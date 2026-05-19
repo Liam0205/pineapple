@@ -7,13 +7,15 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pine.engine import Engine, StaticResourceProvider
 from pine.errors import ConfigError, RegistryError, ValidationError
 from pine.go_format import go_json_marshal
 
 _DEFAULT_MAX_BODY = 10 * 1024 * 1024  # 10MB
+
+Middleware = Callable[["_PineHandler", Callable[[], None]], None]
 
 
 class _ServerState:
@@ -53,31 +55,53 @@ class _ServerState:
 class _PineHandler(BaseHTTPRequestHandler):
     state: _ServerState
     max_body: int
+    middlewares: list[Middleware]
 
     def log_message(self, format, *args):
         pass
 
-    def do_GET(self):
+    def _dispatch(self):
+        """Route request to internal handlers or 404."""
         path = self.path.split("?")[0]
-        if path == "/health":
-            self._json_response(200, {"status": "ok"})
-        elif path == "/stats":
-            self._handle_stats()
-        elif path == "/dag":
-            self._handle_dag()
-        elif path == "/execute":
-            self._method_not_allowed()
+        method = self.command
+
+        if method == "GET":
+            if path == "/health":
+                self._json_response(200, {"status": "ok"})
+            elif path == "/stats":
+                self._handle_stats()
+            elif path == "/dag":
+                self._handle_dag()
+            elif path == "/execute":
+                self._method_not_allowed()
+            else:
+                self._json_response(404, {"error": "not found"})
+        elif method == "POST":
+            if path == "/execute":
+                self._handle_execute()
+            elif path in ("/health", "/stats", "/dag"):
+                self._method_not_allowed()
+            else:
+                self._json_response(404, {"error": "not found"})
         else:
-            self._json_response(404, {"error": "not found"})
+            self._method_not_allowed()
+
+    def _run_middleware_chain(self):
+        """Execute middleware chain, then dispatch."""
+        chain = self.middlewares
+
+        def build_next(idx: int) -> Callable[[], None]:
+            if idx >= len(chain):
+                return self._dispatch
+            return lambda: chain[idx](self, build_next(idx + 1))
+
+        build_next(0)()
+
+    def do_GET(self):
+        self._run_middleware_chain()
 
     def do_POST(self):
-        path = self.path.split("?")[0]
-        if path == "/execute":
-            self._handle_execute()
-        elif path in ("/health", "/stats", "/dag"):
-            self._method_not_allowed()
-        else:
-            self._json_response(404, {"error": "not found"})
+        self._run_middleware_chain()
 
     def _method_not_allowed(self):
         self._json_response(405, {"error": "method not allowed"})
@@ -263,6 +287,75 @@ def _watch_config(state: _ServerState, config_path: str, resource_provider: Any,
             print(f"config reload failed: {e}", file=sys.stderr)
 
 
+class PineServer:
+    """Programmatic Pine server with middleware support.
+
+    Usage:
+        server = PineServer(config_path, port=9000)
+        server.add_middleware(my_middleware)
+        server.start()  # blocks
+    """
+
+    def __init__(self, config_path: str, *, port: int = 8080, host: str = "",
+                 max_body: int = _DEFAULT_MAX_BODY,
+                 resource_provider: Any = None):
+        from pine.operators import ensure_registered
+        ensure_registered()
+
+        self._config_path = config_path
+        self._host = host
+        self._port = port
+        self._max_body = max_body
+        self._resource_provider = resource_provider
+        self._middlewares: list[Middleware] = []
+        self._started = False
+        self._server: HTTPServer | None = None
+        self._stop_event = threading.Event()
+
+    def add_middleware(self, mw: Middleware):
+        if self._started:
+            raise RuntimeError("cannot add middleware after server has started")
+        self._middlewares.append(mw)
+
+    def start(self):
+        """Start the server (blocking)."""
+        self._started = True
+        config_data = Path(self._config_path).read_bytes()
+
+        try:
+            engine = Engine.create(config_data, resource_provider=self._resource_provider)
+        except (ConfigError, RegistryError) as e:
+            raise RuntimeError(f"error creating engine: {e}") from e
+
+        state = _ServerState(engine)
+
+        handler = type("Handler", (_PineHandler,), {
+            "state": state,
+            "max_body": self._max_body,
+            "middlewares": list(self._middlewares),
+        })
+
+        watcher = threading.Thread(
+            target=_watch_config,
+            args=(state, self._config_path, self._resource_provider, self._stop_event),
+            daemon=True,
+        )
+        watcher.start()
+
+        self._server = HTTPServer((self._host, self._port), handler)
+        print(f"Pine server listening on :{self._port}", file=sys.stderr)
+
+        try:
+            self._server.serve_forever()
+        except KeyboardInterrupt:
+            self.stop()
+
+    def stop(self):
+        self._stop_event.set()
+        if self._server:
+            self._server.shutdown()
+
+
 def main():
     from pine.operators import ensure_registered
     ensure_registered()
@@ -321,6 +414,7 @@ def main():
     handler = type("Handler", (_PineHandler,), {
         "state": state,
         "max_body": max_body,
+        "middlewares": [],
     })
 
     stop_event = threading.Event()
