@@ -1,0 +1,33 @@
+[project]
+name = "pine-python"
+version = "0.6.1"
+description = "Pineapple pipeline engine - Python runtime"
+requires-python = ">=3.11"
+dependencies = [
+    "lupa>=2.0",
+    "redis>=5.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+    "hypothesis>=6.100",
+    "pytest-benchmark>=4.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "fuzz: property-based fuzz tests (hypothesis)",
+    "benchmark: performance benchmark tests (pytest-benchmark)",
+]
