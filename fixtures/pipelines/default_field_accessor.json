@@ -1,12 +1,15 @@
 {
-  "name": "Sparse recall additions in column-store mode (multiple recalls with different fields)",
+  "name": "Default field accessor: nil/missing fields substituted with configured defaults",
   "config": {
     "pipeline_config": {
       "operators": {
         "recall_a": {
           "type_name": "recall_static",
           "recall": true,
-          "items": [{"item_id": 1, "score": 90}, {"item_id": 2, "score": 80}],
+          "items": [
+            {"item_id": "a1", "score": 10.0},
+            {"item_id": "a2", "score": 20.0}
+          ],
           "$metadata": {
             "common_input": [], "common_output": [],
             "item_input": [], "item_output": ["item_id", "score"]
@@ -15,33 +18,30 @@
         "recall_b": {
           "type_name": "recall_static",
           "recall": true,
-          "items": [{"item_id": 3, "tag": "hot"}, {"item_id": 4, "tag": "new"}],
+          "items": [
+            {"item_id": "b1", "tag": "hot"},
+            {"item_id": "b2", "tag": "new"}
+          ],
           "$metadata": {
             "common_input": [], "common_output": [],
             "item_input": [], "item_output": ["item_id", "tag"]
           }
         },
-        "merge_step": {
-          "type_name": "merge_dedup",
-          "sources": ["recall_a", "recall_b"],
-          "item_defaults": {"score": null, "tag": null},
-          "$metadata": {
-            "common_input": [], "common_output": [],
-            "item_input": ["item_id", "score", "tag"], "item_output": []
-          }
-        },
-        "sort_id": {
+        "sort_score": {
           "type_name": "reorder_sort",
-          "order": "asc",
+          "order": "desc",
+          "item_defaults": {"score": -999.0},
+          "consumes_row_set": true,
+          "mutates_row_set": true,
           "$metadata": {
             "common_input": [], "common_output": [],
-            "item_input": ["item_id"], "item_output": []
+            "item_input": ["score"], "item_output": []
           }
         }
       }
     },
     "pipeline_group": {
-      "main": {"pipeline": ["recall_a", "recall_b", "merge_step", "sort_id"]}
+      "main": {"pipeline": ["recall_a", "recall_b", "sort_score"]}
     },
     "flow_contract": {
       "common_input": [], "item_input": [],
@@ -51,15 +51,15 @@
   },
   "cases": [
     {
-      "name": "sparse recalls merge sorted by item_id",
+      "name": "sort with defaults: missing scores get -999, items sorted correctly",
       "request": {"common": {}, "items": []},
       "expected": {
         "common": {},
         "items": [
-          {"item_id": 1, "score": 90},
-          {"item_id": 2, "score": 80},
-          {"item_id": 3, "tag": "hot"},
-          {"item_id": 4, "tag": "new"}
+          {"item_id": "a2", "score": 20.0},
+          {"item_id": "a1", "score": 10.0},
+          {"item_id": "b1", "tag": "hot"},
+          {"item_id": "b2", "tag": "new"}
         ]
       }
     }

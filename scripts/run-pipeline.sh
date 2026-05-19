@@ -3,13 +3,14 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $0 --backend go|java -config <pipeline.json> -request <request.json>
+Usage: $0 --backend go|java|python -config <pipeline.json> -request <request.json>
 
 Execute a pipeline with the specified runtime and print the result JSON to stdout.
 
 Examples:
   $0 --backend go -config pipeline.json -request req.json
   $0 --backend java -config pipeline.json -request req.json
+  $0 --backend python -config pipeline.json -request req.json
 EOF
   exit 1
 }
@@ -45,6 +46,10 @@ case "$BACKEND" in
     mvn -B -q compile exec:java \
       -Dexec.mainClass="page.liam.pine.RunCli" \
       -Dexec.args="-config $CONFIG_ABS -request $REQUEST_ABS" 2>/dev/null
+    ;;
+  python)
+    cd "$REPO_ROOT/pine-python"
+    python3 -m pine.cli.run -config "$CONFIG_ABS" -request "$REQUEST_ABS"
     ;;
   *)
     echo "Unknown backend: $BACKEND" >&2; usage ;;

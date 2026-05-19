@@ -1,0 +1,32 @@
+{
+  "name": "Registry error: invalid sort order in reorder_sort init",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "sort_op": {
+          "type_name": "reorder_sort",
+          "order": "invalid_xyz",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["score"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["sort_op"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["score"],
+      "common_output": [],
+      "item_output": ["score"]
+    }
+  },
+  "expected_error": {
+    "type": "RegistryError",
+    "message_contains": "unsupported order"
+  }
+}

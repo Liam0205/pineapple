@@ -6,7 +6,12 @@ errors=""
 
 echo "==> Python lint (ruff)"
 if [[ -d "$REPO_ROOT/apple" ]]; then
-  py_out=$(ruff check "$REPO_ROOT/apple/" 2>&1) || errors+="=== ruff ===\n${py_out}\n\n"
+  py_out=$(ruff check "$REPO_ROOT/apple/" 2>&1) || errors+="=== ruff (apple) ===\n${py_out}\n\n"
+fi
+
+echo "==> Pine-Python lint (ruff)"
+if [[ -d "$REPO_ROOT/pine-python" ]]; then
+  pine_py_out=$(ruff check "$REPO_ROOT/pine-python/" 2>&1) || errors+="=== ruff (pine-python) ===\n${pine_py_out}\n\n"
 fi
 
 echo "==> Go lint (golangci-lint)"

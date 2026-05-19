@@ -1,0 +1,55 @@
+{
+  "name": "Nil recall scalar with defaults: null item_name substituted by configured default",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_products": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "p1", "item_name": "Widget A", "price": 9.99},
+            {"item_id": "p2", "item_name": null, "price": 12.50},
+            {"item_id": "p3", "item_name": "Widget C", "price": 7.00},
+            {"item_id": "p4", "item_name": null, "price": 15.00}
+          ],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "item_name", "price"]
+          }
+        },
+        "truncate_top3": {
+          "type_name": "filter_truncate",
+          "top_n": 3,
+          "item_defaults": {"item_name": ""},
+          "consumes_row_set": true,
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["item_name"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["recall_products", "truncate_top3"]}
+    },
+    "flow_contract": {
+      "common_input": [], "item_input": [],
+      "common_output": [], "item_output": ["item_id", "item_name", "price"]
+    },
+    "storage_mode": "column"
+  },
+  "cases": [
+    {
+      "name": "null item_name substituted with empty string, truncate succeeds",
+      "request": {"common": {}, "items": []},
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "p1", "item_name": "Widget A", "price": 9.99},
+          {"item_id": "p2", "item_name": null, "price": 12.50},
+          {"item_id": "p3", "item_name": "Widget C", "price": 7.00}
+        ]
+      }
+    }
+  ]
+}

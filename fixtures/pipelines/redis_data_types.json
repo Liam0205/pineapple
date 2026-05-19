@@ -1,0 +1,116 @@
+{
+  "name": "redis data types (string, set, list)",
+  "requires": ["redis"],
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "set_string": {
+          "type_name": "transform_redis_set",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "dtype:",
+          "data_type": "string",
+          "$metadata": {
+            "common_input": ["str_key", "str_val"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "set_set": {
+          "type_name": "transform_redis_set",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "dtype:",
+          "data_type": "set",
+          "$metadata": {
+            "common_input": ["set_key", "set_val"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "set_list": {
+          "type_name": "transform_redis_set",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "dtype:",
+          "data_type": "list",
+          "$metadata": {
+            "common_input": ["list_key", "list_val"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "get_string": {
+          "type_name": "transform_redis_get",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "dtype:",
+          "data_type": "string",
+          "sources": ["set_string"],
+          "$metadata": {
+            "common_input": ["str_key"],
+            "common_output": ["str_result", "str_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "get_set": {
+          "type_name": "transform_redis_get",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "dtype:",
+          "data_type": "set",
+          "sources": ["set_set"],
+          "$metadata": {
+            "common_input": ["set_key"],
+            "common_output": ["set_result", "set_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "get_list": {
+          "type_name": "transform_redis_get",
+          "redis_addr": "PLACEHOLDER",
+          "key_prefix": "dtype:",
+          "data_type": "list",
+          "sources": ["set_list"],
+          "$metadata": {
+            "common_input": ["list_key"],
+            "common_output": ["list_result", "list_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["set_string", "set_set", "set_list", "get_string", "get_set", "get_list"]}},
+    "flow_contract": {
+      "common_input": ["str_key", "str_val", "set_key", "set_val", "list_key", "list_val"],
+      "item_input": [],
+      "common_output": ["str_key", "str_val", "set_key", "set_val", "list_key", "list_val", "str_result", "str_hit", "set_result", "set_hit", "list_result", "list_hit"],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "all data types",
+      "request": {
+        "common": {
+          "str_key": "k1", "str_val": "hello",
+          "set_key": "k2", "set_val": ["a", "b", "c"],
+          "list_key": "k3", "list_val": ["x", "y", "z"]
+        },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "str_key": "k1", "str_val": "hello",
+          "set_key": "k2", "set_val": ["a", "b", "c"],
+          "list_key": "k3", "list_val": ["x", "y", "z"],
+          "str_result": "hello", "str_hit": true,
+          "set_result": ["a", "b", "c"], "set_hit": true,
+          "list_result": ["x", "y", "z"], "list_hit": true
+        },
+        "items": []
+      }
+    }
+  ]
+}

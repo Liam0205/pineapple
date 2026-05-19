@@ -1,0 +1,33 @@
+{
+  "name": "Validation error: AdditiveWritesRowSet and MutatesRowSet are mutually exclusive",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "filter_op": {
+          "type_name": "filter_condition",
+          "value": "blocked",
+          "additive_writes_row_set": true,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["status"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["filter_op"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["status"],
+      "common_output": [],
+      "item_output": ["status"]
+    }
+  },
+  "expected_error": {
+    "type": "RegistryError",
+    "message_contains": "mutually exclusive"
+  }
+}

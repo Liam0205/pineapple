@@ -1,0 +1,78 @@
+{
+  "name": "Nil multi-recall merge with defaults: missing cross-recall fields substituted",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_a": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a1", "score": 85.0, "_rank": 1},
+            {"item_id": "a2", "score": 72.0, "_rank": 2}
+          ],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "score", "_rank"]
+          }
+        },
+        "recall_b": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "b1", "tag": "promo", "_rank": 3},
+            {"item_id": "b2", "tag": "new", "_rank": 4},
+            {"item_id": "b3", "tag": "sale", "_rank": 5}
+          ],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "tag", "_rank"]
+          }
+        },
+        "sort_by_rank": {
+          "type_name": "reorder_sort",
+          "order": "asc",
+          "item_defaults": {"_rank": 999},
+          "consumes_row_set": true,
+          "mutates_row_set": true,
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["_rank"], "item_output": []
+          }
+        },
+        "truncate_top4": {
+          "type_name": "filter_truncate",
+          "top_n": 4,
+          "item_defaults": {"score": 0.0, "tag": ""},
+          "consumes_row_set": true,
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["score", "tag"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["recall_a", "recall_b", "sort_by_rank", "truncate_top4"]}
+    },
+    "flow_contract": {
+      "common_input": [], "item_input": [],
+      "common_output": [], "item_output": ["item_id", "score", "tag"]
+    },
+    "storage_mode": "column"
+  },
+  "cases": [
+    {
+      "name": "missing fields substituted with defaults, sort + truncate succeeds",
+      "request": {"common": {}, "items": []},
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "a1", "score": 85.0},
+          {"item_id": "a2", "score": 72.0},
+          {"item_id": "b1", "tag": "promo"},
+          {"item_id": "b2", "tag": "new"}
+        ]
+      }
+    }
+  ]
+}

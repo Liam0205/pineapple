@@ -7,6 +7,8 @@ echo "==> [2/$TOTAL_SECTIONS] Render-DAG parity"
 
 dag_pass=0
 dag_total=0
+py_dag_pass=0
+py_dag_total=0
 
 for fixture in "$REPO_ROOT"/fixtures/pipelines/*.json; do
   [[ -f "$fixture" ]] || continue
@@ -36,10 +38,27 @@ with open('$config_file', 'w') as cf:
 
   if [[ "$go_dot" == "$java_dot" ]]; then
     dag_pass=$((dag_pass + 1))
-    echo "    [$dag_total] $fname (dot) → match"
+    echo "    [$dag_total] $fname (dot) Go vs Java → match"
   else
-    fail "render-dag divergence: $fname (dot)"
+    fail "render-dag divergence (Go vs Java): $fname (dot)"
     diff <(echo "$go_dot") <(echo "$java_dot") >&2 || true
+  fi
+
+  # Go vs Python DOT
+  py_dag_total=$((py_dag_total + 1))
+  py_dot=$(py_run pine.cli.dag -config "$config_file" -format dot 2>/dev/null) || {
+    fail "render-dag Python dot failed: $fname"
+    py_dot=""
+  }
+
+  if [[ -n "$py_dot" ]]; then
+    if [[ "$go_dot" == "$py_dot" ]]; then
+      py_dag_pass=$((py_dag_pass + 1))
+      echo "    [$dag_total] $fname (dot) Go vs Python → match"
+    else
+      fail "render-dag divergence (Go vs Python): $fname (dot)"
+      diff <(echo "$go_dot") <(echo "$py_dot") >&2 || true
+    fi
   fi
 
   # Mermaid format parity
@@ -55,10 +74,27 @@ with open('$config_file', 'w') as cf:
 
   if [[ "$go_mmd" == "$java_mmd" ]]; then
     dag_pass=$((dag_pass + 1))
-    echo "    [$dag_total] $fname (mermaid) → match"
+    echo "    [$dag_total] $fname (mermaid) Go vs Java → match"
   else
-    fail "render-dag divergence: $fname (mermaid)"
+    fail "render-dag divergence (Go vs Java): $fname (mermaid)"
     diff <(echo "$go_mmd") <(echo "$java_mmd") >&2 || true
+  fi
+
+  # Go vs Python Mermaid
+  py_dag_total=$((py_dag_total + 1))
+  py_mmd=$(py_run pine.cli.dag -config "$config_file" -format mermaid 2>/dev/null) || {
+    fail "render-dag Python mermaid failed: $fname"
+    py_mmd=""
+  }
+
+  if [[ -n "$py_mmd" ]]; then
+    if [[ "$go_mmd" == "$py_mmd" ]]; then
+      py_dag_pass=$((py_dag_pass + 1))
+      echo "    [$dag_total] $fname (mermaid) Go vs Python → match"
+    else
+      fail "render-dag divergence (Go vs Python): $fname (mermaid)"
+      diff <(echo "$go_mmd") <(echo "$py_mmd") >&2 || true
+    fi
   fi
 
   # Test collapsed DAG if fixture has non-empty pipeline_map
@@ -77,10 +113,27 @@ with open('$config_file', 'w') as cf:
 
         if [[ "$go_col" == "$java_col" ]]; then
           dag_pass=$((dag_pass + 1))
-          echo "    [$dag_total] $fname ($cfmt collapse=$collapse_level) → match"
+          echo "    [$dag_total] $fname ($cfmt collapse=$collapse_level) Go vs Java → match"
         else
-          fail "render-dag divergence: $fname ($cfmt collapse=$collapse_level)"
+          fail "render-dag divergence (Go vs Java): $fname ($cfmt collapse=$collapse_level)"
           diff <(echo "$go_col") <(echo "$java_col") >&2 || true
+        fi
+
+        # Go vs Python collapsed
+        py_dag_total=$((py_dag_total + 1))
+        py_col=$(py_run pine.cli.dag -config "$config_file" -format "$cfmt" -collapse "$collapse_level" 2>/dev/null) || {
+          fail "render-dag Python $cfmt collapsed=$collapse_level failed: $fname"
+          py_col=""
+        }
+
+        if [[ -n "$py_col" ]]; then
+          if [[ "$go_col" == "$py_col" ]]; then
+            py_dag_pass=$((py_dag_pass + 1))
+            echo "    [$dag_total] $fname ($cfmt collapse=$collapse_level) Go vs Python → match"
+          else
+            fail "render-dag divergence (Go vs Python): $fname ($cfmt collapse=$collapse_level)"
+            diff <(echo "$go_col") <(echo "$py_col") >&2 || true
+          fi
         fi
       done
     done
@@ -88,9 +141,15 @@ with open('$config_file', 'w') as cf:
 done
 
 if [[ $dag_total -gt 0 && $dag_pass -eq $dag_total ]]; then
-  pass "render-dag parity ($dag_pass/$dag_total fixtures)"
+  pass "render-dag parity Go vs Java ($dag_pass/$dag_total fixtures)"
 elif [[ $dag_total -eq 0 ]]; then
-  pass "render-dag parity (no fixtures found, skipped)"
+  pass "render-dag parity Go vs Java (no fixtures found, skipped)"
+fi
+
+if [[ $py_dag_total -gt 0 && $py_dag_pass -eq $py_dag_total ]]; then
+  pass "render-dag parity Go vs Python ($py_dag_pass/$py_dag_total fixtures)"
+elif [[ $py_dag_total -eq 0 ]]; then
+  pass "render-dag parity Go vs Python (no fixtures found, skipped)"
 fi
 
 # Return to caller if sourced, exit if run directly

@@ -1,0 +1,656 @@
+{
+  "name": "high item count stress test",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "truncate": {
+          "type_name": "filter_truncate",
+          "top_n": 50,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [
+              "id",
+              "score"
+            ],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "truncate"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [
+        "id",
+        "score"
+      ],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "score"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "truncate 100 to 50",
+      "request": {
+        "common": {},
+        "items": [
+          {
+            "id": "item_0",
+            "score": 100
+          },
+          {
+            "id": "item_1",
+            "score": 99
+          },
+          {
+            "id": "item_2",
+            "score": 98
+          },
+          {
+            "id": "item_3",
+            "score": 97
+          },
+          {
+            "id": "item_4",
+            "score": 96
+          },
+          {
+            "id": "item_5",
+            "score": 95
+          },
+          {
+            "id": "item_6",
+            "score": 94
+          },
+          {
+            "id": "item_7",
+            "score": 93
+          },
+          {
+            "id": "item_8",
+            "score": 92
+          },
+          {
+            "id": "item_9",
+            "score": 91
+          },
+          {
+            "id": "item_10",
+            "score": 90
+          },
+          {
+            "id": "item_11",
+            "score": 89
+          },
+          {
+            "id": "item_12",
+            "score": 88
+          },
+          {
+            "id": "item_13",
+            "score": 87
+          },
+          {
+            "id": "item_14",
+            "score": 86
+          },
+          {
+            "id": "item_15",
+            "score": 85
+          },
+          {
+            "id": "item_16",
+            "score": 84
+          },
+          {
+            "id": "item_17",
+            "score": 83
+          },
+          {
+            "id": "item_18",
+            "score": 82
+          },
+          {
+            "id": "item_19",
+            "score": 81
+          },
+          {
+            "id": "item_20",
+            "score": 80
+          },
+          {
+            "id": "item_21",
+            "score": 79
+          },
+          {
+            "id": "item_22",
+            "score": 78
+          },
+          {
+            "id": "item_23",
+            "score": 77
+          },
+          {
+            "id": "item_24",
+            "score": 76
+          },
+          {
+            "id": "item_25",
+            "score": 75
+          },
+          {
+            "id": "item_26",
+            "score": 74
+          },
+          {
+            "id": "item_27",
+            "score": 73
+          },
+          {
+            "id": "item_28",
+            "score": 72
+          },
+          {
+            "id": "item_29",
+            "score": 71
+          },
+          {
+            "id": "item_30",
+            "score": 70
+          },
+          {
+            "id": "item_31",
+            "score": 69
+          },
+          {
+            "id": "item_32",
+            "score": 68
+          },
+          {
+            "id": "item_33",
+            "score": 67
+          },
+          {
+            "id": "item_34",
+            "score": 66
+          },
+          {
+            "id": "item_35",
+            "score": 65
+          },
+          {
+            "id": "item_36",
+            "score": 64
+          },
+          {
+            "id": "item_37",
+            "score": 63
+          },
+          {
+            "id": "item_38",
+            "score": 62
+          },
+          {
+            "id": "item_39",
+            "score": 61
+          },
+          {
+            "id": "item_40",
+            "score": 60
+          },
+          {
+            "id": "item_41",
+            "score": 59
+          },
+          {
+            "id": "item_42",
+            "score": 58
+          },
+          {
+            "id": "item_43",
+            "score": 57
+          },
+          {
+            "id": "item_44",
+            "score": 56
+          },
+          {
+            "id": "item_45",
+            "score": 55
+          },
+          {
+            "id": "item_46",
+            "score": 54
+          },
+          {
+            "id": "item_47",
+            "score": 53
+          },
+          {
+            "id": "item_48",
+            "score": 52
+          },
+          {
+            "id": "item_49",
+            "score": 51
+          },
+          {
+            "id": "item_50",
+            "score": 50
+          },
+          {
+            "id": "item_51",
+            "score": 49
+          },
+          {
+            "id": "item_52",
+            "score": 48
+          },
+          {
+            "id": "item_53",
+            "score": 47
+          },
+          {
+            "id": "item_54",
+            "score": 46
+          },
+          {
+            "id": "item_55",
+            "score": 45
+          },
+          {
+            "id": "item_56",
+            "score": 44
+          },
+          {
+            "id": "item_57",
+            "score": 43
+          },
+          {
+            "id": "item_58",
+            "score": 42
+          },
+          {
+            "id": "item_59",
+            "score": 41
+          },
+          {
+            "id": "item_60",
+            "score": 40
+          },
+          {
+            "id": "item_61",
+            "score": 39
+          },
+          {
+            "id": "item_62",
+            "score": 38
+          },
+          {
+            "id": "item_63",
+            "score": 37
+          },
+          {
+            "id": "item_64",
+            "score": 36
+          },
+          {
+            "id": "item_65",
+            "score": 35
+          },
+          {
+            "id": "item_66",
+            "score": 34
+          },
+          {
+            "id": "item_67",
+            "score": 33
+          },
+          {
+            "id": "item_68",
+            "score": 32
+          },
+          {
+            "id": "item_69",
+            "score": 31
+          },
+          {
+            "id": "item_70",
+            "score": 30
+          },
+          {
+            "id": "item_71",
+            "score": 29
+          },
+          {
+            "id": "item_72",
+            "score": 28
+          },
+          {
+            "id": "item_73",
+            "score": 27
+          },
+          {
+            "id": "item_74",
+            "score": 26
+          },
+          {
+            "id": "item_75",
+            "score": 25
+          },
+          {
+            "id": "item_76",
+            "score": 24
+          },
+          {
+            "id": "item_77",
+            "score": 23
+          },
+          {
+            "id": "item_78",
+            "score": 22
+          },
+          {
+            "id": "item_79",
+            "score": 21
+          },
+          {
+            "id": "item_80",
+            "score": 20
+          },
+          {
+            "id": "item_81",
+            "score": 19
+          },
+          {
+            "id": "item_82",
+            "score": 18
+          },
+          {
+            "id": "item_83",
+            "score": 17
+          },
+          {
+            "id": "item_84",
+            "score": 16
+          },
+          {
+            "id": "item_85",
+            "score": 15
+          },
+          {
+            "id": "item_86",
+            "score": 14
+          },
+          {
+            "id": "item_87",
+            "score": 13
+          },
+          {
+            "id": "item_88",
+            "score": 12
+          },
+          {
+            "id": "item_89",
+            "score": 11
+          },
+          {
+            "id": "item_90",
+            "score": 10
+          },
+          {
+            "id": "item_91",
+            "score": 9
+          },
+          {
+            "id": "item_92",
+            "score": 8
+          },
+          {
+            "id": "item_93",
+            "score": 7
+          },
+          {
+            "id": "item_94",
+            "score": 6
+          },
+          {
+            "id": "item_95",
+            "score": 5
+          },
+          {
+            "id": "item_96",
+            "score": 4
+          },
+          {
+            "id": "item_97",
+            "score": 3
+          },
+          {
+            "id": "item_98",
+            "score": 2
+          },
+          {
+            "id": "item_99",
+            "score": 1
+          }
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {
+            "id": "item_0",
+            "score": 100
+          },
+          {
+            "id": "item_1",
+            "score": 99
+          },
+          {
+            "id": "item_2",
+            "score": 98
+          },
+          {
+            "id": "item_3",
+            "score": 97
+          },
+          {
+            "id": "item_4",
+            "score": 96
+          },
+          {
+            "id": "item_5",
+            "score": 95
+          },
+          {
+            "id": "item_6",
+            "score": 94
+          },
+          {
+            "id": "item_7",
+            "score": 93
+          },
+          {
+            "id": "item_8",
+            "score": 92
+          },
+          {
+            "id": "item_9",
+            "score": 91
+          },
+          {
+            "id": "item_10",
+            "score": 90
+          },
+          {
+            "id": "item_11",
+            "score": 89
+          },
+          {
+            "id": "item_12",
+            "score": 88
+          },
+          {
+            "id": "item_13",
+            "score": 87
+          },
+          {
+            "id": "item_14",
+            "score": 86
+          },
+          {
+            "id": "item_15",
+            "score": 85
+          },
+          {
+            "id": "item_16",
+            "score": 84
+          },
+          {
+            "id": "item_17",
+            "score": 83
+          },
+          {
+            "id": "item_18",
+            "score": 82
+          },
+          {
+            "id": "item_19",
+            "score": 81
+          },
+          {
+            "id": "item_20",
+            "score": 80
+          },
+          {
+            "id": "item_21",
+            "score": 79
+          },
+          {
+            "id": "item_22",
+            "score": 78
+          },
+          {
+            "id": "item_23",
+            "score": 77
+          },
+          {
+            "id": "item_24",
+            "score": 76
+          },
+          {
+            "id": "item_25",
+            "score": 75
+          },
+          {
+            "id": "item_26",
+            "score": 74
+          },
+          {
+            "id": "item_27",
+            "score": 73
+          },
+          {
+            "id": "item_28",
+            "score": 72
+          },
+          {
+            "id": "item_29",
+            "score": 71
+          },
+          {
+            "id": "item_30",
+            "score": 70
+          },
+          {
+            "id": "item_31",
+            "score": 69
+          },
+          {
+            "id": "item_32",
+            "score": 68
+          },
+          {
+            "id": "item_33",
+            "score": 67
+          },
+          {
+            "id": "item_34",
+            "score": 66
+          },
+          {
+            "id": "item_35",
+            "score": 65
+          },
+          {
+            "id": "item_36",
+            "score": 64
+          },
+          {
+            "id": "item_37",
+            "score": 63
+          },
+          {
+            "id": "item_38",
+            "score": 62
+          },
+          {
+            "id": "item_39",
+            "score": 61
+          },
+          {
+            "id": "item_40",
+            "score": 60
+          },
+          {
+            "id": "item_41",
+            "score": 59
+          },
+          {
+            "id": "item_42",
+            "score": 58
+          },
+          {
+            "id": "item_43",
+            "score": 57
+          },
+          {
+            "id": "item_44",
+            "score": 56
+          },
+          {
+            "id": "item_45",
+            "score": 55
+          },
+          {
+            "id": "item_46",
+            "score": 54
+          },
+          {
+            "id": "item_47",
+            "score": 53
+          },
+          {
+            "id": "item_48",
+            "score": 52
+          },
+          {
+            "id": "item_49",
+            "score": 51
+          }
+        ]
+      }
+    }
+  ]
+}

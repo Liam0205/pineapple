@@ -1,0 +1,50 @@
+{
+  "name": "float precision edge cases",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "compute": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function process()\n  local v = value\n  return v * 2, v + 0.1, v * v\nend",
+          "function_for_common": "process",
+          "function_for_item": "",
+          "$metadata": {
+            "common_input": ["value"],
+            "common_output": ["doubled", "plus_point_one", "squared"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["compute"]}},
+    "flow_contract": {
+      "common_input": ["value"],
+      "item_input": [],
+      "common_output": ["value", "doubled", "plus_point_one", "squared"],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "integer boundary",
+      "request": {"common": {"value": 42}, "items": []},
+      "expected": {"common": {"value": 42, "doubled": 84, "plus_point_one": 42.1, "squared": 1764}, "items": []}
+    },
+    {
+      "name": "small float",
+      "request": {"common": {"value": 0.1}, "items": []},
+      "expected": {"common": {"value": 0.1, "doubled": 0.2, "plus_point_one": 0.2, "squared": 0.01}, "items": []}
+    },
+    {
+      "name": "large float",
+      "request": {"common": {"value": 1e100}, "items": []},
+      "expected": {"common": {"value": 1e100, "doubled": 2e100, "plus_point_one": 1e100, "squared": 1e200}, "items": []}
+    },
+    {
+      "name": "negative",
+      "request": {"common": {"value": -3.14}, "items": []},
+      "expected": {"common": {"value": -3.14, "doubled": -6.28, "plus_point_one": -3.04, "squared": 9.8596}, "items": []}
+    }
+  ]
+}

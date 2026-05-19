@@ -1,0 +1,47 @@
+{
+  "name": "Sort on boolean field: bool values in sort field trigger type error",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a", "flag": true, "score": 10.0},
+            {"item_id": "b", "flag": false, "score": 20.0},
+            {"item_id": "c", "flag": true, "score": 30.0}
+          ],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "flag", "score"]
+          }
+        },
+        "sort_by_flag": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "consumes_row_set": true,
+          "mutates_row_set": true,
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["flag"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["recall_items", "sort_by_flag"]}
+    },
+    "flow_contract": {
+      "common_input": [], "item_input": [],
+      "common_output": [], "item_output": ["item_id", "flag", "score"]
+    },
+    "storage_mode": "column"
+  },
+  "cases": [
+    {
+      "name": "sort on bool field => type conversion error",
+      "request": {"common": {}, "items": []},
+      "expect_error": "cannot convert bool to float64"
+    }
+  ]
+}
