@@ -1,0 +1,32 @@
+{
+  "name": "Registry error: non-numeric top_n in filter_truncate init",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "trunc_op": {
+          "type_name": "filter_truncate",
+          "top_n": "not_a_number",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["trunc_op"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["x"]
+    }
+  },
+  "expected_error": {
+    "type": "RegistryError",
+    "message_contains": "top_n must be numeric"
+  }
+}

@@ -67,16 +67,37 @@ with open('$REDIS_REQ', 'w') as rf:
       java_redis_result=""
     }
 
+    # Run Python engine (flush Redis first so Python also starts fresh)
+    redis-cli -p $REDIS_PORT FLUSHALL >/dev/null 2>&1
+    py_redis_result=$(py_run pine.cli.run -config "$REDIS_CONFIG" -request "$REDIS_REQ" 2>/dev/null) || {
+      fail "redis integration: Python engine failed on set-then-get"
+      py_redis_result=""
+    }
+
     if [[ -n "$go_redis_result" && -n "$java_redis_result" ]]; then
       go_redis_norm=$(echo "$go_redis_result" | normalize_json)
       java_redis_norm=$(echo "$java_redis_result" | normalize_json)
 
       if [[ "$go_redis_norm" == "$java_redis_norm" ]]; then
         redis_pass=$((redis_pass + 1))
-        echo "    [A] set-then-get parity → match"
+        echo "    [A] set-then-get parity Go vs Java → match"
       else
-        fail "redis integration: set-then-get divergence"
+        fail "redis integration: set-then-get divergence (Go vs Java)"
         diff <(echo "$go_redis_norm" | python3 -m json.tool) <(echo "$java_redis_norm" | python3 -m json.tool) >&2 || true
+      fi
+    fi
+
+    redis_total=$((redis_total + 1))
+    if [[ -n "$go_redis_result" && -n "$py_redis_result" ]]; then
+      go_redis_norm=$(echo "$go_redis_result" | normalize_json)
+      py_redis_norm=$(echo "$py_redis_result" | normalize_json)
+
+      if [[ "$go_redis_norm" == "$py_redis_norm" ]]; then
+        redis_pass=$((redis_pass + 1))
+        echo "    [A] set-then-get parity Go vs Python → match"
+      else
+        fail "redis integration: set-then-get divergence (Go vs Python)"
+        diff <(echo "$go_redis_norm" | python3 -m json.tool) <(echo "$py_redis_norm" | python3 -m json.tool) >&2 || true
       fi
     fi
 
@@ -134,25 +155,47 @@ GETREQ
       java_get_result=""
     }
 
+    # Run Python engine (same pre-populated Redis key)
+    py_get_result=$(py_run pine.cli.run -config "$REDIS_GET_CONFIG" -request "$REDIS_GET_REQ" 2>/dev/null) || {
+      fail "redis integration: Python engine failed on pre-populated get"
+      py_get_result=""
+    }
+
     if [[ -n "$go_get_result" && -n "$java_get_result" ]]; then
       go_get_norm=$(echo "$go_get_result" | normalize_json)
       java_get_norm=$(echo "$java_get_result" | normalize_json)
 
       if [[ "$go_get_norm" == "$java_get_norm" ]]; then
         redis_pass=$((redis_pass + 1))
-        echo "    [B] pre-populated get parity → match"
-
-        # Also verify correctness: result should be "pre_existing"
-        got_value=$(echo "$go_get_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('result',''))")
-        got_hit=$(echo "$go_get_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('cache_hit',''))")
-        if [[ "$got_value" == "pre_existing" && "$got_hit" == "True" ]]; then
-          echo "    [B] correctness verified: result='pre_existing', cache_hit=True"
-        else
-          echo "    [B] WARNING: unexpected values (result='$got_value', cache_hit='$got_hit')" >&2
-        fi
+        echo "    [B] pre-populated get parity Go vs Java → match"
       else
-        fail "redis integration: pre-populated get divergence"
+        fail "redis integration: pre-populated get divergence (Go vs Java)"
         diff <(echo "$go_get_norm" | python3 -m json.tool) <(echo "$java_get_norm" | python3 -m json.tool) >&2 || true
+      fi
+    fi
+
+    redis_total=$((redis_total + 1))
+    if [[ -n "$go_get_result" && -n "$py_get_result" ]]; then
+      go_get_norm=$(echo "$go_get_result" | normalize_json)
+      py_get_norm=$(echo "$py_get_result" | normalize_json)
+
+      if [[ "$go_get_norm" == "$py_get_norm" ]]; then
+        redis_pass=$((redis_pass + 1))
+        echo "    [B] pre-populated get parity Go vs Python → match"
+      else
+        fail "redis integration: pre-populated get divergence (Go vs Python)"
+        diff <(echo "$go_get_norm" | python3 -m json.tool) <(echo "$py_get_norm" | python3 -m json.tool) >&2 || true
+      fi
+    fi
+
+    # Verify correctness: result should be "pre_existing"
+    if [[ -n "$go_get_result" ]]; then
+      got_value=$(echo "$go_get_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('result',''))")
+      got_hit=$(echo "$go_get_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('cache_hit',''))")
+      if [[ "$got_value" == "pre_existing" && "$got_hit" == "True" ]]; then
+        echo "    [B] correctness verified: result='pre_existing', cache_hit=True"
+      else
+        echo "    [B] WARNING: unexpected values (result='$got_value', cache_hit='$got_hit')" >&2
       fi
     fi
 

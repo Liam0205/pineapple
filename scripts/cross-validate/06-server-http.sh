@@ -3,7 +3,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
 
 # ---------- 6. Server HTTP parity ----------
 echo
-echo "==> [6/$TOTAL_SECTIONS] Server HTTP parity (Go vs Java endpoint behavior)"
+echo "==> [6/$TOTAL_SECTIONS] Server HTTP parity (Go vs Java vs Python endpoint behavior)"
 
 # Pick a simple fixture for server testing
 SRV_FIXTURE="$REPO_ROOT/fixtures/pipelines/transform_then_filter.json"
@@ -19,6 +19,7 @@ with open('$SRV_CONFIG', 'w') as cf:
 
 GO_PORT=18901
 JAVA_PORT=18902
+PY_PORT=18907
 
 # Start Go server
 "$WORK_DIR/pineapple-server" -config "$SRV_CONFIG" -addr ":$GO_PORT" &
@@ -28,18 +29,27 @@ GO_SRV_PID=$!
 java -cp "$JAVA_CP" -Dpine.config="$SRV_CONFIG" -Dpine.port=$JAVA_PORT page.liam.pine.PineServer &
 JAVA_SRV_PID=$!
 
+# Start Python server
+(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.server -config "$SRV_CONFIG" -addr ":$PY_PORT") &
+PY_SRV_PID=$!
+
 srv_cleanup() {
   [[ -n "${GO_SRV_PID:-}" ]] && kill $GO_SRV_PID 2>/dev/null || true
   [[ -n "${JAVA_SRV_PID:-}" ]] && kill $JAVA_SRV_PID 2>/dev/null || true
+  [[ -n "${PY_SRV_PID:-}" ]] && kill $PY_SRV_PID 2>/dev/null || true
   wait $GO_SRV_PID 2>/dev/null || true
   wait $JAVA_SRV_PID 2>/dev/null || true
+  wait $PY_SRV_PID 2>/dev/null || true
   GO_SRV_PID=""
   JAVA_SRV_PID=""
+  PY_SRV_PID=""
 }
 trap 'srv_cleanup' EXIT
 
 srv_pass=0
 srv_total=0
+py_srv_pass=0
+py_srv_total=0
 
 if ! srv_ready $GO_PORT; then
   fail "server HTTP: Go server failed to start"
@@ -47,22 +57,34 @@ if ! srv_ready $GO_PORT; then
 elif ! srv_ready $JAVA_PORT; then
   fail "server HTTP: Java server failed to start"
   srv_cleanup
+elif ! srv_ready $PY_PORT; then
+  fail "server HTTP: Python server failed to start"
+  srv_cleanup
 else
-  echo "    Both servers ready."
+  echo "    All three servers ready."
 
   # Test 1: GET /health
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_health=$(curl -s "http://localhost:$GO_PORT/health")
   java_health=$(curl -s "http://localhost:$JAVA_PORT/health")
+  py_health=$(curl -s "http://localhost:$PY_PORT/health")
   if [[ "$go_health" == "$java_health" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [1] GET /health → match"
+    echo "    [1] GET /health Go vs Java → match"
   else
-    fail "server HTTP: /health divergence"
+    fail "server HTTP: /health divergence (Go vs Java)"
+  fi
+  if [[ "$go_health" == "$py_health" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [1] GET /health Go vs Python → match"
+  else
+    fail "server HTTP: /health divergence (Go vs Python)"
   fi
 
   # Test 2: POST /execute with valid request
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   SRV_REQ=$(python3 -c "
 import json
 with open('$SRV_FIXTURE') as f:
@@ -72,63 +94,103 @@ print(json.dumps(req))
 ")
   go_exec=$(curl -s -X POST -H "Content-Type: application/json" -d "$SRV_REQ" "http://localhost:$GO_PORT/execute" | normalize_json)
   java_exec=$(curl -s -X POST -H "Content-Type: application/json" -d "$SRV_REQ" "http://localhost:$JAVA_PORT/execute" | normalize_json)
+  py_exec=$(curl -s -X POST -H "Content-Type: application/json" -d "$SRV_REQ" "http://localhost:$PY_PORT/execute" | normalize_json)
   if [[ "$go_exec" == "$java_exec" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [2] POST /execute (valid) → match"
+    echo "    [2] POST /execute (valid) Go vs Java → match"
   else
-    fail "server HTTP: /execute valid request divergence"
+    fail "server HTTP: /execute valid request divergence (Go vs Java)"
     diff <(echo "$go_exec" | python3 -m json.tool) <(echo "$java_exec" | python3 -m json.tool) >&2 || true
+  fi
+  if [[ "$go_exec" == "$py_exec" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [2] POST /execute (valid) Go vs Python → match"
+  else
+    fail "server HTTP: /execute valid request divergence (Go vs Python)"
+    diff <(echo "$go_exec" | python3 -m json.tool) <(echo "$py_exec" | python3 -m json.tool) >&2 || true
   fi
 
   # Test 3: GET /execute (wrong method) → 405
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_405_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$GO_PORT/execute")
   java_405_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$JAVA_PORT/execute")
-  go_405_body=$(curl -s "http://localhost:$GO_PORT/execute")
-  java_405_body=$(curl -s "http://localhost:$JAVA_PORT/execute")
+  py_405_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PY_PORT/execute")
   if [[ "$go_405_code" == "$java_405_code" ]] && [[ "$go_405_code" == "405" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [3] GET /execute → 405 match"
+    echo "    [3] GET /execute → 405 Go vs Java match"
   else
     fail "server HTTP: /execute wrong method (Go=$go_405_code, Java=$java_405_code)"
+  fi
+  if [[ "$go_405_code" == "$py_405_code" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [3] GET /execute → 405 Go vs Python match"
+  else
+    fail "server HTTP: /execute wrong method (Go=$go_405_code, Python=$py_405_code)"
   fi
 
   # Test 4: POST /execute with invalid JSON → 400
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_400_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$GO_PORT/execute")
   java_400_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$JAVA_PORT/execute")
+  py_400_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$PY_PORT/execute")
   if [[ "$go_400_code" == "$java_400_code" ]] && [[ "$go_400_code" == "400" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [4] POST /execute (bad JSON) → 400 match"
+    echo "    [4] POST /execute (bad JSON) → 400 Go vs Java match"
   else
     fail "server HTTP: /execute bad JSON (Go=$go_400_code, Java=$java_400_code)"
+  fi
+  if [[ "$go_400_code" == "$py_400_code" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [4] POST /execute (bad JSON) → 400 Go vs Python match"
+  else
+    fail "server HTTP: /execute bad JSON (Go=$go_400_code, Python=$py_400_code)"
   fi
 
   # Test 5: GET /dag → DOT output parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_dag=$(curl -s "http://localhost:$GO_PORT/dag")
   java_dag=$(curl -s "http://localhost:$JAVA_PORT/dag")
+  py_dag=$(curl -s "http://localhost:$PY_PORT/dag")
   if [[ "$go_dag" == "$java_dag" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [5] GET /dag → match"
+    echo "    [5] GET /dag Go vs Java → match"
   else
-    fail "server HTTP: /dag divergence"
+    fail "server HTTP: /dag divergence (Go vs Java)"
     diff <(echo "$go_dag") <(echo "$java_dag") >&2 || true
+  fi
+  if [[ "$go_dag" == "$py_dag" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [5] GET /dag Go vs Python → match"
+  else
+    fail "server HTTP: /dag divergence (Go vs Python)"
+    diff <(echo "$go_dag") <(echo "$py_dag") >&2 || true
   fi
 
   # Test 6: GET /stats → structure parity (compare after execute)
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_stats_keys=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
   java_stats_keys=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  py_stats_keys=$(curl -s "http://localhost:$PY_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
   if [[ "$go_stats_keys" == "$java_stats_keys" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [6] GET /stats → top-level keys match"
+    echo "    [6] GET /stats → top-level keys Go vs Java match"
   else
     fail "server HTTP: /stats keys divergence (Go=$go_stats_keys, Java=$java_stats_keys)"
+  fi
+  if [[ "$go_stats_keys" == "$py_stats_keys" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [6] GET /stats → top-level keys Go vs Python match"
+  else
+    fail "server HTTP: /stats keys divergence (Go=$go_stats_keys, Python=$py_stats_keys)"
   fi
 
   # Test 7: GET /stats → operator sub-structure key parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_op_keys=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -149,15 +211,32 @@ if ops:
 else:
     print('[]')
 ")
+  py_op_keys=$(curl -s "http://localhost:$PY_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ops = d.get('operators', {})
+if ops:
+    first = next(iter(ops.values()))
+    print(sorted(first.keys()))
+else:
+    print('[]')
+")
   if [[ "$go_op_keys" == "$java_op_keys" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [7] GET /stats → operator stat keys match"
+    echo "    [7] GET /stats → operator stat keys Go vs Java match"
   else
     fail "server HTTP: /stats operator keys divergence (Go=$go_op_keys, Java=$java_op_keys)"
+  fi
+  if [[ "$go_op_keys" == "$py_op_keys" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [7] GET /stats → operator stat keys Go vs Python match"
+  else
+    fail "server HTTP: /stats operator keys divergence (Go=$go_op_keys, Python=$py_op_keys)"
   fi
 
   # Test 7b: GET /stats → operator name ordering parity (JSON key order)
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_op_names=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -168,39 +247,68 @@ import json, sys
 d = json.load(sys.stdin)
 print(list(d.get('operators', {}).keys()))
 ")
+  py_op_names=$(curl -s "http://localhost:$PY_PORT/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(list(d.get('operators', {}).keys()))
+")
   if [[ "$go_op_names" == "$java_op_names" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [7b] GET /stats → operator name ordering match"
+    echo "    [7b] GET /stats → operator name ordering Go vs Java match"
   else
     fail "server HTTP: /stats operator ordering (Go=$go_op_names, Java=$java_op_names)"
+  fi
+  if [[ "$go_op_names" == "$py_op_names" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [7b] GET /stats → operator name ordering Go vs Python match"
+  else
+    fail "server HTTP: /stats operator ordering (Go=$go_op_names, Python=$py_op_names)"
   fi
 
   # Test 8: POST /execute (bad JSON) → verify 400 body contains "error" field
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_400_body=$(curl -s -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$GO_PORT/execute")
   java_400_body=$(curl -s -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$JAVA_PORT/execute")
+  py_400_body=$(curl -s -X POST -H "Content-Type: application/json" -d "not json" "http://localhost:$PY_PORT/execute")
   go_400_has_error=$(echo "$go_400_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('error' in d)")
   java_400_has_error=$(echo "$java_400_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('error' in d)")
+  py_400_has_error=$(echo "$py_400_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('error' in d)")
   if [[ "$go_400_has_error" == "True" && "$java_400_has_error" == "True" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [8] POST /execute (bad JSON) → 400 body has error field"
+    echo "    [8] POST /execute (bad JSON) → 400 body has error field (Go vs Java)"
   else
     fail "server HTTP: /execute 400 body structure (Go=$go_400_has_error, Java=$java_400_has_error)"
+  fi
+  if [[ "$go_400_has_error" == "True" && "$py_400_has_error" == "True" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [8] POST /execute (bad JSON) → 400 body has error field (Go vs Python)"
+  else
+    fail "server HTTP: /execute 400 body structure (Go=$go_400_has_error, Python=$py_400_has_error)"
   fi
 
   # Test 9: POST /execute (missing required field) → 400 ValidationError
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_val_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$GO_PORT/execute")
   java_val_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$JAVA_PORT/execute")
+  py_val_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$PY_PORT/execute")
   if [[ "$go_val_code" == "$java_val_code" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [9] POST /execute (missing field) → $go_val_code match"
+    echo "    [9] POST /execute (missing field) → $go_val_code Go vs Java match"
   else
     fail "server HTTP: ValidationError status divergence (Go=$go_val_code, Java=$java_val_code)"
+  fi
+  if [[ "$go_val_code" == "$py_val_code" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [9] POST /execute (missing field) → $go_val_code Go vs Python match"
+  else
+    fail "server HTTP: ValidationError status divergence (Go=$go_val_code, Python=$py_val_code)"
   fi
 
   # Test 10: POST /execute with _return_trace → trace structure parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   TRACE_REQ=$(python3 -c "
 import json
 with open('$SRV_FIXTURE') as f:
@@ -211,7 +319,7 @@ print(json.dumps(req))
 ")
   go_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$GO_PORT/execute")
   java_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$JAVA_PORT/execute")
-  # Compare trace structure: field names and count, ignoring timing values
+  py_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$PY_PORT/execute")
   go_trace_struct=$(echo "$go_trace_body" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -232,15 +340,32 @@ if trace:
 else:
     print('no_trace')
 ")
+  py_trace_struct=$(echo "$py_trace_body" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+trace = d.get('trace', [])
+if trace:
+    keys = sorted(trace[0].keys())
+    print(f'count={len(trace)} keys={keys}')
+else:
+    print('no_trace')
+")
   if [[ "$go_trace_struct" == "$java_trace_struct" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [10] POST /execute (_return_trace) → trace structure match ($go_trace_struct)"
+    echo "    [10] POST /execute (_return_trace) → trace structure Go vs Java match ($go_trace_struct)"
   else
     fail "server HTTP: _return_trace structure divergence (Go=$go_trace_struct, Java=$java_trace_struct)"
+  fi
+  if [[ "$go_trace_struct" == "$py_trace_struct" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [10] POST /execute (_return_trace) → trace structure Go vs Python match"
+  else
+    fail "server HTTP: _return_trace structure divergence (Go=$go_trace_struct, Python=$py_trace_struct)"
   fi
 
   # Test 11: POST /execute with oversized body → 413
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   python3 -c "
 import sys
 # Generate ~11MB payload (exceeds 10MB default limit)
@@ -249,115 +374,191 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
 " > "$WORK_DIR/large_body.json"
   go_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$GO_PORT/execute" 2>/dev/null || true)
   java_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$JAVA_PORT/execute" 2>/dev/null || true)
+  py_413_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" --data-binary "@$WORK_DIR/large_body.json" "http://localhost:$PY_PORT/execute" 2>/dev/null || true)
   if [[ "$go_413_code" == "$java_413_code" ]] && [[ "$go_413_code" == "413" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [11] POST /execute (oversized body) → 413 match"
+    echo "    [11] POST /execute (oversized body) → 413 Go vs Java match"
   else
     fail "server HTTP: oversized body (Go=$go_413_code, Java=$java_413_code)"
+  fi
+  if [[ "$go_413_code" == "$py_413_code" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [11] POST /execute (oversized body) → 413 Go vs Python match"
+  else
+    fail "server HTTP: oversized body (Go=$go_413_code, Python=$py_413_code)"
   fi
 
   # Test 12: GET /dag?format=mermaid → Mermaid output parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_dag_mmd=$(curl -s "http://localhost:$GO_PORT/dag?format=mermaid")
   java_dag_mmd=$(curl -s "http://localhost:$JAVA_PORT/dag?format=mermaid")
+  py_dag_mmd=$(curl -s "http://localhost:$PY_PORT/dag?format=mermaid")
   if [[ "$go_dag_mmd" == "$java_dag_mmd" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [12] GET /dag?format=mermaid → match"
+    echo "    [12] GET /dag?format=mermaid Go vs Java → match"
   else
-    fail "server HTTP: /dag?format=mermaid divergence"
+    fail "server HTTP: /dag?format=mermaid divergence (Go vs Java)"
     diff <(echo "$go_dag_mmd") <(echo "$java_dag_mmd") >&2 || true
+  fi
+  if [[ "$go_dag_mmd" == "$py_dag_mmd" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [12] GET /dag?format=mermaid Go vs Python → match"
+  else
+    fail "server HTTP: /dag?format=mermaid divergence (Go vs Python)"
+    diff <(echo "$go_dag_mmd") <(echo "$py_dag_mmd") >&2 || true
   fi
 
   # Test 12b: GET /dag?collapse=1 → collapsed DAG via HTTP endpoint
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_dag_col=$(curl -s "http://localhost:$GO_PORT/dag?collapse=1")
   java_dag_col=$(curl -s "http://localhost:$JAVA_PORT/dag?collapse=1")
+  py_dag_col=$(curl -s "http://localhost:$PY_PORT/dag?collapse=1")
   if [[ "$go_dag_col" == "$java_dag_col" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [12b] GET /dag?collapse=1 → match"
+    echo "    [12b] GET /dag?collapse=1 Go vs Java → match"
   else
-    fail "server HTTP: /dag?collapse=1 divergence"
+    fail "server HTTP: /dag?collapse=1 divergence (Go vs Java)"
     diff <(echo "$go_dag_col") <(echo "$java_dag_col") >&2 || true
+  fi
+  if [[ "$go_dag_col" == "$py_dag_col" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [12b] GET /dag?collapse=1 Go vs Python → match"
+  else
+    fail "server HTTP: /dag?collapse=1 divergence (Go vs Python)"
+    diff <(echo "$go_dag_col") <(echo "$py_dag_col") >&2 || true
   fi
 
   # Test 13: GET /dag?format=invalid → error response parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_dag_inv_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$GO_PORT/dag?format=invalid")
   java_dag_inv_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$JAVA_PORT/dag?format=invalid")
+  py_dag_inv_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PY_PORT/dag?format=invalid")
   go_dag_inv_body=$(curl -s "http://localhost:$GO_PORT/dag?format=invalid" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))" 2>/dev/null || echo "non-json")
   java_dag_inv_body=$(curl -s "http://localhost:$JAVA_PORT/dag?format=invalid" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))" 2>/dev/null || echo "non-json")
+  py_dag_inv_body=$(curl -s "http://localhost:$PY_PORT/dag?format=invalid" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))" 2>/dev/null || echo "non-json")
   if [[ "$go_dag_inv_code" == "$java_dag_inv_code" && "$go_dag_inv_body" == "$java_dag_inv_body" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [13] GET /dag?format=invalid → $go_dag_inv_code + body keys match"
+    echo "    [13] GET /dag?format=invalid → $go_dag_inv_code + body keys Go vs Java match"
   else
     fail "server HTTP: /dag?format=invalid divergence (Go=$go_dag_inv_code/$go_dag_inv_body, Java=$java_dag_inv_code/$java_dag_inv_body)"
+  fi
+  if [[ "$go_dag_inv_code" == "$py_dag_inv_code" && "$go_dag_inv_body" == "$py_dag_inv_body" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [13] GET /dag?format=invalid → $go_dag_inv_code + body keys Go vs Python match"
+  else
+    fail "server HTTP: /dag?format=invalid divergence (Go=$go_dag_inv_code/$go_dag_inv_body, Python=$py_dag_inv_code/$py_dag_inv_body)"
   fi
 
   # Test 14: POST /execute (missing field) → validation error body keys parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_val_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$GO_PORT/execute")
   java_val_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$JAVA_PORT/execute")
+  py_val_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{}]}' "http://localhost:$PY_PORT/execute")
   go_val_keys=$(echo "$go_val_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
   java_val_keys=$(echo "$java_val_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  py_val_keys=$(echo "$py_val_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
   if [[ "$go_val_keys" == "$java_val_keys" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [14] POST /execute (validation error) → body keys match ($go_val_keys)"
+    echo "    [14] POST /execute (validation error) → body keys Go vs Java match ($go_val_keys)"
   else
     fail "server HTTP: validation error body keys (Go=$go_val_keys, Java=$java_val_keys)"
+  fi
+  if [[ "$go_val_keys" == "$py_val_keys" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [14] POST /execute (validation error) → body keys Go vs Python match"
+  else
+    fail "server HTTP: validation error body keys (Go=$go_val_keys, Python=$py_val_keys)"
   fi
 
   # Test 15: Content-Type header parity across endpoints
   srv_total=$((srv_total + 1))
-  ct_pass=true
+  py_srv_total=$((py_srv_total + 1))
+  ct_java_pass=true
+  ct_py_pass=true
   for ep in "/health" "/stats" "/dag"; do
     go_ct=$(curl -s -o /dev/null -w "%{content_type}" "http://localhost:$GO_PORT$ep")
     java_ct=$(curl -s -o /dev/null -w "%{content_type}" "http://localhost:$JAVA_PORT$ep")
+    py_ct=$(curl -s -o /dev/null -w "%{content_type}" "http://localhost:$PY_PORT$ep")
     if [[ "$go_ct" != "$java_ct" ]]; then
-      ct_pass=false
+      ct_java_pass=false
       fail "server HTTP: Content-Type mismatch for $ep (Go='$go_ct', Java='$java_ct')"
       break
     fi
+    if [[ "$go_ct" != "$py_ct" ]]; then
+      ct_py_pass=false
+      fail "server HTTP: Content-Type mismatch for $ep (Go='$go_ct', Python='$py_ct')"
+      break
+    fi
   done
-  # Also check POST /execute
   go_ct=$(curl -s -o /dev/null -w "%{content_type}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute")
   java_ct=$(curl -s -o /dev/null -w "%{content_type}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute")
+  py_ct=$(curl -s -o /dev/null -w "%{content_type}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$PY_PORT/execute")
   if [[ "$go_ct" != "$java_ct" ]]; then
-    ct_pass=false
+    ct_java_pass=false
     fail "server HTTP: Content-Type mismatch for /execute (Go='$go_ct', Java='$java_ct')"
   fi
-  if $ct_pass; then
+  if [[ "$go_ct" != "$py_ct" ]]; then
+    ct_py_pass=false
+    fail "server HTTP: Content-Type mismatch for /execute (Go='$go_ct', Python='$py_ct')"
+  fi
+  if $ct_java_pass; then
     srv_pass=$((srv_pass + 1))
-    echo "    [15] Content-Type headers → match across all endpoints"
+    echo "    [15] Content-Type headers → Go vs Java match across all endpoints"
+  fi
+  if $ct_py_pass; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [15] Content-Type headers → Go vs Python match across all endpoints"
   fi
 
-  # Test 15b: POST /health → 405 method not allowed (both sides)
+  # Test 15b: POST /health → 405 method not allowed (all sides)
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_health_post=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$GO_PORT/health")
   java_health_post=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$JAVA_PORT/health")
+  py_health_post=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$PY_PORT/health")
   if [[ "$go_health_post" == "$java_health_post" && "$go_health_post" == "405" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [15b] POST /health → 405 match"
+    echo "    [15b] POST /health → 405 Go vs Java match"
   else
     fail "server HTTP: POST /health method check (Go=$go_health_post, Java=$java_health_post)"
+  fi
+  if [[ "$go_health_post" == "$py_health_post" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [15b] POST /health → 405 Go vs Python match"
+  else
+    fail "server HTTP: POST /health method check (Go=$go_health_post, Python=$py_health_post)"
   fi
 
   # Test 15c: POST /execute without "common" key → 400 + error message parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_nocommon_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute")
   java_nocommon_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute")
+  py_nocommon_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$PY_PORT/execute")
   go_nocommon_msg=$(curl -s -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$GO_PORT/execute" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
   java_nocommon_msg=$(curl -s -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$JAVA_PORT/execute" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
+  py_nocommon_msg=$(curl -s -X POST -H "Content-Type: application/json" -d '{"items":[{"x":1}]}' "http://localhost:$PY_PORT/execute" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null)
   if [[ "$go_nocommon_code" == "$java_nocommon_code" && "$go_nocommon_msg" == "$java_nocommon_msg" ]]; then
     srv_pass=$((srv_pass + 1))
-    echo "    [15c] POST /execute (no common) → $go_nocommon_code + error='$go_nocommon_msg'"
+    echo "    [15c] POST /execute (no common) → $go_nocommon_code + error Go vs Java match"
   else
     fail "server HTTP: missing common (Go=$go_nocommon_code/'$go_nocommon_msg', Java=$java_nocommon_code/'$java_nocommon_msg')"
+  fi
+  if [[ "$go_nocommon_code" == "$py_nocommon_code" && "$go_nocommon_msg" == "$py_nocommon_msg" ]]; then
+    py_srv_pass=$((py_srv_pass + 1))
+    echo "    [15c] POST /execute (no common) → $go_nocommon_code + error Go vs Python match"
+  else
+    fail "server HTTP: missing common (Go=$go_nocommon_code/'$go_nocommon_msg', Python=$py_nocommon_code/'$py_nocommon_msg')"
   fi
 
   srv_cleanup
 fi
 
-# Second server pair: test 500 partial result body (Lua error config)
+# Second server trio: test 500 partial result body (Lua error config)
 SRV_ERR_CONFIG="$WORK_DIR/srv_err_config.json"
 cat > "$SRV_ERR_CONFIG" << 'CFGEOF'
 {
@@ -387,6 +588,7 @@ CFGEOF
 
 GO_ERR_PORT=18903
 JAVA_ERR_PORT=18904
+PY_ERR_PORT=18908
 
 "$WORK_DIR/pineapple-server" -config "$SRV_ERR_CONFIG" -addr ":$GO_ERR_PORT" &
 GO_SRV_PID=$!
@@ -394,29 +596,47 @@ GO_SRV_PID=$!
 java -cp "$JAVA_CP" -Dpine.config="$SRV_ERR_CONFIG" -Dpine.port=$JAVA_ERR_PORT page.liam.pine.PineServer &
 JAVA_SRV_PID=$!
 
-if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT; then
+(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.server -config "$SRV_ERR_CONFIG" -addr ":$PY_ERR_PORT") &
+PY_SRV_PID=$!
+
+if srv_ready $GO_ERR_PORT && srv_ready $JAVA_ERR_PORT && srv_ready $PY_ERR_PORT; then
   # Test 16: POST /execute (runtime error) → 500 + error field + body structure
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   go_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_ERR_PORT/execute")
   java_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_ERR_PORT/execute")
+  py_500_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$PY_ERR_PORT/execute")
   go_500_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$GO_ERR_PORT/execute")
   java_500_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$JAVA_ERR_PORT/execute")
+  py_500_body=$(curl -s -X POST -H "Content-Type: application/json" -d '{"common":{},"items":[{"x":1}]}' "http://localhost:$PY_ERR_PORT/execute")
 
   go_500_keys=$(echo "$go_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
   java_500_keys=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
+  py_500_keys=$(echo "$py_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
 
   if [[ "$go_500_code" == "500" && "$java_500_code" == "500" && "$go_500_keys" == "$java_500_keys" ]]; then
-    # Both 500 with same key structure
     go_has_err=$(echo "$go_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
     java_has_err=$(echo "$java_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
     if [[ "$go_has_err" == "True" && "$java_has_err" == "True" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [16] POST /execute (runtime error) → 500 + body keys match + error contains 'intentional'"
+      echo "    [16] POST /execute (runtime error) → 500 + body keys + error contains 'intentional' (Go vs Java)"
     else
       fail "server HTTP: 500 error message mismatch (Go=$go_has_err, Java=$java_has_err)"
     fi
   else
     fail "server HTTP: 500 response divergence (Go=$go_500_code keys=$go_500_keys, Java=$java_500_code keys=$java_500_keys)"
+  fi
+
+  if [[ "$go_500_code" == "$py_500_code" && "$go_500_keys" == "$py_500_keys" ]]; then
+    py_has_err=$(echo "$py_500_body" | python3 -c "import json,sys; d=json.load(sys.stdin); print('intentional' in d.get('error',''))")
+    if [[ "$py_has_err" == "True" ]]; then
+      py_srv_pass=$((py_srv_pass + 1))
+      echo "    [16] POST /execute (runtime error) → 500 + body keys + error contains 'intentional' (Go vs Python)"
+    else
+      fail "server HTTP: 500 error message mismatch (Python=$py_has_err)"
+    fi
+  else
+    fail "server HTTP: 500 response divergence (Go=$go_500_code keys=$go_500_keys, Python=$py_500_code keys=$py_500_keys)"
   fi
 
   srv_cleanup
@@ -425,7 +645,7 @@ else
   srv_cleanup
 fi
 
-# Third server pair: test warnings format (Redis unreachable + fail_on_error=false)
+# Third server trio: test warnings format (Redis unreachable + fail_on_error=false)
 SRV_WARN_CONFIG="$WORK_DIR/srv_warn_config.json"
 cat > "$SRV_WARN_CONFIG" << 'CFGEOF'
 {
@@ -459,6 +679,7 @@ CFGEOF
 
 GO_WARN_PORT=18905
 JAVA_WARN_PORT=18906
+PY_WARN_PORT=18909
 
 "$WORK_DIR/pineapple-server" -config "$SRV_WARN_CONFIG" -addr ":$GO_WARN_PORT" &
 GO_SRV_PID=$!
@@ -466,9 +687,13 @@ GO_SRV_PID=$!
 java -cp "$JAVA_CP" -Dpine.config="$SRV_WARN_CONFIG" -Dpine.port=$JAVA_WARN_PORT page.liam.pine.PineServer &
 JAVA_SRV_PID=$!
 
-if srv_ready $GO_WARN_PORT && srv_ready $JAVA_WARN_PORT; then
+(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.server -config "$SRV_WARN_CONFIG" -addr ":$PY_WARN_PORT") &
+PY_SRV_PID=$!
+
+if srv_ready $GO_WARN_PORT && srv_ready $JAVA_WARN_PORT && srv_ready $PY_WARN_PORT; then
   # Test 17: POST /execute with warning-producing config → 200 + warnings field parity
   srv_total=$((srv_total + 1))
+  py_srv_total=$((py_srv_total + 1))
   WARN_REQ='{"common":{"uid":"x"},"items":[]}'
   go_warn_resp=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$GO_WARN_PORT/execute")
   go_warn_code="${go_warn_resp##*$'\n'}"
@@ -476,17 +701,17 @@ if srv_ready $GO_WARN_PORT && srv_ready $JAVA_WARN_PORT; then
   java_warn_resp=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$JAVA_WARN_PORT/execute")
   java_warn_code="${java_warn_resp##*$'\n'}"
   java_warn_body="${java_warn_resp%$'\n'*}"
+  py_warn_resp=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "$WARN_REQ" "http://localhost:$PY_WARN_PORT/execute")
+  py_warn_code="${py_warn_resp##*$'\n'}"
+  py_warn_body="${py_warn_resp%$'\n'*}"
 
-  # Both should return 200
   if [[ "$go_warn_code" == "200" && "$java_warn_code" == "200" ]]; then
-    # Both should have "warnings" array with matching prefix
     go_warn_prefix=$(echo "$go_warn_body" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 ws = d.get('warnings', [])
 if ws:
     w = ws[0]
-    # Extract prefix up to the Redis error details
     idx = w.find('): ')
     print(w[:idx+1] if idx >= 0 else w)
 else:
@@ -505,12 +730,45 @@ else:
 ")
     if [[ -n "$go_warn_prefix" && "$go_warn_prefix" == "$java_warn_prefix" ]]; then
       srv_pass=$((srv_pass + 1))
-      echo "    [17] POST /execute (warning) → 200 + warnings prefix match: $go_warn_prefix"
+      echo "    [17] POST /execute (warning) → 200 + warnings prefix Go vs Java match: $go_warn_prefix"
     else
       fail "server HTTP: warning prefix divergence (Go='$go_warn_prefix', Java='$java_warn_prefix')"
     fi
   else
     fail "server HTTP: warning test status code (Go=$go_warn_code, Java=$java_warn_code)"
+  fi
+
+  if [[ "$go_warn_code" == "$py_warn_code" ]]; then
+    py_warn_prefix=$(echo "$py_warn_body" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ws = d.get('warnings', [])
+if ws:
+    w = ws[0]
+    idx = w.find('): ')
+    print(w[:idx+1] if idx >= 0 else w)
+else:
+    print('')
+")
+    go_warn_prefix=$(echo "$go_warn_body" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ws = d.get('warnings', [])
+if ws:
+    w = ws[0]
+    idx = w.find('): ')
+    print(w[:idx+1] if idx >= 0 else w)
+else:
+    print('')
+")
+    if [[ -n "$go_warn_prefix" && "$go_warn_prefix" == "$py_warn_prefix" ]]; then
+      py_srv_pass=$((py_srv_pass + 1))
+      echo "    [17] POST /execute (warning) → 200 + warnings prefix Go vs Python match"
+    else
+      fail "server HTTP: warning prefix divergence (Go='$go_warn_prefix', Python='$py_warn_prefix')"
+    fi
+  else
+    fail "server HTTP: warning test status code (Go=$go_warn_code, Python=$py_warn_code)"
   fi
 
   srv_cleanup
@@ -520,9 +778,15 @@ else
 fi
 
 if [[ $srv_total -gt 0 && $srv_pass -eq $srv_total ]]; then
-  pass "server HTTP parity ($srv_pass/$srv_total checks)"
+  pass "server HTTP parity Go vs Java ($srv_pass/$srv_total checks)"
 elif [[ $srv_total -eq 0 ]]; then
-  pass "server HTTP parity (skipped)"
+  pass "server HTTP parity Go vs Java (skipped)"
+fi
+
+if [[ $py_srv_total -gt 0 && $py_srv_pass -eq $py_srv_total ]]; then
+  pass "server HTTP parity Go vs Python ($py_srv_pass/$py_srv_total checks)"
+elif [[ $py_srv_total -eq 0 ]]; then
+  pass "server HTTP parity Go vs Python (skipped)"
 fi
 
 # Return to caller if sourced, exit if run directly

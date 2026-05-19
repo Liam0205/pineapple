@@ -1,0 +1,114 @@
+{
+  "name": "multi-recall row-set ordering (ConsumesRowSet semantics)",
+  "description": "Regression test for differential fuzz divergence #945: operators between recalls must wait for preceding recall via ConsumesRowSet before iterating items.",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+      "operators": {
+        "recall_a": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a1", "item_score": 10},
+            {"item_id": "a2", "item_score": 20},
+            {"item_id": "a3", "item_score": 30}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_score"]
+          }
+        },
+        "dispatch_tag": {
+          "type_name": "transform_dispatch",
+          "$metadata": {
+            "common_input": ["tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_tag"]
+          }
+        },
+        "count_after_a": {
+          "type_name": "transform_size",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["count_a"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "recall_b": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "b1", "item_score": 40},
+            {"item_id": "b2", "item_score": 50}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_score"]
+          }
+        },
+        "count_after_b": {
+          "type_name": "transform_size",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["count_b"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "sort_desc": {
+          "type_name": "reorder_sort",
+          "order": "desc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "recall_a",
+          "dispatch_tag",
+          "count_after_a",
+          "recall_b",
+          "count_after_b",
+          "sort_desc"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["tag"],
+      "item_input": [],
+      "common_output": ["count_a", "count_b"],
+      "item_output": ["item_id", "item_score", "item_tag"]
+    }
+  },
+  "cases": [
+    {
+      "name": "size operators see correct item count at each pipeline position",
+      "request": {
+        "common": {"tag": "test"},
+        "items": []
+      },
+      "expected": {
+        "common": {"count_a": 3, "count_b": 5},
+        "items": [
+          {"item_id": "b2", "item_score": 50},
+          {"item_id": "b1", "item_score": 40},
+          {"item_id": "a3", "item_score": 30, "item_tag": "test"},
+          {"item_id": "a2", "item_score": 20, "item_tag": "test"},
+          {"item_id": "a1", "item_score": 10, "item_tag": "test"}
+        ]
+      }
+    }
+  ]
+}

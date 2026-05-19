@@ -42,19 +42,23 @@ echo "==> Bumping Pineapple to v${NEW_VERSION}"
 echo
 
 # --- 1. version.go ---
-echo "[1/8] Updating pine-go/version.go"
+echo "[1/10] Updating pine-go/version.go"
 perl -0pi -e "s/const Version = \".*\"/const Version = \"${NEW_VERSION}\"/" pine-go/version.go
 
 # --- 2. apple/_version.py ---
-echo "[2/8] Updating apple/_version.py"
+echo "[2/10] Updating apple/_version.py"
 perl -0pi -e "s/__version__ = \".*\"/__version__ = \"${NEW_VERSION}\"/" apple/_version.py
 
 # --- 3. pine-java/pom.xml ---
-echo "[3/8] Updating pine-java/pom.xml"
+echo "[3/10] Updating pine-java/pom.xml"
 perl -0pi -e "s|<version>[^<]+</version>(\\s*<packaging>jar</packaging>)|<version>${NEW_VERSION}</version>\$1|" pine-java/pom.xml
 
+# --- 3b. pine-python/pyproject.toml ---
+echo "[3b/10] Updating pine-python/pyproject.toml"
+perl -pi -e "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" pine-python/pyproject.toml
+
 # --- 4. JSON fixtures and examples ---
-echo "[4/8] Updating _PINEAPPLE_VERSION in fixtures and examples"
+echo "[4/10] Updating _PINEAPPLE_VERSION in fixtures and examples"
 updated_files=()
 for f in pipeline.json pine-go/testdata/*.json fixtures/**/*.json; do
   [[ -f "$f" ]] || continue
@@ -78,20 +82,28 @@ else
 fi
 
 # --- 5. Codegen ---
-echo "[5/8] Running codegen"
+echo "[5/10] Running codegen"
 (cd pine-go && go run ./cmd/pineapple-codegen -output ../apple_generated -doc-dir ../doc/operators -operators-dir operators)
 
 # --- 6. Go tests ---
-echo "[6/8] Running Go tests"
+echo "[6/10] Running Go tests"
 (cd pine-go && go test ./...)
 
-# --- 7. Python tests ---
-echo "[7/8] Running Python tests"
+# --- 7. Python tests (apple) ---
+echo "[7/10] Running Python tests (apple)"
 python3 -m pytest apple/tests/ -v
 
-# --- 8. Java tests ---
-echo "[8/8] Running Java tests"
+# --- 8. Pine-Python tests ---
+echo "[8/10] Running Pine-Python tests"
+(cd pine-python && python3 -m pytest tests/ -v)
+
+# --- 9. Java tests ---
+echo "[9/10] Running Java tests"
 (cd pine-java && mvn test -B -q)
+
+# --- 10. Cross-validation ---
+echo "[10/10] Running cross-validation"
+bash scripts/cross-validate.sh
 
 echo
 echo "==> Done. Version bumped to ${NEW_VERSION}."

@@ -28,7 +28,7 @@
         },
         "dispatch_uid": {
           "type_name": "transform_dispatch",
-          "row_dependency": true,
+          "consumes_row_set": true,
           "$metadata": {
             "common_input": ["user_id"],
             "common_output": [],

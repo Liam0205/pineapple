@@ -1,0 +1,58 @@
+{
+  "name": "Nil multi-recall merge: cross-recall field absence triggers strict accessor error",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_a": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a1", "score": 85.0},
+            {"item_id": "a2", "score": 72.0}
+          ],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "score"]
+          }
+        },
+        "recall_b": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "b1", "tag": "promo"},
+            {"item_id": "b2", "tag": "new"},
+            {"item_id": "b3", "tag": "sale"}
+          ],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "tag"]
+          }
+        },
+        "truncate_top4": {
+          "type_name": "filter_truncate",
+          "top_n": 4,
+          "consumes_row_set": true,
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["score", "tag"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["recall_a", "recall_b", "truncate_top4"]}
+    },
+    "flow_contract": {
+      "common_input": [], "item_input": [],
+      "common_output": [], "item_output": ["item_id", "score", "tag"]
+    },
+    "storage_mode": "column"
+  },
+  "cases": [
+    {
+      "name": "merged items missing cross-recall fields triggers error",
+      "request": {"common": {}, "items": []},
+      "expect_error": "is nil on item"
+    }
+  ]
+}

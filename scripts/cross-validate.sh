@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-validation entry point: run Go vs Java parity checks.
+# Cross-validation entry point: run Go vs Java vs Python parity checks.
 #
 # Usage:
 #   bash scripts/cross-validate.sh          # Run all sections

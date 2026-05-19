@@ -56,13 +56,25 @@ timeout 3 java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$TIMEOUT_CONFIG" -r
 # Both should have been killed (exit 124 from timeout, or 137 from SIGKILL)
 if [[ $go_exit -ne 0 && $java_exit -ne 0 ]]; then
   cancel_pass=$((cancel_pass + 1))
-  echo "    [1] slow Lua + timeout 3s → both killed (Go=$go_exit, Java=$java_exit)"
+  echo "    [1] slow Lua + timeout 3s → Go & Java both killed (Go=$go_exit, Java=$java_exit)"
 elif [[ $go_exit -eq 0 && $java_exit -eq 0 ]]; then
   # Both finished fast enough — still parity
   cancel_pass=$((cancel_pass + 1))
   echo "    [1] slow Lua + timeout 3s → both completed (parity OK)"
 else
-  fail "cancellation parity: divergence (Go exit=$go_exit, Java exit=$java_exit)"
+  fail "cancellation parity (Go vs Java): divergence (Go exit=$go_exit, Java exit=$java_exit)"
+fi
+
+# Test 1b: Python timeout
+cancel_total=$((cancel_total + 1))
+py_exit=0
+timeout 3 bash -c "cd '$REPO_ROOT/pine-python' && python3 -m pine.cli.run -config '$TIMEOUT_CONFIG' -request '$TIMEOUT_REQ'" >/dev/null 2>&1 || py_exit=$?
+
+if [[ $py_exit -ne 0 ]]; then
+  cancel_pass=$((cancel_pass + 1))
+  echo "    [1b] slow Lua + timeout 3s → Python killed (exit=$py_exit)"
+else
+  fail "cancellation parity (Python): Python did not timeout as expected (exit=$py_exit)"
 fi
 
 # Test 2: Lua error produces same error behavior from both engines
@@ -105,9 +117,9 @@ if [[ "$go_lua_ok" == "false" && "$java_lua_ok" == "false" ]]; then
   # Both failed — check both mention "intentional"
   if echo "$go_lua_err" | grep -qi "intentional" && echo "$java_lua_err" | grep -qi "intentional"; then
     cancel_pass=$((cancel_pass + 1))
-    echo "    [2] Lua error() → both failed with expected message"
+    echo "    [2] Lua error() → Go & Java both failed with expected message"
   else
-    fail "cancellation parity: Lua error message mismatch"
+    fail "cancellation parity (Go vs Java): Lua error message mismatch"
     echo "      Go:   $go_lua_err" | head -2 >&2
     echo "      Java: $java_lua_err" | head -2 >&2
   fi
@@ -115,7 +127,23 @@ elif [[ "$go_lua_ok" == "$java_lua_ok" ]]; then
   cancel_pass=$((cancel_pass + 1))
   echo "    [2] Lua error() → both behaved same (ok=$go_lua_ok)"
 else
-  fail "cancellation parity: Lua error divergence (Go_ok=$go_lua_ok, Java_ok=$java_lua_ok)"
+  fail "cancellation parity (Go vs Java): Lua error divergence (Go_ok=$go_lua_ok, Java_ok=$java_lua_ok)"
+fi
+
+# Test 2b: Python Lua error
+cancel_total=$((cancel_total + 1))
+py_lua_err=$(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.run -config "$ERR_LUA_CONFIG" -request "$TIMEOUT_REQ" 2>&1) && py_lua_ok=true || py_lua_ok=false
+
+if [[ "$py_lua_ok" == "false" ]]; then
+  if echo "$py_lua_err" | grep -qi "intentional"; then
+    cancel_pass=$((cancel_pass + 1))
+    echo "    [2b] Lua error() → Python failed with expected message"
+  else
+    fail "cancellation parity (Python): Lua error message missing 'intentional'"
+    echo "      Python: $py_lua_err" | head -2 >&2
+  fi
+else
+  fail "cancellation parity (Python): Python did not fail on Lua error (ok=$py_lua_ok)"
 fi
 
 if [[ $cancel_total -gt 0 && $cancel_pass -eq $cancel_total ]]; then

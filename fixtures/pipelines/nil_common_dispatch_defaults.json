@@ -1,0 +1,60 @@
+{
+  "name": "Nil common dispatch with defaults: null item_label substituted by configured default",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "x1", "score": 50.0},
+            {"item_id": "x2", "score": 30.0},
+            {"item_id": "x3", "score": 70.0}
+          ],
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": [], "item_output": ["item_id", "score"]
+          }
+        },
+        "dispatch_label": {
+          "type_name": "transform_dispatch",
+          "common_defaults": {"label": "unknown"},
+          "$metadata": {
+            "common_input": ["label"], "common_output": [],
+            "item_input": [], "item_output": ["item_label"]
+          }
+        },
+        "truncate_top2": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "consumes_row_set": true,
+          "$metadata": {
+            "common_input": [], "common_output": [],
+            "item_input": ["item_label"], "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["recall_items", "dispatch_label", "truncate_top2"]}
+    },
+    "flow_contract": {
+      "common_input": ["label"], "item_input": [],
+      "common_output": [], "item_output": ["item_id", "score", "item_label"]
+    },
+    "storage_mode": "column"
+  },
+  "cases": [
+    {
+      "name": "null item_label substituted with 'unknown', truncate succeeds",
+      "request": {"common": {"label": null}, "items": []},
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "x1", "score": 50.0, "item_label": "unknown"},
+          {"item_id": "x2", "score": 30.0, "item_label": "unknown"}
+        ]
+      }
+    }
+  ]
+}

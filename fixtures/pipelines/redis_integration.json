@@ -19,6 +19,7 @@
           "type_name": "transform_redis_get",
           "redis_addr": "PLACEHOLDER",
           "key_prefix": "test:",
+          "sources": ["set_cache"],
           "$metadata": {
             "common_input": ["uid"],
             "common_output": ["result", "cache_hit"],
