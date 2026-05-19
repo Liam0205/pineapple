@@ -1,0 +1,872 @@
+{
+  "_PINEAPPLE_VERSION": "0.7.0",
+  "pipeline_config": {
+    "operators": {
+      "recall_a": {
+        "type_name": "recall_static",
+        "recall": true,
+        "items": [
+          {
+            "item_id": "item_0",
+            "item_score": 50.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 100.0
+          },
+          {
+            "item_id": "item_1",
+            "item_score": 49.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 101.0
+          },
+          {
+            "item_id": "item_2",
+            "item_score": 48.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 102.0
+          },
+          {
+            "item_id": "item_3",
+            "item_score": 47.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 103.0
+          },
+          {
+            "item_id": "item_4",
+            "item_score": 46.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 104.0
+          },
+          {
+            "item_id": "item_5",
+            "item_score": 45.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 105.0
+          },
+          {
+            "item_id": "item_6",
+            "item_score": 44.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 106.0
+          },
+          {
+            "item_id": "item_7",
+            "item_score": 43.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 107.0
+          },
+          {
+            "item_id": "item_8",
+            "item_score": 42.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 108.0
+          },
+          {
+            "item_id": "item_9",
+            "item_score": 41.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 109.0
+          },
+          {
+            "item_id": "item_10",
+            "item_score": 40.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 110.0
+          },
+          {
+            "item_id": "item_11",
+            "item_score": 39.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 111.0
+          },
+          {
+            "item_id": "item_12",
+            "item_score": 38.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 112.0
+          },
+          {
+            "item_id": "item_13",
+            "item_score": 37.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 113.0
+          },
+          {
+            "item_id": "item_14",
+            "item_score": 36.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 114.0
+          },
+          {
+            "item_id": "item_15",
+            "item_score": 35.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 115.0
+          },
+          {
+            "item_id": "item_16",
+            "item_score": 34.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 116.0
+          },
+          {
+            "item_id": "item_17",
+            "item_score": 33.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 117.0
+          },
+          {
+            "item_id": "item_18",
+            "item_score": 32.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 118.0
+          },
+          {
+            "item_id": "item_19",
+            "item_score": 31.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 119.0
+          },
+          {
+            "item_id": "item_20",
+            "item_score": 30.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 120.0
+          },
+          {
+            "item_id": "item_21",
+            "item_score": 29.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 121.0
+          },
+          {
+            "item_id": "item_22",
+            "item_score": 28.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 122.0
+          },
+          {
+            "item_id": "item_23",
+            "item_score": 27.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 123.0
+          },
+          {
+            "item_id": "item_24",
+            "item_score": 26.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 124.0
+          },
+          {
+            "item_id": "item_25",
+            "item_score": 25.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 125.0
+          },
+          {
+            "item_id": "item_26",
+            "item_score": 24.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 126.0
+          },
+          {
+            "item_id": "item_27",
+            "item_score": 23.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 127.0
+          },
+          {
+            "item_id": "item_28",
+            "item_score": 22.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 128.0
+          },
+          {
+            "item_id": "item_29",
+            "item_score": 21.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 129.0
+          },
+          {
+            "item_id": "item_30",
+            "item_score": 20.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 130.0
+          },
+          {
+            "item_id": "item_31",
+            "item_score": 19.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 131.0
+          },
+          {
+            "item_id": "item_32",
+            "item_score": 18.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 132.0
+          },
+          {
+            "item_id": "item_33",
+            "item_score": 17.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 133.0
+          },
+          {
+            "item_id": "item_34",
+            "item_score": 16.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 134.0
+          },
+          {
+            "item_id": "item_35",
+            "item_score": 15.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 135.0
+          },
+          {
+            "item_id": "item_36",
+            "item_score": 14.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 136.0
+          },
+          {
+            "item_id": "item_37",
+            "item_score": 13.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 137.0
+          },
+          {
+            "item_id": "item_38",
+            "item_score": 12.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 138.0
+          },
+          {
+            "item_id": "item_39",
+            "item_score": 11.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 139.0
+          },
+          {
+            "item_id": "item_40",
+            "item_score": 10.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 140.0
+          },
+          {
+            "item_id": "item_41",
+            "item_score": 9.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 141.0
+          },
+          {
+            "item_id": "item_42",
+            "item_score": 8.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 142.0
+          },
+          {
+            "item_id": "item_43",
+            "item_score": 7.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 143.0
+          },
+          {
+            "item_id": "item_44",
+            "item_score": 6.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 144.0
+          },
+          {
+            "item_id": "item_45",
+            "item_score": 5.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 145.0
+          },
+          {
+            "item_id": "item_46",
+            "item_score": 4.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 146.0
+          },
+          {
+            "item_id": "item_47",
+            "item_score": 3.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 147.0
+          },
+          {
+            "item_id": "item_48",
+            "item_score": 2.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 148.0
+          },
+          {
+            "item_id": "item_49",
+            "item_score": 1.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 149.0
+          }
+        ],
+        "$metadata": {
+          "item_output": [
+            "item_id",
+            "item_score",
+            "item_status",
+            "item_category",
+            "item_price"
+          ]
+        }
+      },
+      "recall_b": {
+        "type_name": "recall_static",
+        "recall": true,
+        "items": [
+          {
+            "item_id": "item_50",
+            "item_score": 50.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 100.0
+          },
+          {
+            "item_id": "item_51",
+            "item_score": 49.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 101.0
+          },
+          {
+            "item_id": "item_52",
+            "item_score": 48.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 102.0
+          },
+          {
+            "item_id": "item_53",
+            "item_score": 47.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 103.0
+          },
+          {
+            "item_id": "item_54",
+            "item_score": 46.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 104.0
+          },
+          {
+            "item_id": "item_55",
+            "item_score": 45.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 105.0
+          },
+          {
+            "item_id": "item_56",
+            "item_score": 44.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 106.0
+          },
+          {
+            "item_id": "item_57",
+            "item_score": 43.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 107.0
+          },
+          {
+            "item_id": "item_58",
+            "item_score": 42.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 108.0
+          },
+          {
+            "item_id": "item_59",
+            "item_score": 41.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 109.0
+          },
+          {
+            "item_id": "item_60",
+            "item_score": 40.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 110.0
+          },
+          {
+            "item_id": "item_61",
+            "item_score": 39.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 111.0
+          },
+          {
+            "item_id": "item_62",
+            "item_score": 38.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 112.0
+          },
+          {
+            "item_id": "item_63",
+            "item_score": 37.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 113.0
+          },
+          {
+            "item_id": "item_64",
+            "item_score": 36.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 114.0
+          },
+          {
+            "item_id": "item_65",
+            "item_score": 35.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 115.0
+          },
+          {
+            "item_id": "item_66",
+            "item_score": 34.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 116.0
+          },
+          {
+            "item_id": "item_67",
+            "item_score": 33.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 117.0
+          },
+          {
+            "item_id": "item_68",
+            "item_score": 32.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 118.0
+          },
+          {
+            "item_id": "item_69",
+            "item_score": 31.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 119.0
+          },
+          {
+            "item_id": "item_70",
+            "item_score": 30.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 120.0
+          },
+          {
+            "item_id": "item_71",
+            "item_score": 29.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 121.0
+          },
+          {
+            "item_id": "item_72",
+            "item_score": 28.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 122.0
+          },
+          {
+            "item_id": "item_73",
+            "item_score": 27.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 123.0
+          },
+          {
+            "item_id": "item_74",
+            "item_score": 26.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 124.0
+          },
+          {
+            "item_id": "item_75",
+            "item_score": 25.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 125.0
+          },
+          {
+            "item_id": "item_76",
+            "item_score": 24.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 126.0
+          },
+          {
+            "item_id": "item_77",
+            "item_score": 23.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 127.0
+          },
+          {
+            "item_id": "item_78",
+            "item_score": 22.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 128.0
+          },
+          {
+            "item_id": "item_79",
+            "item_score": 21.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 129.0
+          },
+          {
+            "item_id": "item_80",
+            "item_score": 20.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 130.0
+          },
+          {
+            "item_id": "item_81",
+            "item_score": 19.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 131.0
+          },
+          {
+            "item_id": "item_82",
+            "item_score": 18.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 132.0
+          },
+          {
+            "item_id": "item_83",
+            "item_score": 17.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 133.0
+          },
+          {
+            "item_id": "item_84",
+            "item_score": 16.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 134.0
+          },
+          {
+            "item_id": "item_85",
+            "item_score": 15.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 135.0
+          },
+          {
+            "item_id": "item_86",
+            "item_score": 14.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 136.0
+          },
+          {
+            "item_id": "item_87",
+            "item_score": 13.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 137.0
+          },
+          {
+            "item_id": "item_88",
+            "item_score": 12.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 138.0
+          },
+          {
+            "item_id": "item_89",
+            "item_score": 11.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 139.0
+          },
+          {
+            "item_id": "item_90",
+            "item_score": 10.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 140.0
+          },
+          {
+            "item_id": "item_91",
+            "item_score": 9.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 141.0
+          },
+          {
+            "item_id": "item_92",
+            "item_score": 8.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 142.0
+          },
+          {
+            "item_id": "item_93",
+            "item_score": 7.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 143.0
+          },
+          {
+            "item_id": "item_94",
+            "item_score": 6.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 144.0
+          },
+          {
+            "item_id": "item_95",
+            "item_score": 5.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 145.0
+          },
+          {
+            "item_id": "item_96",
+            "item_score": 4.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 146.0
+          },
+          {
+            "item_id": "item_97",
+            "item_score": 3.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 147.0
+          },
+          {
+            "item_id": "item_98",
+            "item_score": 2.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 148.0
+          },
+          {
+            "item_id": "item_99",
+            "item_score": 1.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 149.0
+          }
+        ],
+        "$metadata": {
+          "item_output": [
+            "item_id",
+            "item_score",
+            "item_status",
+            "item_category",
+            "item_price"
+          ]
+        }
+      },
+      "merge": {
+        "type_name": "merge_dedup",
+        "sources": [
+          "recall_a",
+          "recall_b"
+        ],
+        "$metadata": {
+          "item_input": [
+            "item_id",
+            "_source"
+          ],
+          "item_output": [
+            "item_id",
+            "item_score",
+            "item_status",
+            "item_category",
+            "item_price"
+          ]
+        }
+      },
+      "copy": {
+        "type_name": "transform_copy",
+        "direction": "item_to_item",
+        "$metadata": {
+          "item_input": [
+            "item_score"
+          ],
+          "item_output": [
+            "item_score_copy"
+          ]
+        }
+      },
+      "dispatch": {
+        "type_name": "transform_dispatch",
+        "$metadata": {
+          "common_input": [
+            "scene"
+          ],
+          "item_input": [
+            "item_status"
+          ],
+          "item_output": [
+            "item_scene"
+          ]
+        }
+      },
+      "lua_transform": {
+        "type_name": "transform_by_lua",
+        "lua_script": "function apply_discount()\n  return item_price * 0.9\nend\n",
+        "function_for_item": "apply_discount",
+        "function_for_common": "",
+        "$metadata": {
+          "item_input": [
+            "item_price"
+          ],
+          "item_output": [
+            "item_final_price"
+          ]
+        }
+      },
+      "normalize": {
+        "type_name": "transform_normalize",
+        "$metadata": {
+          "item_input": [
+            "item_score"
+          ],
+          "item_output": [
+            "item_score_norm"
+          ]
+        }
+      },
+      "filter": {
+        "type_name": "filter_condition",
+        "value": "offline",
+        "$metadata": {
+          "item_input": [
+            "item_status"
+          ],
+          "item_output": [
+            "item_status",
+            "item_score"
+          ]
+        }
+      },
+      "sort": {
+        "type_name": "reorder_sort",
+        "order": "desc",
+        "$metadata": {
+          "item_input": [
+            "item_score",
+            "item_score_norm"
+          ]
+        }
+      },
+      "truncate": {
+        "type_name": "filter_truncate",
+        "top_n": 50,
+        "$metadata": {
+          "item_input": [
+            "item_id"
+          ],
+          "item_output": [
+            "item_id",
+            "item_score"
+          ]
+        }
+      }
+    },
+    "pipeline_map": {
+      "stage1": {
+        "pipeline": [
+          "recall_a",
+          "recall_b",
+          "merge",
+          "copy",
+          "dispatch",
+          "lua_transform",
+          "normalize",
+          "filter",
+          "sort",
+          "truncate"
+        ]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": [
+        "stage1"
+      ]
+    }
+  },
+  "flow_contract": {
+    "common_input": [
+      "scene"
+    ]
+  }
+}

@@ -31,6 +31,10 @@ build/
 *~
 .DS_Store
 
+# Benchmark
+bin/
+bench-results.json
+
 # Liam
 demo.py
 design_doc/ref_dragonfly_dsl

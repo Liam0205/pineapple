@@ -1,0 +1,131 @@
+{
+  "_PINEAPPLE_VERSION": "0.7.0",
+  "pipeline_config": {
+    "operators": {
+      "recall": {
+        "type_name": "recall_static",
+        "recall": true,
+        "items": [
+          {
+            "item_id": "item_0",
+            "item_score": 10.0,
+            "item_status": "offline",
+            "item_category": "cat_0",
+            "item_price": 100.0
+          },
+          {
+            "item_id": "item_1",
+            "item_score": 9.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 101.0
+          },
+          {
+            "item_id": "item_2",
+            "item_score": 8.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 102.0
+          },
+          {
+            "item_id": "item_3",
+            "item_score": 7.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 103.0
+          },
+          {
+            "item_id": "item_4",
+            "item_score": 6.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 104.0
+          },
+          {
+            "item_id": "item_5",
+            "item_score": 5.0,
+            "item_status": "online",
+            "item_category": "cat_0",
+            "item_price": 105.0
+          },
+          {
+            "item_id": "item_6",
+            "item_score": 4.0,
+            "item_status": "online",
+            "item_category": "cat_1",
+            "item_price": 106.0
+          },
+          {
+            "item_id": "item_7",
+            "item_score": 3.0,
+            "item_status": "online",
+            "item_category": "cat_2",
+            "item_price": 107.0
+          },
+          {
+            "item_id": "item_8",
+            "item_score": 2.0,
+            "item_status": "online",
+            "item_category": "cat_3",
+            "item_price": 108.0
+          },
+          {
+            "item_id": "item_9",
+            "item_score": 1.0,
+            "item_status": "online",
+            "item_category": "cat_4",
+            "item_price": 109.0
+          }
+        ],
+        "$metadata": {
+          "item_output": [
+            "item_id",
+            "item_score",
+            "item_status",
+            "item_category",
+            "item_price"
+          ]
+        }
+      },
+      "filter": {
+        "type_name": "filter_truncate",
+        "top_n": 10,
+        "$metadata": {
+          "item_input": [
+            "item_id"
+          ],
+          "item_output": [
+            "item_id",
+            "item_score"
+          ]
+        }
+      },
+      "sort": {
+        "type_name": "reorder_sort",
+        "order": "desc",
+        "$metadata": {
+          "item_input": [
+            "item_score"
+          ]
+        }
+      }
+    },
+    "pipeline_map": {
+      "stage1": {
+        "pipeline": [
+          "recall",
+          "filter",
+          "sort"
+        ]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": [
+        "stage1"
+      ]
+    }
+  },
+  "flow_contract": {}
+}
