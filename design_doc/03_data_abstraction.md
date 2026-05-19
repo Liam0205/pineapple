@@ -146,19 +146,79 @@ defaults 解决的是"数据稀疏"问题（列存在，部分行的值缺失）
 ```python
 flow.some_op(
     item_input=["item_price", "item_score"],
-    item_defaults={"item_price": 0.0},  # item_score 缺失时为 nil
+    item_defaults={"item_price": 0.0},  # item_price 缺失时用 0.0；item_score 缺失时框架报错
     item_output=["item_rank"],
 )
 ```
+
+### 字段访问器语义 (Field Accessor)
+
+`BuildInput` 对每个声明的输入字段提供两种访问语义，由配置中是否提供 defaults 静态决定：
+
+| 访问器 | 触发条件 | 行为 |
+|--------|---------|------|
+| **Strict** | 字段在 `item_input`/`common_input` 中，但不在 `item_defaults`/`common_defaults` 中 | 字段值为 nil 或缺失 → `BuildInput` 返回错误，算子不会被调度执行 |
+| **Default** | 字段在 `item_input`/`common_input` 中，且在 `item_defaults`/`common_defaults` 中有对应默认值 | 字段值为 nil 或缺失 → 自动替换为默认值 |
+
+**设计意图**：
+
+1. **算子不感知 nil**：算子通过 `OperatorInput` accessor 拿到的值一定非 nil。nil 由框架的 `BuildInput` 层统一处理——要么报错终止，要么替换为默认值。算子代码中不需要任何 nil 检查。
+2. **零分支运行时**：哪个字段使用哪种访问器在配置解析时（JSON 编译完成后）即可确定。运行时 `BuildInput` 对 strict 字段和 defaulted 字段分别处理，无需对每个字段做"是否有默认值"的动态判断。
+3. **统一错误语义**：所有引擎（Go/Java/Python）在 `BuildInput` 层的行为一致——同样的配置、同样的数据，三个引擎产生相同的错误或相同的有效输入。错误归属于框架而非算子。
+
+**BuildInput 两阶段处理**：
+
+```
+Phase 1 — Strict 字段（无默认值）:
+  for field in strict_fields:
+    value = frame.get(field, row_index)
+    if value is nil or missing:
+      return error("operator %s: required field %s is nil on item[%d]")
+    row[field] = value
+
+Phase 2 — Defaulted 字段（有默认值）:
+  for field, default in defaulted_fields:
+    value = frame.get(field, row_index)
+    if value is nil or missing:
+      value = default
+    row[field] = value
+```
+
+**配置解析期预计算**：
+
+引擎在加载配置时，对每个算子预计算两组字段：
+
+```go
+type InputFieldSpec struct {
+    StrictFields    []string          // item_input 中无默认值的字段
+    DefaultedFields map[string]any    // item_input 中有默认值的字段 → 默认值
+}
+```
+
+这一拆分在编译后的算子配置中持久化，`BuildInput` 直接使用，无运行时查找。
+
+**错误消息格式**：
+
+```
+operator "reorder_sort": required field "item_score" is nil on item[3]
+```
+
+错误由框架产生，包含算子名、字段名、item 索引，便于定位配置问题。
+
+**与 `ItemKeys()` / `CommonKeys()` 的关系**：
+
+`ItemKeys()` / `CommonKeys()` 仍然反映原始数据的稀疏结构（如 `transform_by_remote_pineapple` 序列化输入时需要）。但普通算子通过 `Item(idx, field)` / `Common(field)` 访问字段时，保证拿到非 nil 值——因为 `BuildInput` 已经在调度前做了校验。
 
 ### 各层面的 nil 语义
 
 | 层面 | 行为 |
 |------|------|
 | DataFrame | 原生支持 nil。区分「字段存在但值为 nil」（key present）与「字段不存在」（key absent）；`BuildInput` 和 `ToResult` 均保留此区分 |
-| Go 算子 | `interface{}` 为 nil，算子开发者自行判断；可通过 `ItemKeys()` / `CommonKeys()` 查询实际存在的字段 |
-| Lua 行模式 | `item["field"]` 为 nil，用 `if value ~= nil then` 判断 |
-| Lua 列模式 | 数组中对应位置为 nil |
+| BuildInput (Strict) | nil 或缺失 → 框架报错，算子不执行 |
+| BuildInput (Default) | nil 或缺失 → 替换为默认值，算子拿到有效值 |
+| Go 算子 | `interface{}` 保证非 nil（框架已校验）；可通过 `ItemKeys()` / `CommonKeys()` 查询实际存在的字段 |
+| Lua 行模式 | `item["field"]` 保证非 nil（框架已校验） |
+| Lua 列模式 | 数组中对应位置保证非 nil |
 
 ## 逻辑表
 
