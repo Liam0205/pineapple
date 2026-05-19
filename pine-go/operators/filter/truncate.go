@@ -35,6 +35,8 @@ func init() {
 // TruncateOp keeps only the first top_n items.
 type TruncateOp struct {
 	pine.MetadataHolder
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 	topN int64
 }
 

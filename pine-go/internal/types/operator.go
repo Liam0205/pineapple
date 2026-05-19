@@ -296,3 +296,36 @@ type ConcurrentSafeMarker struct{}
 
 // IsConcurrentSafe implements ConcurrentSafe.
 func (ConcurrentSafeMarker) IsConcurrentSafe() {}
+
+// ConsumesRowSet marks operators that iterate items and need the row set
+// stable before execution. The DAG builder treats them as readers of _row_set_.
+type ConsumesRowSet interface {
+	consumesRowSet()
+}
+
+// ConsumesRowSetMarker is a convenience embed for operators that always consume the row set.
+type ConsumesRowSetMarker struct{}
+
+func (ConsumesRowSetMarker) consumesRowSet() {}
+
+// MutatesRowSet marks operators that change which items exist or their order.
+// The DAG builder treats them as mutating writers of _row_set_.
+type MutatesRowSet interface {
+	mutatesRowSet()
+}
+
+// MutatesRowSetMarker is a convenience embed for operators that always mutate the row set.
+type MutatesRowSetMarker struct{}
+
+func (MutatesRowSetMarker) mutatesRowSet() {}
+
+// AdditiveWritesRowSet marks operators that append new items to the row set
+// without reading or modifying existing items. Mutually exclusive with MutatesRowSet.
+type AdditiveWritesRowSet interface {
+	additiveWritesRowSet()
+}
+
+// AdditiveWritesRowSetMarker is a convenience embed for operators that always do additive writes.
+type AdditiveWritesRowSetMarker struct{}
+
+func (AdditiveWritesRowSetMarker) additiveWritesRowSet() {}

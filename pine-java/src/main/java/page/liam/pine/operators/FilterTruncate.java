@@ -16,7 +16,7 @@ import java.util.Map;
  *   ItemInput:    []
  *   ItemOutput:   []
  */
-public class FilterTruncate extends AbstractOperator {
+public class FilterTruncate extends AbstractOperator implements page.liam.pine.ConsumesRowSet, page.liam.pine.MutatesRowSet {
     private long topN;
 
     @Override

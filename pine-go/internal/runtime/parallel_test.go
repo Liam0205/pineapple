@@ -302,6 +302,7 @@ func TestRunDataParallelTransform(t *testing.T) {
 			OperatorType: "Transform",
 			DataParallel: 3,
 			Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+			InputSpec:    config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}}, nil, nil, nil),
 		},
 	}
 
@@ -338,6 +339,7 @@ func TestRunDataParallelWarning(t *testing.T) {
 			OperatorType: "Transform",
 			DataParallel: 3,
 			Meta:         config.Metadata{ItemInput: []string{"id"}, ItemOutput: []string{"seen"}},
+			InputSpec:    config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"id"}, ItemOutput: []string{"seen"}}, nil, nil, nil),
 		},
 	}
 
@@ -369,6 +371,7 @@ func TestRunDataParallelZeroItems(t *testing.T) {
 			OperatorType: "Transform",
 			DataParallel: 4,
 			Meta:         config.Metadata{ItemOutput: []string{"x"}},
+			InputSpec:    &config.InputFieldSpec{},
 		},
 	}
 
@@ -401,6 +404,7 @@ func TestDataParallelEquivalence(t *testing.T) {
 			OperatorType: "Transform",
 			DataParallel: 1,
 			Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+			InputSpec:    config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}}, nil, nil, nil),
 		},
 	}
 
@@ -426,6 +430,7 @@ func TestDataParallelEquivalence(t *testing.T) {
 					OperatorType: "Transform",
 					DataParallel: shards,
 					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+					InputSpec:    config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}}, nil, nil, nil),
 				},
 			}
 
@@ -475,6 +480,7 @@ func FuzzDataParallelEquivalence(f *testing.F) {
 					OperatorType: "Transform",
 					DataParallel: 1,
 					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+					InputSpec:    config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}}, nil, nil, nil),
 				},
 			},
 		})
@@ -492,6 +498,7 @@ func FuzzDataParallelEquivalence(f *testing.F) {
 					OperatorType: "Transform",
 					DataParallel: shards,
 					Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+					InputSpec:    config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}}, nil, nil, nil),
 				},
 			},
 		})

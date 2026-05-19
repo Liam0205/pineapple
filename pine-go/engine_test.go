@@ -66,6 +66,7 @@ func (o *enrichItemOp) Execute(_ context.Context, in *types.OperatorInput, out *
 
 // recallFixedOp adds fixed items.
 type recallFixedOp struct {
+	types.AdditiveWritesRowSetMarker
 	items []map[string]any
 }
 

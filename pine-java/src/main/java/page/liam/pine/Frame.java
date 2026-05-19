@@ -6,8 +6,7 @@ import java.util.Map;
 public interface Frame {
     Object common(String field);
     int itemCount();
-    OperatorInput buildInput(List<String> commonFields, List<String> itemFields,
-                             Map<String, Object> commonDefaults, Map<String, Object> itemDefaults);
+    OperatorInput buildInput(String opName, InputFieldSpec spec) throws PineErrors.OperatorException;
     void applyOutput(OperatorOutput out, String opName, boolean recall);
     Map<String, Object> toResultCommon(List<String> commonOut);
     List<Map<String, Object>> toResultItems(List<String> itemOut);

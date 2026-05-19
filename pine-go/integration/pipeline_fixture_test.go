@@ -4,14 +4,54 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 	_ "github.com/Liam0205/pineapple/pine-go/operators"
 	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
+
+// floatsEqual compares two float64 values using relative epsilon comparison.
+// Formula: |a - b| <= ε * max(|a|, |b|, 1.0) where ε = 2^-52.
+func floatsEqual(a, b float64) bool {
+	eps := math.Pow(2, -52)
+	diff := math.Abs(a - b)
+	scale := math.Max(math.Max(math.Abs(a), math.Abs(b)), 1.0)
+	return diff <= eps*scale
+}
+
+// valuesEqual compares two values decoded from JSON, using relative epsilon
+// for float comparisons and string-based equality for everything else.
+func valuesEqual(got, expected any) bool {
+	// Both are numeric (json.Number or float64 from JSON decoding)
+	gf, gIsFloat := toFloat64(got)
+	ef, eIsFloat := toFloat64(expected)
+	if gIsFloat && eIsFloat {
+		return floatsEqual(gf, ef)
+	}
+	return fmt.Sprintf("%v", got) == fmt.Sprintf("%v", expected)
+}
+
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
+}
 
 type pipelineFixture struct {
 	Name            string                    `json:"name"`
@@ -22,9 +62,10 @@ type pipelineFixture struct {
 }
 
 type pipelineCase struct {
-	Name     string          `json:"name"`
-	Request  pipelineRequest `json:"request"`
-	Expected pipelineResult  `json:"expected"`
+	Name        string          `json:"name"`
+	Request     pipelineRequest `json:"request"`
+	Expected    pipelineResult  `json:"expected"`
+	ExpectError string          `json:"expect_error"`
 }
 
 type pipelineRequest struct {
@@ -79,6 +120,18 @@ func TestPipelineFixtures(t *testing.T) {
 					}
 
 					result, err := engine.Execute(ctx, req)
+
+					// Handle expect_error cases
+					if tc.ExpectError != "" {
+						if err == nil {
+							t.Fatalf("expected error containing %q, got nil", tc.ExpectError)
+						}
+						if !strings.Contains(err.Error(), tc.ExpectError) {
+							t.Fatalf("expected error containing %q, got: %v", tc.ExpectError, err)
+						}
+						return
+					}
+
 					if err != nil {
 						t.Fatalf("Execute: %v", err)
 					}
@@ -91,7 +144,7 @@ func TestPipelineFixtures(t *testing.T) {
 								t.Errorf("common missing key %q", key)
 								continue
 							}
-							if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", expectedVal) {
+							if !valuesEqual(got, expectedVal) {
 								t.Errorf("common[%q] = %v, expected %v", key, got, expectedVal)
 							}
 						}
@@ -108,7 +161,7 @@ func TestPipelineFixtures(t *testing.T) {
 								t.Errorf("items[%d] missing key %q", i, key)
 								continue
 							}
-							if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", expectedVal) {
+							if !valuesEqual(got, expectedVal) {
 								t.Errorf("items[%d].%s = %v, expected %v", i, key, got, expectedVal)
 							}
 						}

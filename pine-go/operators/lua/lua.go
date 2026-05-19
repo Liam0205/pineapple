@@ -49,6 +49,7 @@ type LuaOp struct {
 	pine.MetadataHolder
 	pine.DebugHolder
 	pine.ConcurrentSafeMarker
+	pine.ConsumesRowSetMarker
 	pool       *statePool
 	funcName   string
 	isItemMode bool

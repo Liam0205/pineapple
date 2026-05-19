@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Liam0205/pineapple/pine-go/internal/config"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
 
@@ -80,12 +81,19 @@ func TestBuildInputWithDefaults(t *testing.T) {
 				},
 			)
 
-			in := BuildInput(f,
-				[]string{"age", "missing_common"},
-				[]string{"price", "missing_item"},
-				map[string]any{"missing_common": "default_c"},
-				map[string]any{"price": 0.0, "missing_item": "default_i"},
-			)
+			spec := &config.InputFieldSpec{
+				StrictCommon:    []string{"age"},
+				DefaultedCommon: []config.DefaultedField{{Name: "missing_common", Default: "default_c"}},
+				StrictItem:      nil,
+				DefaultedItem: []config.DefaultedField{
+					{Name: "price", Default: 0.0},
+					{Name: "missing_item", Default: "default_i"},
+				},
+			}
+			in, err := BuildInput(f, "test_op", spec)
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			if in.Common("age") != int64(25) {
 				t.Errorf("age = %v", in.Common("age"))
@@ -114,26 +122,38 @@ func TestBuildInputSparseItemPresence(t *testing.T) {
 				{"b": int64(2)},
 			})
 
-			in := BuildInput(f,
-				nil,
-				[]string{"a", "b"},
-				nil, nil,
-			)
+			// With the new API, fields without defaults are "strict" and error on nil.
+			// To test sparse presence, use DefaultedItem with nil defaults so both
+			// present-nil and missing produce nil without error.
+			spec := &config.InputFieldSpec{
+				DefaultedItem: []config.DefaultedField{
+					{Name: "a", Default: nil},
+					{Name: "b", Default: nil},
+				},
+			}
+			in, err := BuildInput(f, "test_op", spec)
+			if err != nil {
+				t.Fatal(err)
+			}
 
+			// With defaulted fields, all keys appear in output regardless of presence
 			keys0 := toSet(in.ItemKeys(0))
 			if !keys0["a"] {
 				t.Error("item 0: expected key 'a' present")
 			}
-			if keys0["b"] {
-				t.Error("item 0: key 'b' should be absent (missing)")
+			if !keys0["b"] {
+				t.Error("item 0: expected key 'b' present (defaulted)")
 			}
 			if in.Item(0, "a") != nil {
 				t.Errorf("item 0 a = %v, want nil", in.Item(0, "a"))
 			}
+			if in.Item(0, "b") != nil {
+				t.Errorf("item 0 b = %v, want nil (default)", in.Item(0, "b"))
+			}
 
 			keys1 := toSet(in.ItemKeys(1))
-			if keys1["a"] {
-				t.Error("item 1: key 'a' should be absent (missing)")
+			if !keys1["a"] {
+				t.Error("item 1: expected key 'a' present (defaulted)")
 			}
 			if !keys1["b"] {
 				t.Error("item 1: expected key 'b' present")
@@ -153,12 +173,16 @@ func TestBuildInputSparseItemWithDefaults(t *testing.T) {
 				{"b": int64(2)},
 			})
 
-			in := BuildInput(f,
-				nil,
-				[]string{"a", "b"},
-				nil,
-				map[string]any{"a": int64(0), "b": int64(0)},
-			)
+			spec := &config.InputFieldSpec{
+				DefaultedItem: []config.DefaultedField{
+					{Name: "a", Default: int64(0)},
+					{Name: "b", Default: int64(0)},
+				},
+			}
+			in, err := BuildInput(f, "test_op", spec)
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			if in.Item(0, "a") != int64(0) {
 				t.Errorf("item 0 a = %v, want 0 (default on present-nil)", in.Item(0, "a"))
@@ -188,17 +212,26 @@ func TestBuildInputSparseCommon(t *testing.T) {
 		t.Run(tm.name, func(t *testing.T) {
 			f := newTestFrame(tm.mode, map[string]any{"x": nil}, nil)
 
-			in := BuildInput(f,
-				[]string{"x", "y"},
-				nil, nil, nil,
-			)
+			// With the new API, strict fields error on nil. Use DefaultedCommon
+			// with nil defaults so nil/missing values produce nil output without error.
+			spec := &config.InputFieldSpec{
+				DefaultedCommon: []config.DefaultedField{
+					{Name: "x", Default: nil},
+					{Name: "y", Default: nil},
+				},
+			}
+			in, err := BuildInput(f, "test_op", spec)
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			keys := toSet(in.CommonKeys())
+			// Both defaulted fields appear in the output regardless of frame presence
 			if !keys["x"] {
-				t.Error("expected common key 'x' present (explicit nil)")
+				t.Error("expected common key 'x' present (defaulted)")
 			}
-			if keys["y"] {
-				t.Error("common key 'y' should be absent (missing, no default)")
+			if !keys["y"] {
+				t.Error("expected common key 'y' present (defaulted with nil)")
 			}
 		})
 	}
@@ -644,12 +677,21 @@ func TestColumnFrameConcurrentBuildInput(t *testing.T) {
 	}
 	f := NewFrame(StorageModeColumn, map[string]any{"x": 1}, items)
 
+	spec := &config.InputFieldSpec{
+		StrictCommon: []string{"x"},
+		StrictItem:   []string{"a", "b"},
+	}
+
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			in := f.BuildInput([]string{"x"}, []string{"a", "b"}, nil, nil)
+			in, err := f.BuildInput("test_op", spec)
+			if err != nil {
+				t.Errorf("BuildInput error: %v", err)
+				return
+			}
 			if in.ItemCount() != 100 {
 				t.Errorf("expected 100 items, got %d", in.ItemCount())
 			}
@@ -724,7 +766,10 @@ func TestColumnFrameConcurrentCommonAndItemAccess(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_ = f.BuildInput(nil, []string{"v"}, nil, nil)
+		spec := &config.InputFieldSpec{
+			StrictItem: []string{"v"},
+		}
+		_, _ = f.BuildInput("test_op", spec)
 	}()
 	wg.Wait()
 }
@@ -796,7 +841,10 @@ func TestColumnFrameStructuralBlocksReaders(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_ = f.BuildInput(nil, []string{"id"}, nil, nil)
+		spec := &config.InputFieldSpec{
+			StrictItem: []string{"id"},
+		}
+		_, _ = f.BuildInput("test_op", spec)
 	}()
 	wg.Wait()
 
@@ -812,12 +860,21 @@ func TestRowFrameConcurrentBuildInput(t *testing.T) {
 	}
 	f := NewFrame(StorageModeRow, map[string]any{"x": 1}, items)
 
+	spec := &config.InputFieldSpec{
+		StrictCommon: []string{"x"},
+		StrictItem:   []string{"a", "b"},
+	}
+
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			in := f.BuildInput([]string{"x"}, []string{"a", "b"}, nil, nil)
+			in, err := f.BuildInput("test_op", spec)
+			if err != nil {
+				t.Errorf("BuildInput error: %v", err)
+				return
+			}
 			if in.ItemCount() != 100 {
 				t.Errorf("expected 100 items, got %d", in.ItemCount())
 			}

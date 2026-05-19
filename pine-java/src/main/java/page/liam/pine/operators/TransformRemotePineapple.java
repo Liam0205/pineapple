@@ -20,7 +20,7 @@ import java.util.*;
  *   ItemInput:    [<local_item_fields...>]
  *   ItemOutput:   [<local_item_output_fields...>]
  */
-public class TransformRemotePineapple extends AbstractOperator implements ConcurrentSafe {
+public class TransformRemotePineapple extends AbstractOperator implements ConcurrentSafe, ConsumesRowSet {
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final long DEFAULT_MAX_RESPONSE = 10L * 1024 * 1024;
 

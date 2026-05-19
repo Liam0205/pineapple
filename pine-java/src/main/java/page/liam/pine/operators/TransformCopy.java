@@ -26,7 +26,7 @@ import java.util.Map;
  *     ItemInput:    [<source_field>]
  *     CommonOutput: [<target_field>]
  */
-public class TransformCopy extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
+public class TransformCopy extends AbstractOperator implements page.liam.pine.ConcurrentSafe, page.liam.pine.ConsumesRowSet {
     private String direction;
 
     @Override

@@ -128,6 +128,23 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		if err := validateDataParallel(name, &opCfg, schema.Type, op); err != nil {
 			return nil, err
 		}
+		// Detect row-set semantic interfaces
+		if _, ok := op.(types.ConsumesRowSet); ok {
+			opCfg.ConsumesRowSet = true
+		}
+		if _, ok := op.(types.MutatesRowSet); ok {
+			opCfg.MutatesRowSet = true
+		}
+		if _, ok := op.(types.AdditiveWritesRowSet); ok {
+			opCfg.AdditiveWritesRowSet = true
+		}
+		// Validate row-set marker constraints
+		if opCfg.AdditiveWritesRowSet && opCfg.MutatesRowSet {
+			return nil, fmt.Errorf("operator %q: AdditiveWritesRowSet and MutatesRowSet are mutually exclusive", name)
+		}
+		if schema.Type == types.OpTypeRecall && !opCfg.AdditiveWritesRowSet {
+			return nil, fmt.Errorf("operator %q: Recall type must implement AdditiveWritesRowSet", name)
+		}
 		cfg.PipelineConfig.Operators[name] = opCfg
 		// If the operator needs metadata, provide it.
 		// Filter out the skip (control-flow) field so operators see only
@@ -153,6 +170,8 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		if ma, ok := op.(types.MetricsAware); ok {
 			ma.SetMetricsProvider(mp)
 		}
+		// Pre-compute InputFieldSpec for BuildInput
+		opCfg.InputSpec = config.ComputeInputFieldSpec(opCfg.Meta, opCfg.CommonDefaults, opCfg.ItemDefaults, opCfg.Skip)
 		compiledOps[i] = &runtime.CompiledOperator{
 			Name:     name,
 			Instance: op,

@@ -26,9 +26,10 @@ func transformOp(commonIn, commonOut, itemIn, itemOut []string) config.OperatorC
 // recallOp creates a Recall-type operator config for testing.
 func recallOp(commonIn []string, itemOut []string) config.OperatorConfig {
 	return config.OperatorConfig{
-		TypeName:     "test",
-		OperatorType: string(types.OpTypeRecall),
-		Recall:       true,
+		TypeName:             "test",
+		OperatorType:         string(types.OpTypeRecall),
+		Recall:               true,
+		AdditiveWritesRowSet: true,
 		Meta: config.Metadata{
 			CommonInput: commonIn,
 			ItemOutput:  itemOut,
@@ -36,11 +37,14 @@ func recallOp(commonIn []string, itemOut []string) config.OperatorConfig {
 	}
 }
 
-// filterOp creates a Filter-type (barrier) operator config for testing.
+// filterOp creates a Filter-type operator config for testing.
+// Filter operators consume and mutate the row set.
 func filterOp(itemIn, itemOut []string) config.OperatorConfig {
 	return config.OperatorConfig{
-		TypeName:     "test",
-		OperatorType: string(types.OpTypeFilter),
+		TypeName:       "test",
+		OperatorType:   string(types.OpTypeFilter),
+		ConsumesRowSet: true,
+		MutatesRowSet:  true,
 		Meta: config.Metadata{
 			ItemInput:  itemIn,
 			ItemOutput: itemOut,
@@ -48,23 +52,29 @@ func filterOp(itemIn, itemOut []string) config.OperatorConfig {
 	}
 }
 
-// mergeOp creates a Merge-type (barrier) operator config for testing.
+// mergeOp creates a Merge-type operator config for testing.
+// Merge operators consume and mutate the row set.
 func mergeOp(sources []string, itemOut []string) config.OperatorConfig {
 	return config.OperatorConfig{
-		TypeName:     "test",
-		OperatorType: string(types.OpTypeMerge),
-		Sources:      sources,
+		TypeName:       "test",
+		OperatorType:   string(types.OpTypeMerge),
+		Sources:        sources,
+		ConsumesRowSet: true,
+		MutatesRowSet:  true,
 		Meta: config.Metadata{
 			ItemOutput: itemOut,
 		},
 	}
 }
 
-// reorderOp creates a Reorder-type (barrier) operator config for testing.
+// reorderOp creates a Reorder-type operator config for testing.
+// Reorder operators consume and mutate the row set.
 func reorderOp(itemIn []string) config.OperatorConfig {
 	return config.OperatorConfig{
-		TypeName:     "test",
-		OperatorType: string(types.OpTypeReorder),
+		TypeName:       "test",
+		OperatorType:   string(types.OpTypeReorder),
+		ConsumesRowSet: true,
+		MutatesRowSet:  true,
 		Meta: config.Metadata{
 			ItemInput: itemIn,
 		},
@@ -83,14 +93,14 @@ func observeOp(commonIn, itemIn []string) config.OperatorConfig {
 	}
 }
 
-// rowDepOp creates a Transform-type operator with row_dependency=true for testing.
+// rowDepOp creates a Transform-type operator with ConsumesRowSet=true for testing.
 // It only declares common output (no item fields), relying on row-set dependency.
 func rowDepOp(commonOut []string) config.OperatorConfig {
 	return config.OperatorConfig{
-		TypeName:      "test",
-		OperatorType:  string(types.OpTypeTransform),
-		RowDependency: true,
-		Meta:          config.Metadata{CommonOutput: commonOut},
+		TypeName:       "test",
+		OperatorType:   string(types.OpTypeTransform),
+		ConsumesRowSet: true,
+		Meta:           config.Metadata{CommonOutput: commonOut},
 	}
 }
 
@@ -449,8 +459,13 @@ func TestSelfReadWriteNoSelfEdge(t *testing.T) {
 // --- Barrier semantics ---
 
 func TestFilterBarrierSemantics(t *testing.T) {
-	// transform_a and transform_b run independently,
-	// filter is a barrier: both must finish before filter, everything after waits for filter
+	// transform_a and transform_b write independent fields,
+	// filter consumes+mutates row set and reads score.
+	// filter depends on transform_a (RAW on score via _row_set_ read + field read).
+	// transform_b is independent (writes rank, no row_set involvement).
+	// transform_c reads score: it depends on transform_a (last mutating writer of score).
+	// Under new semantics, transform_c does NOT depend on filter unless it
+	// explicitly declares ConsumesRowSet.
 	seq := []string{"transform_a", "transform_b", "filter", "transform_c"}
 	ops := map[string]config.OperatorConfig{
 		"transform_a": transformOp(nil, nil, nil, []string{"score"}),
@@ -463,20 +478,27 @@ func TestFilterBarrierSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both transforms must precede filter (barrier)
+	// filter depends on transform_a (RAW on score + _row_set_ reads additive writers)
 	if !hasPred(g, "filter", "transform_a") {
-		t.Error("expected barrier edge transform_a -> filter")
+		t.Error("expected edge transform_a -> filter")
 	}
-	if !hasPred(g, "filter", "transform_b") {
-		t.Error("expected barrier edge transform_b -> filter")
+	// transform_c depends on transform_a (RAW on score — transform_a is last mutating writer)
+	if !hasPred(g, "transform_c", "transform_a") {
+		t.Error("expected RAW edge transform_a -> transform_c via score")
 	}
-	// transform_c must wait for filter
-	if !hasPred(g, "transform_c", "filter") {
-		t.Error("expected barrier edge filter -> transform_c")
+	// transform_b is independent of filter (no field overlap, no row-set involvement)
+	if hasPred(g, "filter", "transform_b") {
+		t.Error("filter should NOT depend on transform_b (no field overlap)")
 	}
 }
 
 func TestReorderBarrierSemantics(t *testing.T) {
+	// transform_a writes score, reorder reads score and mutates row set,
+	// transform_b reads score.
+	// reorder depends on transform_a (RAW on score).
+	// transform_b depends on transform_a (RAW on score, transform_a is still last mutating writer).
+	// Under new semantics, transform_b does NOT depend on reorder unless it
+	// declares ConsumesRowSet — reorder only mutates _row_set_, not 'score'.
 	seq := []string{"transform_a", "reorder", "transform_b"}
 	ops := map[string]config.OperatorConfig{
 		"transform_a": transformOp(nil, nil, nil, []string{"score"}),
@@ -489,15 +511,22 @@ func TestReorderBarrierSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !hasPred(g, "reorder", "transform_a") {
-		t.Error("expected barrier edge transform_a -> reorder")
+		t.Error("expected edge transform_a -> reorder")
 	}
-	if !hasPred(g, "transform_b", "reorder") {
-		t.Error("expected barrier edge reorder -> transform_b")
+	if !hasPred(g, "transform_b", "transform_a") {
+		t.Error("expected RAW edge transform_a -> transform_b via score")
 	}
 }
 
 func TestMergeBarrierSemantics(t *testing.T) {
-	// merge is a barrier; all prior ops finish before it, all later ops wait
+	// merge consumes+mutates row set; all prior recalls contribute to _row_set_.
+	// merge depends on both recalls (sources edges + _row_set_ RAW from additive writers).
+	// transform_c reads item_id: depends on merge since merge is last mutating writer of _row_set_...
+	// Actually, transform_c reads item_id field. Recall is the last writer of item_id (additive).
+	// merge doesn't write item_id in its metadata but it mutates _row_set_.
+	// transform_c depends on recalls (RAW on item_id).
+	// Under new semantics: transform_c depends on recalls via item_id RAW,
+	// and merge depends on recalls via sources + _row_set_.
 	seq := []string{"recall_a", "recall_b", "merge", "transform_c"}
 	ops := map[string]config.OperatorConfig{
 		"recall_a":    recallOp(nil, []string{"item_id"}),
@@ -510,20 +539,31 @@ func TestMergeBarrierSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Barrier edges
+	// merge depends on recalls (sources + _row_set_)
 	if !hasPred(g, "merge", "recall_a") {
 		t.Error("expected edge recall_a -> merge")
 	}
 	if !hasPred(g, "merge", "recall_b") {
 		t.Error("expected edge recall_b -> merge")
 	}
+	// transform_c depends on merge (RAW on item_id — merge is the last mutating writer of item_id)
 	if !hasPred(g, "transform_c", "merge") {
-		t.Error("expected edge merge -> transform_c")
+		t.Error("expected edge merge -> transform_c via item_id")
 	}
 }
 
 func TestMultipleBarriersChain(t *testing.T) {
-	// Two barriers in sequence: filter then reorder
+	// Two row-set mutators in sequence: filter then reorder.
+	// filter reads score, mutates _row_set_.
+	// transform_b reads score, writes rank.
+	// reorder reads rank, mutates _row_set_.
+	// transform_c reads rank.
+	//
+	// Under new semantics:
+	// - filter depends on transform_a (RAW on score)
+	// - transform_b depends on transform_a (RAW on score)
+	// - reorder depends on transform_b (RAW on rank) AND filter (WAW on _row_set_ via MutatesRowSet)
+	// - transform_c depends on transform_b (RAW on rank)
 	seq := []string{"transform_a", "filter", "transform_b", "reorder", "transform_c"}
 	ops := map[string]config.OperatorConfig{
 		"transform_a": transformOp(nil, nil, nil, []string{"score"}),
@@ -537,19 +577,24 @@ func TestMultipleBarriersChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// First barrier chain
+	// filter depends on transform_a (RAW on score)
 	if !hasPred(g, "filter", "transform_a") {
 		t.Error("expected transform_a -> filter")
 	}
-	if !hasPred(g, "transform_b", "filter") {
-		t.Error("expected filter -> transform_b")
+	// transform_b depends on transform_a (RAW on score)
+	if !hasPred(g, "transform_b", "transform_a") {
+		t.Error("expected transform_a -> transform_b")
 	}
-	// Second barrier chain
+	// reorder depends on transform_b (RAW on rank) and filter (MutatesRowSet serialization)
 	if !hasPred(g, "reorder", "transform_b") {
 		t.Error("expected transform_b -> reorder")
 	}
-	if !hasPred(g, "transform_c", "reorder") {
-		t.Error("expected reorder -> transform_c")
+	if !hasPred(g, "reorder", "filter") {
+		t.Error("expected filter -> reorder (MutatesRowSet serialization)")
+	}
+	// transform_c depends on transform_b (RAW on rank)
+	if !hasPred(g, "transform_c", "transform_b") {
+		t.Error("expected transform_b -> transform_c")
 	}
 }
 
@@ -578,10 +623,9 @@ func TestObserveNonBlocking(t *testing.T) {
 	}
 }
 
-func TestObserveDoesNotCreateWAR(t *testing.T) {
-	// Observe reads foo; a later transform writes foo. Because Observe is
-	// read-only and non-blocking, the transform should NOT wait for Observe
-	// to finish (no WAR edge from observe to transform_b).
+func TestObserveCreatesWAR(t *testing.T) {
+	// Observe reads foo; a later transform writes foo. Observe registers as
+	// activeReader, so transform_b must wait for observe (WAR edge).
 	seq := []string{"transform_a", "observe", "transform_b"}
 	ops := map[string]config.OperatorConfig{
 		"transform_a": transformOp(nil, []string{"foo"}, nil, nil),
@@ -593,18 +637,16 @@ func TestObserveDoesNotCreateWAR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// transform_b should depend on transform_a (WAW on foo)
-	if !hasPred(g, "transform_b", "transform_a") {
-		t.Error("expected WAW edge transform_a -> transform_b")
-	}
 	// observe should depend on transform_a (RAW on foo)
 	if !hasPred(g, "observe", "transform_a") {
 		t.Error("expected RAW edge transform_a -> observe")
 	}
-	// transform_b should NOT depend on observe (Observe is non-blocking)
-	if hasPred(g, "transform_b", "observe") {
-		t.Error("transform_b should NOT depend on observe (non-blocking)")
+	// transform_b should depend on observe (WAR on foo)
+	if !hasPred(g, "transform_b", "observe") {
+		t.Error("expected WAR edge observe -> transform_b")
 	}
+	// WAW edge transform_a -> transform_b is transitively reduced
+	// (path exists via observe), so no direct edge needed
 }
 
 // --- Recall depending on Transform ---
@@ -1044,7 +1086,17 @@ func TestReduceDiamondGraph(t *testing.T) {
 }
 
 func TestReduceWithBarrierPipeline(t *testing.T) {
-	// Build a real pipeline with barrier and verify reduction happens
+	// Build a real pipeline with row-set mutator and verify reduction happens.
+	// recall_a, recall_b write item_id (additive). transform_c reads item_id, writes score.
+	// filter reads score, consumes+mutates _row_set_.
+	// transform_d reads score, writes rank. transform_e reads rank, writes final.
+	//
+	// Expected edges (before reduction):
+	// - recall_a -> transform_c (RAW item_id), recall_b -> transform_c (RAW item_id)
+	// - recall_a -> filter (_row_set_ additive -> consumer), recall_b -> filter (_row_set_)
+	// - transform_c -> filter (RAW score), transform_c -> transform_d (RAW score)
+	// - transform_d -> transform_e (RAW rank)
+	// After reduction: some edges removed if implied by longer paths.
 	seq := []string{"recall_a", "recall_b", "transform_c", "filter", "transform_d", "transform_e"}
 	ops := map[string]config.OperatorConfig{
 		"recall_a":    recallOp(nil, []string{"item_id"}),
@@ -1070,9 +1122,9 @@ func TestReduceWithBarrierPipeline(t *testing.T) {
 		}
 	}
 
-	// transform_e should be reachable from all prior nodes
+	// transform_e should be reachable from transform_c, transform_d
 	eIdx := g.NameToIndex["transform_e"]
-	for _, name := range []string{"recall_a", "recall_b", "transform_c", "filter", "transform_d"} {
+	for _, name := range []string{"transform_c", "transform_d"} {
 		idx := g.NameToIndex[name]
 		if !closureMatrix[idx][eIdx] {
 			t.Errorf("transform_e should be reachable from %s", name)
@@ -1204,7 +1256,7 @@ func fuzzDAGConfig(data []byte) ([]string, map[string]config.OperatorConfig) {
 		}
 		if next(0)%5 == 0 {
 			op := ops[name]
-			op.RowDependency = true
+			op.ConsumesRowSet = true
 			ops[name] = op
 		}
 	}
@@ -1339,8 +1391,8 @@ func TestTopologicalSortPartialCycleReportsOnlyCycleNodes(t *testing.T) {
 
 func TestNestedSubFlowWithBarrierAndSources(t *testing.T) {
 	// Realistic pipeline:
-	//   recall_a, recall_b (parallel) -> merge (barrier, sources=[recall_a, recall_b])
-	//   -> transform_post (reads merged items) -> filter (barrier) -> transform_final
+	//   recall_a, recall_b (parallel) -> merge (ConsumesRowSet+MutatesRowSet, sources=[recall_a, recall_b])
+	//   -> transform_post (reads merged items) -> filter (ConsumesRowSet+MutatesRowSet) -> transform_final
 	// All in nested SubFlows.
 	seq := []string{"recall_a", "recall_b", "merge", "transform_post", "filter", "transform_final"}
 	ops := map[string]config.OperatorConfig{
@@ -1369,24 +1421,28 @@ func TestNestedSubFlowWithBarrierAndSources(t *testing.T) {
 	if hasPred(g, "recall_b", "recall_a") || hasPred(g, "recall_a", "recall_b") {
 		t.Error("recalls should be independent")
 	}
-	// merge depends on both recalls (barrier + sources)
+	// merge depends on both recalls (sources + _row_set_ consumer reads additive writers)
 	if !hasPred(g, "merge", "recall_a") {
 		t.Error("expected merge depends on recall_a")
 	}
 	if !hasPred(g, "merge", "recall_b") {
 		t.Error("expected merge depends on recall_b")
 	}
-	// transform_post depends on merge (barrier semantics)
+	// transform_post reads item_score: merge writes item_score (mutating writer), so depends on merge
 	if !hasPred(g, "transform_post", "merge") {
 		t.Error("expected transform_post depends on merge")
 	}
-	// filter depends on transform_post (barrier)
+	// filter reads item_rank: depends on transform_post (RAW on item_rank)
 	if !hasPred(g, "filter", "transform_post") {
 		t.Error("expected filter depends on transform_post")
 	}
-	// transform_final depends on filter (barrier)
-	if !hasPred(g, "transform_final", "filter") {
-		t.Error("expected transform_final depends on filter")
+	// transform_final reads item_rank: depends on transform_post (last mutating writer of item_rank)
+	// filter reads item_rank but doesn't write it, so transform_final depends on transform_post directly.
+	closure := transitiveClosure(g)
+	transformPostIdx := g.NameToIndex["transform_post"]
+	transformFinalIdx := g.NameToIndex["transform_final"]
+	if !closure[transformPostIdx][transformFinalIdx] {
+		t.Error("transform_final should be reachable from transform_post")
 	}
 
 	// SubFlow membership is recorded
@@ -1407,10 +1463,10 @@ func TestNestedSubFlowWithBarrierAndSources(t *testing.T) {
 }
 
 func TestControlFlowWithBarrierInteraction(t *testing.T) {
-	// Control flow interleaved with barrier:
-	//   ctrl_if produces _if_1 (common), transform_branch reads _if_1 + item,
-	//   filter (barrier), transform_post reads item after filter.
-	// Ensures control fields don't break barrier semantics.
+	// Control flow interleaved with row-set mutator:
+	//   ctrl_if produces _if_1 (common), transform_branch reads _if_1 + item_score writes item_rank,
+	//   filter (ConsumesRowSet+MutatesRowSet) reads item_rank, transform_post reads item_rank.
+	// Ensures control fields don't break row-set semantics.
 	seq := []string{"recall_init", "ctrl_if", "transform_branch", "filter", "transform_post"}
 	ops := map[string]config.OperatorConfig{
 		"recall_init": recallOp(nil, []string{"item_id", "item_score"}),
@@ -1445,20 +1501,20 @@ func TestControlFlowWithBarrierInteraction(t *testing.T) {
 		t.Error("expected transform_branch depends on recall_init")
 	}
 
-	// filter is barrier: all prior ops finish before it
+	// filter reads item_rank: depends on transform_branch (RAW item_rank)
 	if !hasPred(g, "filter", "transform_branch") {
 		t.Error("expected filter depends on transform_branch")
 	}
 
-	// transform_post depends on filter
-	if !hasPred(g, "transform_post", "filter") {
-		t.Error("expected transform_post depends on filter")
+	// transform_post reads item_rank: depends on transform_branch (last mutating writer of item_rank)
+	if !hasPred(g, "transform_post", "transform_branch") {
+		t.Error("expected transform_post depends on transform_branch")
 	}
 }
 
 func TestRowDepWithRecallAndBarrierCombined(t *testing.T) {
-	// recall_a, recall_b -> size (row_dep) -> filter (barrier) -> transform_final
-	// Ensures row dependency + barrier + recall all compose correctly.
+	// recall_a, recall_b -> size (ConsumesRowSet) -> filter (ConsumesRowSet+MutatesRowSet) -> transform_final
+	// Ensures row dependency + row-set mutation + recall all compose correctly.
 	seq := []string{"recall_a", "recall_b", "size", "filter", "transform_final"}
 	ops := map[string]config.OperatorConfig{
 		"recall_a":       recallOp(nil, []string{"item_id"}),
@@ -1473,23 +1529,24 @@ func TestRowDepWithRecallAndBarrierCombined(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 
-	// size depends on both recalls (row-dep)
+	// size depends on both recalls (row-dep via _row_set_)
 	if !hasPred(g, "size", "recall_a") {
 		t.Error("expected size depends on recall_a")
 	}
 	if !hasPred(g, "size", "recall_b") {
 		t.Error("expected size depends on recall_b")
 	}
-	// filter is barrier: depends on all prior (including size)
+	// filter consumes _row_set_: depends on recalls (additive writers) and size (active reader via WAR)
 	closure := transitiveClosure(g)
 	sizeIdx := g.NameToIndex["size"]
 	filterIdx := g.NameToIndex["filter"]
 	if !closure[sizeIdx][filterIdx] {
 		t.Error("filter should be reachable from size")
 	}
-	// transform_final depends on filter (barrier) and size (RAW item_count)
-	if !hasPred(g, "transform_final", "filter") {
-		t.Error("expected transform_final depends on filter")
+	// transform_final depends on size (RAW item_count) and filter or recalls (RAW item_id)
+	finalIdx := g.NameToIndex["transform_final"]
+	if !closure[sizeIdx][finalIdx] {
+		t.Error("transform_final should be reachable from size")
 	}
 }
 

@@ -16,7 +16,7 @@ import java.util.Map;
  *   ItemInput:    []
  *   ItemOutput:   []
  */
-public class TransformSize extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
+public class TransformSize extends AbstractOperator implements page.liam.pine.ConcurrentSafe, page.liam.pine.ConsumesRowSet {
     @Override
     public void init(OperatorParams params) {}
 

@@ -34,6 +34,7 @@ func init() {
 
 type ResourceOp struct {
 	pine.MetadataHolder
+	pine.AdditiveWritesRowSetMarker
 	resourceName string
 }
 

@@ -31,7 +31,6 @@ public class DAG {
 
         DAG g = new DAG(nodes, nameToIndex);
 
-        addBarrierEdges(g, sequence, operators);
         addEdges(g, sequence, operators, true);  // common fields
         addEdges(g, sequence, operators, false); // item fields
 
@@ -59,62 +58,22 @@ public class DAG {
         return topologicalSort(this);
     }
 
-    private static void addBarrierEdges(DAG g, List<String> sequence, Map<String, Config.OperatorConfig> operators) {
-        int n = sequence.size();
-        for (int i = 0; i < n; i++) {
-            Config.OperatorConfig opCfg = operators.get(sequence.get(i));
-            OperatorType opType = resolveType(opCfg.operatorType);
-            if (!isBarrier(opType)) continue;
-
-            for (int j = 0; j < i; j++) {
-                addEdge(g, j, i);
-            }
-            for (int j = i + 1; j < n; j++) {
-                addEdge(g, i, j);
-            }
-        }
-    }
-
     private static void addEdges(DAG g, List<String> sequence, Map<String, Config.OperatorConfig> operators, boolean isCommon) {
         Map<String, FieldTracker> fields = new HashMap<>();
 
         for (int i = 0; i < sequence.size(); i++) {
             Config.OperatorConfig opCfg = operators.get(sequence.get(i));
-            OperatorType opType = resolveType(opCfg.operatorType);
             Config.Metadata meta = opCfg.metadata;
-
-            if (isBarrier(opType)) {
-                List<String> writeFields = isCommon ? meta.commonOutput : meta.itemOutput;
-                for (String field : writeFields) {
-                    FieldTracker ft = fields.computeIfAbsent(field, k -> new FieldTracker());
-                    ft.lastMutWriter = i;
-                    ft.additiveWriters.clear();
-                    ft.activeReaders.clear();
-                }
-                List<String> readFields = isCommon ? meta.commonInput : meta.itemInput;
-                for (String field : readFields) {
-                    FieldTracker ft = fields.computeIfAbsent(field, k -> new FieldTracker());
-                    ft.activeReaders.clear();
-                    ft.activeReaders.add(i);
-                }
-                if (!isCommon) {
-                    FieldTracker ft = fields.computeIfAbsent(ROW_SET_SENTINEL, k -> new FieldTracker());
-                    ft.lastMutWriter = i;
-                    ft.additiveWriters.clear();
-                    ft.activeReaders.clear();
-                }
-                continue;
-            }
 
             List<String> readFields = new ArrayList<>(isCommon ? meta.commonInput : meta.itemInput);
             List<String> writeFields = new ArrayList<>(isCommon ? meta.commonOutput : meta.itemOutput);
-            boolean isAdditiveWrite = !isCommon && opType == OperatorType.RECALL;
+            boolean isAdditiveWrite = !isCommon && opCfg.additiveWritesRowSet;
 
             if (!isCommon) {
                 if (isAdditiveWrite) {
                     writeFields.add(ROW_SET_SENTINEL);
                 }
-                if (opCfg.rowDependency) {
+                if (opCfg.consumesRowSet) {
                     readFields.add(ROW_SET_SENTINEL);
                 }
             }
@@ -128,15 +87,21 @@ public class DAG {
                 for (int aw : ft.additiveWriters) {
                     addEdge(g, aw, i);
                 }
-                if (opType != OperatorType.OBSERVE) {
-                    ft.activeReaders.add(i);
-                }
+                ft.activeReaders.add(i);
             }
 
             // Process writes
             for (String field : writeFields) {
                 FieldTracker ft = fields.computeIfAbsent(field, k -> new FieldTracker());
                 if (isAdditiveWrite) {
+                    if (ft.lastMutWriter >= 0) {
+                        addEdge(g, ft.lastMutWriter, i);
+                    }
+                    for (int reader : ft.activeReaders) {
+                        if (reader != i) {
+                            addEdge(g, reader, i);
+                        }
+                    }
                     ft.additiveWriters.add(i);
                 } else {
                     if (ft.lastMutWriter >= 0) {
@@ -154,6 +119,25 @@ public class DAG {
                     ft.additiveWriters.clear();
                     ft.activeReaders.clear();
                 }
+            }
+
+            // MutatesRowSet: mutating write to _row_set_ sentinel
+            if (!isCommon && opCfg.mutatesRowSet) {
+                FieldTracker ft = fields.computeIfAbsent(ROW_SET_SENTINEL, k -> new FieldTracker());
+                if (ft.lastMutWriter >= 0) {
+                    addEdge(g, ft.lastMutWriter, i);
+                }
+                for (int aw : ft.additiveWriters) {
+                    addEdge(g, aw, i);
+                }
+                for (int reader : ft.activeReaders) {
+                    if (reader != i) {
+                        addEdge(g, reader, i);
+                    }
+                }
+                ft.lastMutWriter = i;
+                ft.additiveWriters.clear();
+                ft.activeReaders.clear();
             }
         }
     }
@@ -245,19 +229,6 @@ public class DAG {
             }
         }
         return false;
-    }
-
-    private static boolean isBarrier(OperatorType type) {
-        return type == OperatorType.FILTER || type == OperatorType.MERGE || type == OperatorType.REORDER;
-    }
-
-    private static OperatorType resolveType(String typeStr) {
-        if (typeStr == null || typeStr.isEmpty()) return OperatorType.TRANSFORM;
-        try {
-            return OperatorType.valueOf(typeStr.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return OperatorType.TRANSFORM;
-        }
     }
 
     // --- Inner types ---

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/Liam0205/pineapple/pine-go/internal/config"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
 
@@ -64,49 +65,56 @@ func (f *RowFrame) Item(index int, field string) any {
 }
 
 func (f *RowFrame) BuildInput(
-	commonFields []string,
-	itemFields []string,
-	commonDefaults map[string]any,
-	itemDefaults map[string]any,
-) *types.OperatorInput {
+	opName string,
+	spec *config.InputFieldSpec,
+) (*types.OperatorInput, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	cs := make(map[string]any, len(commonFields))
-	for _, field := range commonFields {
+	totalCommon := len(spec.StrictCommon) + len(spec.DefaultedCommon)
+	cs := make(map[string]any, totalCommon)
+
+	for _, field := range spec.StrictCommon {
 		v, exists := f.common[field]
-		if exists {
-			if v == nil {
-				if d, ok := commonDefaults[field]; ok {
-					v = d
-				}
-			}
-			cs[field] = v
-		} else if d, ok := commonDefaults[field]; ok {
-			cs[field] = d
+		if !exists || v == nil {
+			return nil, fmt.Errorf("operator %q: required field %q is nil in common", opName, field)
+		}
+		cs[field] = v
+	}
+	for _, df := range spec.DefaultedCommon {
+		v, exists := f.common[df.Name]
+		if !exists || v == nil {
+			cs[df.Name] = df.Default
+		} else {
+			cs[df.Name] = v
 		}
 	}
 
+	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem)
 	its := make([]map[string]any, len(f.items))
 	for i, item := range f.items {
-		row := make(map[string]any, len(itemFields))
-		for _, field := range itemFields {
+		row := make(map[string]any, totalItem)
+
+		for _, field := range spec.StrictItem {
 			v, exists := item[field]
-			if exists {
-				if v == nil {
-					if d, ok := itemDefaults[field]; ok {
-						v = d
-					}
-				}
-				row[field] = v
-			} else if d, ok := itemDefaults[field]; ok {
-				row[field] = d
+			if !exists || v == nil {
+				return nil, fmt.Errorf("operator %q: required field %q is nil on item[%d]", opName, field, i)
+			}
+			row[field] = v
+		}
+		for _, df := range spec.DefaultedItem {
+			v, exists := item[df.Name]
+			if !exists || v == nil {
+				row[df.Name] = df.Default
+			} else {
+				row[df.Name] = v
 			}
 		}
+
 		its[i] = row
 	}
 
-	return types.NewOperatorInput(cs, its)
+	return types.NewOperatorInput(cs, its), nil
 }
 
 func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error {

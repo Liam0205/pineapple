@@ -34,6 +34,8 @@ func init() {
 // PaginateOp removes items outside the requested page window.
 type PaginateOp struct {
 	pine.MetadataHolder
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 }
 
 func (o *PaginateOp) Init(params map[string]any) error { return nil }

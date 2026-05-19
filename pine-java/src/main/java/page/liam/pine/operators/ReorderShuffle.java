@@ -13,7 +13,7 @@ import java.util.*;
  *   ItemInput:    [<item_key_field>]
  *   ItemOutput:   []
  */
-public class ReorderShuffle extends AbstractOperator {
+public class ReorderShuffle extends AbstractOperator implements page.liam.pine.ConsumesRowSet, page.liam.pine.MutatesRowSet {
 
     @Override
     public void init(OperatorParams params) {}

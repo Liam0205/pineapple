@@ -9,18 +9,20 @@ import (
 
 // reservedKeys are operator config keys handled by the engine, not passed to Init.
 var reservedKeys = map[string]struct{}{
-	"type_name":          {},
-	"$metadata":          {},
-	"$code_info":         {},
-	"skip":               {},
-	"recall":             {},
-	"sources":            {},
-	"debug":              {},
-	"row_dependency":     {},
-	"common_defaults":    {},
-	"item_defaults":      {},
-	"for_branch_control": {},
-	"data_parallel":      {},
+	"type_name":              {},
+	"$metadata":              {},
+	"$code_info":             {},
+	"skip":                   {},
+	"recall":                 {},
+	"sources":                {},
+	"debug":                  {},
+	"consumes_row_set":       {},
+	"mutates_row_set":        {},
+	"additive_writes_row_set": {},
+	"common_defaults":        {},
+	"item_defaults":          {},
+	"for_branch_control":     {},
+	"data_parallel":          {},
 }
 
 // IsReservedKey returns true if the key is engine-reserved.

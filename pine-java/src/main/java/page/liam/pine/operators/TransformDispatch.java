@@ -16,7 +16,7 @@ import java.util.Map;
  *   ItemInput:    []
  *   ItemOutput:   [<item_field>]
  */
-public class TransformDispatch extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
+public class TransformDispatch extends AbstractOperator implements page.liam.pine.ConcurrentSafe, page.liam.pine.ConsumesRowSet {
     @Override
     public void init(OperatorParams params) {}
 

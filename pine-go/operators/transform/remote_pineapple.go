@@ -59,6 +59,7 @@ func init() {
 type RemotePineappleOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
+	pine.ConsumesRowSetMarker
 	url             string
 	timeout         time.Duration
 	failOnError     bool

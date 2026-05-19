@@ -37,6 +37,8 @@ func init() {
 // DedupOp removes duplicate items based on a key field.
 type DedupOp struct {
 	pine.MetadataHolder
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 	strategy string
 }
 

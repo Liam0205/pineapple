@@ -21,7 +21,7 @@ class FilterConditionOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterConditionOp":
@@ -36,7 +36,7 @@ class FilterConditionOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -56,7 +56,7 @@ class FilterPaginateOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterPaginateOp":
@@ -70,7 +70,7 @@ class FilterPaginateOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -92,7 +92,7 @@ class FilterTruncateOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "FilterTruncateOp":
@@ -107,7 +107,7 @@ class FilterTruncateOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -129,7 +129,7 @@ class MergeDedupOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "MergeDedupOp":
@@ -144,7 +144,7 @@ class MergeDedupOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -166,7 +166,7 @@ class ObserveLogOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "ObserveLogOp":
@@ -181,7 +181,7 @@ class ObserveLogOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -203,7 +203,7 @@ class RecallResourceOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "RecallResourceOp":
@@ -219,7 +219,7 @@ class RecallResourceOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             recall=True,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -241,7 +241,7 @@ class RecallStaticOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "RecallStaticOp":
@@ -257,7 +257,7 @@ class RecallStaticOp(BaseOp):
             item_defaults=item_defaults,
             common_defaults=common_defaults,
             recall=True,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -277,7 +277,7 @@ class ReorderShuffleBySaltOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "ReorderShuffleBySaltOp":
@@ -291,7 +291,7 @@ class ReorderShuffleBySaltOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -313,7 +313,7 @@ class ReorderSortOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "ReorderSortOp":
@@ -328,7 +328,7 @@ class ReorderSortOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -354,7 +354,7 @@ class TransformByLuaOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformByLuaOp":
@@ -371,7 +371,7 @@ class TransformByLuaOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -413,7 +413,7 @@ class TransformByRemotePineappleOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformByRemotePineappleOp":
@@ -442,7 +442,7 @@ class TransformByRemotePineappleOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -464,7 +464,7 @@ class TransformCopyOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformCopyOp":
@@ -479,7 +479,7 @@ class TransformCopyOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -499,7 +499,7 @@ class TransformDispatchOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformDispatchOp":
@@ -513,7 +513,7 @@ class TransformDispatchOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -535,7 +535,7 @@ class TransformNormalizeOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformNormalizeOp":
@@ -550,7 +550,7 @@ class TransformNormalizeOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -582,7 +582,7 @@ class TransformRedisGetOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformRedisGetOp":
@@ -602,7 +602,7 @@ class TransformRedisGetOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -636,7 +636,7 @@ class TransformRedisSetOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformRedisSetOp":
@@ -657,7 +657,7 @@ class TransformRedisSetOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -685,7 +685,7 @@ class TransformResourceLookupOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformResourceLookupOp":
@@ -704,7 +704,7 @@ class TransformResourceLookupOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )
@@ -724,7 +724,7 @@ class TransformSizeOp(BaseOp):
         item_output: list[str] | None = None,
         item_defaults: dict | None = None,
         common_defaults: dict | None = None,
-        row_dependency: bool = False,
+        consumes_row_set: bool = False,
         debug: bool = False,
         name: str | None = None,
     ) -> "TransformSizeOp":
@@ -738,7 +738,7 @@ class TransformSizeOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
-            row_dependency=row_dependency,
+            consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
         )

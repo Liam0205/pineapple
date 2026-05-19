@@ -53,6 +53,7 @@ public class PipelineFixtureTest {
                 for (JsonNode testCase : cases) {
                     String caseName = testCase.get("name").asText();
                     String fullName = fixtureName + " / " + caseName;
+                    String expectError = testCase.has("expect_error") ? testCase.get("expect_error").asText() : null;
 
                     tests.add(DynamicTest.dynamicTest(fullName, () -> {
                         Engine engine = Engine.create(configBytes, rp);
@@ -66,6 +67,16 @@ public class PipelineFixtureTest {
                                 : Collections.emptyList();
 
                         Engine.Result result = engine.execute(common, items);
+
+                        if (expectError != null) {
+                            assertNotNull(result.error,
+                                    fullName + " — expected error containing \"" + expectError + "\", got success");
+                            assertTrue(result.error.getMessage().contains(expectError),
+                                    fullName + " — expected error containing \"" + expectError + "\", got: " + result.error.getMessage());
+                            return;
+                        }
+
+                        assertNull(result.error, fullName + " — unexpected error: " + result.error);
 
                         JsonNode expected = testCase.get("expected");
                         Map<String, Object> expectedCommon = mapper.convertValue(expected.get("common"),
@@ -89,14 +100,27 @@ public class PipelineFixtureTest {
         return tests.stream();
     }
 
+    // Machine epsilon for IEEE 754 double precision: 2^-52
+    private static final double FLOAT_EPSILON = Math.pow(2, -52);
+
+    /**
+     * Relative epsilon comparison for floating-point values.
+     * Formula: |a - b| <= eps * max(|a|, |b|, 1.0)
+     */
+    private static boolean floatsEqual(double a, double b) {
+        double diff = Math.abs(a - b);
+        double scale = Math.max(Math.max(Math.abs(a), Math.abs(b)), 1.0);
+        return diff <= FLOAT_EPSILON * scale;
+    }
+
     private static void assertMapEquals(Map<String, Object> expected, Map<String, Object> actual, String msg) {
         assertEquals(expected.keySet(), actual.keySet(), msg + " (keys differ)");
         for (String key : expected.keySet()) {
             Object e = expected.get(key);
             Object a = actual.get(key);
             if (e instanceof Number && a instanceof Number) {
-                assertEquals(((Number) e).doubleValue(), ((Number) a).doubleValue(), 1e-9,
-                        msg + " field=" + key);
+                assertTrue(floatsEqual(((Number) e).doubleValue(), ((Number) a).doubleValue()),
+                        msg + " field=" + key + " expected=" + e + " actual=" + a);
             } else {
                 assertEquals(e, a, msg + " field=" + key);
             }

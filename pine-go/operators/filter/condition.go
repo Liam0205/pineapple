@@ -37,6 +37,8 @@ func init() {
 // ConditionOp removes items where a field matches a specific value.
 type ConditionOp struct {
 	pine.MetadataHolder
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 	value any
 }
 

@@ -185,13 +185,16 @@ func TestRunSimpleChain(t *testing.T) {
 		Instance: &setCommonOp{field: "x", value: 10.0},
 		Config: config.OperatorConfig{
 			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	opB := &CompiledOperator{
 		Name:     "op_b",
 		Instance: &readAndSetOp{readField: "x", writeField: "y"},
 		Config: config.OperatorConfig{
-			TypeName: "rw", Meta: config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
+			TypeName:  "rw",
+			Meta:      config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil),
 		},
 	}
 
@@ -235,14 +238,18 @@ func TestRunParallelOps(t *testing.T) {
 		Name:     "op_a",
 		Instance: &sleepOp{d: 50 * time.Millisecond, started: startedA},
 		Config: config.OperatorConfig{
-			TypeName: "sleep", Meta: config.Metadata{CommonOutput: []string{"a_done"}},
+			TypeName:  "sleep",
+			Meta:      config.Metadata{CommonOutput: []string{"a_done"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	opB := &CompiledOperator{
 		Name:     "op_b",
 		Instance: &sleepOp{d: 50 * time.Millisecond, started: startedB},
 		Config: config.OperatorConfig{
-			TypeName: "sleep", Meta: config.Metadata{CommonOutput: []string{"b_done"}},
+			TypeName:  "sleep",
+			Meta:      config.Metadata{CommonOutput: []string{"b_done"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 
@@ -270,15 +277,19 @@ func TestRunSkipTrue(t *testing.T) {
 		Name:     "ctrl",
 		Instance: &setCommonOp{field: "_if_1", value: true},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"_if_1"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonOutput: []string{"_if_1"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	branch := &CompiledOperator{
 		Name:     "branch",
 		Instance: &setCommonOp{field: "executed", value: true},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
-			Skip: []string{"_if_1"},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
+			Skip:      []string{"_if_1"},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1"}),
 		},
 	}
 
@@ -315,15 +326,19 @@ func TestRunSkipFalse(t *testing.T) {
 		Name:     "ctrl",
 		Instance: &setCommonOp{field: "_if_1", value: false},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"_if_1"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonOutput: []string{"_if_1"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	branch := &CompiledOperator{
 		Name:     "branch",
 		Instance: &setCommonOp{field: "executed", value: true},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
-			Skip: []string{"_if_1"},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
+			Skip:      []string{"_if_1"},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1"}),
 		},
 	}
 
@@ -346,23 +361,28 @@ func TestRunSkipMultiple(t *testing.T) {
 		Name:     "ctrl1",
 		Instance: &setCommonOp{field: "_if_1", value: false},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"_if_1"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonOutput: []string{"_if_1"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	ctrl2 := &CompiledOperator{
 		Name:     "ctrl2",
 		Instance: &setCommonOp{field: "_if_2", value: true},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, nil),
 		},
 	}
 	branch := &CompiledOperator{
 		Name:     "branch",
 		Instance: &setCommonOp{field: "executed", value: true},
 		Config: config.OperatorConfig{
-			TypeName: "set",
-			Meta:     config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
-			Skip:     []string{"_if_1", "_if_2"},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
+			Skip:      []string{"_if_1", "_if_2"},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1", "_if_2"}),
 		},
 	}
 
@@ -397,14 +417,18 @@ func TestRunFatalError(t *testing.T) {
 		Name:     "op_a",
 		Instance: &errorOp{msg: "boom"},
 		Config: config.OperatorConfig{
-			TypeName: "err", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			TypeName:  "err",
+			Meta:      config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	opB := &CompiledOperator{
 		Name:     "op_b",
 		Instance: &setCommonOp{field: "y", value: 1},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil),
 		},
 	}
 
@@ -444,8 +468,9 @@ func TestRunApplyOutputErrorRecordsErrorStats(t *testing.T) {
 		Name:     "bad_apply",
 		Instance: &badRemoveOp{},
 		Config: config.OperatorConfig{
-			TypeName: "filter",
-			Meta:     config.Metadata{ItemInput: []string{"remove"}},
+			TypeName:  "filter",
+			Meta:      config.Metadata{ItemInput: []string{"remove"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"remove"}}, nil, nil, nil),
 		},
 	}
 	plan := buildPlan(t, []string{"bad_apply"}, map[string]*CompiledOperator{
@@ -477,6 +502,7 @@ func TestRunSkipFieldFilteredFromInput(t *testing.T) {
 			TypeName:         "set",
 			ForBranchControl: true,
 			Meta:             config.Metadata{CommonOutput: []string{"_if_1"}},
+			InputSpec:        &config.InputFieldSpec{},
 		},
 	}
 	capture := &captureKeysOp{}
@@ -484,9 +510,10 @@ func TestRunSkipFieldFilteredFromInput(t *testing.T) {
 		Name:     "branch_op",
 		Instance: capture,
 		Config: config.OperatorConfig{
-			TypeName: "capture",
-			Skip:     []string{"_if_1"},
-			Meta:     config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}},
+			TypeName:  "capture",
+			Skip:      []string{"_if_1"},
+			Meta:      config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}}, nil, nil, []string{"_if_1"}),
 		},
 	}
 
@@ -532,23 +559,28 @@ func TestRunSkipMultipleAllFalse(t *testing.T) {
 		Name:     "ctrl1",
 		Instance: &setCommonOp{field: "_if_1", value: false},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"_if_1"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonOutput: []string{"_if_1"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	ctrl2 := &CompiledOperator{
 		Name:     "ctrl2",
 		Instance: &setCommonOp{field: "_if_2", value: false},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, nil),
 		},
 	}
 	branch := &CompiledOperator{
 		Name:     "branch",
 		Instance: &setCommonOp{field: "executed", value: true},
 		Config: config.OperatorConfig{
-			TypeName: "set",
-			Meta:     config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
-			Skip:     []string{"_if_1", "_if_2"},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
+			Skip:      []string{"_if_1", "_if_2"},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1", "_if_2"}),
 		},
 	}
 
@@ -587,6 +619,7 @@ func TestRunSkipMultipleFieldsFilteredFromInput(t *testing.T) {
 			TypeName:         "set",
 			ForBranchControl: true,
 			Meta:             config.Metadata{CommonOutput: []string{"_if_1"}},
+			InputSpec:        &config.InputFieldSpec{},
 		},
 	}
 	ctrl2 := &CompiledOperator{
@@ -597,6 +630,7 @@ func TestRunSkipMultipleFieldsFilteredFromInput(t *testing.T) {
 			ForBranchControl: true,
 			Meta:             config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
 			Skip:             []string{"_if_1"},
+			InputSpec:        config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, []string{"_if_1"}),
 		},
 	}
 	capture := &captureKeysOp{}
@@ -604,9 +638,10 @@ func TestRunSkipMultipleFieldsFilteredFromInput(t *testing.T) {
 		Name:     "branch",
 		Instance: capture,
 		Config: config.OperatorConfig{
-			TypeName: "capture",
-			Skip:     []string{"_if_1", "_if_2"},
-			Meta:     config.Metadata{CommonInput: []string{"_if_1", "_if_2", "user_id"}, CommonOutput: []string{"captured"}},
+			TypeName:  "capture",
+			Skip:      []string{"_if_1", "_if_2"},
+			Meta:      config.Metadata{CommonInput: []string{"_if_1", "_if_2", "user_id"}, CommonOutput: []string{"captured"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2", "user_id"}, CommonOutput: []string{"captured"}}, nil, nil, []string{"_if_1", "_if_2"}),
 		},
 	}
 
@@ -645,7 +680,9 @@ func TestRunPanicRecovery(t *testing.T) {
 		Name:     "op_a",
 		Instance: &panicOp{},
 		Config: config.OperatorConfig{
-			TypeName: "panic", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			TypeName:  "panic",
+			Meta:      config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 
@@ -668,14 +705,18 @@ func TestRunWarningContinues(t *testing.T) {
 		Name:     "op_a",
 		Instance: &warningOp{},
 		Config: config.OperatorConfig{
-			TypeName: "warn", Meta: config.Metadata{CommonOutput: []string{"fallback"}},
+			TypeName:  "warn",
+			Meta:      config.Metadata{CommonOutput: []string{"fallback"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 	opB := &CompiledOperator{
 		Name:     "op_b",
 		Instance: &setCommonOp{field: "after_warning", value: true},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonInput: []string{"fallback"}, CommonOutput: []string{"after_warning"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonInput: []string{"fallback"}, CommonOutput: []string{"after_warning"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"fallback"}, CommonOutput: []string{"after_warning"}}, nil, nil, nil),
 		},
 	}
 
@@ -707,7 +748,8 @@ func TestRunRecallInjectsSource(t *testing.T) {
 		}},
 		Config: config.OperatorConfig{
 			TypeName: "recall", Recall: true,
-			Meta: config.Metadata{ItemOutput: []string{"item_id"}},
+			Meta:      config.Metadata{ItemOutput: []string{"item_id"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 
@@ -739,8 +781,9 @@ func TestRunFilterRemovesItems(t *testing.T) {
 		Name:     "filter",
 		Instance: &filterTestOp{},
 		Config: config.OperatorConfig{
-			TypeName: "filter",
-			Meta:     config.Metadata{ItemInput: []string{"id", "remove"}},
+			TypeName:  "filter",
+			Meta:      config.Metadata{ItemInput: []string{"id", "remove"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"id", "remove"}}, nil, nil, nil),
 		},
 	}
 
@@ -768,8 +811,9 @@ func TestRunReorderReverses(t *testing.T) {
 		Name:     "reorder",
 		Instance: &reorderTestOp{},
 		Config: config.OperatorConfig{
-			TypeName: "reorder",
-			Meta:     config.Metadata{ItemInput: []string{"id"}},
+			TypeName:  "reorder",
+			Meta:      config.Metadata{ItemInput: []string{"id"}},
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"id"}}, nil, nil, nil),
 		},
 	}
 
@@ -795,7 +839,9 @@ func TestRunConcurrentExecutions(t *testing.T) {
 		Name:     "op_a",
 		Instance: &setCommonOp{field: "x", value: 1.0},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 
@@ -835,7 +881,9 @@ func TestRunContextCancellation(t *testing.T) {
 		Name:     "op_a",
 		Instance: &setCommonOp{field: "x", value: 1},
 		Config: config.OperatorConfig{
-			TypeName: "set", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			TypeName:  "set",
+			Meta:      config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
 		},
 	}
 

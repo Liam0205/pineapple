@@ -16,7 +16,7 @@ import java.util.Map;
  *   ItemInput:    []
  *   ItemOutput:   []
  */
-public class FilterPaginate extends AbstractOperator {
+public class FilterPaginate extends AbstractOperator implements page.liam.pine.ConsumesRowSet, page.liam.pine.MutatesRowSet {
     @Override
     public void init(OperatorParams params) {}
 

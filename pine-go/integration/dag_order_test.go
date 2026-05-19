@@ -60,9 +60,14 @@ func eventByName(events []execEvent, name string) (execEvent, bool) {
 // ---------------------------------------------------------------------------
 
 // testTransformOp is a Transform operator that records its execution order.
+// It writes sentinel values for any declared common_output fields (passed via
+// "_produce" param) and item_output fields (via "_produce_item" param) so
+// downstream strict field checks succeed.
 type testTransformOp struct {
-	name  string
-	delay time.Duration
+	name         string
+	delay        time.Duration
+	commonOutput []string
+	itemOutput   []string
 }
 
 func (o *testTransformOp) Init(params map[string]any) error {
@@ -72,16 +77,38 @@ func (o *testTransformOp) Init(params map[string]any) error {
 	if d, ok := params["delay_ms"]; ok {
 		o.delay = time.Duration(d.(float64)) * time.Millisecond
 	}
+	if p, ok := params["_produce"]; ok {
+		if arr, ok := p.([]any); ok {
+			for _, v := range arr {
+				o.commonOutput = append(o.commonOutput, v.(string))
+			}
+		}
+	}
+	if p, ok := params["_produce_item"]; ok {
+		if arr, ok := p.([]any); ok {
+			for _, v := range arr {
+				o.itemOutput = append(o.itemOutput, v.(string))
+			}
+		}
+	}
 	return nil
 }
 
-func (o *testTransformOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
+func (o *testTransformOp) Execute(_ context.Context, in *types.OperatorInput, out *types.OperatorOutput) error {
 	seq := atomic.AddInt64(&execCounter, 1)
 	start := time.Now()
 	if o.delay > 0 {
 		time.Sleep(o.delay)
 	}
 	out.SetCommon("_seq_"+o.name, seq)
+	for _, field := range o.commonOutput {
+		out.SetCommon(field, fmt.Sprintf("_produced_by_%s", o.name))
+	}
+	for i := 0; i < in.ItemCount(); i++ {
+		for _, field := range o.itemOutput {
+			out.SetItem(i, field, fmt.Sprintf("_item_produced_by_%s", o.name))
+		}
+	}
 	end := time.Now()
 	execLogMu.Lock()
 	execLog = append(execLog, execEvent{Name: o.name, Seq: seq, Start: start, End: end})
@@ -91,6 +118,7 @@ func (o *testTransformOp) Execute(_ context.Context, _ *types.OperatorInput, out
 
 // testRecallOp is a Recall operator that records execution order and adds items.
 type testRecallOp struct {
+	types.AdditiveWritesRowSetMarker
 	name  string
 	delay time.Duration
 	items []map[string]any
@@ -129,8 +157,11 @@ func (o *testRecallOp) Execute(_ context.Context, _ *types.OperatorInput, out *t
 	return nil
 }
 
-// testFilterOp is a Filter (barrier) operator that records execution order.
+// testFilterOp is a Filter operator that records execution order.
+// It consumes and mutates the row set.
 type testFilterOp struct {
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 	name  string
 	delay time.Duration
 }
@@ -158,8 +189,11 @@ func (o *testFilterOp) Execute(_ context.Context, _ *types.OperatorInput, _ *typ
 	return nil
 }
 
-// testMergeOp is a Merge (barrier) operator that records execution order.
+// testMergeOp is a Merge operator that records execution order.
+// It consumes and mutates the row set.
 type testMergeOp struct {
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 	name  string
 	delay time.Duration
 }
@@ -187,8 +221,11 @@ func (o *testMergeOp) Execute(_ context.Context, _ *types.OperatorInput, _ *type
 	return nil
 }
 
-// testReorderOp is a Reorder (barrier) operator that records execution order.
+// testReorderOp is a Reorder operator that records execution order.
+// It consumes and mutates the row set.
 type testReorderOp struct {
+	pine.ConsumesRowSetMarker
+	pine.MutatesRowSetMarker
 	name  string
 	delay time.Duration
 }
@@ -255,8 +292,10 @@ func init() {
 		Type:        types.OpTypeTransform,
 		Description: "Test transform that records execution order.",
 		Params: map[string]types.ParamSpec{
-			"name":     {Type: "string", Required: true, Description: "Instance name for event log."},
-			"delay_ms": {Type: "float64", Description: "Execution delay in milliseconds."},
+			"name":          {Type: "string", Required: true, Description: "Instance name for event log."},
+			"delay_ms":      {Type: "float64", Description: "Execution delay in milliseconds."},
+			"_produce":      {Type: "any", Description: "Common fields to write sentinel values for."},
+			"_produce_item": {Type: "any", Description: "Item fields to write sentinel values for."},
 		},
 	}, func() types.Operator { return &testTransformOp{} })
 
@@ -417,6 +456,7 @@ func TestDAGOrder_LinearChain(t *testing.T) {
 			"op_a": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "op_a",
+				"_produce":  []string{"x"},
 				"$metadata": map[string]any{
 					"common_output": []string{"x"},
 				},
@@ -424,6 +464,7 @@ func TestDAGOrder_LinearChain(t *testing.T) {
 			"op_b": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "op_b",
+				"_produce":  []string{"y"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"x"},
 					"common_output": []string{"y"},
@@ -477,6 +518,7 @@ func TestDAGOrder_DiamondParallel(t *testing.T) {
 			"op_a": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "op_a",
+				"_produce":  []string{"foo"},
 				"$metadata": map[string]any{
 					"common_output": []string{"foo"},
 				},
@@ -485,6 +527,7 @@ func TestDAGOrder_DiamondParallel(t *testing.T) {
 				"type_name": "_test_transform",
 				"name":      "op_b",
 				"delay_ms":  50.0,
+				"_produce":  []string{"bar"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"foo"},
 					"common_output": []string{"bar"},
@@ -494,6 +537,7 @@ func TestDAGOrder_DiamondParallel(t *testing.T) {
 				"type_name": "_test_transform",
 				"name":      "op_c",
 				"delay_ms":  50.0,
+				"_produce":  []string{"baz"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"foo"},
 					"common_output": []string{"baz"},
@@ -613,22 +657,27 @@ func TestDAGOrder_RecallParallel(t *testing.T) {
 func TestDAGOrder_BarrierFence(t *testing.T) {
 	resetExecLog()
 
+	// In the ConsumesRowSet/MutatesRowSet model, filter (ConsumesRowSet) waits for
+	// row-set writers (recalls), and subsequent ConsumesRowSet ops wait for
+	// MutatesRowSet ops. A recall is needed to exercise the fence.
 	cfg := dagTestConfig(
 		map[string]any{
+			"recall": map[string]any{
+				"type_name": "_test_recall",
+				"name":      "recall",
+				"delay_ms":  50.0,
+				"items":     []any{map[string]any{"item_id": "x"}},
+				"$metadata": map[string]any{
+					"item_output": []string{"item_id"},
+				},
+			},
 			"t1": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "t1",
 				"delay_ms":  50.0,
+				"_produce":  []string{"score"},
 				"$metadata": map[string]any{
 					"common_output": []string{"score"},
-				},
-			},
-			"t2": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t2",
-				"delay_ms":  50.0,
-				"$metadata": map[string]any{
-					"common_output": []string{"rank"},
 				},
 			},
 			"filter": map[string]any{
@@ -638,54 +687,42 @@ func TestDAGOrder_BarrierFence(t *testing.T) {
 					"item_input": []string{"item_id"},
 				},
 			},
-			"t3": map[string]any{
+			"t2": map[string]any{
 				"type_name": "_test_transform",
-				"name":      "t3",
+				"name":      "t2",
 				"delay_ms":  50.0,
+				"_produce":  []string{"score_out"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"score"},
 					"common_output": []string{"score_out"},
 				},
 			},
-			"t4": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t4",
-				"delay_ms":  50.0,
-				"$metadata": map[string]any{
-					"common_input":  []string{"rank"},
-					"common_output": []string{"rank_out"},
-				},
-			},
 		},
-		[]string{"t1", "t2", "filter", "t3", "t4"},
+		[]string{"recall", "t1", "filter", "t2"},
 	)
 
 	engine := mustBuildDAGEngine(t, cfg)
 	mustExecute(t, engine, &pine.Request{
 		Common: map[string]any{},
-		Items:  []map[string]any{{"item_id": "x"}},
+		Items:  []map[string]any{},
 	})
 	events := getEvents()
 
-	// T1 and T2 parallel (before barrier)
-	assertTimesOverlap(t, events, "t1", "t2")
-	// Both before filter (barrier)
-	assertSeqBefore(t, events, "t1", "filter")
-	assertSeqBefore(t, events, "t2", "filter")
-	// Filter before T3 and T4
-	assertSeqBefore(t, events, "filter", "t3")
-	assertSeqBefore(t, events, "filter", "t4")
-	// T3 and T4 parallel (after barrier)
-	assertTimesOverlap(t, events, "t3", "t4")
+	// recall || t1 (parallel — t1 is common-only, no row-set interaction)
+	assertTimesOverlap(t, events, "recall", "t1")
+	// recall before filter (ConsumesRowSet waits for additive writers)
+	assertSeqBefore(t, events, "recall", "filter")
+	// t1 before t2 (field dependency: score)
+	assertSeqBefore(t, events, "t1", "t2")
 
-	t.Logf("Barrier fence: {T1,T2} parallel -> Filter barrier -> {T3,T4} parallel")
+	t.Logf("BarrierFence: recall||t1 -> filter -> t2 (field dep on t1)")
 }
 
 // ===========================================================================
 // Test 5: Observe non-blocking — T_writer → {Observe(slow), T_reader}
 // ===========================================================================
 
-func TestDAGOrder_ObserveNonBlocking(t *testing.T) {
+func TestDAGOrder_ObserveBlocksWriter(t *testing.T) {
 	resetExecLog()
 
 	cfg := dagTestConfig(
@@ -728,17 +765,11 @@ func TestDAGOrder_ObserveNonBlocking(t *testing.T) {
 	assertSeqBefore(t, events, "writer", "observe")
 	assertSeqBefore(t, events, "writer", "reader")
 
-	// reader should finish BEFORE observe (observe sleeps 100ms, reader doesn't)
-	// This proves observe is non-blocking — reader didn't wait for observe
-	evObserve, _ := eventByName(events, "observe")
-	evReader, _ := eventByName(events, "reader")
-	if !evReader.End.Before(evObserve.End) {
-		t.Errorf("reader should finish before slow observe: reader.End=%v observe.End=%v",
-			evReader.End, evObserve.End)
-	}
+	// reader writes item_score, observe reads item_score → WAR edge
+	// reader must wait for observe to finish
+	assertSeqBefore(t, events, "observe", "reader")
 
-	t.Logf("Observe non-blocking: reader finished %v before observe ended",
-		evObserve.End.Sub(evReader.End))
+	t.Logf("Observe blocks downstream writer: reader started after observe ended")
 }
 
 // ===========================================================================
@@ -753,6 +784,7 @@ func TestDAGOrder_MultiBarrier(t *testing.T) {
 			"t_a": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "t_a",
+				"_produce":  []string{"score"},
 				"$metadata": map[string]any{
 					"common_output": []string{"score"},
 				},
@@ -767,6 +799,7 @@ func TestDAGOrder_MultiBarrier(t *testing.T) {
 			"t_b": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "t_b",
+				"_produce":  []string{"rank"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"score"},
 					"common_output": []string{"rank"},
@@ -797,13 +830,20 @@ func TestDAGOrder_MultiBarrier(t *testing.T) {
 	})
 	events := getEvents()
 
-	// Strict linear chain due to barriers
-	assertSeqBefore(t, events, "t_a", "filter")
-	assertSeqBefore(t, events, "filter", "t_b")
-	assertSeqBefore(t, events, "t_b", "reorder")
-	assertSeqBefore(t, events, "reorder", "t_c")
+	// Under new row-set semantics:
+	// - t_a writes score (common). filter reads item_id (item) + ConsumesRowSet.
+	// - t_b reads score (common), writes rank. reorder reads item_id (item) + ConsumesRowSet + MutatesRowSet.
+	// - t_c reads rank (common).
+	// DAG edges:
+	// - t_a → t_b (RAW on score)
+	// - filter → reorder (MutatesRowSet serialization: filter is lastMutWriter of _row_set_)
+	// - t_b → t_c (RAW on rank)
+	// So the invariants are:
+	assertSeqBefore(t, events, "t_a", "t_b")
+	assertSeqBefore(t, events, "filter", "reorder")
+	assertSeqBefore(t, events, "t_b", "t_c")
 
-	t.Logf("Multi-barrier: T_a -> Filter -> T_b -> Reorder -> T_c (strict sequential)")
+	t.Logf("Multi row-set mutators: T_a → T_b → T_c (data flow), Filter → Reorder (_row_set_ serialization)")
 }
 
 // ===========================================================================
@@ -856,18 +896,20 @@ func TestDAGOrder_ComplexPipeline(t *testing.T) {
 				},
 			},
 			"t_norm": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t_norm",
-				"delay_ms":  30.0,
+				"type_name":     "_test_transform",
+				"name":          "t_norm",
+				"delay_ms":      30.0,
+				"_produce_item": []string{"item_norm"},
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_score"},
 					"item_output": []string{"item_norm"},
 				},
 			},
 			"t_tag": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t_tag",
-				"delay_ms":  30.0,
+				"type_name":     "_test_transform",
+				"name":          "t_tag",
+				"delay_ms":      30.0,
+				"_produce_item": []string{"item_tag"},
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_id"},
 					"item_output": []string{"item_tag"},
@@ -881,18 +923,20 @@ func TestDAGOrder_ComplexPipeline(t *testing.T) {
 				},
 			},
 			"t_final": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t_final",
-				"delay_ms":  30.0,
+				"type_name":     "_test_transform",
+				"name":          "t_final",
+				"delay_ms":      30.0,
+				"_produce_item": []string{"item_final"},
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_norm"},
 					"item_output": []string{"item_final"},
 				},
 			},
 			"t_label": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t_label",
-				"delay_ms":  30.0,
+				"type_name":     "_test_transform",
+				"name":          "t_label",
+				"delay_ms":      30.0,
+				"_produce_item": []string{"item_label"},
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_tag"},
 					"item_output": []string{"item_label"},
@@ -927,30 +971,30 @@ func TestDAGOrder_ComplexPipeline(t *testing.T) {
 	// Phase 1: Recalls parallel
 	assertTimesOverlap(t, events, "recall_1", "recall_2")
 
-	// Phase 2: Merge barrier — after both recalls
+	// Phase 2: Merge — after both recalls (sources + _row_set_ consumers)
 	assertSeqBefore(t, events, "recall_1", "merge")
 	assertSeqBefore(t, events, "recall_2", "merge")
 
-	// Phase 3: t_norm and t_tag parallel — after merge
+	// Phase 3: t_norm and t_tag parallel — after merge (RAW on item_score/item_id)
 	assertSeqBefore(t, events, "merge", "t_norm")
 	assertSeqBefore(t, events, "merge", "t_tag")
 	assertTimesOverlap(t, events, "t_norm", "t_tag")
 
-	// Phase 4: Filter barrier — after both transforms
+	// Phase 4: Under new semantics, filter depends on t_norm (RAW item_norm)
+	// and merge (_row_set_ mut writer), NOT on t_tag.
 	assertSeqBefore(t, events, "t_norm", "filter")
-	assertSeqBefore(t, events, "t_tag", "filter")
 
-	// Phase 5: t_final and t_label parallel — after filter
-	assertSeqBefore(t, events, "filter", "t_final")
-	assertSeqBefore(t, events, "filter", "t_label")
-	assertTimesOverlap(t, events, "t_final", "t_label")
+	// Phase 5: t_final depends on t_norm (RAW item_norm), not on filter.
+	// t_label depends on t_tag (RAW item_tag), not on filter.
+	assertSeqBefore(t, events, "t_norm", "t_final")
+	assertSeqBefore(t, events, "t_tag", "t_label")
 
-	// Phase 6: Reorder barrier — after both transforms
+	// Phase 6: Reorder depends on t_final (RAW item_final) + filter (_row_set_ serialization)
 	assertSeqBefore(t, events, "t_final", "reorder")
-	assertSeqBefore(t, events, "t_label", "reorder")
+	assertSeqBefore(t, events, "filter", "reorder")
 
-	// Phase 7: Observe — after reorder (RAW on item_final via reorder's barrier reset)
-	assertSeqBefore(t, events, "reorder", "observe")
+	// Phase 7: Observe depends on t_final (RAW on item_final), non-blocking
+	assertSeqBefore(t, events, "t_final", "observe")
 
 	// Verify 4 items survived (no actual filtering)
 	if len(result.Items) != 4 {
@@ -1004,16 +1048,18 @@ func TestDAGOrder_RepeatStability(t *testing.T) {
 				},
 			},
 			"t_a": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t_a",
+				"type_name":     "_test_transform",
+				"name":          "t_a",
+				"_produce_item": []string{"item_norm"},
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_score"},
 					"item_output": []string{"item_norm"},
 				},
 			},
 			"t_b": map[string]any{
-				"type_name": "_test_transform",
-				"name":      "t_b",
+				"type_name":     "_test_transform",
+				"name":          "t_b",
+				"_produce_item": []string{"item_tag"},
 				"$metadata": map[string]any{
 					"item_input":  []string{"item_id"},
 					"item_output": []string{"item_tag"},
@@ -1055,7 +1101,7 @@ func TestDAGOrder_RepeatStability(t *testing.T) {
 		evR2, _ := eventByName(events, "r2")
 		evMerge, _ := eventByName(events, "merge")
 		evTA, _ := eventByName(events, "t_a")
-		evTB, _ := eventByName(events, "t_b")
+		_, _ = eventByName(events, "t_b")
 		evFilter, _ := eventByName(events, "filter")
 		evReorder, _ := eventByName(events, "reorder")
 
@@ -1066,21 +1112,15 @@ func TestDAGOrder_RepeatStability(t *testing.T) {
 		if evR2.Seq >= evMerge.Seq {
 			t.Errorf("iteration %d: r2(seq=%d) not before merge(seq=%d)", i, evR2.Seq, evMerge.Seq)
 		}
-		// Merge before transforms
+		// Merge before transforms (RAW on item fields)
 		if evMerge.Seq >= evTA.Seq {
 			t.Errorf("iteration %d: merge(seq=%d) not before t_a(seq=%d)", i, evMerge.Seq, evTA.Seq)
 		}
-		if evMerge.Seq >= evTB.Seq {
-			t.Errorf("iteration %d: merge(seq=%d) not before t_b(seq=%d)", i, evMerge.Seq, evTB.Seq)
-		}
-		// Transforms before filter (barrier)
+		// t_a before filter (filter reads item_norm which t_a writes)
 		if evTA.Seq >= evFilter.Seq {
 			t.Errorf("iteration %d: t_a(seq=%d) not before filter(seq=%d)", i, evTA.Seq, evFilter.Seq)
 		}
-		if evTB.Seq >= evFilter.Seq {
-			t.Errorf("iteration %d: t_b(seq=%d) not before filter(seq=%d)", i, evTB.Seq, evFilter.Seq)
-		}
-		// Filter before reorder (barrier)
+		// Filter before reorder (MutatesRowSet serialization)
 		if evFilter.Seq >= evReorder.Seq {
 			t.Errorf("iteration %d: filter(seq=%d) not before reorder(seq=%d)", i, evFilter.Seq, evReorder.Seq)
 		}
@@ -1105,6 +1145,7 @@ func TestDAGOrder_TransformThenRecallParallel(t *testing.T) {
 			"compute_vec": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "compute_vec",
+				"_produce":  []string{"user_vec"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"user_id"},
 					"common_output": []string{"user_vec"},
@@ -1187,6 +1228,7 @@ func TestDAGOrder_RecallsDependOnDifferentTransforms(t *testing.T) {
 			"t_a": map[string]any{
 				"type_name": "_test_transform",
 				"name":      "t_a",
+				"_produce":  []string{"feature_x"},
 				"$metadata": map[string]any{
 					"common_output": []string{"feature_x"},
 				},
@@ -1195,6 +1237,7 @@ func TestDAGOrder_RecallsDependOnDifferentTransforms(t *testing.T) {
 				"type_name": "_test_transform",
 				"name":      "t_b",
 				"delay_ms":  50.0,
+				"_produce":  []string{"feature_y"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"feature_x"},
 					"common_output": []string{"feature_y"},
@@ -1278,6 +1321,7 @@ func TestDAGOrder_IndependentRecallWithTransformRecallChain(t *testing.T) {
 				"type_name": "_test_transform",
 				"name":      "transform_b",
 				"delay_ms":  1.0,
+				"_produce":  []string{"bbb"},
 				"$metadata": map[string]any{
 					"common_input":  []string{"req_field"},
 					"common_output": []string{"bbb"},
@@ -1359,10 +1403,10 @@ func TestDAGOrder_IndependentRecallWithTransformRecallChain(t *testing.T) {
 func BenchmarkDAGSchedulingOverhead_5ops(b *testing.B) {
 	cfg := dagTestConfig(
 		map[string]any{
-			"op1": map[string]any{"type_name": "_test_transform", "name": "op1", "$metadata": map[string]any{"common_output": []string{"a"}}},
-			"op2": map[string]any{"type_name": "_test_transform", "name": "op2", "$metadata": map[string]any{"common_input": []string{"a"}, "common_output": []string{"b"}}},
-			"op3": map[string]any{"type_name": "_test_transform", "name": "op3", "$metadata": map[string]any{"common_input": []string{"a"}, "common_output": []string{"c"}}},
-			"op4": map[string]any{"type_name": "_test_transform", "name": "op4", "$metadata": map[string]any{"common_input": []string{"b", "c"}, "common_output": []string{"d"}}},
+			"op1": map[string]any{"type_name": "_test_transform", "name": "op1", "_produce": []string{"a"}, "$metadata": map[string]any{"common_output": []string{"a"}}},
+			"op2": map[string]any{"type_name": "_test_transform", "name": "op2", "_produce": []string{"b"}, "$metadata": map[string]any{"common_input": []string{"a"}, "common_output": []string{"b"}}},
+			"op3": map[string]any{"type_name": "_test_transform", "name": "op3", "_produce": []string{"c"}, "$metadata": map[string]any{"common_input": []string{"a"}, "common_output": []string{"c"}}},
+			"op4": map[string]any{"type_name": "_test_transform", "name": "op4", "_produce": []string{"d"}, "$metadata": map[string]any{"common_input": []string{"b", "c"}, "common_output": []string{"d"}}},
 			"op5": map[string]any{"type_name": "_test_transform", "name": "op5", "$metadata": map[string]any{"common_input": []string{"d"}}},
 		},
 		[]string{"op1", "op2", "op3", "op4", "op5"},
@@ -1391,6 +1435,7 @@ func BenchmarkDAGSchedulingOverhead_10ops(b *testing.B) {
 		ops[name] = map[string]any{
 			"type_name": "_test_transform",
 			"name":      name,
+			"_produce":  []string{fmt.Sprintf("f%d", i)},
 			"$metadata": meta,
 		}
 	}

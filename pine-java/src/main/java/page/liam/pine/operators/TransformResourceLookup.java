@@ -11,7 +11,7 @@ import java.util.Map;
  *   ItemInput:  [<lookup_key>]
  *   ItemOutput: [<output_field>]
  */
-public class TransformResourceLookup extends AbstractOperator implements ConcurrentSafe, ResourceAware {
+public class TransformResourceLookup extends AbstractOperator implements ConcurrentSafe, ConsumesRowSet, ResourceAware {
     private String resourceName;
     private String lookupKey;
     private String outputField;

@@ -18,7 +18,7 @@ import java.util.Map;
  *   ItemInput:    []
  *   ItemOutput:   [item_id, ...]
  */
-public class RecallStatic extends AbstractOperator {
+public class RecallStatic extends AbstractOperator implements page.liam.pine.AdditiveWritesRowSet {
     private List<Map<String, Object>> items;
 
     @Override
