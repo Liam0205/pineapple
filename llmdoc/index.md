@@ -4,21 +4,21 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Python/Go/Java 契约、blank-import 注册、版本同步、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL/Go/Java/Python 引擎四方契约、blank-import 注册、版本同步（四处）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）、三引擎十一层交叉验证。
 
 ## overview/
 
-- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Python DSL + Go/Java 双运行时拆分的设计决策；其中包括可复用 HTTP server 的职责边界与 middleware 注入位置。
+- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Python DSL + Go/Java/Python 三运行时拆分的设计决策；其中包括可复用 HTTP server 的职责边界与 middleware 注入位置。
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则、调度模型、DataFrame 语义、算子类型约束、行依赖行为，以及引擎级 option / 根级配置注入（`storage_mode`、`log_prefix`、`debug`）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测（/stats 原子统计 + 可插拔 Provider metrics）、Pine-Java 完整功能对等描述（18 算子、Option pattern、ColumnFrame、结构化错误、CancellationToken 取消传播、DebugAware/MetricsAware 注入、Lua 池化沙箱 baseline snapshot/restore、GoFormat 跨运行时格式兼容、Server/Codegen、ResourceRegistry codegen-time schema 导出、Javadoc metadata contract 解析）。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（v0.7 三标记模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
 
 ## guides/
 
 - `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步。
-- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint/test/coverage/fuzz/release-gate 架构与接入约定。
+- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint/test/coverage/fuzz/differential-fuzz/cross-validate/release-gate 架构与接入约定（三引擎十一层）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则。
 - `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证、边界值 E2E、隐含 metadata 契约检测。
 
@@ -78,3 +78,4 @@
 - `llmdoc/memory/reflections/pine-java-parity-rounds-18-19.md` — Pine-Java 第十八/十九轮 Go-parity 审计复盘（最后两轮），记录 8 项 LOW 修复（common-mode CancellationToken 遗漏、错误消息类型/值/引号对齐、trace 微秒精度截断），确认 rounds 1-19 全量审计完结，总计约 90 项差异关闭。
 - `llmdoc/memory/reflections/monorepo-restructure-and-java-infra.md` — Monorepo 重构（Go→pine-go/ 子目录）与 Pine-Java 工程基础设施补齐（P0-P3 路线图）复盘，记录 llmdoc 路径批量失效教训、module path 破坏性变更影响、路线图驱动基础设施建设的有效性。
 - `llmdoc/memory/reflections/p2-refactor-cross-validate-scripts.md` — P2 重构 + 跨验证框架扩展 + 开发者脚本基础设施复盘，记录 fixture 路径再次失效、定量描述过时、重构累积效应、工具文档入口缺失四项教训。
+- `llmdoc/memory/reflections/pine-python-and-v07-dag-overhaul.md` — Pine-Python 第三运行时上线、v0.7 DAG 语义重构（ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet）、Cross-validate 11 层扩展复盘，记录文档未覆盖新运行时、术语重命名后引用未清理、版本同步范围和跨验证层数硬编码再次过时。
