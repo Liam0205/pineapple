@@ -1,7 +1,7 @@
 {
   "name": "recall → merge → filter → sort (full pipeline)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.6.6",
+    "_PINEAPPLE_VERSION": "0.7.0",
     "pipeline_config": {
       "operators": {
         "recall_hot": {

@@ -176,6 +176,9 @@ class TestPipelineFixtures:
         from pine.engine import Engine, StaticResourceProvider
 
         data = json.loads(fixture_path.read_text())
+        requires = data.get("requires", [])
+        if requires:
+            pytest.skip(f"requires {requires}")
         config = data.get("config", data)
         cases = data.get("cases", [])
         if not cases:
