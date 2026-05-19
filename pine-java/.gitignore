@@ -3,3 +3,4 @@ target/
 *.jar
 .idea/
 *.iml
+dump.rdb

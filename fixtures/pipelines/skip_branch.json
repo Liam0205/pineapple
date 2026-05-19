@@ -1,7 +1,7 @@
 {
   "name": "skip/branch via Lua control flag",
   "config": {
-    "_PINEAPPLE_VERSION": "0.6.6",
+    "_PINEAPPLE_VERSION": "0.7.0",
     "pipeline_config": {
       "operators": {
         "set_flag": {
