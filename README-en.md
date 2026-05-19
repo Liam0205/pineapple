@@ -71,7 +71,58 @@ go get github.com/Liam0205/pineapple/pine-go@latest
 go mod tidy
 ```
 
-If your project uses Pineapple through public APIs (`pine.NewEngine`, `pine.BuildOperator`, etc.), the above steps complete the migration. No semantic changes to internal APIs.
+If your project uses Pineapple through public APIs (`pine.NewEngine`, `pine.BuildOperator`, etc.), the above steps complete the migration.
+
+### Configuration & Runtime Semantic Changes
+
+The following changes affect JSON configuration and operator runtime behavior:
+
+#### 1. `row_dependency` Renamed to `consumes_row_set`
+
+The `"row_dependency": true` field in operator JSON config has been removed. Use `"consumes_row_set": true` instead (same semantics: marks the operator as needing a stable row set before execution).
+
+```diff
+ {
+   "type_name": "transform_size",
+-  "row_dependency": true,
++  "consumes_row_set": true,
+   "$metadata": { ... }
+ }
+```
+
+Apple DSL side: `OpCall(..., row_dependency=True)` → `OpCall(..., consumes_row_set=True)`.
+
+#### 2. DAG Scheduling Model: Barriers → Row-Set Marker Interfaces
+
+Previously, Filter/Merge/Reorder operators acted as "barriers" — all predecessors had to complete before them, and all successors had to wait.
+
+The new model uses three marker interfaces for precise row-set dependency declaration:
+
+| Marker | Meaning | Typical Operators |
+|--------|---------|-------------------|
+| `ConsumesRowSet` | Iterates all items; needs row set stable | filter_*, merge_*, reorder_*, transform_size |
+| `MutatesRowSet` | Removes or reorders items | filter_*, merge_*, reorder_* |
+| `AdditiveWritesRowSet` | Appends items (parallel with other appenders) | recall_* |
+
+**Impact**: Transform operators that only touch common fields are no longer blocked by barriers and can execute in parallel with Filter/Merge/Reorder. This improves parallelism without changing final results — correctness is guaranteed by field-level data hazard analysis.
+
+**Custom operator migration**: If you implemented a custom Recall-type operator, embed `types.AdditiveWritesRowSetMarker`.
+
+#### 3. Field Accessor Strict Mode
+
+`BuildInput` now distinguishes Strict vs. Defaulted fields:
+
+- **Strict** (fields without a `common_defaults` / `item_defaults` entry): errors immediately at runtime if the value is nil, instead of passing nil to the operator
+- **Defaulted** (fields with a default): substitutes the default when the value is nil or missing
+
+**Impact**: If your pipeline relies on "nil passthrough to operator for self-handling", add a `common_defaults` or `item_defaults` entry for that field (value can be `null`) to preserve the old behavior:
+
+```json
+{
+  "$metadata": { "common_input": ["optional_field"], ... },
+  "common_defaults": { "optional_field": null }
+}
+```
 
 ## Quick Start
 
