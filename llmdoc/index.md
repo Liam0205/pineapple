@@ -4,7 +4,7 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL/Go/Java/Python 引擎四方契约、blank-import 注册、版本同步（四处）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）、三引擎十一层交叉验证。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL/Go/Java/Python 引擎四方契约、blank-import 注册、版本同步（四处）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）、三引擎十一层交叉验证、跨引擎能力等价审计维度。
 
 ## overview/
 
@@ -20,7 +20,7 @@
 - `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步。
 - `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint/test/coverage/fuzz/differential-fuzz/cross-validate/release-gate 架构与接入约定（三引擎十一层）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则。
-- `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证、边界值 E2E、隐含 metadata 契约检测。
+- `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价）。
 
 ## reference/
 
@@ -79,3 +79,4 @@
 - `llmdoc/memory/reflections/monorepo-restructure-and-java-infra.md` — Monorepo 重构（Go→pine-go/ 子目录）与 Pine-Java 工程基础设施补齐（P0-P3 路线图）复盘，记录 llmdoc 路径批量失效教训、module path 破坏性变更影响、路线图驱动基础设施建设的有效性。
 - `llmdoc/memory/reflections/p2-refactor-cross-validate-scripts.md` — P2 重构 + 跨验证框架扩展 + 开发者脚本基础设施复盘，记录 fixture 路径再次失效、定量描述过时、重构累积效应、工具文档入口缺失四项教训。
 - `llmdoc/memory/reflections/pine-python-and-v07-dag-overhaul.md` — Pine-Python 第三运行时上线、v0.7 DAG 语义重构（ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet）、Cross-validate 11 层扩展复盘，记录文档未覆盖新运行时、术语重命名后引用未清理、版本同步范围和跨验证层数硬编码再次过时。
+- `llmdoc/memory/reflections/audit-extensibility-blindspot.md` — Parity 审计结构性盲点复盘：19 轮审计+11 层交叉验证全部聚焦"函数等价"（已知路径输出一致），从未验证"能力等价"（下游可用的集成模式是否一致），导致 Java middleware 无法拦截未注册路径的问题在下游项目才暴露。
