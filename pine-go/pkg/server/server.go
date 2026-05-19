@@ -161,6 +161,7 @@ func (s *Server) run(cfg Config) error {
 	mux.HandleFunc("/execute", s.handleExecute)
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/dag", s.handleDAG)
+	mux.HandleFunc("/", handleNotFound)
 
 	// Apply HTTP metrics as innermost middleware (measures handler duration
 	// excluding user middleware overhead).
@@ -264,6 +265,10 @@ func (s *Server) watchConfig(ctx context.Context, path string) {
 			}
 		}
 	}
+}
+
+func handleNotFound(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusNotFound, errorResponse{Error: "not found"})
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
