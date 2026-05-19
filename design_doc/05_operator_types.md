@@ -12,12 +12,12 @@
 
 | 类型 | 允许的 Output 方法 | DAG 语义 | DSL 前缀 | 对 DataFrame 的影响 |
 |------|-------------------|----------|----------|---------------------|
-| Recall | `AddItem` | 等待产出其依赖字段的 Transform 完成；Recall 间可并行 | `recall_` | 增加 item 行 |
-| Transform | `SetCommon`, `SetItem` | 字段级 RAW/WAW/WAR 追踪，无依赖可并行 | `transform_` | 读写字段值 |
-| Filter | `RemoveItem` | Barrier | `filter_` | 删除 item 行 |
-| Merge | `RemoveItem`, `SetItem` | Barrier | `merge_` | 合并/去重 item 行 |
-| Reorder | `SetItemOrder` | Barrier | `reorder_` | 改变 item 行序 |
-| Observe | 无 | 只读 RAW 依赖，不阻塞下游 | `observe_` | 只读 |
+| Recall | `AddItem` | additive write `_row_set_`；Recall 间可并行 | `recall_` | 增加 item 行 |
+| Transform | `SetCommon`, `SetItem` | 字段级 RAW/WAW/WAR；声明 ConsumesRowSet 则等前序 item 集稳定 | `transform_` | 读写字段值 |
+| Filter | `RemoveItem` | ConsumesRowSet + MutatesRowSet | `filter_` | 删除 item 行 |
+| Merge | `RemoveItem`, `SetItem` | ConsumesRowSet + MutatesRowSet | `merge_` | 合并/去重 item 行 |
+| Reorder | `SetItemOrder` | ConsumesRowSet + MutatesRowSet | `reorder_` | 改变 item 行序 |
+| Observe | 无 | 只读 RAW 依赖，不阻塞下游；声明 ConsumesRowSet 则等前序 item 集稳定 | `observe_` | 只读 |
 
 所有类型均可调用 `SetWarning`。DSL 前缀一律为**动词**。
 
@@ -124,10 +124,10 @@ flow.transform_by_remote_pineapple(
 按照某种规则删除 item。执行后 DataFrame 的 item 行数减少。
 
 - **允许的 Output 方法**: `RemoveItem`
-- **DAG 语义**: **Barrier** — DSL 中声明在 Filter 之前的所有算子执行完毕后，Filter 才执行；Filter 执行完毕后，后续算子才能开始。
+- **DAG 语义**: **ConsumesRowSet + MutatesRowSet** — 需要 item 集稳定后才执行（等待前序 recall 和 MutatesRowSet 算子），执行后改变 item 集（后续 ConsumesRowSet 算子等待它）。
 - **DSL 前缀**: `filter_`
 
-Barrier 语义的必要性：Filter 改变 item 集合的组成（哪些 item 可见），而后续算子可能对所有可见 item 做聚合计算。如果 Filter 与这类算子并行执行，聚合结果不可预测。
+MutatesRowSet 语义的必要性：Filter 改变 item 集合的组成（哪些 item 可见），而后续算子可能对所有可见 item 做聚合计算。如果 Filter 与这类算子并行执行，聚合结果不可预测。
 
 典型场景：
 - **属性过滤**: 移除不满足条件的 item
@@ -149,7 +149,7 @@ flow.filter_truncate(top_n=200)
 对主 DataFrame 中的 item 做去重、字段合并等处理。
 
 - **允许的 Output 方法**: `RemoveItem`, `SetItem`
-- **DAG 语义**: **Barrier** — 同 Filter。
+- **DAG 语义**: **ConsumesRowSet + MutatesRowSet** — 同 Filter。
 - **DSL 前缀**: `merge_`
 
 Merge 比 Filter 多了 `SetItem` 权限：当遇到重复的 item 时，可能需要合并某些列的值（如取 score 最大值、合并来源标签等）。
@@ -170,7 +170,7 @@ flow.merge_dedup(
 按照某种规则改变 item 的顺序。不增删 item，只改变排列。
 
 - **允许的 Output 方法**: `SetItemOrder`
-- **DAG 语义**: **Barrier** — 同 Filter。Reorder 改变 item 的顺序，而后续算子可能依赖 item 的位次信息（如处理 top-K 位置的信息）。
+- **DAG 语义**: **ConsumesRowSet + MutatesRowSet** — 同 Filter。Reorder 改变 item 的顺序，而后续算子可能依赖 item 的位次信息（如处理 top-K 位置的信息）。
 - **DSL 前缀**: `reorder_`
 
 典型场景：
@@ -209,21 +209,121 @@ flow.observe_log(
 )
 ```
 
-## Barrier 语义
+## 行集语义接口 (Row-Set Semantics)
 
-Filter、Merge、Reorder 三种类型共享 **Barrier 语义**：
+算子通过实现三个标记接口声明自身对 item 行集的依赖和影响，DAG 构建器据此推导排序约束：
+
+### `ConsumesRowSet`
+
+**含义**: 该算子运行时遍历 item 行集，需要行集在执行前稳定。
+
+**DAG 效果**: 读 `_row_set_` 哨兵 → 等待前序所有 additive writer（Recall）和 mutating writer（MutatesRowSet 算子）。
+
+**实现此接口的算子**:
+- `filter_*`、`merge_*`、`reorder_*` — 需要完整行集才能删除/合并/排序
+- `transform_size` — 需要完整行集才能计算 item 数量
+- `transform_dispatch` — 需要完整行集才能向每个 item 广播
+- `transform_copy(common_to_item)` — 需要完整行集才能向每个 item 写值
+- `transform_by_lua` — 遍历所有 item 执行 Lua 函数
+- `transform_normalize` — 需要全部 item 计算 min/max
+- `transform_resource_lookup` — 遍历所有 item 做查询
+- `transform_by_remote_pineapple` — 遍历所有 item 发送 RPC
+- `observe_log`（当 item_input 非空时）— 遍历 item 记录日志
+
+**不实现此接口的算子**:
+- `recall_*` — 只写入行集，不读取
+- `redis_get`、`redis_set` — 只操作 common 字段
+- `transform_copy(common_to_common)` — 不涉及 item
+
+### `AdditiveWritesRowSet`
+
+**含义**: 该算子向 item 行集追加新行，不读取也不修改现有行。
+
+**DAG 效果**: additive write `_row_set_` 哨兵 → 与其他 AdditiveWritesRowSet 算子之间无排序约束（可并行），但与 ConsumesRowSet（reader）和 MutatesRowSet（mutating writer）之间产生 RAW/WAW 边。
+
+**实现此接口的算子**:
+- `recall_*` — 从外部源追加新 item 行
+
+**约束**:
+- 与 `MutatesRowSet` 互斥：同一算子不能同时标记两者（追加 vs 删改是矛盾语义）
+- `type == Recall` 的算子**必须**标记 `AdditiveWritesRowSet`（引擎启动时校验，违规则报错）
+
+### `MutatesRowSet`
+
+**含义**: 该算子运行时改变 item 行集的组成或顺序（删除/重排 item）。
+
+**DAG 效果**: mutating write `_row_set_` 哨兵 → 后续所有 ConsumesRowSet 算子等待它；同时重置 `_row_set_` 追踪器状态（清除 additive_writers 和 active_readers），使后续算子只依赖此算子、不再穿透到更早的 recall。
+
+**实现此接口的算子**:
+- `filter_*` — 删除 item
+- `merge_*` — 去重/合并 item
+- `reorder_*` — 重排 item
+
+### 统一 DAG 推导模型
+
+所有排序约束通过 `_row_set_` 哨兵的 field tracker 统一推导，无特殊分支：
 
 ```
-DSL 顺序中在 Barrier 之前的所有算子
-        │
-        ▼  (全部完成)
-    Barrier 算子执行
-        │
-        ▼  (完成后)
-DSL 顺序中在 Barrier 之后的所有算子才能开始
+对于每个算子 op（按 DSL 声明顺序扫描）：
+  if op.AdditiveWritesRowSet:
+    additive write _row_set_ (与其他 AdditiveWritesRowSet 不冲突)
+  if op.ConsumesRowSet:
+    read _row_set_ → RAW from additive_writers + last_mut_writer
+  if op.MutatesRowSet:
+    mutating write _row_set_ → WAW/WAR edges, then reset tracker
+  正常处理 field-level RAW/WAW/WAR edges（与 additive write 的冒险规则相同）
 ```
 
-这是因为这三种类型都会改变 item 集合的"结构"（组成或顺序），而结构变化对后续算子的语义有全局影响。
+旧的 `addBarrierEdges`（全序栅栏）被移除。新模型更精确——如果前序某 common-only 算子与 MutatesRowSet 算子无字段重叠，它们可以并行执行。
+
+### Additive Write 的数据冒险模型
+
+标记了 `AdditiveWritesRowSet` 的算子对 `_row_set_` 的写入是 **Additive Write (A)**：不读取现有行集，只追加新 item。与标准的 Read (R) 和 Write (W) 相比，A 的排序规则如下：
+
+**规则：A 对外当 W，对内当 R。**
+
+即：当 A 与 R 或 W 讨论执行顺序时，视为 W；当 A 与 A 讨论执行顺序时，视为 R。
+
+| 冒险代码 | 等价于 | 需要排序？ | 含义 |
+|----------|--------|:---:|------|
+| AAR (A after R) | WAR | ✓ | Recall 必须等前序 reader 完成 |
+| AAW (A after W) | WAW | ✓ | Recall 必须等前序 mutating writer 完成 |
+| RAA (R after A) | RAW | ✓ | Reader 必须等前序 Recall 完成 |
+| WAA (W after A) | WAW | ✓ | Mutating writer 必须等前序 Recall 完成 |
+| AAA (A after A) | RAR | ✗ | Recall 之间无排序约束，可并行 |
+
+示例：
+
+```
+recall_A → recall_B → filter → recall_C → sort
+           ↑ AAA(无边)  ↑ RAA+RAA   ↑ AAW      ↑ RAA
+           可并行       等 A,B      等 filter   等 C
+```
+
+这一模型的本质：append 操作与其他 append 操作可交换（顺序无关，结果为同一 item 集合），但与读/改操作不可交换。Item 追加顺序取决于运行时完成时间，引擎不保证 pipeline 声明顺序。
+
+### DSL 中的 `consumes_row_set` 配置字段
+
+用户可在 DSL 调用中显式声明 `consumes_row_set=True`，使算子在 DAG 中获得 `ConsumesRowSet` 语义（等待行集稳定后再执行）。最终效果与算子自行实现 `ConsumesRowSet` 接口相同（取 OR）。
+
+适用场景：通用算子在特定 pipeline 中需要遍历 item，但算子代码本身未实现 `ConsumesRowSet` 接口。
+
+```python
+flow.transform_by_lua(
+    item_input=["item_score"],
+    item_output=["item_rank"],
+    function_for_item="rank",
+    lua_script="...",
+    consumes_row_set=True,  # 显式声明需要行集稳定
+)
+```
+
+### 编译期校验
+
+引擎在加载 pipeline 配置时对行集标记执行以下校验，违规则启动时报错：
+
+1. **互斥约束**: 同一算子不能同时标记 `AdditiveWritesRowSet` 和 `MutatesRowSet`
+2. **Recall 必须标记**: `type == Recall` 的算子必须实现 `AdditiveWritesRowSet` 接口
 
 ## 控制 (Control)
 
@@ -266,12 +366,12 @@ DSL 顺序中在 Barrier 之后的所有算子才能开始
 
 | 类型 | 依赖来源 | 对后续算子的影响 | data_parallel |
 |------|---------|----------------|---------------|
-| Recall | RAW 依赖于产出其输入字段的 Transform | 下游 reader 依赖 Recall 产出字段（RAW） | 禁止 |
-| Transform | 字段级 RAW/WAW/WAR | 字段级 RAW/WAW/WAR | 支持（需空 common_output） |
-| Filter | Barrier: 等待所有之前的算子 | Barrier: 之后的算子等待它 | 禁止 |
-| Merge | Barrier + `sources` 显式边 | Barrier | 禁止 |
-| Reorder | Barrier | Barrier | 禁止 |
-| Observe | RAW 依赖输入字段 | 不阻塞任何下游 | 禁止 |
+| Recall | RAW 依赖于产出其输入字段的 Transform | additive write `_row_set_`：下游 ConsumesRowSet 算子等待 | 禁止 |
+| Transform | 字段级 RAW/WAW/WAR；ConsumesRowSet 则额外等 `_row_set_` | 字段级 RAW/WAW/WAR | 支持（需空 common_output） |
+| Filter | ConsumesRowSet: 等前序 recall/MutatesRowSet | MutatesRowSet: 后续 ConsumesRowSet 等待 | 禁止 |
+| Merge | ConsumesRowSet + `sources` 显式边 | MutatesRowSet | 禁止 |
+| Reorder | ConsumesRowSet | MutatesRowSet | 禁止 |
+| Observe | RAW 依赖输入字段；ConsumesRowSet 则等 `_row_set_`；不阻塞任何下游 | 无 | 禁止 |
 
 所有边推导完成后，引擎执行传递性归约，移除被更长路径隐含的冗余边。最终执行图保留保持可达性的最小边集。
 

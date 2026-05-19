@@ -71,7 +71,58 @@ go get github.com/Liam0205/pineapple/pine-go@latest
 go mod tidy
 ```
 
-如果你的项目通过 `pine.NewEngine` / `pine.BuildOperator` 等公共 API 使用 Pineapple，上述步骤即可完成迁移。内部 API 无语义变更。
+如果你的项目通过 `pine.NewEngine` / `pine.BuildOperator` 等公共 API 使用 Pineapple，上述步骤即可完成迁移。
+
+### 配置与运行时语义变更
+
+以下变更影响 JSON 配置和算子运行时行为：
+
+#### 1. `row_dependency` 重命名为 `consumes_row_set`
+
+JSON 配置中算子的 `"row_dependency": true` 字段已移除，改用 `"consumes_row_set": true`（语义不变：标记算子需要等待行集稳定后才执行）。
+
+```diff
+ {
+   "type_name": "transform_size",
+-  "row_dependency": true,
++  "consumes_row_set": true,
+   "$metadata": { ... }
+ }
+```
+
+Apple DSL 侧同步变更：`OpCall(..., row_dependency=True)` → `OpCall(..., consumes_row_set=True)`。
+
+#### 2. DAG 调度模型变更：barrier → row-set marker interfaces
+
+旧模型中 Filter/Merge/Reorder 算子被视为"barrier"——在它们执行前所有前驱必须完成，所有后继必须等它完成。
+
+新模型通过三个 marker interface 精确声明 row-set 依赖：
+
+| Marker | 含义 | 典型算子 |
+|--------|------|----------|
+| `ConsumesRowSet` | 迭代所有 item，需要行集稳定 | filter_*, merge_*, reorder_*, transform_size |
+| `MutatesRowSet` | 删除或重排 item | filter_*, merge_*, reorder_* |
+| `AdditiveWritesRowSet` | 追加 item（与其他追加者并行） | recall_* |
+
+**影响**：仅操作 common 字段的 Transform 算子不再被 barrier 阻塞，可与 Filter/Merge/Reorder 并行执行。这提升了并行度但不改变最终结果——正确性由字段级数据冒险分析保证。
+
+**自定义算子迁移**：如果你实现了自定义的 Recall 类型算子，需要嵌入 `types.AdditiveWritesRowSetMarker`。
+
+#### 3. Field Accessor 严格模式
+
+`BuildInput` 现在区分 Strict 和 Defaulted 字段：
+
+- **Strict**（无 `common_defaults` / `item_defaults` 条目的字段）：运行时值为 nil 时立即报错，而非将 nil 透传给算子
+- **Defaulted**（有 default 的字段）：运行时值为 nil 或缺失时替换为默认值
+
+**影响**：如果你的流水线依赖"nil 值透传给算子由算子自行处理"的行为，需要在配置中为该字段添加 `common_defaults` 或 `item_defaults` 条目（值可以是 `null`）来保持旧行为：
+
+```json
+{
+  "$metadata": { "common_input": ["optional_field"], ... },
+  "common_defaults": { "optional_field": null }
+}
+```
 
 ## Quick Start
 
