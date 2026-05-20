@@ -14,7 +14,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCH_DIR = REPO_ROOT / "fixtures" / "benchmarks"
 
-VERSION = "0.7.0"
+_version_file = REPO_ROOT / "pine-go" / "version.go"
+_match = __import__("re").search(r'const Version = "([^"]+)"', _version_file.read_text())
+VERSION = _match.group(1) if _match else "0.0.0"
 
 
 def make_items(n: int, *, offset: int = 0) -> list[dict]:
