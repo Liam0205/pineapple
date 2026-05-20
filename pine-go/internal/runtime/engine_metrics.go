@@ -17,7 +17,19 @@ type EngineMetrics struct {
 	DAGOpsExecuted  metrics.Histogram
 }
 
-// NewEngineMetrics creates all engine-level metrics from the given provider.
+// PreInitOperators pre-initializes labeled time series for all known operators
+// so that metrics backends (e.g., Prometheus) expose them from startup with
+// zero values, rather than only after the first observation.
+func (em *EngineMetrics) PreInitOperators(opNames []string) {
+	for _, name := range opNames {
+		em.OpExecTotal.With(name)
+		em.OpExecDuration.With(name)
+		em.OpSkipTotal.With(name)
+		em.OpErrorTotal.With(name)
+	}
+	em.DAGExecTotal.With("success")
+	em.DAGExecTotal.With("error")
+}
 func NewEngineMetrics(p metrics.Provider) *EngineMetrics {
 	opLabels := []string{"operator"}
 	return &EngineMetrics{

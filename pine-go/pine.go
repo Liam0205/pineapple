@@ -192,6 +192,11 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	}
 
 	em := runtime.NewEngineMetrics(mp)
+	opNames := make([]string, len(compiledOps))
+	for i, cop := range compiledOps {
+		opNames[i] = cop.Name
+	}
+	em.PreInitOperators(opNames)
 	return &Engine{plan: plan, stats: runtime.NewStats(), engineMetrics: em, storageMode: dataframe.StorageMode(cfg.StorageMode)}, nil
 }
 
