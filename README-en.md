@@ -15,10 +15,11 @@ Suitable for any scenario requiring **multi-step data processing pipelines**: se
 ```
 Python DSL (Apple)  ──compile──>  JSON Config
                                       │
-                          ┌───────────┴───────────┐
-                          v                       v
-                   Pine-Go (Go)            Pine-Java (Java)
-                   Build DAG, execute      Build DAG, execute
+                          ┌───────────┼───────────┐
+                          v           v           v
+                   Pine-Go (Go)  Pine-Java    Pine-Python
+                   Build DAG      Build DAG    Build DAG
+                   parallel exec  parallel     sequential
 ```
 
 | Component | Language | Role |
@@ -26,8 +27,9 @@ Python DSL (Apple)  ──compile──>  JSON Config
 | **Apple** | Python | Declarative DSL, compiles to JSON config |
 | **Pine-Go** | Go | Primary execution engine: parse config, build DAG, parallel scheduling |
 | **Pine-Java** | Java | Second execution engine, behavior-consistent with Pine-Go |
+| **Pine-Python** | Python | Third execution engine, for prototyping and testing |
 
-**Engineering teams** develop high-performance operators in Go/Java; **product teams** compose logic with the Python DSL. The two sides are fully decoupled via JSON config.
+**Engineering teams** develop high-performance operators in Go/Java; **product teams** compose logic with the Python DSL. The two sides are fully decoupled via JSON config. Pine-Python provides a pure-Python runtime for rapid prototyping and unit testing.
 
 ## Key Features
 
@@ -39,7 +41,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Dynamic resources** — Background-refreshed in-memory resource manager with lock-free reads
 - **White-box observability** — Operator-level traces, `/stats` endpoint, pluggable Prometheus interface
 - **Row/Column storage** — DataFrame supports both storage modes
-- **Dual-engine consistency** — Go/Java engines verified via CI cross-validation for schema, DAG, and execution parity
+- **Tri-engine consistency** — Go/Java/Python engines verified via CI cross-validation for schema, DAG, and execution parity
 
 ## Migrating from Older Versions (Breaking Change)
 
@@ -129,8 +131,8 @@ The new model uses three marker interfaces for precise row-set dependency declar
 ### Prerequisites
 
 - Go 1.22+ (Pine-Go)
-- Java 11+ (Pine-Java)
-- Python 3.10+ (Apple DSL)
+- Java 21+ (Pine-Java)
+- Python 3.11+ (Apple DSL + Pine-Python)
 
 ### 1. Write a Pipeline
 

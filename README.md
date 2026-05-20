@@ -15,10 +15,11 @@
 ```
 Python DSL (Apple)  ──compile──>  JSON Config
                                       │
-                          ┌───────────┴───────────┐
-                          v                       v
-                   Pine-Go (Go)            Pine-Java (Java)
-                   构建 DAG、并行执行       构建 DAG、并行执行
+                          ┌───────────┼───────────┐
+                          v           v           v
+                   Pine-Go (Go)  Pine-Java    Pine-Python
+                   构建 DAG       构建 DAG      构建 DAG
+                   并行执行       并行执行      顺序执行
 ```
 
 | 组件 | 语言 | 职责 |
@@ -26,8 +27,9 @@ Python DSL (Apple)  ──compile──>  JSON Config
 | **Apple** | Python | 声明式 DSL，编译输出 JSON 配置 |
 | **Pine-Go** | Go | 主执行引擎：解析配置、构建 DAG、并行调度 |
 | **Pine-Java** | Java | 第二执行引擎，与 Pine-Go 行为一致 |
+| **Pine-Python** | Python | 第三执行引擎，用于原型验证和测试 |
 
-**工程团队**用 Go/Java 开发高性能算子；**业务团队**用 Python DSL 编排逻辑。两侧通过 JSON 配置彻底解耦。
+**工程团队**用 Go/Java 开发高性能算子；**业务团队**用 Python DSL 编排逻辑。两侧通过 JSON 配置彻底解耦。Pine-Python 提供纯 Python 运行时，适合快速原型验证和单元测试。
 
 ## 核心特性
 
@@ -39,7 +41,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **动态资源** — 后台定时刷新的内存资源管理器，无锁读
 - **白盒可观测** — 算子级 trace、`/stats` 端点、可插拔 Prometheus 接口
 - **行存/列存可切换** — DataFrame 支持两种存储模式
-- **双引擎一致性** — Go/Java 引擎通过 CI 交叉验证保证 schema、DAG、执行结果一致
+- **三引擎一致性** — Go/Java/Python 引擎通过 CI 交叉验证保证 schema、DAG、执行结果一致
 
 ## 从旧版迁移（Breaking Change）
 
@@ -129,8 +131,8 @@ Apple DSL 侧同步变更：`OpCall(..., row_dependency=True)` → `OpCall(..., 
 ### 环境要求
 
 - Go 1.22+（Pine-Go）
-- Java 11+（Pine-Java）
-- Python 3.10+（Apple DSL）
+- Java 21+（Pine-Java）
+- Python 3.11+（Apple DSL + Pine-Python）
 
 ### 1. 编写 Pipeline
 
