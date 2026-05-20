@@ -12,7 +12,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 V_GO=$(grep -oP 'const Version = "\K[^"]+' pine-go/version.go)
 V_PY=$(grep -oP '__version__ = "\K[^"]+' apple/_version.py)
-V_JAVA=$(sed -n '/<packaging>jar<\/packaging>/{x;s/.*<version>\(.*\)<\/version>.*/\1/p;q};h' pine-java/pom.xml)
+V_JAVA=$(grep -m1 -oP '(?<=<version>)[^<]+' pine-java/pom.xml)
 V_PYPROJ=$(grep -oP '^version = "\K[^"]+' pine-python/pyproject.toml)
 
 echo "Collected versions:"
