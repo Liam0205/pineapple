@@ -72,6 +72,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 
 - 未提供 provider 时自动回退到 `metrics.Nop()`
 - `Engine` 在构建期预创建 `EngineMetrics`
+- 引擎在构建期（`NewEngine`/`Engine.create()`/`Engine()` 初始化末尾）对所有已编译算子名调用 `PreInitOperators`，确保 Prometheus 等 metrics backend 从启动即暴露零值时间序列；同时 Stats 也预注册算子名，使 `/stats` 在首次请求前即可返回完整算子列表（各计数器初始为 0）
 - 同一 provider 会被传给所有实现 `MetricsAware` 的算子实例
 - 日志前缀可来自 JSON 根级 `log_prefix` 或 `pine.WithLogPrefix(...)`
 - 当两者同时存在时，`pine.WithLogPrefix(...)` 优先
@@ -251,6 +252,17 @@ Pineapple 仓库内不提供 Prometheus 具体实现。推荐模式是：
 - 应用启动时把适配器传给 `pine.WithMetrics(...)` 或 `server.Config.Metrics`
 
 这样可保持 Pineapple core 的后端无关性，也避免把注册表、命名冲突和 exporter 路由绑定到核心库中。
+
+## 跨引擎 metrics parity 验证
+
+cross-validate section 13（`scripts/cross-validate/13-metrics-parity.sh`）验证三引擎的 pre-init 行为和 `/stats` 数值一致性，覆盖 6 项检查：
+
+- zero-traffic pre-init：引擎启动后、无请求时 `/stats` 已暴露全部算子
+- operator names match：三引擎的算子名集合一致
+- exec_count match：执行计数三引擎一致
+- skip_count match：跳过计数三引擎一致
+- error_count match：错误计数三引擎一致
+- scheduler.run_count match：调度器运行计数三引擎一致
 
 ## 版本边界
 

@@ -94,6 +94,10 @@
 
 输出是不可变的 `runtime.Plan`，包含图、编译后算子和 flow contract。
 
+### Pre-init metrics 注册
+
+引擎在构建完成后调用 `PreInitOperators`，对所有已编译算子名预注册 metrics labels 和 stats entries，确保从启动即暴露零值时间序列。这保证 Prometheus 等 metrics backend 在首次请求到达前就能发现全部算子维度，`/stats` 也可在首次请求前返回完整算子列表（各计数器初始为 0）。
+
 ## 每请求执行生命周期
 
 `Engine.Execute()` 使用预编译的 plan，但创建全新的请求状态：
@@ -656,13 +660,13 @@ HTTP 端点为 `GET /dag`：
 
 ### 对等覆盖范围
 
-Pine-Java 实现了与 Pine-Go 相同的核心架构：
+Pine-Java 实现了与 Pine-Go 相同的核心架构（最低要求 Java 21）：
 
 - **引擎编译流水线**：JSON 解析 → 算子序列展开（含 SubFlow）→ sources 前向引用校验（`Engine.validateSourcesOrder`）→ 算子实例构建 → DAG 推导
 - **Option pattern**：`Engine.create(jsonConfig, options...)` 接受 `withMetrics`、`withResources`、`withLogPrefix`、`withDebug` 四种 option，语义与 Go 的 `pine.NewEngine(jsonConfig, opts...)` 一致
 - **引擎编译重构**：`CompiledOperator` 聚合运行时配置（debug、metrics、resources）；`OperatorParams` 类型化包装替代原始 `Map<String,Object>` 用于 `Operator.init()`；Registry 从 static-only 重构为 instance-based（`GLOBAL` singleton + instance methods）
 - **DAG 推导**：数据冒险边（含行集标记） + 显式 sources 边 + 传递性归约 + 拓扑排序
-- **并发调度**：注入式 `ExecutorService`（默认 ForkJoinPool.commonPool）+ CompletableFuture 事件驱动唤醒，语义等同 Go 侧的 per-operator goroutine + done channel 模型（无轮询）
+- **并发调度**：注入式 `ExecutorService`（默认 `Executors.newVirtualThreadPerTaskExecutor()`，Java 21 Virtual Threads）+ CompletableFuture 事件驱动唤醒，语义等同 Go 侧的 per-operator goroutine + done channel 模型（无轮询）
 - **DataFrame**：`Frame` 接口抽象，`DataFrame`（行存）和 `ColumnFrame`（列存），通过 `storage_mode` 配置选择
 - **data_parallel**：`ParallelExecutor` 实现 Transform 级并行分片，要求 `ConcurrentSafe` 接口
 - **双通道观测**：`Stats` 原子统计 + 可插拔 `Provider`（`metrics/Provider.java`），默认 `NopProvider`（等同 Go 的 `metrics.Nop()`）
@@ -765,7 +769,7 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 
 ### Schema 独立性
 
-Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。三侧通过 CI 十二层交叉验证（`scripts/cross-validate.sh`：Codegen-Schema、Render-DAG、Execution、Column-store、Error、Server-HTTP、Cancellation、Concurrent、Raw-byte、Hot-reload、Redis-integration、Extensibility-parity）保持对齐，无运行时耦合。
+Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。三侧通过 CI 十三层交叉验证（`scripts/cross-validate.sh`：Codegen-Schema、Render-DAG、Execution、Column-store、Error、Server-HTTP、Cancellation、Concurrent、Raw-byte、Hot-reload、Redis-integration、Extensibility-parity、Metrics-parity）保持对齐，无运行时耦合。
 
 ## 检索指针
 
