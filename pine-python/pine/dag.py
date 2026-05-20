@@ -106,6 +106,9 @@ def _add_edges(
                 write_fields.append(_ROW_SET_SENTINEL)
             if op_cfg.consumes_row_set:
                 read_fields.append(_ROW_SET_SENTINEL)
+            if not op_cfg.consumes_row_set and not is_additive_write:
+                if read_fields or write_fields:
+                    read_fields.append(_ROW_SET_SENTINEL)
 
         # RAW edges
         for field in read_fields:
