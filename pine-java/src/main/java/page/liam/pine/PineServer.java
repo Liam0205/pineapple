@@ -124,7 +124,22 @@ public class PineServer {
     }
 
     private com.sun.net.httpserver.HttpHandler wrapHandler(String path, com.sun.net.httpserver.HttpHandler handler) {
-        com.sun.net.httpserver.HttpHandler wrapped = handler;
+        // Enforce exact path matching for named endpoints.
+        // HttpServer uses longest-prefix matching; without this guard,
+        // /health/sub/path would match the /health context.
+        com.sun.net.httpserver.HttpHandler exactHandler;
+        if ("_other".equals(path)) {
+            exactHandler = handler;
+        } else {
+            exactHandler = exchange -> {
+                if (!path.equals(exchange.getRequestURI().getPath())) {
+                    handleNotFound(exchange);
+                    return;
+                }
+                handler.handle(exchange);
+            };
+        }
+        com.sun.net.httpserver.HttpHandler wrapped = exactHandler;
         // HTTP metrics (innermost)
         if (metricsProvider != null) {
             wrapped = httpMetricsMiddleware(path, wrapped);
