@@ -68,7 +68,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "21"
           cache: maven
       - run: mvn checkstyle:check -B
 
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "21"
           cache: maven
       - run: mvn test -B -q
       - name: Upload Java coverage
@@ -214,7 +214,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "21"
       - name: Run benchmarks
         run: mvn test -B -Dtest=BenchmarkTest -pl . 2>&1 | tee benchmark-java.txt
       - name: Write benchmark summary
@@ -240,7 +240,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "21"
           cache: maven
       - name: Fuzz Config.load
         run: mvn test -B -Dtest="JazzerFuzzTest#fuzzConfigLoad" -Djazzer.instrument="page.liam.pine.**"
@@ -267,7 +267,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "21"
           cache: maven
       - uses: actions/setup-python@v6
         with:
@@ -397,7 +397,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "21"
           cache: maven
       - uses: actions/setup-python@v6
         with:
