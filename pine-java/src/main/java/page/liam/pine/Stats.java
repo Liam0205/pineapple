@@ -9,6 +9,12 @@ public class Stats {
     private final AtomicLong runCount = new AtomicLong();
     private final AtomicLong peakConcurrency = new AtomicLong();
 
+    public void preInitOperators(List<String> names) {
+        for (String name : names) {
+            ops.putIfAbsent(name, new OpStats());
+        }
+    }
+
     public void recordExec(String name, long durationNs) {
         getOrCreate(name).recordExec(durationNs);
     }

@@ -56,6 +56,13 @@ class _Stats:
         self._run_count: int = 0
         self._peak_concurrency: int = 0
 
+    def pre_init_operators(self, names: list[str]):
+        """Pre-register all operator names so they appear in stats from startup."""
+        with self._lock:
+            for name in names:
+                if name not in self._ops:
+                    self._ops[name] = _OpStats()
+
     def _get_or_create(self, name: str) -> _OpStats:
         with self._lock:
             op = self._ops.get(name)

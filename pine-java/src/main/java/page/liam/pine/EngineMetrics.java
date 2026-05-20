@@ -1,5 +1,7 @@
 package page.liam.pine;
 
+import java.util.List;
+
 import page.liam.pine.metrics.*;
 
 public class EngineMetrics {
@@ -26,5 +28,16 @@ public class EngineMetrics {
                 new double[]{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}));
         this.dagOpsExecuted = provider.newHistogram(new HistogramOpts("pine_dag_operators_executed", "Operators executed per DAG run",
                 new double[]{1, 5, 10, 20, 50, 100, 200}));
+    }
+
+    public void preInitOperators(List<String> opNames) {
+        for (String name : opNames) {
+            opExecTotal.with(name);
+            opExecDuration.with(name);
+            opSkipTotal.with(name);
+            opErrorTotal.with(name);
+        }
+        dagExecTotal.with("success");
+        dagExecTotal.with("error");
     }
 }

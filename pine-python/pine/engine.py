@@ -246,6 +246,7 @@ class Engine:
 
         dag = DAG.build(sequence, cfg.pipeline_config.operators, op_to_sub_flow)
         engine_stats = _Stats()
+        engine_stats.pre_init_operators([cop.name for cop in compiled_ops])
 
         return cls(
             compiled_operators=compiled_ops,
