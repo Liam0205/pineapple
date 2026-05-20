@@ -13,7 +13,7 @@
     ]
   },
   "config": {
-    "_PINEAPPLE_VERSION": "0.7.0",
+    "_PINEAPPLE_VERSION": "0.7.1",
     "pipeline_config": {
       "operators": {
         "recall_hot": {
