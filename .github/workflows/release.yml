@@ -82,8 +82,6 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
     defaults:
       run:
         working-directory: pine-java
@@ -96,6 +94,11 @@ jobs:
           distribution: temurin
           java-version: "11"
           cache: maven
-      - run: mvn deploy -B -DskipTests
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+      - run: mvn deploy -B -DskipTests -Prelease -Dgpg.passphrase=
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
