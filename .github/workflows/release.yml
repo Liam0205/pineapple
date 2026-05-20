@@ -98,7 +98,9 @@ jobs:
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_TOKEN
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-      - run: mvn deploy -B -DskipTests -Prelease -Dgpg.passphrase=
+          gpg-passphrase: GPG_PASSPHRASE
+      - run: mvn deploy -B -DskipTests -Prelease
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+          GPG_PASSPHRASE: ""
