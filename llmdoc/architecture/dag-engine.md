@@ -765,7 +765,7 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 
 ### Schema 独立性
 
-Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。三侧通过 CI 十一层交叉验证（`scripts/cross-validate.sh`：Codegen-Schema、Render-DAG、Execution、Column-store、Error、Server-HTTP、Cancellation、Concurrent、Raw-byte、Hot-reload、Redis-integration）保持对齐，无运行时耦合。
+Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。三侧通过 CI 十二层交叉验证（`scripts/cross-validate.sh`：Codegen-Schema、Render-DAG、Execution、Column-store、Error、Server-HTTP、Cancellation、Concurrent、Raw-byte、Hot-reload、Redis-integration、Extensibility-parity）保持对齐，无运行时耦合。
 
 ## 检索指针
 
