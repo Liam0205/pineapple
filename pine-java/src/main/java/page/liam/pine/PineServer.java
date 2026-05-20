@@ -203,7 +203,7 @@ public class PineServer {
             rm.start();
             Config cfg = Config.load(configData);
             rm.validateDeps(cfg.pipelineConfig.operators);
-            Engine engine = Engine.create(configData, rm);
+            Engine engine = Engine.create(configData, rm, metricsProvider);
             Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
             if (old != null && old.resources instanceof ResourceManager) {
                 ((ResourceManager) old.resources).stop();
