@@ -31,7 +31,7 @@
 
 另有两个独立 workflow：
 
-- **Cross-validate**（`.github/workflows/ci.yml` 中的 cross-validate job）：依赖 go-test + java-test + pine-python-test，运行十一层三引擎跨验证
+- **Cross-validate**（`.github/workflows/ci.yml` 中的 cross-validate job）：依赖 go-test + java-test + pine-python-test，运行十二层三引擎跨验证
 - **Differential-fuzz**（`.github/workflows/ci.yml` 中的 differential-fuzz job）：CI 模式运行 200 轮三引擎差异模糊测试
 - **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行 5000 轮，发现分歧时自动创建 GitHub issue
 
