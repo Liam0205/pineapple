@@ -2,10 +2,11 @@
 # Cross-validation entry point: run Go vs Java vs Python parity checks.
 #
 # Usage:
-#   bash scripts/cross-validate.sh          # Run all sections
-#   bash scripts/cross-validate.sh 1-5      # Run sections 1 through 5
-#   bash scripts/cross-validate.sh 1,3,8    # Run sections 1, 3, and 8
+#   bash scripts/cross-validate.sh              # Run all sections (parallel)
+#   bash scripts/cross-validate.sh 1-5          # Run sections 1 through 5
+#   bash scripts/cross-validate.sh 1,3,8        # Run sections 1, 3, and 8
 #   bash scripts/cross-validate.sh 1-5,8,10-11  # Mixed ranges
+#   bash scripts/cross-validate.sh --serial 1-5 # Force serial execution
 #
 set -euo pipefail
 
@@ -15,6 +16,13 @@ CV_DIR="$SCRIPT_DIR/cross-validate"
 export REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
+
+# --- Options ---
+PARALLEL=1
+if [[ "${1:-}" == "--serial" ]]; then
+  PARALLEL=0
+  shift
+fi
 
 # --- Argument parsing: expand "1-5,8,10-11" into a list of section numbers ---
 parse_sections() {
@@ -45,24 +53,75 @@ else
   SECTIONS=($(seq 1 $TOTAL_SECTIONS))
 fi
 
-# --- Pre-build ---
+# --- Pre-build (always serial — shared binaries) ---
 source "$CV_DIR/_prebuild.sh"
 
 # --- Shared state ---
 export _CV_FAIL=0
 export _CV_SUMMARY=""
 
-# --- Run selected sections ---
-for sec in "${SECTIONS[@]}"; do
-  sec_file=$(printf "%s/%02d-*.sh" "$CV_DIR" "$sec")
-  # Glob to find the file
-  matched=( $sec_file )
-  if [[ ! -f "${matched[0]}" ]]; then
-    echo "WARNING: section $sec not found (no file matching $sec_file)" >&2
-    continue
-  fi
-  source "${matched[0]}"
-done
+# --- Execution ---
+if [[ $PARALLEL -eq 1 && ${#SECTIONS[@]} -gt 1 ]]; then
+  # Parallel mode: each section runs in a subshell, output captured to file
+  RESULT_DIR="$WORK_DIR/results"
+  mkdir -p "$RESULT_DIR"
+
+  pids=()
+  for sec in "${SECTIONS[@]}"; do
+    sec_file=$(printf "%s/%02d-*.sh" "$CV_DIR" "$sec")
+    matched=( $sec_file )
+    if [[ ! -f "${matched[0]}" ]]; then
+      echo "WARNING: section $sec not found (no file matching $sec_file)" >&2
+      continue
+    fi
+    (
+      export _CV_FAIL=0
+      export _CV_SUMMARY=""
+      source "${matched[0]}"
+      # Write results
+      echo "$_CV_FAIL" > "$RESULT_DIR/${sec}.rc"
+      echo -e "$_CV_SUMMARY" > "$RESULT_DIR/${sec}.summary"
+    ) > "$RESULT_DIR/${sec}.out" 2>&1 &
+    pids+=("$!:$sec")
+  done
+
+  # Wait for all and collect results
+  any_fail=0
+  for entry in "${pids[@]}"; do
+    pid="${entry%%:*}"
+    sec="${entry##*:}"
+    if ! wait "$pid"; then
+      any_fail=1
+    fi
+  done
+
+  # Print output in order
+  for sec in "${SECTIONS[@]}"; do
+    if [[ -f "$RESULT_DIR/${sec}.out" ]]; then
+      cat "$RESULT_DIR/${sec}.out"
+    fi
+    if [[ -f "$RESULT_DIR/${sec}.rc" ]]; then
+      rc=$(cat "$RESULT_DIR/${sec}.rc")
+      if [[ "$rc" != "0" ]]; then
+        _CV_FAIL=1
+      fi
+    fi
+    if [[ -f "$RESULT_DIR/${sec}.summary" ]]; then
+      _CV_SUMMARY+="$(cat "$RESULT_DIR/${sec}.summary")\n"
+    fi
+  done
+else
+  # Serial mode
+  for sec in "${SECTIONS[@]}"; do
+    sec_file=$(printf "%s/%02d-*.sh" "$CV_DIR" "$sec")
+    matched=( $sec_file )
+    if [[ ! -f "${matched[0]}" ]]; then
+      echo "WARNING: section $sec not found (no file matching $sec_file)" >&2
+      continue
+    fi
+    source "${matched[0]}"
+  done
+fi
 
 # --- Summary ---
 echo
