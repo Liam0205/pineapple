@@ -11,11 +11,14 @@
 3. `llmdoc/architecture/dag-engine.md` — 核心执行模型：引擎编译、DAG 推导（三标记 + auto-inject 模型）、调度器、DataFrame 语义、算子类型规则、行集依赖。
    - 深入阅读场景：涉及执行顺序、数据冒险、行集变异算子、运行时 bug、算子语义、性能/并发的任务。
 
-4. `llmdoc/architecture/apple-compiler.md` — Python DSL 声明、编译流水线、校验规则、控制流降级、资源声明。
+4. `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时定位与关键决策：错误/fixture parity 契约、MVP 边界、C++ 端数据表示、并行模型、测试策略。
+   - 深入阅读场景：涉及 `pine-cpp/`、第四运行时路线、C++ 架构与性能取舍的任务。
+
+5. `llmdoc/architecture/apple-compiler.md` — Python DSL 声明、编译流水线、校验规则、控制流降级、资源声明。
    - 深入阅读场景：涉及 Flow API、JSON 生成、校验错误、控制流、DSL/运行时不匹配的任务。
 
-5. `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册、类型/输出约束。
+6. `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册、类型/输出约束。
    - 深入阅读场景：涉及新增或修改算子、Schema、元数据契约、codegen 定义的任务。
 
-6. `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、对齐、任务跟踪、验证、文档同步。
+7. `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、对齐、任务跟踪、验证、文档同步。
    - 深入阅读场景：非平凡任务开始前，回顾完整流程以避免遗漏步骤。

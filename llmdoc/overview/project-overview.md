@@ -1,6 +1,6 @@
 # 项目概述
 
-Pineapple 是一个面向请求时数据处理的高性能流水线引擎。流水线通过 Python Apple DSL 声明，编译为 JSON 配置，由 Go/Java/Python 运行时构建依赖感知的 DAG 并执行。仓库采用四对等目录布局：`apple/`（Python DSL）、`pine-go/`（Go 引擎）、`pine-java/`（Java 引擎）、`pine-python/`（Python 引擎）。
+Pineapple 是一个面向请求时数据处理的高性能流水线引擎。流水线通过 Python Apple DSL 声明，编译为 JSON 配置，由 Go/Java/Python 运行时构建依赖感知的 DAG 并执行；同时仓库已启动第四运行时 **pine-cpp** 的建设，目标是在完全 parity 前提下成为标杆实现。当前仓库采用四个已落地目录 + 一个新运行时方向的布局：`apple/`（Python DSL）、`pine-go/`（Go 引擎）、`pine-java/`（Java 引擎）、`pine-python/`（Python 引擎），以及规划中的 `pine-cpp/`（C++ 引擎）。
 
 ## Pineapple 是什么
 
@@ -11,7 +11,7 @@ Pineapple 包含四个主要部分：
 - `pine-java/` 中的 Java 执行层，功能对等的替代运行时，适用于 JVM 生态部署场景。
 - `pine-python/` 中的 Python 执行层（包名 `pineapple-pine`），功能对等的第三运行时，使用 lupa/LuaJIT 执行 Lua 脚本、ThreadPoolExecutor 调度 DAG、mtime-polling 实现热加载。
 
-四层通过 JSON 解耦。Python DSL 不在运行时调用 Go/Java/Python 引擎，各引擎侧不知道 Python DSL 对象。契约是各引擎 `Engine.create()`/`pine.NewEngine()`/`Engine(json_config)` 消费的配置格式。Go 模块路径为 `github.com/Liam0205/pineapple/pine-go`。
+现有运行时与规划中的 pine-cpp 都通过 JSON 解耦。Python DSL 不在运行时调用 Go/Java/Python/C++ 引擎，各引擎侧不知道 Python DSL 对象。契约是各引擎 `Engine.create()` / `pine.NewEngine()` / `Engine(json_config)` / 未来 pine-cpp 对等入口共同消费的配置格式。Go 模块路径为 `github.com/Liam0205/pineapple/pine-go`。
 
 ## 为何如此拆分
 

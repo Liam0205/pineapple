@@ -14,6 +14,7 @@
 
 - `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
+- `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时架构：第四运行时的定位、fixture/Go/人工裁决的基准优先级、错误输出字节级一致契约、MVP 边界，以及 C++ 端的数据表示、并行模型、代码组织与测试策略。
 
 ## guides/
 
