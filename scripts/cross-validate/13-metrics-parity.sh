@@ -38,7 +38,49 @@ metrics_pass=0
 metrics_total=0
 
 if srv_ready $GO_PORT && srv_ready $JAVA_PORT && srv_ready $PY_PORT; then
+  # ------------------------------------------------------------------
+  # [1] Zero-traffic pre-init: all operators visible in /stats immediately
+  # This simulates downstream scraping metrics right after engine startup.
+  # ------------------------------------------------------------------
+  metrics_total=$((metrics_total + 1))
+  GO_STATS_COLD=$(curl -s "http://localhost:$GO_PORT/stats")
+  JAVA_STATS_COLD=$(curl -s "http://localhost:$JAVA_PORT/stats")
+  PY_STATS_COLD=$(curl -s "http://localhost:$PY_PORT/stats")
+
+  preinit_ok=$(python3 -c "
+import json, sys
+go = json.loads('''$GO_STATS_COLD''')
+java = json.loads('''$JAVA_STATS_COLD''')
+py = json.loads('''$PY_STATS_COLD''')
+go_ops = sorted(go.get('operators', {}).keys())
+java_ops = sorted(java.get('operators', {}).keys())
+py_ops = sorted(py.get('operators', {}).keys())
+if not go_ops:
+    print('go: no operators in /stats before first request')
+elif go_ops != java_ops:
+    print(f'pre-init mismatch: go={go_ops} java={java_ops}')
+elif go_ops != py_ops:
+    print(f'pre-init mismatch: go={go_ops} py={py_ops}')
+else:
+    # Verify all counts are zero
+    for engine_name, stats in [('go', go), ('java', java), ('py', py)]:
+        for op, data in stats.get('operators', {}).items():
+            for field in ('exec_count', 'skip_count', 'error_count'):
+                if data.get(field, 0) != 0:
+                    print(f'{engine_name}/{op}/{field} != 0 before any request')
+                    sys.exit(0)
+    print('match')
+")
+  if [[ "$preinit_ok" == "match" ]]; then
+    metrics_pass=$((metrics_pass + 1))
+    echo "    [1] Zero-traffic pre-init: all operators visible with zero counts"
+  else
+    fail "metrics: zero-traffic pre-init: $preinit_ok"
+  fi
+
+  # ------------------------------------------------------------------
   # Send 5 requests to each engine
+  # ------------------------------------------------------------------
   for i in $(seq 1 5); do
     curl -s -X POST -H "Content-Type: application/json" -d "$METRICS_REQ" "http://localhost:$GO_PORT/execute" > /dev/null
     curl -s -X POST -H "Content-Type: application/json" -d "$METRICS_REQ" "http://localhost:$JAVA_PORT/execute" > /dev/null
@@ -49,7 +91,7 @@ if srv_ready $GO_PORT && srv_ready $JAVA_PORT && srv_ready $PY_PORT; then
   JAVA_STATS=$(curl -s "http://localhost:$JAVA_PORT/stats")
   PY_STATS=$(curl -s "http://localhost:$PY_PORT/stats")
 
-  # [1] Operator names must match across all engines
+  # [2] Operator names must match across all engines
   metrics_total=$((metrics_total + 1))
   op_names_match=$(python3 -c "
 import json, sys
@@ -66,12 +108,12 @@ else:
 ")
   if [[ "$op_names_match" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
-    echo "    [1] Operator names match across all engines"
+    echo "    [2] Operator names match across all engines"
   else
     fail "metrics: operator names differ: $op_names_match"
   fi
 
-  # [2] exec_count must be 5 for all executed operators in all engines
+  # [3] exec_count must be 5 for all executed operators in all engines
   metrics_total=$((metrics_total + 1))
   exec_counts_ok=$(python3 -c "
 import json, sys
@@ -90,12 +132,12 @@ else:
 ")
   if [[ "$exec_counts_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
-    echo "    [2] exec_count matches across all engines"
+    echo "    [3] exec_count matches across all engines"
   else
     fail "metrics: exec_count differs: $exec_counts_ok"
   fi
 
-  # [3] skip_count must match across all engines
+  # [4] skip_count must match across all engines
   metrics_total=$((metrics_total + 1))
   skip_counts_ok=$(python3 -c "
 import json, sys
@@ -114,12 +156,12 @@ else:
 ")
   if [[ "$skip_counts_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
-    echo "    [3] skip_count matches across all engines"
+    echo "    [4] skip_count matches across all engines"
   else
     fail "metrics: skip_count differs: $skip_counts_ok"
   fi
 
-  # [4] error_count must match (should be 0 for normal requests)
+  # [5] error_count must match (should be 0 for normal requests)
   metrics_total=$((metrics_total + 1))
   error_counts_ok=$(python3 -c "
 import json, sys
@@ -138,12 +180,12 @@ else:
 ")
   if [[ "$error_counts_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
-    echo "    [4] error_count matches across all engines"
+    echo "    [5] error_count matches across all engines"
   else
     fail "metrics: error_count differs: $error_counts_ok"
   fi
 
-  # [5] scheduler.run_count must be 5 for all engines
+  # [6] scheduler.run_count must be 5 for all engines
   metrics_total=$((metrics_total + 1))
   total_exec_ok=$(python3 -c "
 import json, sys
@@ -160,7 +202,7 @@ else:
 ")
   if [[ "$total_exec_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
-    echo "    [5] scheduler.run_count = 5 for all engines"
+    echo "    [6] scheduler.run_count = 5 for all engines"
   else
     fail "metrics: scheduler.run_count differs: $total_exec_ok"
   fi
