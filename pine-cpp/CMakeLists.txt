@@ -1,0 +1,41 @@
+cmake_minimum_required(VERSION 3.20)
+project(pine_cpp_mvp LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# --- LuaJIT ---
+set(LUAJIT_PREFIX "/home/linuxbrew/.linuxbrew")
+find_library(LUAJIT_LIB NAMES luajit-5.1 HINTS ${LUAJIT_PREFIX}/lib)
+find_path(LUAJIT_INCLUDE NAMES luajit.h HINTS ${LUAJIT_PREFIX}/include/luajit-2.1)
+if(NOT LUAJIT_LIB OR NOT LUAJIT_INCLUDE)
+    message(FATAL_ERROR "LuaJIT not found. Install with: brew install luajit")
+endif()
+message(STATUS "LuaJIT lib: ${LUAJIT_LIB}")
+message(STATUS "LuaJIT include: ${LUAJIT_INCLUDE}")
+
+add_library(pine_cpp_core
+    src/config/json.cpp
+    src/config/config.cpp
+    src/dag/dag.cpp
+    src/runtime/engine.cpp
+    src/render/render.cpp
+    src/lua/lua_bridge.cpp
+    operators/filter/filter_truncate.cpp
+    operators/recall/recall_static.cpp
+    operators/reorder/reorder_sort.cpp
+    operators/transform/transform_copy.cpp
+)
+
+target_include_directories(pine_cpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(pine_cpp_core PUBLIC ${LUAJIT_LIB})
+
+target_compile_options(pine_cpp_core PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(pineapple-run cmd/pineapple-run/main.cpp)
+target_link_libraries(pineapple-run PRIVATE pine_cpp_core)
+
+add_executable(pineapple-render-dag cmd/pineapple-render-dag/main.cpp)
+target_link_libraries(pineapple-render-dag PRIVATE pine_cpp_core)
