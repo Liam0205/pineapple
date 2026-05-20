@@ -91,6 +91,37 @@ public class JazzerFuzzTest {
         } catch (Config.ConfigException e) {
             throw new AssertionError("DAG.build succeeded but topologicalOrder failed: " + e.getMessage());
         }
+
+        // Row-set safety invariant
+        boolean[][] closure = transitiveClosureForFuzz(dag);
+        int lastMutWriter = -1;
+        List<Integer> additiveWriters = new ArrayList<>();
+
+        for (int i = 0; i < n; i++) {
+            Config.OperatorConfig opCfg = operators.get(sequence.get(i));
+            boolean hasItemFields = (opCfg.metadata.itemInput != null && !opCfg.metadata.itemInput.isEmpty())
+                    || (opCfg.metadata.itemOutput != null && !opCfg.metadata.itemOutput.isEmpty());
+            boolean readsRowSet = opCfg.consumesRowSet || (hasItemFields && !opCfg.additiveWritesRowSet);
+
+            if (readsRowSet) {
+                if (lastMutWriter >= 0 && !closure[lastMutWriter][i]) {
+                    throw new AssertionError("row-set safety: " + sequence.get(i)
+                            + " reads _row_set_ but unreachable from MutatesRowSet " + sequence.get(lastMutWriter));
+                }
+                for (int aw : additiveWriters) {
+                    if (!closure[aw][i]) {
+                        throw new AssertionError("row-set safety: " + sequence.get(i)
+                                + " reads _row_set_ but unreachable from AdditiveWritesRowSet " + sequence.get(aw));
+                    }
+                }
+            }
+
+            if (opCfg.additiveWritesRowSet) additiveWriters.add(i);
+            if (opCfg.mutatesRowSet) {
+                lastMutWriter = i;
+                additiveWriters.clear();
+            }
+        }
     }
 
     @FuzzTest(maxDuration = "30s")
@@ -107,6 +138,34 @@ public class JazzerFuzzTest {
     }
 
     // --- Helpers ---
+
+    private static boolean[][] transitiveClosureForFuzz(DAG dag) {
+        int n = dag.nodes.size();
+        boolean[][] reach = new boolean[n][n];
+        for (int i = 0; i < n; i++) {
+            boolean[] visited = new boolean[n];
+            visited[i] = true;
+            Deque<Integer> queue = new ArrayDeque<>();
+            for (int s : dag.nodes.get(i).succs) {
+                if (!visited[s]) {
+                    visited[s] = true;
+                    reach[i][s] = true;
+                    queue.add(s);
+                }
+            }
+            while (!queue.isEmpty()) {
+                int cur = queue.poll();
+                for (int s : dag.nodes.get(cur).succs) {
+                    if (!visited[s]) {
+                        visited[s] = true;
+                        reach[i][s] = true;
+                        queue.add(s);
+                    }
+                }
+            }
+        }
+        return reach;
+    }
 
     private static final Set<String> RESERVED = new HashSet<>(Arrays.asList(
             "type_name", "$metadata", "$code_info", "skip", "recall", "sources",
@@ -146,6 +205,7 @@ public class JazzerFuzzTest {
             case 0:
                 cfg.typeName = "recall_static";
                 cfg.recall = true;
+                cfg.additiveWritesRowSet = true;
                 cfg.metadata = new Config.Metadata();
                 cfg.metadata.itemOutput = fuzzFields(data, cursor, 4);
                 break;
@@ -157,11 +217,15 @@ public class JazzerFuzzTest {
                 break;
             case 2:
                 cfg.typeName = "filter_truncate";
+                cfg.consumesRowSet = true;
+                cfg.mutatesRowSet = true;
                 cfg.metadata = new Config.Metadata();
                 cfg.metadata.itemInput = fuzzFields(data, cursor, 4);
                 break;
             case 3:
                 cfg.typeName = "reorder_sort";
+                cfg.consumesRowSet = true;
+                cfg.mutatesRowSet = true;
                 cfg.metadata = new Config.Metadata();
                 cfg.metadata.itemInput = fuzzFields(data, cursor, 4);
                 break;

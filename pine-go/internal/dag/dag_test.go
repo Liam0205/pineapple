@@ -1189,7 +1189,7 @@ func FuzzBuild(f *testing.F) {
 		if err != nil {
 			return
 		}
-		assertFuzzGraphInvariants(t, seq, g)
+		assertFuzzGraphInvariants(t, seq, ops, g)
 	})
 }
 
@@ -1278,7 +1278,7 @@ func fuzzDAGConfig(data []byte) ([]string, map[string]config.OperatorConfig) {
 	return seq, ops
 }
 
-func assertFuzzGraphInvariants(t *testing.T, seq []string, g *Graph) {
+func assertFuzzGraphInvariants(t *testing.T, seq []string, ops map[string]config.OperatorConfig, g *Graph) {
 	t.Helper()
 	if len(g.Nodes) != len(seq) {
 		t.Fatalf("node count = %d, want %d", len(g.Nodes), len(seq))
@@ -1332,6 +1332,43 @@ func assertFuzzGraphInvariants(t *testing.T, seq []string, g *Graph) {
 			if position[node.Index] >= position[succ] {
 				t.Fatalf("edge %d -> %d violates topological order %v", node.Index, succ, order)
 			}
+		}
+	}
+	assertRowSetSafetyInvariant(t, seq, ops, g)
+}
+
+func assertRowSetSafetyInvariant(t *testing.T, seq []string, ops map[string]config.OperatorConfig, g *Graph) {
+	t.Helper()
+	closure := transitiveClosure(g)
+
+	lastMutWriter := -1
+	var additiveWriters []int
+
+	for i, name := range seq {
+		opCfg := ops[name]
+		hasItemFields := len(opCfg.Meta.ItemInput) > 0 || len(opCfg.Meta.ItemOutput) > 0
+
+		readsRowSet := opCfg.ConsumesRowSet || (hasItemFields && !opCfg.AdditiveWritesRowSet)
+
+		if readsRowSet {
+			if lastMutWriter >= 0 && !closure[lastMutWriter][i] {
+				t.Errorf("row-set safety: %q (idx %d) reads _row_set_ but is not reachable from MutatesRowSet %q (idx %d)",
+					name, i, seq[lastMutWriter], lastMutWriter)
+			}
+			for _, aw := range additiveWriters {
+				if !closure[aw][i] {
+					t.Errorf("row-set safety: %q (idx %d) reads _row_set_ but is not reachable from AdditiveWritesRowSet %q (idx %d)",
+						name, i, seq[aw], aw)
+				}
+			}
+		}
+
+		if opCfg.AdditiveWritesRowSet {
+			additiveWriters = append(additiveWriters, i)
+		}
+		if opCfg.MutatesRowSet {
+			lastMutWriter = i
+			additiveWriters = nil
 		}
 	}
 }

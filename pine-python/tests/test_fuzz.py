@@ -75,6 +75,15 @@ def _random_operator_config(draw):
             "item_output": metadata_fields[2:3],
         },
     }
+
+    # Set row-set markers based on operator type (Config.load does not infer them)
+    if type_name == "recall_static":
+        config["additive_writes_row_set"] = True
+        config["recall"] = True
+    elif type_name in ("filter_truncate", "reorder_sort"):
+        config["consumes_row_set"] = True
+        config["mutates_row_set"] = True
+
     # Add random extra params
     extra_keys = draw(st.lists(_field_name, min_size=0, max_size=3))
     for key in extra_keys:
@@ -84,6 +93,35 @@ def _random_operator_config(draw):
                        "item_defaults", "for_branch_control", "data_parallel"):
             config[key] = draw(_scalar_value)
     return config
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _transitive_closure(dag):
+    """Compute transitive closure of the DAG as a 2D list-of-lists."""
+    n = len(dag.nodes)
+    reach = [[False] * n for _ in range(n)]
+    from collections import deque
+    for i in range(n):
+        visited = [False] * n
+        visited[i] = True
+        queue = deque()
+        for s in dag.nodes[i].succs:
+            if not visited[s]:
+                visited[s] = True
+                reach[i][s] = True
+                queue.append(s)
+        while queue:
+            cur = queue.popleft()
+            for s in dag.nodes[cur].succs:
+                if not visited[s]:
+                    visited[s] = True
+                    reach[i][s] = True
+                    queue.append(s)
+    return reach
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +190,33 @@ def test_fuzz_dag_build(op_count: int, op_configs: list[dict]):
                 assert pred_idx < node.index, (
                     f"predecessor {pred_idx} must appear before node {node.index}"
                 )
+
+        # Row-set safety invariant
+        closure = _transitive_closure(dag)
+        last_mut_writer = -1
+        additive_writers = []
+
+        for i, op_name in enumerate(expanded.sequence):
+            op_cfg = cfg.pipeline_config.operators[op_name]
+            meta = op_cfg.metadata
+            has_item_fields = bool(meta.item_input) or bool(meta.item_output)
+            reads_row_set = op_cfg.consumes_row_set or (has_item_fields and not op_cfg.additive_writes_row_set)
+
+            if reads_row_set:
+                if last_mut_writer >= 0:
+                    assert closure[last_mut_writer][i], (
+                        f"row-set safety: {op_name} reads _row_set_ but unreachable from MutatesRowSet {expanded.sequence[last_mut_writer]}"
+                    )
+                for aw in additive_writers:
+                    assert closure[aw][i], (
+                        f"row-set safety: {op_name} reads _row_set_ but unreachable from AdditiveWritesRowSet {expanded.sequence[aw]}"
+                    )
+
+            if op_cfg.additive_writes_row_set:
+                additive_writers.append(i)
+            if op_cfg.mutates_row_set:
+                last_mut_writer = i
+                additive_writers.clear()
 
     except ConfigError:
         pass  # expected for invalid configs
