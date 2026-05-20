@@ -459,6 +459,7 @@ func setupTestHTTPServer(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/execute", s.handleExecute)
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/dag", s.handleDAG)
+	mux.HandleFunc("/", handleNotFound)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -1253,6 +1254,88 @@ func TestMiddlewareApplied(t *testing.T) {
 		if order[i] != v {
 			t.Errorf("order[%d] = %q, want %q", i, order[i], v)
 		}
+	}
+}
+
+func TestHandleNotFound_ReturnsJSON404(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/unknown-path", nil)
+	w := httptest.NewRecorder()
+	handleNotFound(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["error"] != "not found" {
+		t.Errorf("error = %q, want \"not found\"", resp["error"])
+	}
+}
+
+func TestMiddlewareCanInterceptCustomPath(t *testing.T) {
+	s := setupEngine(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/execute", s.handleExecute)
+	mux.HandleFunc("/", handleNotFound)
+
+	customHandler := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/metrics" {
+				writeJSON(w, http.StatusOK, map[string]any{"custom": true})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	handler := customHandler(mux)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	client := srv.Client()
+
+	// Custom path intercepted by middleware
+	resp, err := client.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("/metrics status = %d, want 200", resp.StatusCode)
+	}
+	var metricsBody map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&metricsBody); err != nil {
+		t.Fatal(err)
+	}
+	if metricsBody["custom"] != true {
+		t.Errorf("expected custom=true from middleware, got %v", metricsBody)
+	}
+
+	// Known path still works
+	resp2, err := client.Get(srv.URL + "/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("/health status = %d, want 200", resp2.StatusCode)
+	}
+
+	// Unknown path returns 404 JSON (not intercepted)
+	resp3, err := client.Get(srv.URL + "/other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusNotFound {
+		t.Errorf("/other status = %d, want 404", resp3.StatusCode)
 	}
 }
 
