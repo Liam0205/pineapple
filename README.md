@@ -355,6 +355,43 @@ def normalize_json(text):
 
 参考 `scripts/cross-validate.sh` 的完整实现了解实战细节。
 
+## Benchmark
+
+跨引擎性能对比（HTTP server 模式，小/中型 pipeline）。
+
+### 延迟 (sequential requests, median ms)
+
+| Fixture | Go | Java | Python |
+|---|---|---|---|
+| small_010 (10 items) | 0.28 | 1.10 | 0.79 |
+| small_050 (50 items) | 0.33 | 1.17 | 0.90 |
+| small_100 (100 items) | 0.36 | 1.14 | 1.02 |
+| medium_0100 (100 items) | 0.53 | 1.58 | 1.60 |
+| medium_0500 (500 items) | 1.68 | 2.10 | 3.52 |
+| medium_1000 (1000 items) | 2.96 | 2.92 | 5.84 |
+
+### 吞吐量 (RPS, concurrency=16)
+
+| Fixture | Go | Java | Python |
+|---|---|---|---|
+| small_010 | 3205 | 3367 | 1619 |
+| small_050 | 3000 | 3411 | 1393 |
+| small_100 | 2782 | 3308 | 1159 |
+| medium_0100 | 2189 | 3042 | 706 |
+| medium_0500 | 859 | 2506 | 301 |
+| medium_1000 | 591 | 1786 | 176 |
+
+### Pine-Python 建议用法
+
+Pine-Python 受 CPython GIL 限制，并发吞吐量无法随核数线性扩展。建议用途：
+
+- **单元测试** — 无需编译 Go/Java 即可验证 pipeline 逻辑正确性
+- **原型验证** — 快速迭代 pipeline 配置，确认 DAG 结构和算子行为
+- **CI cross-validate** — 作为第三方校验源，确保三引擎行为一致
+- **低 QPS 场景** — 内部工具、离线批处理、开发环境
+
+生产高并发场景请使用 Pine-Go 或 Pine-Java。
+
 ## 文档
 
 | 类别 | 链接 |
