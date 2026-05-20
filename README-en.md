@@ -354,6 +354,43 @@ def normalize_json(text):
 
 See `scripts/cross-validate.sh` for a complete production implementation.
 
+## Benchmark
+
+Cross-engine performance comparison (HTTP server mode, small/medium pipelines).
+
+### Latency (sequential requests, median ms)
+
+| Fixture | Go | Java | Python |
+|---|---|---|---|
+| small_010 (10 items) | 0.28 | 1.10 | 0.79 |
+| small_050 (50 items) | 0.33 | 1.17 | 0.90 |
+| small_100 (100 items) | 0.36 | 1.14 | 1.02 |
+| medium_0100 (100 items) | 0.53 | 1.58 | 1.60 |
+| medium_0500 (500 items) | 1.68 | 2.10 | 3.52 |
+| medium_1000 (1000 items) | 2.96 | 2.92 | 5.84 |
+
+### Throughput (RPS, concurrency=16)
+
+| Fixture | Go | Java | Python |
+|---|---|---|---|
+| small_010 | 3205 | 3367 | 1619 |
+| small_050 | 3000 | 3411 | 1393 |
+| small_100 | 2782 | 3308 | 1159 |
+| medium_0100 | 2189 | 3042 | 706 |
+| medium_0500 | 859 | 2506 | 301 |
+| medium_1000 | 591 | 1786 | 176 |
+
+### Pine-Python Recommended Usage
+
+Pine-Python is limited by CPython's GIL and cannot scale throughput linearly with cores. Recommended use cases:
+
+- **Unit testing** — Validate pipeline logic without compiling Go/Java
+- **Prototyping** — Rapidly iterate pipeline configs, verify DAG structure and operator behavior
+- **CI cross-validation** — Serve as a third-party verification source for tri-engine parity
+- **Low-QPS scenarios** — Internal tools, offline batch processing, development environments
+
+For production high-concurrency workloads, use Pine-Go or Pine-Java.
+
 ## Documentation
 
 | Category | Link |
