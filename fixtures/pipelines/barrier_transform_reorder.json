@@ -1,7 +1,7 @@
 {
   "name": "barrier semantics (transform before reorder)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.7.2",
+    "_PINEAPPLE_VERSION": "0.7.3",
     "pipeline_config": {
       "operators": {
         "normalize_score": {
