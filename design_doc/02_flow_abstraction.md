@@ -232,9 +232,10 @@ flow.op_a(common_input=["foo"], common_output=["foo"]) \
 
 引擎在 item 字段追踪中维护一个内部 sentinel 字段 `_row_set_`：
 
-- **Recall** 算子自动成为 `_row_set_` 的 additive writer（与其他 Recall 并行，无 WAW）
-- **Barrier**（Filter/Merge/Reorder）在状态更新时重置 `_row_set_` 的 tracker（成为 lastMutWriter）
-- 声明 **`row_dependency: true`** 的算子自动成为 `_row_set_` 的 reader
+- **Recall** 算子（`AdditiveWritesRowSet`）自动成为 `_row_set_` 的 additive writer（与其他 Recall 并行，无 WAW）
+- **Filter/Merge/Reorder**（`MutatesRowSet`）对 `_row_set_` 执行 mutating write，重置 tracker（成为 lastMutWriter）
+- 声明 **`ConsumesRowSet`** 的算子自动成为 `_row_set_` 的 reader
+- **有 item 字段但未声明上述 marker 的算子**，引擎自动注入 `_row_set_` read（任何按索引访问 item 数据的算子本质上依赖行集稳定性）
 
 这样完全复用现有 RAW/WAW/WAR 机制，无需新增推导逻辑。
 
