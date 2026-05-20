@@ -365,4 +365,4 @@ See `scripts/cross-validate.sh` for a complete production implementation.
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)
