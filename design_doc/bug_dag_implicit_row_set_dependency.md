@@ -30,7 +30,7 @@ v0.7（commit `328109e`）将旧的全屏障模型（`addBarrierEdges`、`IsBarr
 
 ### 本质
 
-任何按索引访问 item 数据的算子（通过 `SetItem`/`GetItem`）本质上依赖行集的稳定性——哪些行存在、行的索引映射不变。这是 `_row_set_` 语义的隐含消费者。`AdditiveWritesRowSet` 例外，因为它只追加新行，不访问已有行的索引。
+任何按索引访问 item 数据的算子（通过 `SetItem`/`GetItem`）本质上依赖行集的稳定性——哪些行存在、行的索引映射不变。这是 `_row_set_` 语义的隐含消费者。**"有 item 字段"指 `$metadata.item_input` 或 `$metadata.item_output` 任一非空——读（`GetItem`）和写（`SetItem`）都按索引访问，都需要行集稳定。** `AdditiveWritesRowSet` 例外，因为它只追加新行，不访问已有行的索引。
 
 ## 修复方案
 
