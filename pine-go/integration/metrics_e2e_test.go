@@ -130,3 +130,23 @@ func TestMetricsRecordedAfterExecute(t *testing.T) {
 		t.Error("pine_dag_execution_duration_seconds should have observations after Execute")
 	}
 }
+
+func TestStatsPreInitBeforeExecute(t *testing.T) {
+	cfg := loadConfig(t, "../testdata/e2e_lua_pipeline.json")
+	engine, err := pine.NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats := engine.Stats()
+	if len(stats) == 0 {
+		t.Fatal("Stats() should return all operators immediately after NewEngine, before any Execute call")
+	}
+
+	for name, snap := range stats {
+		if snap.ExecCount != 0 || snap.SkipCount != 0 || snap.ErrorCount != 0 {
+			t.Errorf("operator %q: expected all zero counts before Execute, got exec=%d skip=%d error=%d",
+				name, snap.ExecCount, snap.SkipCount, snap.ErrorCount)
+		}
+	}
+}
