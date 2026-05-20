@@ -1896,6 +1896,77 @@ func TestImplicitRowSetDep_ObserveWithItemFields(t *testing.T) {
 	}
 }
 
+func TestImplicitRowSetDep_CommonOnlyAfterFilter(t *testing.T) {
+	// Filter (MutatesRowSet) followed by common-only transform.
+	// Common-only transform has no item fields → no _row_set_ injection → must NOT depend on filter.
+	seq := []string{"recall_a", "filter", "common_calc"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":    recallOp(nil, []string{"item_id", "score"}),
+		"filter":      filterOp([]string{"score"}, nil),
+		"common_calc": transformOp([]string{"user_id"}, []string{"user_flag"}, nil, nil),
+	}
+
+	g, err := Build(seq, ops, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasPred(g, "common_calc", "filter") {
+		t.Error("common-only transform should NOT depend on filter (no item fields)")
+	}
+	if hasPred(g, "common_calc", "recall_a") {
+		t.Error("common-only transform should NOT depend on recall_a (no item fields)")
+	}
+}
+
+func TestImplicitRowSetDep_CommonOnlyAfterReorder(t *testing.T) {
+	// Reorder (MutatesRowSet) followed by common-only transform.
+	seq := []string{"recall_a", "reorder", "common_calc"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":    recallOp(nil, []string{"item_id", "score"}),
+		"reorder":     reorderOp([]string{"score"}),
+		"common_calc": transformOp([]string{"user_id"}, []string{"user_flag"}, nil, nil),
+	}
+
+	g, err := Build(seq, ops, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasPred(g, "common_calc", "reorder") {
+		t.Error("common-only transform should NOT depend on reorder (no item fields)")
+	}
+	if hasPred(g, "common_calc", "recall_a") {
+		t.Error("common-only transform should NOT depend on recall_a (no item fields)")
+	}
+}
+
+func TestImplicitRowSetDep_CommonOnlyBetweenFilterAndItemTransform(t *testing.T) {
+	// Filter → common_calc → item_transform.
+	// common_calc should NOT depend on filter (no item fields).
+	// item_transform SHOULD depend on filter (via _row_set_ RAW).
+	// item_transform should NOT depend on common_calc (no data dependency).
+	seq := []string{"recall_a", "filter", "common_calc", "item_transform"}
+	ops := map[string]config.OperatorConfig{
+		"recall_a":       recallOp(nil, []string{"item_id", "score"}),
+		"filter":         filterOp([]string{"score"}, nil),
+		"common_calc":    transformOp([]string{"user_id"}, []string{"user_flag"}, nil, nil),
+		"item_transform": transformOp(nil, nil, []string{"item_id"}, []string{"enriched"}),
+	}
+
+	g, err := Build(seq, ops, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasPred(g, "common_calc", "filter") {
+		t.Error("common_calc should NOT depend on filter")
+	}
+	if !hasPred(g, "item_transform", "filter") {
+		t.Error("expected filter -> item_transform via _row_set_ RAW")
+	}
+	if hasPred(g, "item_transform", "common_calc") {
+		t.Error("item_transform should NOT depend on common_calc (no data overlap)")
+	}
+}
+
 func TestImplicitRowSetDep_WARBeforeMutatesRowSet(t *testing.T) {
 	// Item-field transform before a MutatesRowSet: the mutator must wait
 	// for the transform to finish (WAR on _row_set_).
