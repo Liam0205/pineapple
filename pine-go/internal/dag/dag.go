@@ -133,12 +133,20 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 		// Inject implicit row-set tracking for item pass.
 		// AdditiveWritesRowSet → additive writer on _row_set_ (parallel with other additive writers).
 		// ConsumesRowSet → reader of _row_set_ (waits for additive writers and row-set mutators).
+		// Any operator with item fields that is not AdditiveWritesRowSet and not
+		// already ConsumesRowSet → auto-inject _row_set_ read (item-field access
+		// requires stable row-set indices for both GetItem and SetItem).
 		if !isCommon {
 			if isAdditiveWrite {
 				writeFields = append(writeFields[:len(writeFields):len(writeFields)], rowSetSentinel)
 			}
 			if opCfg.ConsumesRowSet {
 				readFields = append(readFields[:len(readFields):len(readFields)], rowSetSentinel)
+			}
+			if !opCfg.ConsumesRowSet && !isAdditiveWrite {
+				if len(readFields) > 0 || len(writeFields) > 0 {
+					readFields = append(readFields[:len(readFields):len(readFields)], rowSetSentinel)
+				}
 			}
 		}
 
