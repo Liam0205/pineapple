@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_parallel.sh"
 
 # ---------- 9. Raw byte execution parity (key ordering) ----------
 echo
@@ -38,19 +39,28 @@ print(len(data.get('cases', [])))
       res_args=(-static-resources "$WORK_DIR/resources_${fname}.json")
     fi
 
-    go_raw=$("$WORK_DIR/pineapple-run" -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
-      raw_total=$((raw_total - 1)); continue
-    }
+    out_prefix="$WORK_DIR/raw_${fname}_${i}"
 
-    java_raw=$(java_run page.liam.pine.RunCli -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
+    # Run all three engines in parallel
+    run_engines_parallel "$config_file" "$req_file" "$out_prefix" "${res_args[@]}"
+
+    go_rc=$(cat "${out_prefix}.go.rc")
+    java_rc=$(cat "${out_prefix}.java.rc")
+    py_rc=$(cat "${out_prefix}.py.rc")
+
+    if [[ "$go_rc" != "0" ]]; then
       raw_total=$((raw_total - 1)); continue
-    }
+    fi
+    if [[ "$java_rc" != "0" ]]; then
+      raw_total=$((raw_total - 1)); continue
+    fi
+
+    go_raw=$(cat "${out_prefix}.go.out")
+    java_raw=$(cat "${out_prefix}.java.out")
 
     if [[ "$go_raw" == "$java_raw" ]]; then
       raw_pass=$((raw_pass + 1))
     else
-      # Key ordering differences are expected (Go: struct field order, Java: insertion order)
-      # Only fail if the normalized values also differ (would indicate a real data bug)
       go_norm=$(echo "$go_raw" | normalize_json)
       java_norm=$(echo "$java_raw" | normalize_json)
       if [[ "$go_norm" == "$java_norm" ]]; then
@@ -58,27 +68,27 @@ print(len(data.get('cases', [])))
         echo "    [W] key ordering differs (Go vs Java): $fname case $i" >&2
       else
         fail "raw byte divergence (Go vs Java): $fname case $i (values differ, not just key ordering)"
-        diff <(echo "$go_raw") <(echo "$java_raw") >&2 | head -10 || true
       fi
     fi
 
     # Go vs Python raw byte
     py_raw_total=$((py_raw_total + 1))
-    py_raw=$(py_run pine.cli.run -config "$config_file" -request "$req_file" "${res_args[@]}" 2>/dev/null) || {
+    if [[ "$py_rc" != "0" ]]; then
       py_raw_total=$((py_raw_total - 1)); continue
-    }
+    fi
+
+    py_raw=$(cat "${out_prefix}.py.out")
 
     if [[ "$go_raw" == "$py_raw" ]]; then
       py_raw_pass=$((py_raw_pass + 1))
     else
-      go_norm=$(echo "$go_raw" | normalize_json)
+      go_norm=${go_norm:-$(echo "$go_raw" | normalize_json)}
       py_norm=$(echo "$py_raw" | normalize_json)
       if [[ "$go_norm" == "$py_norm" ]]; then
         py_raw_pass=$((py_raw_pass + 1))
         echo "    [W] key ordering differs (Go vs Python): $fname case $i" >&2
       else
         fail "raw byte divergence (Go vs Python): $fname case $i (values differ, not just key ordering)"
-        diff <(echo "$go_raw") <(echo "$py_raw") >&2 | head -10 || true
       fi
     fi
   done
@@ -96,5 +106,4 @@ elif [[ $py_raw_total -eq 0 ]]; then
   pass "raw byte execution parity Go vs Python (no cases, skipped)"
 fi
 
-# Return to caller if sourced, exit if run directly
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit $_CV_FAIL || true
