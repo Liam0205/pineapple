@@ -417,7 +417,7 @@ jobs:
           echo "Seed: $SEED (use this to reproduce failures)"
           python3 scripts/differential-fuzz.py \
             --rounds 100 \
-            --stability-runs 1 \
+            --stability-runs 2 \
             --seed "$SEED" \
             --engines go,python,java \
             --save-dir /tmp/diff-fuzz-ci | tee diff-fuzz-output.txt
