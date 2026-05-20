@@ -1,0 +1,73 @@
+{
+  "name": "implicit row-set: filter then item-field transform (no field overlap)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.7.4",
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"rel_id": "r1", "score": 90, "category": "hot"},
+            {"rel_id": "r2", "score": 10, "category": "cold"},
+            {"rel_id": "r3", "score": 50, "category": "warm"}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["rel_id", "score", "category"]
+          }
+        },
+        "filter_top2": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "copy_tag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": ["user_tag"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["user_tag"]
+          }
+        }
+      },
+      "pipeline_map": {}
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["recall_items", "filter_top2", "copy_tag"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["user_tag"],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["rel_id", "score", "category", "user_tag"]
+    }
+  },
+  "cases": [
+    {
+      "name": "filter truncates to 2, then copy_tag writes to surviving items",
+      "request": {
+        "common": {"user_tag": "vip"},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"rel_id": "r1", "score": 90, "category": "hot", "user_tag": "vip"},
+          {"rel_id": "r2", "score": 10, "category": "cold", "user_tag": "vip"}
+        ]
+      }
+    }
+  ]
+}

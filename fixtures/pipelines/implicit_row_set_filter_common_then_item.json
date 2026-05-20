@@ -1,0 +1,99 @@
+{
+  "name": "implicit row-set: filter → common-only → item-field transform",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.7.4",
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a", "score": 70},
+            {"item_id": "b", "score": 30},
+            {"item_id": "c", "score": 90}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "score"]
+          }
+        },
+        "filter_top2": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "compute_flag": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function flag()\n  if level > 10 then return true else return false end\nend",
+          "function_for_common": "flag",
+          "function_for_item": "",
+          "$metadata": {
+            "common_input": ["level"],
+            "common_output": ["is_premium"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "copy_flag": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": ["is_premium"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["is_premium"]
+          }
+        }
+      },
+      "pipeline_map": {}
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["recall_items", "filter_top2", "compute_flag", "copy_flag"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["level"],
+      "item_input": [],
+      "common_output": ["is_premium"],
+      "item_output": ["item_id", "score", "is_premium"]
+    }
+  },
+  "cases": [
+    {
+      "name": "common_calc independent of filter, copy_flag depends on filter via row-set",
+      "request": {
+        "common": {"level": 20},
+        "items": []
+      },
+      "expected": {
+        "common": {"is_premium": true},
+        "items": [
+          {"item_id": "a", "score": 70, "is_premium": true},
+          {"item_id": "b", "score": 30, "is_premium": true}
+        ]
+      }
+    },
+    {
+      "name": "low level, same structure",
+      "request": {
+        "common": {"level": 3},
+        "items": []
+      },
+      "expected": {
+        "common": {"is_premium": false},
+        "items": [
+          {"item_id": "a", "score": 70, "is_premium": false},
+          {"item_id": "b", "score": 30, "is_premium": false}
+        ]
+      }
+    }
+  ]
+}

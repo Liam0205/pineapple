@@ -1,0 +1,89 @@
+{
+  "name": "implicit row-set: filter then common-only transform (no dependency needed)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.7.4",
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a", "score": 80},
+            {"item_id": "b", "score": 20},
+            {"item_id": "c", "score": 60}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "score"]
+          }
+        },
+        "filter_top2": {
+          "type_name": "filter_truncate",
+          "top_n": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "compute_flag": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function flag()\n  if level > 10 then return true else return false end\nend",
+          "function_for_common": "flag",
+          "function_for_item": "",
+          "$metadata": {
+            "common_input": ["level"],
+            "common_output": ["is_premium"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {}
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["recall_items", "filter_top2", "compute_flag"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["level"],
+      "item_input": [],
+      "common_output": ["is_premium"],
+      "item_output": ["item_id", "score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "common-only transform runs independently of filter",
+      "request": {
+        "common": {"level": 15},
+        "items": []
+      },
+      "expected": {
+        "common": {"is_premium": true},
+        "items": [
+          {"item_id": "a", "score": 80},
+          {"item_id": "b", "score": 20}
+        ]
+      }
+    },
+    {
+      "name": "common-only transform with low level",
+      "request": {
+        "common": {"level": 5},
+        "items": []
+      },
+      "expected": {
+        "common": {"is_premium": false},
+        "items": [
+          {"item_id": "a", "score": 80},
+          {"item_id": "b", "score": 20}
+        ]
+      }
+    }
+  ]
+}
