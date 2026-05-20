@@ -12,12 +12,10 @@ import threading
 import time
 from http.client import HTTPConnection
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 import pytest
-
-from pine.cli.server import PineServer, _PineHandler, _ServerState, Middleware
-from pine.engine import Engine
+from pine.cli.server import PineServer, _PineHandler
 
 FIXTURES_ROOT = Path(__file__).parent.parent.parent / "fixtures"
 
