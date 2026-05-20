@@ -76,6 +76,11 @@ public class DAG {
                 if (opCfg.consumesRowSet) {
                     readFields.add(ROW_SET_SENTINEL);
                 }
+                if (!opCfg.consumesRowSet && !isAdditiveWrite) {
+                    if (!readFields.isEmpty() || !writeFields.isEmpty()) {
+                        readFields.add(ROW_SET_SENTINEL);
+                    }
+                }
             }
 
             // Process reads — RAW
