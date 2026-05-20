@@ -54,11 +54,6 @@ func IsValidOperatorType(t OperatorType) bool {
 	return ok
 }
 
-// IsBarrier returns true if the operator type uses barrier DAG semantics.
-func (t OperatorType) IsBarrier() bool {
-	return t == OpTypeFilter || t == OpTypeMerge || t == OpTypeReorder
-}
-
 // ValidateOutput checks that the OperatorOutput only used methods allowed for
 // this operator type. Returns an error describing the violation, or nil.
 func (t OperatorType) ValidateOutput(out *OperatorOutput) error {
