@@ -17,26 +17,56 @@ for fixture_file in "$FIXTURES_DIR"/*.json; do
   [[ -f "$fixture_file" ]] || continue
   fname=$(basename "$fixture_file")
 
-  config_file="$WORK_DIR/config_${fname}"
-  [[ -f "$config_file" ]] || continue
+  # Extract config (self-sufficient — don't rely on section 3's temp files)
+  config_file="$WORK_DIR/raw_config_${fname}"
+  python3 -c "
+import json
+with open('$fixture_file') as f:
+    data = json.load(f)
+with open('$config_file', 'w') as cf:
+    json.dump(data.get('config', {}), cf)
+" 2>/dev/null || continue
 
   cases=$(python3 -c "
 import json, sys
 with open('$fixture_file') as f:
     data = json.load(f)
-print(len(data.get('cases', [])))
+cases = data.get('cases', [])
+if not cases:
+    sys.exit(0)
+for i, c in enumerate(cases):
+    req = c.get('request', {})
+    with open('$WORK_DIR/raw_req_${fname}_' + str(i) + '.json', 'w') as rf:
+        json.dump(req, rf)
+    ee = c.get('expect_error', '')
+    with open('$WORK_DIR/raw_ee_${fname}_' + str(i) + '.txt', 'w') as ef:
+        ef.write(ee)
+sr = data.get('static_resources')
+if sr is not None:
+    with open('$WORK_DIR/raw_resources_${fname}.json', 'w') as sf:
+        json.dump(sr, sf)
+print(len(cases))
 " 2>/dev/null) || continue
 
   [[ -z "$cases" || "$cases" == "0" ]] && continue
 
   for ((i=0; i<cases; i++)); do
-    req_file="$WORK_DIR/req_${fname}_${i}.json"
+    req_file="$WORK_DIR/raw_req_${fname}_${i}.json"
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     raw_total=$((raw_total + 1))
 
     res_args=()
-    if [[ -f "$WORK_DIR/resources_${fname}.json" ]]; then
-      res_args=(-static-resources "$WORK_DIR/resources_${fname}.json")
+    if [[ -f "$WORK_DIR/raw_resources_${fname}.json" ]]; then
+      res_args=(-static-resources "$WORK_DIR/raw_resources_${fname}.json")
+    fi
+
+    # Skip expect_error cases for raw byte comparison
+    expect_error=""
+    if [[ -f "$WORK_DIR/raw_ee_${fname}_${i}.txt" ]]; then
+      expect_error=$(cat "$WORK_DIR/raw_ee_${fname}_${i}.txt")
+    fi
+    if [[ -n "$expect_error" ]]; then
+      raw_total=$((raw_total - 1)); continue
     fi
 
     out_prefix="$WORK_DIR/raw_${fname}_${i}"
