@@ -33,6 +33,18 @@ func NewStats() *Stats {
 	}
 }
 
+// PreInitOperators pre-registers all operator names so they appear in
+// Snapshot() from startup, even before any requests are processed.
+func (s *Stats) PreInitOperators(names []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, name := range names {
+		if _, ok := s.ops[name]; !ok {
+			s.ops[name] = &OpStats{}
+		}
+	}
+}
+
 // getOrCreate returns the OpStats for a given operator, creating it if needed.
 func (s *Stats) getOrCreate(name string) *OpStats {
 	s.mu.RLock()

@@ -197,7 +197,9 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		opNames[i] = cop.Name
 	}
 	em.PreInitOperators(opNames)
-	return &Engine{plan: plan, stats: runtime.NewStats(), engineMetrics: em, storageMode: dataframe.StorageMode(cfg.StorageMode)}, nil
+	stats := runtime.NewStats()
+	stats.PreInitOperators(opNames)
+	return &Engine{plan: plan, stats: stats, engineMetrics: em, storageMode: dataframe.StorageMode(cfg.StorageMode)}, nil
 }
 
 // Execute runs the pipeline for a single request.
