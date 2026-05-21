@@ -39,7 +39,6 @@ func init() {
 // NormalizeOp applies min-max normalization to an item field.
 type NormalizeOp struct {
 	pine.MetadataHolder
-	pine.ConsumesRowSetMarker
 	method string
 }
 
