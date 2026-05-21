@@ -6,14 +6,13 @@ import sys
 from pine.cancellation import CancellationToken
 from pine.operator import (
     AbstractOperator,
-    ConsumesRowSet,
     OperatorInput,
     OperatorOutput,
     OperatorParams,
 )
 
 
-class ObserveLog(AbstractOperator, ConsumesRowSet):
+class ObserveLog(AbstractOperator):
     def __init__(self):
         self._prefix = ""
 

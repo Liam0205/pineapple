@@ -8,7 +8,6 @@ from pine.go_format import format_float_f
 from pine.operator import (
     AbstractOperator,
     ConcurrentSafe,
-    ConsumesRowSet,
     OperatorInput,
     OperatorOutput,
     OperatorParams,
@@ -16,7 +15,7 @@ from pine.operator import (
 )
 
 
-class TransformResourceLookup(AbstractOperator, ConcurrentSafe, ConsumesRowSet, ResourceAware):
+class TransformResourceLookup(AbstractOperator, ConcurrentSafe, ResourceAware):
     def __init__(self):
         self._resource_name = ""
         self._lookup_key = ""

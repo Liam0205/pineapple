@@ -4,14 +4,13 @@ from pine.cancellation import CancellationToken
 from pine.errors import OperatorException
 from pine.operator import (
     AbstractOperator,
-    ConsumesRowSet,
     OperatorInput,
     OperatorOutput,
     OperatorParams,
 )
 
 
-class TransformNormalize(AbstractOperator, ConsumesRowSet):
+class TransformNormalize(AbstractOperator):
     def __init__(self):
         self._method = "min_max"
 

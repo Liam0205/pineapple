@@ -4,14 +4,13 @@ from pine.cancellation import CancellationToken
 from pine.operator import (
     AbstractOperator,
     ConcurrentSafe,
-    ConsumesRowSet,
     OperatorInput,
     OperatorOutput,
     OperatorParams,
 )
 
 
-class TransformDispatch(AbstractOperator, ConcurrentSafe, ConsumesRowSet):
+class TransformDispatch(AbstractOperator, ConcurrentSafe):
     def __init__(self):
         pass
 
