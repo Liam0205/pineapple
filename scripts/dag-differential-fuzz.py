@@ -89,13 +89,15 @@ def gen_dag_config(rng: random.Random) -> tuple[dict, list[str]]:
             }
 
         elif variant == 3:
+            # Simulates a merge-like operator: consumes + mutates row set.
+            # Uses transform_copy as type_name because DAG building only
+            # looks at config flags, not the actual operator implementation.
             sources: list[str] = []
             if i > 0:
                 src_count = rng.randint(0, min(i, 2))
                 sources = rng.sample(pipeline[:i], src_count)
             operators[name] = {
-                "type_name": "transform_copy",
-                "direction": "common_to_item",
+                "type_name": "merge_dedup",
                 "sources": sources,
                 "consumes_row_set": True,
                 "mutates_row_set": True,
@@ -134,7 +136,7 @@ def gen_dag_config(rng: random.Random) -> tuple[dict, list[str]]:
                 op["consumes_row_set"] = True
 
     config = {
-        "_PINEAPPLE_VERSION": "0.6.6",
+        "_PINEAPPLE_VERSION": "0.8.0",
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": {},
