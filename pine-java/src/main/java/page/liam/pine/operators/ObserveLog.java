@@ -13,7 +13,7 @@ import java.util.*;
  *   ItemInput:    [<fields to observe>]
  *   ItemOutput:   []
  */
-public class ObserveLog extends AbstractOperator implements page.liam.pine.ConsumesRowSet {
+public class ObserveLog extends AbstractOperator {
     private static final ObjectMapper mapper = new ObjectMapper();
     private String prefix = "";
 
