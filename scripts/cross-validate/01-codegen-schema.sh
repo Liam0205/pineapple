@@ -64,7 +64,66 @@ else
   fail "codegen schema structural divergence (Go vs Java)"
 fi
 
-# 1b. Go vs Python schema parity
+# 1b. Go vs C++ schema parity
+if [[ -n "${CPP_CODEGEN:-}" ]]; then
+  echo "    Exporting C++ schema..."
+  "$CPP_CODEGEN" -schema-json "$WORK_DIR/schema-cpp.json"
+  echo "    Comparing Go vs C++ schema structure..."
+  if python3 -c "
+import json, sys
+
+def normalize_value(v):
+    if isinstance(v, (int, float)):
+        return float(v)
+    return v
+
+def extract_structure(schemas):
+    result = {}
+    for op in schemas:
+        name = op.get('Name', '')
+        params = {}
+        for pname, pspec in op.get('Params', {}).items():
+            params[pname] = {
+                'type': pspec.get('Type', ''),
+                'required': pspec.get('Required', False),
+                'default': normalize_value(pspec.get('Default')),
+            }
+        result[name] = params
+    return result
+
+go_data = json.load(open('$WORK_DIR/schema-go.json'))
+cpp_data = json.load(open('$WORK_DIR/schema-cpp.json'))
+
+go_struct = extract_structure(go_data)
+cpp_struct = extract_structure(cpp_data)
+
+if go_struct == cpp_struct:
+    sys.exit(0)
+else:
+    all_ops = set(go_struct) | set(cpp_struct)
+    for op in sorted(all_ops):
+        if op not in go_struct:
+            print(f'  C++-only operator: {op}', file=sys.stderr)
+        elif op not in cpp_struct:
+            print(f'  Go-only operator: {op}', file=sys.stderr)
+        elif go_struct[op] != cpp_struct[op]:
+            print(f'  Divergence in {op}:', file=sys.stderr)
+            for p in sorted(set(go_struct[op]) | set(cpp_struct[op])):
+                gv = go_struct[op].get(p)
+                cv = cpp_struct[op].get(p)
+                if gv != cv:
+                    print(f'    {p}: Go={gv} C++={cv}', file=sys.stderr)
+    sys.exit(1)
+"; then
+    pass "codegen schema parity Go vs C++ (operator names + param types/required/defaults)"
+  else
+    fail "codegen schema structural divergence (Go vs C++)"
+  fi
+else
+  echo "    (C++ codegen binary not found — skipping C++ schema parity)"
+fi
+
+# 1c. Go vs Python schema parity
 echo "    Comparing Go vs Python schema structure..."
 if python3 -c "
 import json, sys

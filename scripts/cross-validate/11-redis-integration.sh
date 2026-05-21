@@ -8,6 +8,8 @@ echo "==> [11/$TOTAL_SECTIONS] Redis integration parity (requires redis-server)"
 REDIS_FIXTURE="$REPO_ROOT/fixtures/pipelines/redis_integration.json"
 redis_pass=0
 redis_total=0
+cpp_redis_pass=0
+cpp_redis_total=0
 
 if ! which redis-server >/dev/null 2>&1; then
   pass "redis integration (skipped: redis-server not found)"
@@ -67,12 +69,19 @@ with open('$REDIS_REQ', 'w') as rf:
       java_redis_result=""
     }
 
-    # Run Python engine (flush Redis first so Python also starts fresh)
-    redis-cli -p $REDIS_PORT FLUSHALL >/dev/null 2>&1
     py_redis_result=$(py_run pine.cli.run -config "$REDIS_CONFIG" -request "$REDIS_REQ" 2>/dev/null) || {
       fail "redis integration: Python engine failed on set-then-get"
       py_redis_result=""
     }
+
+    # Run C++ engine (same Redis state)
+    cpp_redis_result=""
+    if [[ -n "${CPP_RUN:-}" ]]; then
+      cpp_redis_result=$("$CPP_RUN" -config "$REDIS_CONFIG" -request "$REDIS_REQ" 2>/dev/null) || {
+        fail "redis integration: C++ engine failed on set-then-get"
+        cpp_redis_result=""
+      }
+    fi
 
     if [[ -n "$go_redis_result" && -n "$java_redis_result" ]]; then
       go_redis_norm=$(echo "$go_redis_result" | normalize_json)
@@ -98,6 +107,22 @@ with open('$REDIS_REQ', 'w') as rf:
       else
         fail "redis integration: set-then-get divergence (Go vs Python)"
         diff <(echo "$go_redis_norm" | python3 -m json.tool) <(echo "$py_redis_norm" | python3 -m json.tool) >&2 || true
+      fi
+    fi
+
+    if [[ -n "${CPP_RUN:-}" ]]; then
+      cpp_redis_total=$((cpp_redis_total + 1))
+      if [[ -n "$go_redis_result" && -n "$cpp_redis_result" ]]; then
+        go_redis_norm=$(echo "$go_redis_result" | normalize_json)
+        cpp_redis_norm=$(echo "$cpp_redis_result" | normalize_json)
+
+        if [[ "$go_redis_norm" == "$cpp_redis_norm" ]]; then
+          cpp_redis_pass=$((cpp_redis_pass + 1))
+          echo "    [A] set-then-get parity Go vs C++ → match"
+        else
+          fail "redis integration: set-then-get divergence (Go vs C++)"
+          diff <(echo "$go_redis_norm" | python3 -m json.tool) <(echo "$cpp_redis_norm" | python3 -m json.tool) >&2 || true
+        fi
       fi
     fi
 
@@ -161,6 +186,15 @@ GETREQ
       py_get_result=""
     }
 
+    # Run C++ engine (same pre-populated Redis key)
+    cpp_get_result=""
+    if [[ -n "${CPP_RUN:-}" ]]; then
+      cpp_get_result=$("$CPP_RUN" -config "$REDIS_GET_CONFIG" -request "$REDIS_GET_REQ" 2>/dev/null) || {
+        fail "redis integration: C++ engine failed on pre-populated get"
+        cpp_get_result=""
+      }
+    fi
+
     if [[ -n "$go_get_result" && -n "$java_get_result" ]]; then
       go_get_norm=$(echo "$go_get_result" | normalize_json)
       java_get_norm=$(echo "$java_get_result" | normalize_json)
@@ -188,6 +222,22 @@ GETREQ
       fi
     fi
 
+    if [[ -n "${CPP_RUN:-}" ]]; then
+      cpp_redis_total=$((cpp_redis_total + 1))
+      if [[ -n "$go_get_result" && -n "$cpp_get_result" ]]; then
+        go_get_norm=$(echo "$go_get_result" | normalize_json)
+        cpp_get_norm=$(echo "$cpp_get_result" | normalize_json)
+
+        if [[ "$go_get_norm" == "$cpp_get_norm" ]]; then
+          cpp_redis_pass=$((cpp_redis_pass + 1))
+          echo "    [B] pre-populated get parity Go vs C++ → match"
+        else
+          fail "redis integration: pre-populated get divergence (Go vs C++)"
+          diff <(echo "$go_get_norm" | python3 -m json.tool) <(echo "$cpp_get_norm" | python3 -m json.tool) >&2 || true
+        fi
+      fi
+    fi
+
     # Verify correctness: result should be "pre_existing"
     if [[ -n "$go_get_result" ]]; then
       got_value=$(echo "$go_get_result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('result',''))")
@@ -207,6 +257,13 @@ GETREQ
     pass "redis integration parity ($redis_pass/$redis_total checks)"
   elif [[ $redis_total -eq 0 ]]; then
     pass "redis integration parity (skipped: setup failed)"
+  fi
+  if [[ -n "${CPP_RUN:-}" ]]; then
+    if [[ $cpp_redis_total -gt 0 && $cpp_redis_pass -eq $cpp_redis_total ]]; then
+      pass "redis integration parity Go vs C++ ($cpp_redis_pass/$cpp_redis_total checks)"
+    elif [[ $cpp_redis_total -eq 0 ]]; then
+      pass "redis integration parity Go vs C++ (skipped: setup failed)"
+    fi
   fi
 fi
 

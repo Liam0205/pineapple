@@ -20,7 +20,13 @@ echo "    Building C++ CLIs..."
 if [[ -d "$REPO_ROOT/pine-cpp" ]]; then
   (cd "$REPO_ROOT/pine-cpp/build" && cmake .. -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1 && make -j"$(nproc 2>/dev/null || echo 4)" >/dev/null 2>&1) && \
     cp "$REPO_ROOT/pine-cpp/build/pineapple-run" "$WORK_DIR/pineapple-run-cpp" 2>/dev/null && \
-    export CPP_RUN="$WORK_DIR/pineapple-run-cpp" || \
+    cp "$REPO_ROOT/pine-cpp/build/pineapple-render-dag" "$WORK_DIR/pineapple-dag-cpp" 2>/dev/null && \
+    cp "$REPO_ROOT/pine-cpp/build/pineapple-codegen" "$WORK_DIR/pineapple-codegen-cpp" 2>/dev/null && \
+    cp "$REPO_ROOT/pine-cpp/build/pineapple-server" "$WORK_DIR/pineapple-server-cpp" 2>/dev/null && \
+    export CPP_RUN="$WORK_DIR/pineapple-run-cpp" && \
+    export CPP_DAG="$WORK_DIR/pineapple-dag-cpp" && \
+    export CPP_CODEGEN="$WORK_DIR/pineapple-codegen-cpp" && \
+    export CPP_SERVER="$WORK_DIR/pineapple-server-cpp" || \
     echo "    (C++ build skipped or failed — C++ parity checks will be skipped)"
 fi
 

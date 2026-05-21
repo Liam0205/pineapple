@@ -65,14 +65,27 @@ else
   fail "cancellation parity (Go vs Java): divergence (Go exit=$go_exit, Java exit=$java_exit)"
 fi
 
-# Test 1b: Python timeout
+# Test 1b: C++ timeout
+if [[ -n "${CPP_RUN:-}" ]]; then
+  cancel_total=$((cancel_total + 1))
+  cpp_exit=0
+  timeout 3 "$CPP_RUN" -config "$TIMEOUT_CONFIG" -request "$TIMEOUT_REQ" >/dev/null 2>&1 || cpp_exit=$?
+  if [[ $cpp_exit -ne 0 ]]; then
+    cancel_pass=$((cancel_pass + 1))
+    echo "    [1b] slow Lua + timeout 3s → C++ killed (exit=$cpp_exit)"
+  else
+    fail "cancellation parity (C++): C++ did not timeout as expected (exit=$cpp_exit)"
+  fi
+fi
+
+# Test 1c: Python timeout
 cancel_total=$((cancel_total + 1))
 py_exit=0
 timeout 3 bash -c "cd '$REPO_ROOT/pine-python' && python3 -m pine.cli.run -config '$TIMEOUT_CONFIG' -request '$TIMEOUT_REQ'" >/dev/null 2>&1 || py_exit=$?
 
 if [[ $py_exit -ne 0 ]]; then
   cancel_pass=$((cancel_pass + 1))
-  echo "    [1b] slow Lua + timeout 3s → Python killed (exit=$py_exit)"
+  echo "    [1c] slow Lua + timeout 3s → Python killed (exit=$py_exit)"
 else
   fail "cancellation parity (Python): Python did not timeout as expected (exit=$py_exit)"
 fi
@@ -130,7 +143,24 @@ else
   fail "cancellation parity (Go vs Java): Lua error divergence (Go_ok=$go_lua_ok, Java_ok=$java_lua_ok)"
 fi
 
-# Test 2b: Python Lua error
+# Test 2b: C++ Lua error
+if [[ -n "${CPP_RUN:-}" ]]; then
+  cancel_total=$((cancel_total + 1))
+  cpp_lua_err=$("$CPP_RUN" -config "$ERR_LUA_CONFIG" -request "$TIMEOUT_REQ" 2>&1) && cpp_lua_ok=true || cpp_lua_ok=false
+  if [[ "$cpp_lua_ok" == "false" ]]; then
+    if echo "$cpp_lua_err" | grep -qi "intentional"; then
+      cancel_pass=$((cancel_pass + 1))
+      echo "    [2b] Lua error() → C++ failed with expected message"
+    else
+      fail "cancellation parity (C++): Lua error message missing 'intentional'"
+      echo "      C++: $cpp_lua_err" | head -2 >&2
+    fi
+  else
+    fail "cancellation parity (C++): C++ did not fail on Lua error (ok=$cpp_lua_ok)"
+  fi
+fi
+
+# Test 2c: Python Lua error
 cancel_total=$((cancel_total + 1))
 py_lua_err=$(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.run -config "$ERR_LUA_CONFIG" -request "$TIMEOUT_REQ" 2>&1) && py_lua_ok=true || py_lua_ok=false
 
