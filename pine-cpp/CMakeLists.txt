@@ -6,11 +6,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # --- LuaJIT ---
-set(LUAJIT_PREFIX "/home/linuxbrew/.linuxbrew")
-find_library(LUAJIT_LIB NAMES luajit-5.1 HINTS ${LUAJIT_PREFIX}/lib)
-find_path(LUAJIT_INCLUDE NAMES luajit.h HINTS ${LUAJIT_PREFIX}/include/luajit-2.1)
+# Search common install locations (linuxbrew, system apt, /usr/local).
+find_library(LUAJIT_LIB NAMES luajit-5.1
+    HINTS /home/linuxbrew/.linuxbrew/lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu)
+find_path(LUAJIT_INCLUDE NAMES luajit.h
+    HINTS /home/linuxbrew/.linuxbrew/include/luajit-2.1
+          /usr/local/include/luajit-2.1
+          /usr/include/luajit-2.1)
 if(NOT LUAJIT_LIB OR NOT LUAJIT_INCLUDE)
-    message(FATAL_ERROR "LuaJIT not found. Install with: brew install luajit")
+    message(FATAL_ERROR "LuaJIT not found. Install with: brew install luajit OR apt install libluajit-5.1-dev")
 endif()
 message(STATUS "LuaJIT lib: ${LUAJIT_LIB}")
 message(STATUS "LuaJIT include: ${LUAJIT_INCLUDE}")

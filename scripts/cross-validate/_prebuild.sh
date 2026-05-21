@@ -18,6 +18,7 @@ export JAVA_CP="$REPO_ROOT/pine-java/target/classes:$(cd "$REPO_ROOT/pine-java" 
 
 echo "    Building C++ CLIs..."
 if [[ -d "$REPO_ROOT/pine-cpp" ]]; then
+  mkdir -p "$REPO_ROOT/pine-cpp/build"
   (cd "$REPO_ROOT/pine-cpp/build" && cmake .. -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1 && make -j"$(nproc 2>/dev/null || echo 4)" >/dev/null 2>&1) && \
     cp "$REPO_ROOT/pine-cpp/build/pineapple-run" "$WORK_DIR/pineapple-run-cpp" 2>/dev/null && \
     cp "$REPO_ROOT/pine-cpp/build/pineapple-render-dag" "$WORK_DIR/pineapple-dag-cpp" 2>/dev/null && \
