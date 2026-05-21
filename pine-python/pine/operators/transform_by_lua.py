@@ -10,7 +10,6 @@ from pine.errors import OperatorException
 from pine.operator import (
     AbstractOperator,
     ConcurrentSafe,
-    ConsumesRowSet,
     DebugAware,
     MetricsAware,
     OperatorInput,
@@ -27,7 +26,7 @@ except ImportError:
 
 
 class TransformByLua(
-    AbstractOperator, ConcurrentSafe, ConsumesRowSet,
+    AbstractOperator, ConcurrentSafe,
     StatsProvider, DebugAware, MetricsAware,
 ):
     def __init__(self):

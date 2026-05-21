@@ -4,14 +4,13 @@ from pine.cancellation import CancellationToken
 from pine.operator import (
     AbstractOperator,
     ConcurrentSafe,
-    ConsumesRowSet,
     OperatorInput,
     OperatorOutput,
     OperatorParams,
 )
 
 
-class TransformCopy(AbstractOperator, ConcurrentSafe, ConsumesRowSet):
+class TransformCopy(AbstractOperator, ConcurrentSafe):
     def __init__(self):
         self._direction = ""
 
