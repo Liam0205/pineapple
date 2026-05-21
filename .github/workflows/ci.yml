@@ -155,6 +155,55 @@ jobs:
           path: pine-java/target/site/jacoco/
           retention-days: 30
 
+  cpp-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install LuaJIT and build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential libluajit-5.1-dev
+      - name: Configure pine-cpp
+        working-directory: pine-cpp
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build pine-cpp
+        working-directory: pine-cpp
+        run: cmake --build build -j"$(nproc)"
+      - name: Smoke-test CLIs
+        working-directory: pine-cpp
+        run: |
+          SCHEMA_JSON=$(mktemp --suffix=.json)
+          ./build/pineapple-codegen -schema-json "$SCHEMA_JSON"
+          head -c 200 "$SCHEMA_JSON" && echo
+          MINI_CFG=$(mktemp --suffix=.json)
+          python3 -c "import json; json.dump(json.load(open('../fixtures/pipelines/transform_then_filter.json')).get('config', {}), open('$MINI_CFG','w'))"
+          ./build/pineapple-server -addr ":18999" -config "$MINI_CFG" &
+          SERVER_PID=$!
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://localhost:18999/health >/dev/null 2>&1; then break; fi
+            sleep 0.3
+          done
+          curl -fsS http://localhost:18999/health || (kill $SERVER_PID; exit 1)
+          kill $SERVER_PID || true
+          wait $SERVER_PID 2>/dev/null || true
+
+  cpp-sanitizer:
+    runs-on: ubuntu-latest
+    needs: cpp-build
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install LuaJIT and build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential libluajit-5.1-dev
+      - name: Run ASan/UBSan smoke
+        run: bash scripts/cpp-sanitizer-smoke.sh
+
   pine-python-fuzz:
     runs-on: ubuntu-latest
     needs: pine-python-test
@@ -257,7 +306,7 @@ jobs:
 
   cross-validation:
     runs-on: ubuntu-latest
-    needs: [go-test, java-test, pine-python-test]
+    needs: [go-test, java-test, pine-python-test, cpp-build]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -274,11 +323,13 @@ jobs:
           python-version: "3.13"
       - name: Install pine-python deps
         run: pip install -e pine-python/
-      - name: Install redis-server
+      - name: Install redis-server and LuaJIT
         run: |
-          sudo apt-get install -y --no-install-recommends redis-server=5:7.*
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            redis-server=5:7.* cmake build-essential libluajit-5.1-dev
           redis-server --version
-      - name: Cross-validate Go vs Java vs Python
+      - name: Cross-validate Go vs Java vs Python vs C++
         run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
       - name: Write summary
         if: always()
