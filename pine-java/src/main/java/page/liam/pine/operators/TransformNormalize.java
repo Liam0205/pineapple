@@ -15,7 +15,7 @@ import page.liam.pine.PineErrors;
  *   ItemInput:    [<field>]
  *   ItemOutput:   [<output_field>]
  */
-public class TransformNormalize extends AbstractOperator implements page.liam.pine.ConsumesRowSet {
+public class TransformNormalize extends AbstractOperator {
     private String method;
 
     @Override
