@@ -67,8 +67,8 @@ class DAG:
                     )
                 _add_edge(g, src_idx, i)
 
-        _reduce(g)
         _topological_sort(g)
+        _reduce(g)
 
         return g
 

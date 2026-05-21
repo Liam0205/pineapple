@@ -73,13 +73,14 @@ func Build(sequence []string, operators map[string]config.OperatorConfig, opToSu
 		}
 	}
 
-	// Transitive reduction — remove edges implied by longer paths.
-	reduce(g)
-
-	// Validate: no cycles
+	// Validate: no cycles (must run before reduce — transitive reduction
+	// on a cyclic graph can mask the cycle by removing "redundant" edges).
 	if _, err := TopologicalSort(g); err != nil {
 		return nil, err
 	}
+
+	// Transitive reduction — remove edges implied by longer paths.
+	reduce(g)
 
 	return g, nil
 }

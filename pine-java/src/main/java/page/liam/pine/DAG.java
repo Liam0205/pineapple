@@ -46,10 +46,11 @@ public class DAG {
             }
         }
 
-        reduce(g);
-
-        // Validate no cycles
+        // Validate no cycles (must run before reduce — transitive reduction
+        // on a cyclic graph can mask the cycle by removing "redundant" edges).
         topologicalSort(g);
+
+        reduce(g);
 
         return g;
     }

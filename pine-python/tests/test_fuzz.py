@@ -199,17 +199,25 @@ def test_fuzz_dag_build(op_count: int, op_configs: list[dict]):
         for i, op_name in enumerate(expanded.sequence):
             op_cfg = cfg.pipeline_config.operators[op_name]
             meta = op_cfg.metadata
-            has_item_fields = bool(meta.item_input) or bool(meta.item_output)
-            reads_row_set = op_cfg.consumes_row_set or (has_item_fields and not op_cfg.additive_writes_row_set)
+            has_item = (
+                bool(meta.item_input) or bool(meta.item_output)
+            )
+            reads_rs = op_cfg.consumes_row_set or (
+                has_item and not op_cfg.additive_writes_row_set
+            )
 
-            if reads_row_set:
+            if reads_rs:
                 if last_mut_writer >= 0:
+                    mut_name = expanded.sequence[last_mut_writer]
                     assert closure[last_mut_writer][i], (
-                        f"row-set safety: {op_name} reads _row_set_ but unreachable from MutatesRowSet {expanded.sequence[last_mut_writer]}"
+                        f"row-set safety: {op_name} unreachable"
+                        f" from MutatesRowSet {mut_name}"
                     )
                 for aw in additive_writers:
+                    aw_name = expanded.sequence[aw]
                     assert closure[aw][i], (
-                        f"row-set safety: {op_name} reads _row_set_ but unreachable from AdditiveWritesRowSet {expanded.sequence[aw]}"
+                        f"row-set safety: {op_name} unreachable"
+                        f" from AdditiveWritesRowSet {aw_name}"
                     )
 
             if op_cfg.additive_writes_row_set:
