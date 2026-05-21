@@ -41,7 +41,7 @@ void scan_fields(Graph& graph, const ExpandedSequence& expanded, bool common) {
             auto& tracker = trackers[field];
             if (tracker.last_mut_writer >= 0) add_edge(graph, tracker.last_mut_writer, static_cast<int>(i));
             for (int writer : tracker.additive_writers) add_edge(graph, writer, static_cast<int>(i));
-            if (op.operator_type != "observe") tracker.active_readers.push_back(static_cast<int>(i));
+            tracker.active_readers.push_back(static_cast<int>(i));
         }
         for (const auto& field : writes) {
             auto& tracker = trackers[field];

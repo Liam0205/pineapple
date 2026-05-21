@@ -23,11 +23,11 @@ LuaVM::~LuaVM() {
     if (L_) lua_close(L_);
 }
 
-void LuaVM::load_script(const std::string& code, const std::string& /*op_name*/) {
+void LuaVM::load_script(const std::string& code, const std::string& op_name) {
     if (luaL_dostring(L_, code.c_str()) != 0) {
         std::string err = lua_tostring(L_, -1);
         lua_pop(L_, 1);
-        throw ExecutionError("lua: failed to load script: " + err);
+        throw ExecutionError(op_name, "lua: failed to load script: " + err);
     }
 }
 
@@ -96,12 +96,12 @@ std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nr
     lua_getglobal(L_, func_name.c_str());
     if (lua_type(L_, -1) != LUA_TFUNCTION) {
         lua_pop(L_, 1);
-        throw ExecutionError("lua: function \"" + func_name + "\" not defined in script");
+        throw ExecutionError(op_name, "lua: function \"" + func_name + "\" not defined in script");
     }
     if (lua_pcall(L_, 0, nret, 0) != 0) {
         std::string err = lua_tostring(L_, -1);
         lua_pop(L_, 1);
-        throw ExecutionError("lua: " + err);
+        throw ExecutionError(op_name, "lua: " + err);
     }
     std::vector<JsonValue> results;
     results.reserve(static_cast<std::size_t>(nret));
@@ -111,7 +111,7 @@ std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nr
             double d = lua_tonumber(L_, idx);
             if (std::isnan(d)) {
                 lua_pop(L_, nret);
-                throw ExecutionError("operator \"" + op_name + "\": lua returned NaN");
+                throw ExecutionError(op_name, "lua returned NaN");
             }
         }
         results.push_back(to_value(idx));

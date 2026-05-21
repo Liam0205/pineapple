@@ -482,6 +482,12 @@ void Server::handle_execute(int client_fd, const std::string& method,
             if (t.skipped) {
                 response += ",\"skipped\":true";
             }
+            if (t.has_input_snapshot) {
+                response += ",\"input_snapshot\":" + dump_json(t.input_snapshot, 0);
+            }
+            if (t.has_output_snapshot) {
+                response += ",\"output_snapshot\":" + dump_json(t.output_snapshot, 0);
+            }
             response += "}";
         }
         response += "]";
@@ -635,6 +641,14 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
                 te.name = t.name;
                 te.duration_ms = static_cast<double>(t.duration_us) / 1000.0;
                 te.skipped = t.skipped;
+                if (t.has_input_snapshot) {
+                    te.has_input_snapshot = true;
+                    te.input_snapshot = t.input_snapshot;
+                }
+                if (t.has_output_snapshot) {
+                    te.has_output_snapshot = true;
+                    te.output_snapshot = t.output_snapshot;
+                }
                 exec_result.trace.push_back(std::move(te));
             }
         }
@@ -645,9 +659,8 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
         exec_result.error = std::string("pine: validation error: ") + e.what();
     } catch (const ExecutionError& e) {
         exec_result.has_error = true;
-        // Go wraps as "pine: execution error in operator \"name\": inner_err"
-        // C++ already includes operator name in the message, so just add prefix
-        exec_result.error = std::string("pine: execution error: ") + e.what();
+        // ExecutionError already formats as `pine: execution error in operator "X": <inner>`
+        exec_result.error = e.what();
     } catch (const RegistryError& e) {
         exec_result.has_error = true;
         exec_result.error = std::string("pine: registry error: ") + e.what();

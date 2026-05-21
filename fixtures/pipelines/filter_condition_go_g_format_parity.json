@@ -1,0 +1,40 @@
+{
+  "name": "filter_condition sprint_value uses Go %g format for boundary integers",
+  "description": "Locks behavior at the to_chars vs Go %g boundary (100000 / 1000000 / 1000001). Go's filter_condition compares Sprintf(\"%v\", item) == Sprintf(\"%v\", value); for float64 this is %g. C++'s sprint_value originally used std::to_chars shortest mode which switches to scientific at smaller magnitudes, so a number value 100000 stringifies as \"1e+05\" and fails to match the string item \"100000\". Reference: P0-2 in `.llmdoc-tmp/cpp-runtime-parity-audit/03-runtime.md`.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "filt": {
+          "type_name": "filter_condition",
+          "value": 100000,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["id"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["filt"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id"]
+    }
+  },
+  "cases": [
+    {
+      "name": "number 100000 must match string \"100000\" via Go %g",
+      "request": {
+        "common": {},
+        "items": [
+          {"id": "100000"},
+          {"id": "99999"},
+          {"id": "100001"}
+        ]
+      }
+    }
+  ]
+}

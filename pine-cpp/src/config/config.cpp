@@ -68,6 +68,7 @@ OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
     if (auto it = obj.find("consumes_row_set"); it != obj.end() && it->second.is_bool()) op.consumes_row_set = it->second.as_bool();
     if (auto it = obj.find("mutates_row_set"); it != obj.end() && it->second.is_bool()) op.mutates_row_set = it->second.as_bool();
     if (auto it = obj.find("additive_writes_row_set"); it != obj.end() && it->second.is_bool()) op.additive_writes_row_set = it->second.as_bool();
+    if (auto it = obj.find("debug"); it != obj.end() && it->second.is_bool()) op.debug = it->second.as_bool();
     if (auto it = obj.find("data_parallel"); it != obj.end() && it->second.is_number()) op.data_parallel = static_cast<int>(it->second.as_number());
     op.common_defaults = as_value_map(obj, "common_defaults");
     op.item_defaults = as_value_map(obj, "item_defaults");
@@ -188,6 +189,7 @@ Config load_config_from_json(const std::string& text) {
     };
     Config config;
     if (auto it = root.find("storage_mode"); it != root.end()) config.storage_mode = it->second.as_string();
+    if (auto it = root.find("debug"); it != root.end() && it->second.is_bool()) config.debug = it->second.as_bool();
     const auto& flow = require_obj(root, "flow_contract");
     config.flow_contract.common_input = as_string_list(flow, "common_input");
     config.flow_contract.item_input = as_string_list(flow, "item_input");

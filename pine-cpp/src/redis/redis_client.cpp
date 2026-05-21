@@ -128,8 +128,9 @@ std::optional<std::string> Client::read_bulk_string() {
         pos += static_cast<std::size_t>(n);
     }
     char cr, lf;
-    read(fd_, &cr, 1);
-    read(fd_, &lf, 1);
+    if (read(fd_, &cr, 1) != 1 || read(fd_, &lf, 1) != 1) {
+        throw std::runtime_error("redis read failed");
+    }
     return data;
 }
 

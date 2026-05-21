@@ -1,0 +1,42 @@
+{
+  "name": "merge_dedup preserves runtime type identity (number vs string)",
+  "description": "Locks Go's `map[any]struct{}` semantics: dedup keys with different runtime types (e.g. number 1 vs string \"1\") must NOT collapse. pine-cpp originally stringified all keys via sprint_value so 1 and \"1\" both produced \"1\" and merged incorrectly. Reference: P0-3 in `.llmdoc-tmp/cpp-runtime-parity-audit/04-operators.md`.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "dedup": {
+          "type_name": "merge_dedup",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["k"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["dedup"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["k"],
+      "common_output": [],
+      "item_output": ["k"]
+    }
+  },
+  "cases": [
+    {
+      "name": "number 1 and string \"1\" are distinct keys",
+      "request": {
+        "common": {},
+        "items": [
+          {"k": 1},
+          {"k": "1"},
+          {"k": 1},
+          {"k": "1"},
+          {"k": 2},
+          {"k": "2"}
+        ]
+      }
+    }
+  ]
+}

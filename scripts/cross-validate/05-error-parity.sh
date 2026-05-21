@@ -75,6 +75,22 @@ with open('$fixture_file') as f:
 print(data.get('expected_error', {}).get('message_contains', ''))
 " 2>/dev/null)
 
+  # wrapping_exact: byte-exact substring required for the listed engines.
+  # Locks the canonical `pine: execution error in operator "X":` prefix so
+  # any engine that diverges (e.g. P0-1's old C++ format) is caught.
+  wrapping_exact=$(python3 -c "
+import json
+with open('$fixture_file') as f:
+    data = json.load(f)
+print(data.get('expected_error', {}).get('wrapping_exact', ''))
+" 2>/dev/null)
+  wrapping_engines=$(python3 -c "
+import json
+with open('$fixture_file') as f:
+    data = json.load(f)
+print(' '.join(data.get('expected_error', {}).get('wrapping_exact_engines', [])))
+" 2>/dev/null)
+
   # Verify both errors contain expected substring
   go_ok=true
   java_ok=true
@@ -104,6 +120,38 @@ print(data.get('expected_error', {}).get('message_contains', ''))
         cpp_ok=false
       fi
     fi
+  fi
+
+  # Byte-exact wrapping check (case-sensitive fixed-string match). Only
+  # enforced for engines listed in wrapping_exact_engines so we can opt
+  # individual engines in as their format converges to the canonical one.
+  if [[ -n "$wrapping_exact" ]]; then
+    for eng in $wrapping_engines; do
+      case "$eng" in
+        go)
+          if ! echo "$go_err" | grep -qF "$wrapping_exact" >/dev/null; then
+            go_ok=false
+          fi
+          ;;
+        java)
+          if ! echo "$java_err" | grep -qF "$wrapping_exact" >/dev/null; then
+            java_ok=false
+          fi
+          ;;
+        python|py)
+          if [[ -z "$py_err" ]] || ! echo "$py_err" | grep -qF "$wrapping_exact" >/dev/null; then
+            py_ok=false
+          fi
+          ;;
+        cpp|c++)
+          if [[ -n "${CPP_RUN:-}" ]]; then
+            if [[ -z "$cpp_err" ]] || ! echo "$cpp_err" | grep -qF "$wrapping_exact" >/dev/null; then
+              cpp_ok=false
+            fi
+          fi
+          ;;
+      esac
+    done
   fi
 
   if [[ "$go_ok" == "true" && "$java_ok" == "true" ]]; then

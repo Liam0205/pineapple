@@ -1,0 +1,42 @@
+{
+  "name": "reorder_shuffle_by_salt any_to_string uses Go %g for salt formatting",
+  "description": "Salt is built by concatenating common_input fields via anyToString; Go's anyToString uses fmt.Sprintf(\"%g\", x) for float64. Tests a non-integer boundary value 1000001.5 where %g switches to scientific (`1.0000015e+06`) but std::to_chars(d) shortest mode picks fixed-point (`1000001.5`). Both must produce the same salt string so all engines compute identical hash → identical shuffle order. Non-integer chosen to avoid orthogonal int-vs-float JSON parsing quirks in Java/Python anyToString. Reference: P0-2 in `.llmdoc-tmp/cpp-runtime-parity-audit/03-runtime.md`.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "shuffle": {
+          "type_name": "reorder_shuffle_by_salt",
+          "$metadata": {
+            "common_input": ["salt"],
+            "common_output": [],
+            "item_input": ["item_id"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["shuffle"]}},
+    "flow_contract": {
+      "common_input": ["salt"],
+      "item_input": ["item_id"],
+      "common_output": ["salt"],
+      "item_output": ["item_id"]
+    }
+  },
+  "cases": [
+    {
+      "name": "non-integer salt 1000001.5 at %g scientific threshold",
+      "request": {
+        "common": {"salt": 1000001.5},
+        "items": [
+          {"item_id": "a"},
+          {"item_id": "b"},
+          {"item_id": "c"},
+          {"item_id": "d"},
+          {"item_id": "e"},
+          {"item_id": "f"}
+        ]
+      }
+    }
+  ]
+}

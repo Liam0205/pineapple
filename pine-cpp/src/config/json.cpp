@@ -269,18 +269,31 @@ private:
 
 std::string indent(int depth, int spaces) { return std::string(depth * spaces, ' '); }
 
+// go_format_json_number formats a double matching Go's encoding/json byte-for-byte.
+// Go rule (encoding/json/encode.go floatEncoder): for float64, use 'f' format
+// (fixed-point, shortest digits) when 1e-6 <= |x| < 1e21, else 'e' (scientific,
+// shortest). Both with precision=-1 (shortest representation). Diverges from
+// Go's fmt.Sprintf("%g") which uses different thresholds — keep them separate.
+std::string go_format_json_number(double d) {
+    if (d == 0.0) return "0";
+    double abs_d = std::abs(d);
+    bool use_scientific = (abs_d < 1e-6) || (abs_d >= 1e21);
+    char buf[64];
+    auto fmt = use_scientific ? std::chars_format::scientific : std::chars_format::fixed;
+    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d, fmt);
+    if (ec != std::errc()) {
+        std::ostringstream oss;
+        oss << std::setprecision(17) << d;
+        return oss.str();
+    }
+    return std::string(buf, ptr);
+}
+
 std::string dump_impl(const JsonValue& value, int indent_size, int depth) {
     if (value.is_null()) return "null";
     if (value.is_bool()) return value.as_bool() ? "true" : "false";
     if (value.is_number()) {
-        double number = value.as_number();
-        if (number == 0.0) return "0";
-        char buf[32];
-        auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), number);
-        if (ec == std::errc()) return std::string(buf, ptr);
-        std::ostringstream oss;
-        oss << std::setprecision(17) << number;
-        return oss.str();
+        return go_format_json_number(value.as_number());
     }
     if (value.is_string()) {
         std::string escaped;
