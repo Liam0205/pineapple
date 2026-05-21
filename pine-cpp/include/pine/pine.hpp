@@ -100,6 +100,7 @@ struct OperatorConfig {
     std::vector<std::string> sources;
     JsonValue params;
     std::string operator_type;
+    int data_parallel = 0;
 };
 
 struct FlowContract {
@@ -161,6 +162,7 @@ public:
     static Engine from_file(const std::string& path);
 
     Result execute(const Request& request) const;
+    Result execute(const Request& request, const std::map<std::string, JsonValue>& resources) const;
     std::string render_dag(const std::string& format, int collapse = 0) const;
 
 private:

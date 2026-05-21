@@ -22,6 +22,7 @@ add_library(pine_cpp_core
     src/runtime/engine.cpp
     src/render/render.cpp
     src/lua/lua_bridge.cpp
+    src/redis/redis_client.cpp
     operators/filter/filter_truncate.cpp
     operators/recall/recall_static.cpp
     operators/reorder/reorder_sort.cpp

@@ -3,6 +3,7 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -196,6 +197,47 @@ private:
                     case 'n': out.push_back('\n'); break;
                     case 'r': out.push_back('\r'); break;
                     case 't': out.push_back('\t'); break;
+                    case 'u': {
+                        if (pos_ + 4 > text_.size()) throw ConfigError("failed to parse config JSON: incomplete unicode escape");
+                        auto hex4 = [&]() -> uint32_t {
+                            uint32_t cp = 0;
+                            for (int k = 0; k < 4; ++k) {
+                                char h = text_[pos_++];
+                                cp <<= 4;
+                                if (h >= '0' && h <= '9') cp |= static_cast<uint32_t>(h - '0');
+                                else if (h >= 'a' && h <= 'f') cp |= static_cast<uint32_t>(h - 'a' + 10);
+                                else if (h >= 'A' && h <= 'F') cp |= static_cast<uint32_t>(h - 'A' + 10);
+                                else throw ConfigError("failed to parse config JSON: invalid unicode escape");
+                            }
+                            return cp;
+                        };
+                        uint32_t cp = hex4();
+                        if (cp >= 0xD800 && cp <= 0xDBFF) {
+                            if (pos_ + 6 > text_.size() || text_[pos_] != '\\' || text_[pos_ + 1] != 'u')
+                                throw ConfigError("failed to parse config JSON: missing low surrogate");
+                            pos_ += 2;
+                            uint32_t lo = hex4();
+                            if (lo < 0xDC00 || lo > 0xDFFF)
+                                throw ConfigError("failed to parse config JSON: invalid low surrogate");
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        }
+                        if (cp < 0x80) {
+                            out.push_back(static_cast<char>(cp));
+                        } else if (cp < 0x800) {
+                            out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+                            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                        } else if (cp < 0x10000) {
+                            out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+                            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+                            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                        } else {
+                            out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+                            out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+                            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+                            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                        }
+                        break;
+                    }
                     default: throw ConfigError("failed to parse config JSON: unsupported escape");
                 }
             } else {
@@ -229,12 +271,7 @@ std::string dump_impl(const JsonValue& value, int indent_size, int depth) {
     if (value.is_bool()) return value.as_bool() ? "true" : "false";
     if (value.is_number()) {
         double number = value.as_number();
-        if (number == 0.0) number = 0.0;
-        if (std::floor(number) == number && !std::isinf(number)) {
-            std::ostringstream oss;
-            oss << std::fixed << std::setprecision(1) << number;
-            return oss.str();
-        }
+        if (number == 0.0) return "0";
         char buf[32];
         auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), number);
         if (ec == std::errc()) return std::string(buf, ptr);
@@ -244,14 +281,29 @@ std::string dump_impl(const JsonValue& value, int indent_size, int depth) {
     }
     if (value.is_string()) {
         std::string escaped;
-        for (char ch : value.as_string()) {
+        const auto& s = value.as_string();
+        for (std::size_t i = 0; i < s.size(); ++i) {
+            unsigned char ch = static_cast<unsigned char>(s[i]);
             switch (ch) {
                 case '"': escaped += "\\\""; break;
                 case '\\': escaped += "\\\\"; break;
                 case '\n': escaped += "\\n"; break;
                 case '\r': escaped += "\\r"; break;
                 case '\t': escaped += "\\t"; break;
-                default: escaped.push_back(ch); break;
+                case '<': escaped += "\\u003c"; break;
+                case '>': escaped += "\\u003e"; break;
+                case '&': escaped += "\\u0026"; break;
+                default:
+                    // U+2028 (E2 80 A8) and U+2029 (E2 80 A9): escape like Go's encoding/json
+                    if (ch == 0xE2 && i + 2 < s.size()
+                        && static_cast<unsigned char>(s[i+1]) == 0x80
+                        && (static_cast<unsigned char>(s[i+2]) == 0xA8 || static_cast<unsigned char>(s[i+2]) == 0xA9)) {
+                        escaped += (static_cast<unsigned char>(s[i+2]) == 0xA8) ? "\\u2028" : "\\u2029";
+                        i += 2;
+                    } else {
+                        escaped.push_back(static_cast<char>(ch));
+                    }
+                    break;
             }
         }
         return "\"" + escaped + "\"";

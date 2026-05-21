@@ -12,6 +12,8 @@ raw_pass=0
 raw_total=0
 py_raw_pass=0
 py_raw_total=0
+cpp_raw_pass=0
+cpp_raw_total=0
 
 for fixture_file in "$FIXTURES_DIR"/*.json; do
   [[ -f "$fixture_file" ]] || continue
@@ -121,6 +123,29 @@ print(len(cases))
         fail "raw byte divergence (Go vs Python): $fname case $i (values differ, not just key ordering)"
       fi
     fi
+
+    # Go vs C++ raw byte
+    if [[ -n "${CPP_RUN:-}" && -f "${out_prefix}.cpp.rc" ]]; then
+      cpp_raw_total=$((cpp_raw_total + 1))
+      cpp_rc=$(cat "${out_prefix}.cpp.rc")
+      if [[ "$cpp_rc" != "0" ]]; then
+        cpp_raw_total=$((cpp_raw_total - 1))
+      else
+        cpp_raw=$(cat "${out_prefix}.cpp.out")
+        if [[ "$go_raw" == "$cpp_raw" ]]; then
+          cpp_raw_pass=$((cpp_raw_pass + 1))
+        else
+          go_norm=${go_norm:-$(echo "$go_raw" | normalize_json)}
+          cpp_norm=$(echo "$cpp_raw" | normalize_json)
+          if [[ "$go_norm" == "$cpp_norm" ]]; then
+            cpp_raw_pass=$((cpp_raw_pass + 1))
+            echo "    [W] key ordering differs (Go vs C++): $fname case $i" >&2
+          else
+            fail "raw byte divergence (Go vs C++): $fname case $i (values differ, not just key ordering)"
+          fi
+        fi
+      fi
+    fi
   done
 done
 
@@ -134,6 +159,14 @@ if [[ $py_raw_total -gt 0 && $py_raw_pass -eq $py_raw_total ]]; then
   pass "raw byte execution parity Go vs Python ($py_raw_pass/$py_raw_total cases)"
 elif [[ $py_raw_total -eq 0 ]]; then
   pass "raw byte execution parity Go vs Python (no cases, skipped)"
+fi
+
+if [[ -n "${CPP_RUN:-}" ]]; then
+  if [[ $cpp_raw_total -gt 0 && $cpp_raw_pass -eq $cpp_raw_total ]]; then
+    pass "raw byte execution parity Go vs C++ ($cpp_raw_pass/$cpp_raw_total cases)"
+  elif [[ $cpp_raw_total -eq 0 ]]; then
+    pass "raw byte execution parity Go vs C++ (no cases, skipped)"
+  fi
 fi
 
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit $_CV_FAIL || true

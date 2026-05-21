@@ -151,6 +151,9 @@ Graph build_dag(const Config& config, const ExpandedSequence& expanded) {
         const auto& op = *graph.nodes[i].config;
         for (const auto& src : op.sources) {
             if (!graph.name_to_index.count(src)) throw ConfigError("operator \"" + op.name + "\" sources references unknown operator \"" + src + "\"");
+            if (graph.name_to_index.at(src) >= static_cast<int>(i)) {
+                throw ConfigError("operator \"" + op.name + "\": sources contains forward reference to \"" + src + "\"");
+            }
             add_edge(graph, graph.name_to_index[src], static_cast<int>(i));
         }
     }

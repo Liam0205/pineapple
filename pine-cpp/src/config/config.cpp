@@ -68,6 +68,7 @@ OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
     if (auto it = obj.find("consumes_row_set"); it != obj.end() && it->second.is_bool()) op.consumes_row_set = it->second.as_bool();
     if (auto it = obj.find("mutates_row_set"); it != obj.end() && it->second.is_bool()) op.mutates_row_set = it->second.as_bool();
     if (auto it = obj.find("additive_writes_row_set"); it != obj.end() && it->second.is_bool()) op.additive_writes_row_set = it->second.as_bool();
+    if (auto it = obj.find("data_parallel"); it != obj.end() && it->second.is_number()) op.data_parallel = static_cast<int>(it->second.as_number());
     op.common_defaults = as_value_map(obj, "common_defaults");
     op.item_defaults = as_value_map(obj, "item_defaults");
     op.sources = as_string_list(obj, "sources");
@@ -110,6 +111,54 @@ void validate_config(const Config& config) {
             if (!config.operators.count(src)) {
                 throw ConfigError("operator \"" + name + "\": sources references undefined operator \"" + src + "\"");
             }
+        }
+        if (op.additive_writes_row_set && op.mutates_row_set) {
+            throw RegistryError("operator \"" + name + "\": additive_writes_row_set and mutates_row_set are mutually exclusive");
+        }
+        if (op.type_name == "filter_condition") {
+            if (!op.params.is_object() || op.params.as_object().find("value") == op.params.as_object().end()) {
+                throw RegistryError("operator \"" + name + "\": required parameter \"value\" missing for operator \"" + name + "\"");
+            }
+        }
+        if (op.type_name == "filter_truncate") {
+            auto pit = op.params.as_object().find("top_n");
+            if (pit != op.params.as_object().end() && !pit->second.is_number()) {
+                throw RegistryError("operator \"" + name + "\": top_n must be numeric");
+            }
+        }
+        if (op.type_name == "reorder_sort") {
+            auto oit = op.params.as_object().find("order");
+            if (oit != op.params.as_object().end() && oit->second.is_string()) {
+                const auto& order = oit->second.as_string();
+                if (order != "asc" && order != "desc") {
+                    throw RegistryError("operator \"" + name + "\": unsupported order \"" + order + "\"");
+                }
+            }
+        }
+        if (op.data_parallel < 0) {
+            throw ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " + std::to_string(op.data_parallel));
+        }
+        if (op.data_parallel > 1) {
+            if (op.operator_type != "transform") {
+                throw ValidationError("operator \"" + name + "\": data_parallel=" + std::to_string(op.data_parallel) + " is only supported for Transform operators, got " + op.operator_type);
+            }
+            if (!op.metadata.common_output.empty()) {
+                throw ValidationError("operator \"" + name + "\": data_parallel=" + std::to_string(op.data_parallel) + " requires empty $metadata.common_output for Transform operators");
+            }
+            static const std::set<std::string> concurrent_safe = {
+                "transform_copy", "transform_dispatch", "transform_size",
+                "transform_by_lua", "transform_resource_lookup",
+                "transform_redis_set", "transform_redis_get",
+                "transform_remote_pineapple"
+            };
+            if (!concurrent_safe.count(op.type_name)) {
+                throw ValidationError("operator \"" + name + "\": data_parallel=" + std::to_string(op.data_parallel) + " requires the operator to implement ConcurrentSafe interface (type \"" + op.type_name + "\" does not)");
+            }
+        }
+    }
+    for (const auto& [name, _] : config.operators) {
+        if (config.pipeline_map.count(name)) {
+            throw ConfigError("\"" + name + "\" exists in both operators and pipeline_map");
         }
     }
 }

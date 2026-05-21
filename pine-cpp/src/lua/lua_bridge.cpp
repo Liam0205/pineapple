@@ -92,7 +92,7 @@ void LuaVM::set_global_table(const std::string& name, const std::vector<JsonValu
     lua_setglobal(L_, name.c_str());
 }
 
-std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nret, const std::string& /*op_name*/) {
+std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nret, const std::string& op_name) {
     lua_getglobal(L_, func_name.c_str());
     if (lua_type(L_, -1) != LUA_TFUNCTION) {
         lua_pop(L_, 1);
@@ -106,7 +106,15 @@ std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nr
     std::vector<JsonValue> results;
     results.reserve(static_cast<std::size_t>(nret));
     for (int j = 0; j < nret; ++j) {
-        results.push_back(to_value(-(nret - j)));
+        int idx = -(nret - j);
+        if (lua_type(L_, idx) == LUA_TNUMBER) {
+            double d = lua_tonumber(L_, idx);
+            if (std::isnan(d)) {
+                lua_pop(L_, nret);
+                throw ExecutionError("operator \"" + op_name + "\": lua returned NaN");
+            }
+        }
+        results.push_back(to_value(idx));
     }
     lua_pop(L_, nret);
     return results;
