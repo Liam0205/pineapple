@@ -1986,3 +1986,38 @@ func TestImplicitRowSetDep_WARBeforeMutatesRowSet(t *testing.T) {
 		t.Error("expected transform_x -> filter (RAW adjusted + WAR _row_set_)")
 	}
 }
+
+// --- Cycle masked by transitive reduction ---
+// Regression: fuzz found that reduce() before cycle detection can mask cycles.
+// When sources create backwards edges forming a cycle, reduce may remove
+// "redundant" cycle edges, causing topologicalSort to miss the cycle.
+
+func TestBuildCycleMaskedByReduce(t *testing.T) {
+	seq := []string{"op_0", "op_1", "op_2", "op_3"}
+	ops := map[string]config.OperatorConfig{
+		"op_0": {
+			TypeName: "test", Sources: []string{"op_3"},
+			Meta: config.Metadata{ItemInput: []string{"a"}},
+		},
+		"op_1": {
+			TypeName: "test", ConsumesRowSet: true, MutatesRowSet: true,
+			Meta: config.Metadata{ItemInput: []string{"b"}},
+		},
+		"op_2": {
+			TypeName: "test", Sources: []string{"op_0"},
+			Meta: config.Metadata{ItemInput: []string{"a", "b"}},
+		},
+		"op_3": {
+			TypeName: "test", Recall: true, AdditiveWritesRowSet: true,
+			Meta: config.Metadata{ItemOutput: []string{"a"}},
+		},
+	}
+
+	_, err := Build(seq, ops, nil)
+	if err == nil {
+		t.Fatal("expected cycle error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("expected cycle error, got: %v", err)
+	}
+}
