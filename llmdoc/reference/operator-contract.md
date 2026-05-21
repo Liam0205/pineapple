@@ -266,6 +266,14 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 - Filter、Merge 和 Reorder 是 DAG 构建中的屏障类型。
 - Recall 在 item 字段上作为追加型写者。
 - Observe 算子不在 DAG 中创建阻塞性 WAR 读者行为。
+- 有 item 字段（`item_input` 或 `item_output` 非空）的 Transform/Observe 通过 auto-inject 自动获得 `_row_set_` 读依赖，无需显式标记。
+
+### ConsumesRowSet 与 auto-inject
+
+引擎的 DAG 构建器会自动为具有非空 `item_input` 或 `item_output` 的算子注入 `_row_set_` 读依赖，确保这些算子在行集稳定后才执行。因此：
+
+- **不需要显式 ConsumesRowSet 的情况**：算子在 metadata 中声明了 item 字段。auto-inject 机制会自动处理依赖。大多数 Transform 和 Observe 算子属于此类。
+- **需要显式 ConsumesRowSet 的情况**：算子的 metadata 中 item 字段为空，但仍然结构性地访问行集。典型例子是 `transform_size`（调用 `ItemCount()` 但 metadata 无 item 字段）和 `transform_remote_pineapple`（无条件读取并转发 items）。这些算子的行集依赖无法从 metadata 推断，必须通过标记显式声明。
 
 ## 命名规范
 

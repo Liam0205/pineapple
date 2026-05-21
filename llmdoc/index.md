@@ -12,7 +12,7 @@
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（v0.7 三标记模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
 
 ## guides/
@@ -82,3 +82,4 @@
 - `llmdoc/memory/reflections/audit-extensibility-blindspot.md` — Parity 审计结构性盲点复盘：19 轮审计+11 层交叉验证全部聚焦"函数等价"（已知路径输出一致），从未验证"能力等价"（下游可用的集成模式是否一致），导致 Java middleware 无法拦截未注册路径的问题在下游项目才暴露。
 - `llmdoc/memory/reflections/extensibility-parity-tests-and-java-prefix-fix.md` — 扩展性 parity 测试与 Java 前缀匹配修复复盘，记录 HttpServer 前缀语义二次修复、cross-validate 12 层扩展、深层路径测试发现 bug 的验证价值。
 - `llmdoc/memory/reflections/v072-074-llmdoc-update.md` — v0.7.2-v0.7.4 llmdoc 大面积过时复盘，记录 21 commit 跨度下硬编码层数第四次过时、并发模型描述陈旧、CI 参数重复、新能力缺失的系统性原因与防范策略。
+- `llmdoc/memory/reflections/dag-implicit-row-set-fix-v080.md` — v0.8.0 DAG 隐式行集依赖修复复盘，记录 auto-inject 机制（三标记模型的第四机制）、6 算子 ConsumesRowSet 清理、dag-differential-fuzz 基础设施、文档中"三标记模型"与"可选 ConsumesRowSet"描述过时。
