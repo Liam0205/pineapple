@@ -8,6 +8,7 @@
 #include <sstream>
 #include <thread>
 #include <csignal>
+#include <sys/stat.h>
 
 // POSIX socket headers
 #include <arpa/inet.h>
@@ -538,9 +539,9 @@ void Server::handle_stats(int client_fd, const std::string& method) {
 
     // Build server JSON
     std::string server_json = "{";
-    server_json += "\"reload_count\":0";
-    server_json += ",\"reload_error_count\":0";
-    server_json += ",\"last_reload_duration_ns\":0";
+    server_json += "\"reload_count\":" + std::to_string(reload_count_.load(std::memory_order_relaxed));
+    server_json += ",\"reload_error_count\":" + std::to_string(reload_error_count_.load(std::memory_order_relaxed));
+    server_json += ",\"last_reload_duration_ns\":" + std::to_string(last_reload_duration_ns_.load(std::memory_order_relaxed));
     server_json += "}";
 
     std::string body = "{\"operators\":" + ops_json +
@@ -582,6 +583,7 @@ void Server::handle_dag(int client_fd, const std::string& method,
 
     std::string output;
     try {
+        std::shared_lock<std::shared_mutex> lock(engine_mu_);
         output = engine_->render_dag(format, collapse);
     } catch (const ValidationError& e) {
         send_error(client_fd, 400, e.what());
@@ -612,7 +614,11 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     static const std::map<std::string, JsonValue> empty_resources;
 
     try {
-        auto traced = engine_->execute_traced(request, empty_resources);
+        TracedResult traced;
+        {
+            std::shared_lock<std::shared_mutex> lock(engine_mu_);
+            traced = engine_->execute_traced(request, empty_resources);
+        }
         exec_result.result = std::move(traced.result);
         exec_result.warnings = std::move(traced.warnings);
 
@@ -667,6 +673,54 @@ void Server::stop() {
         ::shutdown(listen_fd_, SHUT_RDWR);
         ::close(listen_fd_);
         listen_fd_ = -1;
+    }
+}
+
+bool Server::reload_config() {
+    try {
+        auto new_engine = std::make_unique<Engine>(Engine::from_file(config_.config_path));
+        auto new_config = load_config_from_file(config_.config_path);
+        auto new_expanded = expand_operator_sequence_with_subflows(new_config);
+
+        {
+            std::unique_lock lock(engine_mu_);
+            engine_ = std::move(new_engine);
+        }
+
+        stats_->pre_init(new_expanded.sequence);
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "config reload failed: " << e.what() << "\n";
+        return false;
+    }
+}
+
+void Server::watch_config() {
+    struct stat st{};
+    time_t last_mod = 0;
+    if (::stat(config_.config_path.c_str(), &st) == 0) {
+        last_mod = st.st_mtime;
+    }
+
+    while (running_.load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        if (!running_.load(std::memory_order_acquire)) break;
+
+        if (::stat(config_.config_path.c_str(), &st) != 0) continue;
+        if (st.st_mtime <= last_mod) continue;
+
+        last_mod = st.st_mtime;
+        auto start = std::chrono::steady_clock::now();
+        if (reload_config()) {
+            auto dur = std::chrono::steady_clock::now() - start;
+            reload_count_.fetch_add(1, std::memory_order_relaxed);
+            last_reload_duration_ns_.store(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count(),
+                std::memory_order_relaxed);
+            std::cerr << "config reloaded from " << config_.config_path << "\n";
+        } else {
+            reload_error_count_.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 }
 
@@ -752,6 +806,9 @@ int Server::run(const ServerConfig& cfg) {
 
     std::cerr << "listening on " << addr << "\n";
 
+    // Start config file watcher thread
+    std::thread watcher_thread([this]() { watch_config(); });
+
     // Accept loop
     while (running_.load(std::memory_order_acquire)) {
         struct pollfd pfd{};
@@ -803,6 +860,7 @@ int Server::run(const ServerConfig& cfg) {
     }
 
     g_server.store(nullptr, std::memory_order_release);
+    watcher_thread.join();
     if (listen_fd_ >= 0) {
         ::close(listen_fd_);
         listen_fd_ = -1;

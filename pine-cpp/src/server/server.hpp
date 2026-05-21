@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -108,13 +109,20 @@ private:
     // Execute with stats tracking and tracing.
     ExecuteResult execute_with_trace(const Request& request, bool return_trace);
 
+    // Config file watcher thread (polls mtime every 2s).
+    void watch_config();
+
+    // Reload engine from config file.
+    bool reload_config();
+
     // Response helpers
     static void send_response(int fd, int status, const std::string& content_type,
                               const std::string& body);
     static void send_json(int fd, int status, const std::string& json_body);
     static void send_error(int fd, int status, const std::string& message);
 
-    // State
+    // State (engine_ protected by engine_mu_ for hot-reload)
+    mutable std::shared_mutex engine_mu_;
     std::unique_ptr<Engine> engine_;
     std::unique_ptr<Stats> stats_;
     ServerConfig config_;
@@ -123,6 +131,11 @@ private:
 
     // Scheduler-level stats
     std::atomic<int64_t> run_count_{0};
+
+    // Hot-reload stats
+    std::atomic<int64_t> reload_count_{0};
+    std::atomic<int64_t> reload_error_count_{0};
+    std::atomic<int64_t> last_reload_duration_ns_{0};
 };
 
 }  // namespace server
