@@ -38,7 +38,6 @@ func init() {
 // LogOp writes declared input fields to the Go standard logger.
 type LogOp struct {
 	pine.MetadataHolder
-	pine.ConsumesRowSetMarker
 	prefix string
 }
 

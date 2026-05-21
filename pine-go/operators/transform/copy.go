@@ -48,7 +48,6 @@ func init() {
 type CopyOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
-	pine.ConsumesRowSetMarker
 	direction string
 }
 

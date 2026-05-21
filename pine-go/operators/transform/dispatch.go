@@ -33,7 +33,6 @@ func init() {
 type DispatchOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
-	pine.ConsumesRowSetMarker
 }
 
 func (o *DispatchOp) Init(params map[string]any) error {
