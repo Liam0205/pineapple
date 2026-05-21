@@ -113,10 +113,18 @@ CI 中 Hypothesis 使用默认 settings profile（200 examples），依赖 `pine
 - 分歧产物保存为 CI artifact，可直接下载复现
 - Stability runs：每个配置执行 2 次以排除非确定性差异
 
+### DAG 差异模糊测试（DAG Differential Fuzz）
+
+`scripts/dag-differential-fuzz.py` 在 DAG 构建层面进行三引擎差异比对，与上述执行级差异测试互补：
+
+- 生成随机管道配置，在 Go/Java/Python 中构建 DAG
+- 比对边集（依赖关系）和拓扑排序，而非执行输出
+- 检测 DAG 构建逻辑的跨引擎不一致，即使执行结果恰好相同的情况也能发现
+
 fuzz 通用策略分两步推进：
 
 1. 先保证"不 panic"——fuzz 目标在任意输入下不应 panic
-2. 逐步增加语义断言——对解析结果校验不变量
+2. 逐步增加语义断言——对解析结果校验不变量（例如 Go/Java/Python 三引擎的 DAG fuzz 均断言"每个拥有 item 字段的算子在构建后的图中必须有 `_row_set_` 依赖边"这一行集安全不变量）
 
 单个 fuzz target 应设置输入规模预算，避免随机大输入把 CI 变成解析器压力测试。
 
@@ -190,6 +198,7 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Go fuzz 入口：`pine-go/internal/config/load_test.go`、`pine-go/internal/dag/dag_test.go`、`pine-go/internal/dataframe/dataframe_test.go`、`pine-go/internal/runtime/parallel_test.go`
 - Pine-Python fuzz：`pine-python/tests/` (Hypothesis)
 - Differential-fuzz 脚本：`scripts/differential-fuzz.py`、`scripts/differential-fuzz.sh`
+- DAG differential-fuzz 脚本：`scripts/dag-differential-fuzz.py`
 - Cross-validate 脚本：`scripts/cross-validate.sh`、`scripts/cross-validate/`
 - Cross-validate 并行调度：`scripts/cross-validate/_parallel.sh`
 - Cross-validate section 13：`scripts/cross-validate/13-metrics-parity.sh`
