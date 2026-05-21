@@ -157,27 +157,6 @@ Graph build_dag(const Config& config, const ExpandedSequence& expanded) {
             add_edge(graph, graph.name_to_index[src], static_cast<int>(i));
         }
     }
-    for (std::size_t idx = 0; idx < expanded.sequence.size(); ++idx) {
-        const auto& current = config.operators.at(expanded.sequence[idx]);
-        if (current.operator_type == "filter" || current.operator_type == "merge" || current.operator_type == "reorder") {
-            for (std::size_t prev = 0; prev < idx; ++prev) {
-                const auto& other = config.operators.at(expanded.sequence[prev]);
-                if (other.additive_writes_row_set) add_edge(graph, static_cast<int>(prev), static_cast<int>(idx));
-            }
-        }
-        const auto& op = config.operators.at(expanded.sequence[idx]);
-        for (const auto& field : op.metadata.item_input) {
-            if (!op.item_defaults.count(field)) {
-                for (std::size_t prev = 0; prev < idx; ++prev) {
-                    const auto& other = config.operators.at(expanded.sequence[prev]);
-                    if (std::find(other.metadata.item_output.begin(), other.metadata.item_output.end(), field) != other.metadata.item_output.end() || other.additive_writes_row_set) {
-                        add_edge(graph, static_cast<int>(prev), static_cast<int>(idx));
-                    }
-                }
-            }
-        }
-    }
-    for (std::size_t idx = 0; idx + 1 < expanded.sequence.size(); ++idx) add_edge(graph, static_cast<int>(idx), static_cast<int>(idx + 1));
     topological_check(graph);
     reduce(graph);
     return graph;

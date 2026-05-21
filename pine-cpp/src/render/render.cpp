@@ -79,14 +79,15 @@ std::pair<std::vector<Group>, std::vector<std::pair<int, int>>> build_collapsed(
 
 std::string render_dot(const Graph& graph) {
     std::ostringstream oss;
-    oss << "digraph pipeline {\n  rankdir=TB;\n  node [shape=box, style=filled];\n";
+    oss << "digraph pipeline {\n    rankdir=TB;\n    node [shape=box, style=filled, fontname=\"Helvetica\"];\n\n";
     for (const auto& node : graph.nodes) {
-        oss << "  \"" << node.name << "\" [label=\"" << node.name << "\", fillcolor=\""
+        oss << "    \"" << node.name << "\" [label=\"" << node.name << "\", fillcolor=\""
             << color_for(node.config ? node.config->operator_type : "transform") << "\"];\n";
     }
+    oss << "\n";
     for (const auto& node : graph.nodes) {
         for (int succ : node.succs) {
-            oss << "  \"" << node.name << "\" -> \"" << graph.nodes[succ].name << "\";\n";
+            oss << "    \"" << node.name << "\" -> \"" << graph.nodes[succ].name << "\";\n";
         }
     }
     oss << "}\n";
@@ -96,23 +97,35 @@ std::string render_dot(const Graph& graph) {
 std::string render_mermaid(const Graph& graph) {
     std::ostringstream oss;
     oss << "graph TB\n";
-    for (const auto& node : graph.nodes) oss << "  " << sanitize(node.name) << "[\"" << node.name << "\"]\n";
+    for (const auto& node : graph.nodes) {
+        std::string t = node.config ? node.config->operator_type : "transform";
+        oss << "    " << sanitize(node.name) << "[\"" << node.name << "\"]:::" << t << "\n";
+    }
+    oss << "\n";
     for (const auto& node : graph.nodes) {
         for (int succ : node.succs) {
-            oss << "  " << sanitize(node.name) << " --> " << sanitize(graph.nodes[succ].name) << "\n";
+            oss << "    " << sanitize(node.name) << " --> " << sanitize(graph.nodes[succ].name) << "\n";
         }
     }
+    oss << "\n"
+        << "    classDef recall fill:#E8F5E9,stroke:#4CAF50\n"
+        << "    classDef transform fill:#E3F2FD,stroke:#2196F3\n"
+        << "    classDef filter fill:#FFF3E0,stroke:#FF9800\n"
+        << "    classDef merge fill:#F3E5F5,stroke:#9C27B0\n"
+        << "    classDef reorder fill:#FFFDE7,stroke:#FFC107\n"
+        << "    classDef observe fill:#F5F5F5,stroke:#9E9E9E\n";
     return oss.str();
 }
 
 std::string render_collapsed_dot(const Graph& graph, int level) {
     auto [groups, edges] = build_collapsed(graph, level);
     std::ostringstream oss;
-    oss << "digraph pipeline {\n  rankdir=TB;\n  node [shape=box, style=filled];\n";
+    oss << "digraph pipeline {\n    rankdir=TB;\n    node [shape=box, style=filled, fontname=\"Helvetica\"];\n\n";
     for (std::size_t i = 0; i < groups.size(); ++i) {
-        oss << "  \"g" << i << "\" [label=\"" << groups[i].label << "\", fillcolor=\"" << (groups[i].subflow ? "#BBDEFB" : "#E0E0E0") << "\"];\n";
+        oss << "    \"g" << i << "\" [label=\"" << groups[i].label << "\", fillcolor=\"" << (groups[i].subflow ? "#BBDEFB" : "#E0E0E0") << "\"];\n";
     }
-    for (auto [a, b] : edges) oss << "  \"g" << a << "\" -> \"g" << b << "\";\n";
+    oss << "\n";
+    for (auto [a, b] : edges) oss << "    \"g" << a << "\" -> \"g" << b << "\";\n";
     oss << "}\n";
     return oss.str();
 }
@@ -121,8 +134,15 @@ std::string render_collapsed_mermaid(const Graph& graph, int level) {
     auto [groups, edges] = build_collapsed(graph, level);
     std::ostringstream oss;
     oss << "graph TB\n";
-    for (std::size_t i = 0; i < groups.size(); ++i) oss << "  g" << i << "[\"" << groups[i].label << "\"]\n";
-    for (auto [a, b] : edges) oss << "  g" << a << " --> g" << b << "\n";
+    for (std::size_t i = 0; i < groups.size(); ++i) {
+        oss << "    g" << i << "[\"" << groups[i].label << "\"]:::"
+            << (groups[i].subflow ? "subflow" : "standalone") << "\n";
+    }
+    oss << "\n";
+    for (auto [a, b] : edges) oss << "    g" << a << " --> g" << b << "\n";
+    oss << "\n"
+        << "    classDef subflow fill:#BBDEFB,stroke:#1976D2\n"
+        << "    classDef standalone fill:#E0E0E0,stroke:#616161\n";
     return oss.str();
 }
 

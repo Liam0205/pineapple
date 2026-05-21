@@ -127,6 +127,30 @@ Config load_config_from_file(const std::string& path);
 Config load_config_from_json(const std::string& text);
 ExpandedSequence expand_operator_sequence_with_subflows(const Config& config);
 
+// --- Operator Registry (equivalent to Go's pine.Register + marker interfaces) ---
+
+struct ParamSchema {
+    std::string type;
+    bool required = false;
+    JsonValue default_value;            // null means no default
+    std::string description;
+};
+
+struct OperatorTraits {
+    std::string operator_type;          // "recall", "transform", "filter", etc.
+    bool consumes_row_set = false;
+    bool mutates_row_set = false;
+    bool additive_writes_row_set = false;
+    bool concurrent_safe = false;
+    std::string schema_type;            // Capitalized: "Filter", "Transform", etc.
+    std::string description;
+    std::map<std::string, ParamSchema> params;
+};
+
+const OperatorTraits* registry_lookup(const std::string& type_name);
+void apply_registry_traits(Config& config);
+std::string export_schema_json();
+
 struct Node {
     std::string name;
     std::string subflow;
@@ -156,6 +180,18 @@ struct Result {
     std::vector<std::map<std::string, JsonValue>> items;
 };
 
+struct OpTrace {
+    std::string name;
+    int64_t duration_us = 0;
+    bool skipped = false;
+};
+
+struct TracedResult {
+    Result result;
+    std::vector<OpTrace> trace;
+    std::vector<std::string> warnings;
+};
+
 class Engine {
 public:
     explicit Engine(Config config);
@@ -163,7 +199,10 @@ public:
 
     Result execute(const Request& request) const;
     Result execute(const Request& request, const std::map<std::string, JsonValue>& resources) const;
+    TracedResult execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const;
     std::string render_dag(const std::string& format, int collapse = 0) const;
+
+    const ExpandedSequence& expanded() const { return expanded_; }
 
 private:
     Config config_;

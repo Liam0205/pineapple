@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -21,6 +22,7 @@ struct Frame {
     std::map<std::string, JsonValue> common;
     std::vector<Row> items;
     const std::map<std::string, JsonValue>* resources = nullptr;
+    std::vector<std::string> warnings;
 };
 
 JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field) {
@@ -440,11 +442,13 @@ void run_transform_redis_set(Frame& frame, const OperatorConfig& op) {
     } catch (const std::exception& e) {
         if (rp.fail_on_error)
             throw ExecutionError("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": " + e.what());
+        frame.warnings.push_back("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": " + std::string(e.what()));
         return;
     }
     if (!client->connected()) {
         if (rp.fail_on_error)
             throw ExecutionError("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": connection failed");
+        frame.warnings.push_back("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": connection failed");
         return;
     }
 
@@ -472,6 +476,7 @@ void run_transform_redis_set(Frame& frame, const OperatorConfig& op) {
     } catch (const std::exception& e) {
         if (rp.fail_on_error)
             throw ExecutionError("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": " + e.what());
+        frame.warnings.push_back("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": " + std::string(e.what()));
     }
 }
 
@@ -493,12 +498,14 @@ void run_transform_redis_get(Frame& frame, const OperatorConfig& op) {
     } catch (const std::exception& e) {
         if (rp.fail_on_error)
             throw ExecutionError("operator \"" + op.name + "\": transform_redis_get: " + std::string(e.what()));
+        frame.warnings.push_back("operator \"" + op.name + "\": transform_redis_get: Get(" + key + "): " + std::string(e.what()));
         frame.common[cache_hit_field] = JsonValue(false);
         return;
     }
     if (!client->connected()) {
         if (rp.fail_on_error)
             throw ExecutionError("operator \"" + op.name + "\": transform_redis_get: connection failed");
+        frame.warnings.push_back("operator \"" + op.name + "\": transform_redis_get: Get(" + key + "): connection failed");
         frame.common[cache_hit_field] = JsonValue(false);
         return;
     }
@@ -540,6 +547,8 @@ void run_transform_redis_get(Frame& frame, const OperatorConfig& op) {
     } catch (const std::exception& e) {
         if (rp.fail_on_error)
             throw ExecutionError("operator \"" + op.name + "\": transform_redis_get: " + std::string(e.what()));
+        std::string cmd_name = (rp.data_type == "set") ? "SMembers" : (rp.data_type == "list") ? "LRange" : "Get";
+        frame.warnings.push_back("operator \"" + op.name + "\": transform_redis_get: " + cmd_name + "(" + key + "): " + std::string(e.what()));
         frame.common[cache_hit_field] = JsonValue(false);
     }
 }
@@ -667,6 +676,43 @@ Engine::Engine(Config config) : config_(std::move(config)) {
 
 Engine Engine::from_file(const std::string& path) { return Engine(load_config_from_file(path)); }
 
+namespace {
+
+void dispatch_operator(Frame& frame, const OperatorConfig& op) {
+    if (op.type_name == "transform_copy") run_transform_copy(frame, op);
+    else if (op.type_name == "transform_dispatch") run_transform_dispatch(frame, op);
+    else if (op.type_name == "transform_size") run_transform_size(frame, op);
+    else if (op.type_name == "transform_normalize") run_transform_normalize(frame, op);
+    else if (op.type_name == "transform_by_lua") run_transform_by_lua(frame, op);
+    else if (op.type_name == "filter_truncate") run_filter_truncate(frame, op);
+    else if (op.type_name == "filter_condition") run_filter_condition(frame, op);
+    else if (op.type_name == "filter_paginate") run_filter_paginate(frame, op);
+    else if (op.type_name == "recall_static") run_recall_static(frame, op);
+    else if (op.type_name == "recall_resource") run_recall_resource(frame, op);
+    else if (op.type_name == "transform_resource_lookup") run_transform_resource_lookup(frame, op);
+    else if (op.type_name == "transform_redis_set") run_transform_redis_set(frame, op);
+    else if (op.type_name == "transform_redis_get") run_transform_redis_get(frame, op);
+    else if (op.type_name == "reorder_sort") run_reorder_sort(frame, op);
+    else if (op.type_name == "reorder_shuffle_by_salt") run_reorder_shuffle_by_salt(frame, op);
+    else if (op.type_name == "merge_dedup") run_merge_dedup(frame, op);
+    else if (op.type_name == "observe_log") run_observe_log(frame, op);
+    else throw RegistryError("operator \"" + op.name + "\": operator type not registered: \"" + op.type_name + "\"");
+}
+
+void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
+    for (std::size_t i = 0; i < frame.items.size(); ++i) {
+        for (const auto& field : op.metadata.item_input) {
+            if (op.item_defaults.count(field)) continue;
+            auto it = frame.items[i].find(field);
+            if (it == frame.items[i].end() || it->second.is_null()) {
+                throw ExecutionError("operator \"" + op.name + "\": required field \"" + field + "\" is nil on item[" + std::to_string(i) + "]");
+            }
+        }
+    }
+}
+
+}  // namespace
+
 Result Engine::execute(const Request& request) const {
     static const std::map<std::string, JsonValue> empty_resources;
     return execute(request, empty_resources);
@@ -681,35 +727,43 @@ Result Engine::execute(const Request& request, const std::map<std::string, JsonV
     for (const auto& name : expanded_.sequence) {
         const auto& op = config_.operators.at(name);
         if (should_skip(frame, op)) continue;
-        for (std::size_t i = 0; i < frame.items.size(); ++i) {
-            for (const auto& field : op.metadata.item_input) {
-                if (op.item_defaults.count(field)) continue;
-                auto it = frame.items[i].find(field);
-                if (it == frame.items[i].end() || it->second.is_null()) {
-                    throw ExecutionError("operator \"" + op.name + "\": required field \"" + field + "\" is nil on item[" + std::to_string(i) + "]");
-                }
-            }
-        }
-        if (op.type_name == "transform_copy") run_transform_copy(frame, op);
-        else if (op.type_name == "transform_dispatch") run_transform_dispatch(frame, op);
-        else if (op.type_name == "transform_size") run_transform_size(frame, op);
-        else if (op.type_name == "transform_normalize") run_transform_normalize(frame, op);
-        else if (op.type_name == "transform_by_lua") run_transform_by_lua(frame, op);
-        else if (op.type_name == "filter_truncate") run_filter_truncate(frame, op);
-        else if (op.type_name == "filter_condition") run_filter_condition(frame, op);
-        else if (op.type_name == "filter_paginate") run_filter_paginate(frame, op);
-        else if (op.type_name == "recall_static") run_recall_static(frame, op);
-        else if (op.type_name == "recall_resource") run_recall_resource(frame, op);
-        else if (op.type_name == "transform_resource_lookup") run_transform_resource_lookup(frame, op);
-        else if (op.type_name == "transform_redis_set") run_transform_redis_set(frame, op);
-        else if (op.type_name == "transform_redis_get") run_transform_redis_get(frame, op);
-        else if (op.type_name == "reorder_sort") run_reorder_sort(frame, op);
-        else if (op.type_name == "reorder_shuffle_by_salt") run_reorder_shuffle_by_salt(frame, op);
-        else if (op.type_name == "merge_dedup") run_merge_dedup(frame, op);
-        else if (op.type_name == "observe_log") run_observe_log(frame, op);
-        else throw RegistryError("operator \"" + op.name + "\": operator type not registered: \"" + op.type_name + "\"");
+        validate_item_inputs(frame, op);
+        dispatch_operator(frame, op);
     }
     return project_result(frame, config_.flow_contract);
+}
+
+TracedResult Engine::execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const {
+    TracedResult traced;
+    validate_request(request, config_.flow_contract);
+    Frame frame;
+    frame.common = request.common;
+    frame.items = request.items;
+    frame.resources = &resources;
+
+    for (const auto& name : expanded_.sequence) {
+        const auto& op = config_.operators.at(name);
+        OpTrace trace;
+        trace.name = name;
+
+        if (should_skip(frame, op)) {
+            trace.skipped = true;
+            traced.trace.push_back(std::move(trace));
+            continue;
+        }
+
+        validate_item_inputs(frame, op);
+
+        auto start = std::chrono::steady_clock::now();
+        dispatch_operator(frame, op);
+        auto end = std::chrono::steady_clock::now();
+        trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+        traced.trace.push_back(std::move(trace));
+    }
+    traced.result = project_result(frame, config_.flow_contract);
+    traced.warnings = std::move(frame.warnings);
+    return traced;
 }
 
 std::string Engine::render_dag(const std::string& format, int collapse) const {

@@ -18,6 +18,7 @@ message(STATUS "LuaJIT include: ${LUAJIT_INCLUDE}")
 add_library(pine_cpp_core
     src/config/json.cpp
     src/config/config.cpp
+    src/registry/registry.cpp
     src/dag/dag.cpp
     src/runtime/engine.cpp
     src/render/render.cpp
@@ -40,3 +41,10 @@ target_link_libraries(pineapple-run PRIVATE pine_cpp_core)
 
 add_executable(pineapple-render-dag cmd/pineapple-render-dag/main.cpp)
 target_link_libraries(pineapple-render-dag PRIVATE pine_cpp_core)
+
+add_executable(pineapple-codegen cmd/pineapple-codegen/main.cpp)
+target_link_libraries(pineapple-codegen PRIVATE pine_cpp_core)
+
+add_executable(pineapple-server cmd/pineapple-server/main.cpp src/server/server.cpp)
+target_include_directories(pineapple-server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(pineapple-server PRIVATE pine_cpp_core pthread)

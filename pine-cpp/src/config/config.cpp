@@ -83,18 +83,6 @@ OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
         params[key] = item;
     }
     op.params = JsonValue(params);
-    if (op.type_name.rfind("recall_", 0) == 0) op.operator_type = "recall";
-    else if (op.type_name.rfind("transform_", 0) == 0) op.operator_type = "transform";
-    else if (op.type_name.rfind("filter_", 0) == 0) op.operator_type = "filter";
-    else if (op.type_name.rfind("merge_", 0) == 0) op.operator_type = "merge";
-    else if (op.type_name.rfind("reorder_", 0) == 0) op.operator_type = "reorder";
-    else if (op.type_name.rfind("observe_", 0) == 0) op.operator_type = "observe";
-    else op.operator_type = "transform";
-    if (op.operator_type == "recall") op.additive_writes_row_set = true;
-    if (op.operator_type == "filter" || op.operator_type == "merge" || op.operator_type == "reorder") {
-        op.consumes_row_set = true;
-        op.mutates_row_set = true;
-    }
     return op;
 }
 
@@ -216,6 +204,7 @@ Config load_config_from_json(const std::string& text) {
     auto operators_it = pipeline_config.find("operators");
     if (operators_it == pipeline_config.end()) throw ConfigError("missing required top-level field \"pipeline_config.operators\"");
     for (const auto& [name, value] : operators_it->second.as_object()) config.operators[name] = parse_operator(name, value);
+    apply_registry_traits(config);
     validate_config(config);
     return config;
 }
