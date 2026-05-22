@@ -1,15 +1,11 @@
 #include "pine/pine.hpp"
-#include "dataframe/column_frame.hpp"
-#include "lua/lua_bridge.hpp"
-#include "redis/redis_client.hpp"
+#include "pine/column_frame.hpp"
+#include "pine/operator.hpp"
 
 #include <algorithm>
 #include <atomic>
-#include <charconv>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <exception>
 #include <future>
 #include <map>
@@ -52,25 +48,7 @@ void OperatorOutput::set_warning(std::string msg) {
 
 namespace {
 
-using Row = std::map<std::string, JsonValue>;
-
-// Frame is the runtime DataFrame, backed by ColumnFrame for typed
-// column storage + validity bitmap per decisions 04/13/14.
 using Frame = ColumnFrame;
-
-JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field) {
-    JsonValue v = frame.common(field);
-    if (!v.is_null()) return v;
-    if (auto def = op.common_defaults.find(field); def != op.common_defaults.end()) return def->second;
-    throw ExecutionError(op.name, "required field \"" + field + "\" is nil in common");
-}
-
-JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t index, const std::string& field) {
-    JsonValue v = frame.item(index, field);
-    if (!v.is_null()) return v;
-    if (auto def = op.item_defaults.find(field); def != op.item_defaults.end()) return def->second;
-    throw ExecutionError(op.name, "required field \"" + field + "\" is nil on item[" + std::to_string(index) + "]");
-}
 
 bool should_skip(const Frame& frame, const OperatorConfig& op) {
     for (const auto& field : op.skip) {
@@ -78,667 +56,6 @@ bool should_skip(const Frame& frame, const OperatorConfig& op) {
         if (!v.is_null() && v.truthy()) return true;
     }
     return false;
-}
-
-class OperatorError : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
-};
-
-double to_double(const JsonValue& value) {
-    if (value.is_bool()) throw OperatorError("cannot convert bool to float64");
-    if (value.is_number()) return value.as_number();
-    if (value.is_null()) throw OperatorError("cannot convert null to double");
-    if (value.is_string()) throw OperatorError("cannot convert string to double");
-    if (value.is_array()) throw OperatorError("cannot convert array to double");
-    throw OperatorError("cannot convert object to double");
-}
-
-void run_transform_copy(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    const auto direction = op.params.as_object().at("direction").as_string();
-    if (direction == "common_to_item") {
-        std::set<std::string> skip_set(op.skip.begin(), op.skip.end());
-        std::vector<std::string> data_inputs;
-        for (const auto& field : op.metadata.common_input) {
-            if (!skip_set.count(field)) data_inputs.push_back(field);
-        }
-        for (std::size_t i = 0; i < data_inputs.size(); ++i) {
-            JsonValue value = require_common(frame, op, data_inputs[i]);
-            const auto& dst = op.metadata.item_output.at(i);
-            for (std::size_t j = 0; j < frame.item_count(); ++j) {
-                out.set_item(static_cast<int>(j), dst, value);
-            }
-        }
-    } else if (direction == "common_to_common") {
-        for (std::size_t i = 0; i < op.metadata.common_input.size(); ++i) {
-            JsonValue value = require_common(frame, op, op.metadata.common_input[i]);
-            out.set_common(op.metadata.common_output.at(i), value);
-        }
-    } else if (direction == "item_to_item") {
-        for (std::size_t i = 0; i < op.metadata.item_input.size(); ++i) {
-            const auto& src = op.metadata.item_input[i];
-            const auto& dst = op.metadata.item_output.at(i);
-            for (std::size_t j = 0; j < frame.item_count(); ++j) {
-                out.set_item(static_cast<int>(j), dst, require_item(frame, op, j, src));
-            }
-        }
-    } else if (direction == "item_to_common") {
-        for (std::size_t i = 0; i < op.metadata.item_input.size(); ++i) {
-            const auto& src = op.metadata.item_input[i];
-            JsonValue::array_t vals;
-            for (std::size_t j = 0; j < frame.item_count(); ++j) {
-                vals.push_back(frame.item(j, src));
-            }
-            out.set_common(op.metadata.common_output.at(i), JsonValue(vals));
-        }
-    } else {
-        throw ExecutionError(op.name, "transform_copy: unsupported direction \"" + direction + "\"");
-    }
-}
-
-void run_transform_dispatch(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    const auto& src = op.metadata.common_input.at(0);
-    const auto& dst = op.metadata.item_output.at(0);
-    JsonValue val = require_common(frame, op, src);
-    for (std::size_t j = 0; j < frame.item_count(); ++j) {
-        out.set_item(static_cast<int>(j), dst, val);
-    }
-}
-
-void run_transform_size(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    out.set_common(op.metadata.common_output.at(0), JsonValue(static_cast<double>(frame.item_count())));
-}
-
-// go_format_g formats a double matching Go's fmt.Sprintf("%g", x) byte-for-byte.
-// Go rule (strconv.FormatFloat, 'g', prec=-1): take the shortest decimal digits,
-// let exp = (decimal-point position) - 1. If exp < -4 OR exp >= 6, use scientific
-// (d.ddde±NN with min two-digit exponent); otherwise fixed-point. C++ std::to_chars
-// shortest mode picks whichever string is shorter, so e.g. 100000 differs ("1e+05"
-// in to_chars, "100000" in Go) — replicate Go's threshold here.
-std::string go_format_g(double d) {
-    if (std::isnan(d)) return "NaN";
-    if (std::isinf(d)) return d < 0 ? "-Inf" : "+Inf";
-    if (d == 0.0) return std::signbit(d) ? "-0" : "0";
-
-    char buf[64];
-    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d, std::chars_format::scientific);
-    std::string s(buf, ptr);
-
-    std::size_t i = 0;
-    bool neg = false;
-    if (s[i] == '-') { neg = true; ++i; }
-    std::string mantissa;
-    while (i < s.size() && s[i] != 'e' && s[i] != 'E') {
-        if (s[i] != '.') mantissa.push_back(s[i]);
-        ++i;
-    }
-    ++i;  // skip 'e'
-    bool exp_neg = false;
-    if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
-        exp_neg = (s[i] == '-');
-        ++i;
-    }
-    int exp_val = 0;
-    while (i < s.size()) { exp_val = exp_val * 10 + (s[i] - '0'); ++i; }
-    if (exp_neg) exp_val = -exp_val;
-
-    int nd = static_cast<int>(mantissa.size());
-    std::string result;
-    if (neg) result += '-';
-
-    if (exp_val < -4 || exp_val >= 6) {
-        result += mantissa[0];
-        if (nd > 1) {
-            result += '.';
-            result.append(mantissa, 1, std::string::npos);
-        }
-        result += 'e';
-        int e = exp_val;
-        if (e >= 0) result += '+';
-        else { result += '-'; e = -e; }
-        if (e < 10) result += '0';
-        result += std::to_string(e);
-    } else {
-        int dp_pos = exp_val + 1;
-        if (dp_pos <= 0) {
-            result += "0.";
-            for (int k = 0; k < -dp_pos; ++k) result += '0';
-            result += mantissa;
-        } else if (dp_pos >= nd) {
-            result += mantissa;
-            for (int k = 0; k < dp_pos - nd; ++k) result += '0';
-        } else {
-            result.append(mantissa, 0, dp_pos);
-            result += '.';
-            result.append(mantissa, dp_pos, std::string::npos);
-        }
-    }
-    return result;
-}
-
-std::string sprint_value(const JsonValue& v) {
-    if (v.is_null()) return "<nil>";
-    if (v.is_bool()) return v.as_bool() ? "true" : "false";
-    if (v.is_number()) return go_format_g(v.as_number());
-    if (v.is_string()) return v.as_string();
-    return "<complex>";
-}
-
-void run_filter_condition(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    const auto& params = op.params.as_object();
-    auto val_it = params.find("value");
-    if (val_it == params.end()) throw ExecutionError(op.name, "filter_condition: missing required param 'value'");
-    const std::string target = sprint_value(val_it->second);
-    const auto& field = op.metadata.item_input.at(0);
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        JsonValue fv = frame.item(i, field);
-        if (sprint_value(fv) == target) out.remove_item(static_cast<int>(i));
-    }
-}
-
-void run_filter_paginate(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    int n = static_cast<int>(frame.item_count());
-    if (n == 0) return;
-    auto to_int = [](const JsonValue& v) -> int {
-        if (v.is_number()) return static_cast<int>(v.as_number());
-        return 0;
-    };
-    int page = to_int(frame.common(op.metadata.common_input.at(0)));
-    int size = to_int(frame.common(op.metadata.common_input.at(1)));
-    if (size <= 0) size = 10;
-    if (page < 0) page = 0;
-    int start = page * size;
-    int end = start + size;
-    if (end > n) end = n;
-    for (int i = 0; i < n; ++i) {
-        if (i < start || i >= end) out.remove_item(i);
-    }
-}
-
-// dedup_key encodes a JsonValue with a type tag so values of different runtime
-// types never collapse, matching pine-go's `map[any]struct{}` semantics where
-// interface equality requires identical dynamic type + value (so 1.0 and "1"
-// are distinct keys). Without the tag, sprint_value(1.0) == sprint_value("1")
-// == "1" would erroneously merge them.
-std::string dedup_key(const JsonValue& v) {
-    if (v.is_null()) return "N:";
-    if (v.is_bool()) return v.as_bool() ? "B:1" : "B:0";
-    if (v.is_number()) return "F:" + go_format_g(v.as_number());
-    if (v.is_string()) return "S:" + v.as_string();
-    return "O:" + sprint_value(v);
-}
-
-void run_merge_dedup(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    const auto& field = op.metadata.item_input.at(0);
-    std::vector<std::string> seen;
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        JsonValue fv = frame.item(i, field);
-        std::string key = dedup_key(fv);
-        bool dup = false;
-        for (const auto& s : seen) { if (s == key) { dup = true; break; } }
-        if (dup) {
-            out.remove_item(static_cast<int>(i));
-        } else {
-            seen.push_back(key);
-        }
-    }
-}
-
-void run_observe_log(const Frame& /*frame*/, const OperatorConfig& /*op*/, OperatorOutput& /*out*/) {
-}
-
-void run_transform_normalize(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    if (frame.item_count() == 0) return;
-    const auto& field = op.metadata.item_input.at(0);
-    const auto& out_field = op.metadata.item_output.at(0);
-    std::vector<double> vals;
-    vals.reserve(frame.item_count());
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        try {
-            vals.push_back(to_double(require_item(frame, op, i, field)));
-        } catch (const OperatorError& err) {
-            throw ExecutionError(op.name, "transform_normalize: item[" + std::to_string(i) + "]." + field + ": " + err.what());
-        }
-    }
-    double minv = *std::min_element(vals.begin(), vals.end());
-    double maxv = *std::max_element(vals.begin(), vals.end());
-    double rng = maxv - minv;
-    for (std::size_t i = 0; i < vals.size(); ++i) {
-        double norm = (rng == 0.0) ? 0.0 : (vals[i] - minv) / rng;
-        out.set_item(static_cast<int>(i), out_field, JsonValue(norm));
-    }
-}
-
-uint64_t fnv64a(const std::string& s) {
-    uint64_t hash = 14695981039346656037ULL;
-    for (unsigned char c : s) {
-        hash ^= c;
-        hash *= 1099511628211ULL;
-    }
-    return hash;
-}
-
-std::string any_to_string(const JsonValue& v) {
-    if (v.is_null()) return "";
-    if (v.is_string()) return v.as_string();
-    if (v.is_number()) return go_format_g(v.as_number());
-    if (v.is_bool()) return v.as_bool() ? "true" : "false";
-    return "";
-}
-
-uint64_t parse_uint64(const std::string& s) {
-    uint64_t result = 0;
-    std::from_chars(s.data(), s.data() + s.size(), result);
-    return result;
-}
-
-void run_reorder_shuffle_by_salt(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    if (frame.item_count() == 0) return;
-    std::string salt;
-    for (std::size_t i = 0; i < op.metadata.common_input.size(); ++i) {
-        if (i > 0) salt += '|';
-        salt += any_to_string(frame.common(op.metadata.common_input[i]));
-    }
-    salt += '|';
-    const auto& item_field = op.metadata.item_input.at(0);
-    struct Ranked { std::size_t idx; double r; uint64_t id; };
-    std::vector<Ranked> ranked;
-    ranked.reserve(frame.item_count());
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        std::string item_val = any_to_string(frame.item(i, item_field));
-        uint64_t h = fnv64a(salt + item_val);
-        double r = static_cast<double>(h) / (static_cast<double>(UINT64_MAX) + 1.0);
-        ranked.push_back({i, r, parse_uint64(item_val)});
-    }
-    std::stable_sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
-        if (a.r != b.r) return a.r < b.r;
-        return a.id < b.id;
-    });
-    std::vector<int> order;
-    order.reserve(ranked.size());
-    for (const auto& r : ranked) order.push_back(static_cast<int>(r.idx));
-    out.set_item_order(std::move(order));
-}
-
-void run_filter_truncate(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    int top_n = static_cast<int>(op.params.as_object().at("top_n").as_number());
-    if (top_n < 0) throw ExecutionError(op.name, "filter_truncate: top_n must be non-negative");
-    int n = static_cast<int>(frame.item_count());
-    for (int i = top_n; i < n; ++i) out.remove_item(i);
-}
-
-void run_recall_static(const Frame& /*frame*/, const OperatorConfig& op, OperatorOutput& out) {
-    for (const auto& item : op.params.as_object().at("items").as_array()) {
-        Row row;
-        for (const auto& [key, value] : item.as_object()) row[key] = value;
-        out.add_item(std::move(row));
-    }
-}
-
-void run_recall_resource(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    if (!frame.resources())
-        throw ExecutionError(op.name, "recall_resource: no resource provider in context");
-    const auto& params = op.params.as_object();
-    auto rn_it = params.find("resource_name");
-    if (rn_it == params.end() || !rn_it->second.is_string())
-        throw ExecutionError(op.name, "recall_resource: missing resource_name");
-    const std::string& resource_name = rn_it->second.as_string();
-    auto res_it = frame.resources()->find(resource_name);
-    if (res_it == frame.resources()->end())
-        throw ExecutionError(op.name, "recall_resource: resource \"" + resource_name + "\" not found");
-    const auto& resource = res_it->second;
-    if (!resource.is_array())
-        throw ExecutionError(op.name, "recall_resource: resource \"" + resource_name + "\" is not an array, want []map[string]any");
-    for (std::size_t i = 0; i < resource.as_array().size(); ++i) {
-        const auto& elem = resource.as_array()[i];
-        if (!elem.is_object())
-            throw ExecutionError(op.name, "recall_resource: items[" + std::to_string(i) + "] is not an object, want map[string]any");
-        Row row;
-        for (const auto& [key, value] : elem.as_object()) row[key] = value;
-        out.add_item(std::move(row));
-    }
-}
-
-void run_transform_resource_lookup(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    if (!frame.resources())
-        throw ExecutionError(op.name, "transform_resource_lookup: no resource provider in context");
-    const auto& params = op.params.as_object();
-    auto rn_it = params.find("resource_name");
-    if (rn_it == params.end() || !rn_it->second.is_string())
-        throw ExecutionError(op.name, "transform_resource_lookup: missing resource_name");
-    const std::string& resource_name = rn_it->second.as_string();
-    auto res_it = frame.resources()->find(resource_name);
-    if (res_it == frame.resources()->end())
-        throw ExecutionError(op.name, "transform_resource_lookup: resource \"" + resource_name + "\" not found");
-    const auto& resource = res_it->second;
-    if (!resource.is_object())
-        throw ExecutionError(op.name, "transform_resource_lookup: resource \"" + resource_name + "\" is not an object, want map[string]any");
-    const auto& table = resource.as_object();
-
-    auto lk_it = params.find("lookup_key");
-    if (lk_it == params.end() || !lk_it->second.is_string())
-        throw ExecutionError(op.name, "transform_resource_lookup: missing lookup_key");
-    const std::string& lookup_key = lk_it->second.as_string();
-
-    auto of_it = params.find("output_field");
-    if (of_it == params.end() || !of_it->second.is_string())
-        throw ExecutionError(op.name, "transform_resource_lookup: missing output_field");
-    const std::string& output_field = of_it->second.as_string();
-
-    auto dv_it = params.find("default_value");
-    bool has_default = (dv_it != params.end());
-
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        JsonValue field_val = frame.item(i, lookup_key);
-        if (field_val.is_null()) {
-            if (has_default) out.set_item(static_cast<int>(i), output_field, dv_it->second);
-            continue;
-        }
-        std::string key;
-        if (field_val.is_string()) {
-            key = field_val.as_string();
-        } else if (field_val.is_number()) {
-            double d = field_val.as_number();
-            if (d == static_cast<double>(static_cast<int64_t>(d))) {
-                key = std::to_string(static_cast<int64_t>(d));
-            } else {
-                char buf[32];
-                auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d);
-                key = std::string(buf, ptr);
-            }
-        } else {
-            key = sprint_value(field_val);
-        }
-        auto val_it = table.find(key);
-        if (val_it != table.end()) {
-            out.set_item(static_cast<int>(i), output_field, val_it->second);
-        } else if (has_default) {
-            out.set_item(static_cast<int>(i), output_field, dv_it->second);
-        }
-    }
-}
-
-std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields) {
-    if (fields.empty()) return "";
-    std::string result;
-    for (std::size_t i = 0; i < fields.size(); ++i) {
-        if (i > 0) result += ':';
-        result += sprint_value(frame.common(fields[i]));
-    }
-    return result;
-}
-
-struct RedisParams {
-    std::string host;
-    int port = 6379;
-    std::string password;
-    int db = 0;
-    std::string key_prefix;
-    std::string data_type = "string";
-    int ttl = 0;
-    bool fail_on_error = false;
-};
-
-RedisParams parse_redis_params(const OperatorConfig& op) {
-    RedisParams rp;
-    const auto& params = op.params.as_object();
-    auto addr_it = params.find("redis_addr");
-    if (addr_it != params.end() && addr_it->second.is_string()) {
-        const auto& addr = addr_it->second.as_string();
-        auto colon = addr.rfind(':');
-        if (colon != std::string::npos) {
-            rp.host = addr.substr(0, colon);
-            rp.port = std::stoi(addr.substr(colon + 1));
-        } else {
-            rp.host = addr;
-        }
-    }
-    if (auto it = params.find("redis_password"); it != params.end() && it->second.is_string())
-        rp.password = it->second.as_string();
-    if (auto it = params.find("redis_db"); it != params.end() && it->second.is_number())
-        rp.db = static_cast<int>(it->second.as_number());
-    if (auto it = params.find("key_prefix"); it != params.end() && it->second.is_string())
-        rp.key_prefix = it->second.as_string();
-    if (auto it = params.find("data_type"); it != params.end() && it->second.is_string())
-        rp.data_type = it->second.as_string();
-    if (auto it = params.find("ttl"); it != params.end() && it->second.is_number())
-        rp.ttl = static_cast<int>(it->second.as_number());
-    if (auto it = params.find("fail_on_error"); it != params.end() && it->second.is_bool())
-        rp.fail_on_error = it->second.as_bool();
-    return rp;
-}
-
-std::vector<std::string> json_to_string_slice(const JsonValue& v) {
-    std::vector<std::string> out;
-    if (!v.is_array()) return out;
-    for (const auto& item : v.as_array()) {
-        out.push_back(sprint_value(item));
-    }
-    return out;
-}
-
-void run_transform_redis_set(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    auto rp = parse_redis_params(op);
-    if (rp.host.empty()) return;
-
-    int n = static_cast<int>(op.metadata.common_input.size());
-    if (n < 2)
-        throw ExecutionError(op.name, "transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
-
-    std::vector<std::string> key_fields(op.metadata.common_input.begin(), op.metadata.common_input.begin() + (n - 1));
-    std::string key = rp.key_prefix + build_key_suffix(frame, key_fields);
-
-    JsonValue value = frame.common(op.metadata.common_input.back());
-
-    std::unique_ptr<redis::Client> client;
-    try {
-        client = std::make_unique<redis::Client>(rp.host, rp.port, rp.password, rp.db);
-    } catch (const std::exception& e) {
-        if (rp.fail_on_error)
-            throw ExecutionError(op.name, "transform_redis_set: write key " + key + ": " + e.what());
-        out.set_warning("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": " + std::string(e.what()));
-        return;
-    }
-    if (!client->connected()) {
-        if (rp.fail_on_error)
-            throw ExecutionError(op.name, "transform_redis_set: write key " + key + ": connection failed");
-        out.set_warning("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": connection failed");
-        return;
-    }
-
-    try {
-        if (rp.data_type == "string") {
-            if (!value.is_string()) return;
-            client->set(key, value.as_string(), rp.ttl);
-        } else if (rp.data_type == "set") {
-            auto members = json_to_string_slice(value);
-            if (members.empty()) return;
-            client->del(key);
-            client->sadd(key, members);
-            if (rp.ttl > 0) client->expire(key, rp.ttl);
-        } else if (rp.data_type == "list") {
-            auto members = json_to_string_slice(value);
-            if (members.empty()) return;
-            client->del(key);
-            client->rpush(key, members);
-            if (rp.ttl > 0) client->expire(key, rp.ttl);
-        } else {
-            throw ExecutionError(op.name, "transform_redis_set: unsupported data_type \"" + rp.data_type + "\"");
-        }
-    } catch (const ExecutionError&) {
-        throw;
-    } catch (const std::exception& e) {
-        if (rp.fail_on_error)
-            throw ExecutionError(op.name, "transform_redis_set: write key " + key + ": " + e.what());
-        out.set_warning("operator \"" + op.name + "\": transform_redis_set: write key " + key + ": " + std::string(e.what()));
-    }
-}
-
-void run_transform_redis_get(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    auto rp = parse_redis_params(op);
-    const auto& result_field = op.metadata.common_output.at(0);
-    const auto& cache_hit_field = op.metadata.common_output.at(1);
-
-    if (rp.host.empty()) {
-        out.set_common(cache_hit_field, JsonValue(false));
-        return;
-    }
-
-    std::string key = rp.key_prefix + build_key_suffix(frame, op.metadata.common_input);
-
-    std::unique_ptr<redis::Client> client;
-    try {
-        client = std::make_unique<redis::Client>(rp.host, rp.port, rp.password, rp.db);
-    } catch (const std::exception& e) {
-        if (rp.fail_on_error)
-            throw ExecutionError(op.name, "transform_redis_get: " + std::string(e.what()));
-        out.set_warning("operator \"" + op.name + "\": transform_redis_get: Get(" + key + "): " + std::string(e.what()));
-        out.set_common(cache_hit_field, JsonValue(false));
-        return;
-    }
-    if (!client->connected()) {
-        if (rp.fail_on_error)
-            throw ExecutionError(op.name, "transform_redis_get: connection failed");
-        out.set_warning("operator \"" + op.name + "\": transform_redis_get: Get(" + key + "): connection failed");
-        out.set_common(cache_hit_field, JsonValue(false));
-        return;
-    }
-
-    try {
-        if (rp.data_type == "string") {
-            auto val = client->get(key);
-            if (val && !val->empty()) {
-                out.set_common(result_field, JsonValue(*val));
-                out.set_common(cache_hit_field, JsonValue(true));
-            } else {
-                out.set_common(cache_hit_field, JsonValue(false));
-            }
-        } else if (rp.data_type == "set") {
-            auto members = client->smembers(key);
-            if (!members.empty()) {
-                JsonValue::array_t arr;
-                for (auto& m : members) arr.push_back(JsonValue(std::move(m)));
-                out.set_common(result_field, JsonValue(std::move(arr)));
-                out.set_common(cache_hit_field, JsonValue(true));
-            } else {
-                out.set_common(cache_hit_field, JsonValue(false));
-            }
-        } else if (rp.data_type == "list") {
-            auto vals = client->lrange(key, 0, -1);
-            if (!vals.empty()) {
-                JsonValue::array_t arr;
-                for (auto& v : vals) arr.push_back(JsonValue(std::move(v)));
-                out.set_common(result_field, JsonValue(std::move(arr)));
-                out.set_common(cache_hit_field, JsonValue(true));
-            } else {
-                out.set_common(cache_hit_field, JsonValue(false));
-            }
-        } else {
-            throw ExecutionError(op.name, "transform_redis_get: unsupported data_type \"" + rp.data_type + "\"");
-        }
-    } catch (const ExecutionError&) {
-        throw;
-    } catch (const std::exception& e) {
-        if (rp.fail_on_error)
-            throw ExecutionError(op.name, "transform_redis_get: " + std::string(e.what()));
-        std::string cmd_name = (rp.data_type == "set") ? "SMembers" : (rp.data_type == "list") ? "LRange" : "Get";
-        out.set_warning("operator \"" + op.name + "\": transform_redis_get: " + cmd_name + "(" + key + "): " + std::string(e.what()));
-        out.set_common(cache_hit_field, JsonValue(false));
-    }
-}
-
-void run_reorder_sort(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    if (frame.item_count() == 0) return;
-    const std::string order = [&]() {
-        const auto& obj = op.params.as_object();
-        auto it = obj.find("order");
-        return it == obj.end() ? std::string("desc") : it->second.as_string();
-    }();
-    if (op.metadata.item_input.empty()) throw ExecutionError(op.name, "reorder_sort requires item_input field");
-    const std::string field = op.metadata.item_input.front();
-    struct Keyed { double v; std::size_t idx; };
-    std::vector<Keyed> keyed;
-    keyed.reserve(frame.item_count());
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        try {
-            keyed.push_back({to_double(require_item(frame, op, i, field)), i});
-        } catch (const OperatorError& err) {
-            throw ExecutionError(op.name, "reorder_sort: item[" + std::to_string(i) + "]." + field + ": " + err.what());
-        }
-    }
-    if (order == "asc") {
-        std::stable_sort(keyed.begin(), keyed.end(), [](const Keyed& a, const Keyed& b) { return a.v < b.v; });
-    } else if (order == "desc") {
-        std::stable_sort(keyed.begin(), keyed.end(), [](const Keyed& a, const Keyed& b) { return a.v > b.v; });
-    } else {
-        throw ExecutionError(op.name, "reorder_sort: unsupported order \"" + order + "\"");
-    }
-    std::vector<int> order_vec;
-    order_vec.reserve(keyed.size());
-    for (const auto& k : keyed) order_vec.push_back(static_cast<int>(k.idx));
-    out.set_item_order(std::move(order_vec));
-}
-
-void run_transform_by_lua(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    const auto& params = op.params.as_object();
-    auto script_it = params.find("lua_script");
-    if (script_it == params.end() || !script_it->second.is_string())
-        throw ExecutionError(op.name, "lua: exactly one of function_for_item or function_for_common must be set");
-
-    auto fi_it = params.find("function_for_item");
-    auto fc_it = params.find("function_for_common");
-    std::string func_for_item = (fi_it != params.end() && fi_it->second.is_string()) ? fi_it->second.as_string() : "";
-    std::string func_for_common = (fc_it != params.end() && fc_it->second.is_string()) ? fc_it->second.as_string() : "";
-
-    if (func_for_item.empty() && func_for_common.empty())
-        throw ExecutionError(op.name, "lua: exactly one of function_for_item or function_for_common must be set");
-    if (!func_for_item.empty() && !func_for_common.empty())
-        throw ExecutionError(op.name, "lua: cannot set both function_for_item and function_for_common");
-
-    auto resolve_common = [&](const std::string& field) -> JsonValue {
-        JsonValue v = frame.common(field);
-        if (!v.is_null()) return v;
-        auto def = op.common_defaults.find(field);
-        if (def != op.common_defaults.end()) return def->second;
-        return JsonValue();
-    };
-    auto resolve_item = [&](std::size_t idx, const std::string& field) -> JsonValue {
-        JsonValue v = frame.item(idx, field);
-        if (!v.is_null()) return v;
-        auto def = op.item_defaults.find(field);
-        if (def != op.item_defaults.end()) return def->second;
-        return JsonValue();
-    };
-
-    lua::LuaVM vm;
-    vm.load_script(script_it->second.as_string(), op.name);
-
-    if (!func_for_item.empty()) {
-        int nret = static_cast<int>(op.metadata.item_output.size());
-        for (const auto& field : op.metadata.common_input)
-            vm.set_global(field, resolve_common(field));
-        for (std::size_t i = 0; i < frame.item_count(); ++i) {
-            for (const auto& field : op.metadata.item_input)
-                vm.set_global(field, resolve_item(i, field));
-            auto results = vm.call_function(func_for_item, nret, op.name);
-            for (int j = 0; j < nret; ++j)
-                out.set_item(static_cast<int>(i), op.metadata.item_output[static_cast<std::size_t>(j)], results[static_cast<std::size_t>(j)]);
-        }
-    } else {
-        int nret = static_cast<int>(op.metadata.common_output.size());
-        for (const auto& field : op.metadata.common_input)
-            vm.set_global(field, resolve_common(field));
-        for (const auto& field : op.metadata.item_input) {
-            std::vector<JsonValue> column;
-            column.reserve(frame.item_count());
-            for (std::size_t i = 0; i < frame.item_count(); ++i)
-                column.push_back(resolve_item(i, field));
-            vm.set_global_table(field, column);
-        }
-        auto results = vm.call_function(func_for_common, nret, op.name);
-        for (int j = 0; j < nret; ++j)
-            out.set_common(op.metadata.common_output[static_cast<std::size_t>(j)], results[static_cast<std::size_t>(j)]);
-    }
 }
 
 Result project_result(const Frame& frame, const FlowContract& contract) {
@@ -853,15 +170,84 @@ int64_t now_us() {
 
 }  // namespace
 
+// Pre-created metrics for the scheduler and per-operator recording.
+// Mirrors pine-go internal/runtime/engine_metrics.go EngineMetrics.
+struct Engine::EngineMetrics {
+    metrics::Counter* scheduler_runs = nullptr;
+    metrics::Gauge* active_ops = nullptr;
+    metrics::Counter* op_exec_total = nullptr;
+    metrics::Histogram* op_exec_duration = nullptr;
+    metrics::Counter* op_skip_total = nullptr;
+    metrics::Counter* op_error_total = nullptr;
+    metrics::Counter* dag_exec_total = nullptr;
+    metrics::Histogram* dag_exec_duration = nullptr;
+    metrics::Histogram* dag_ops_executed = nullptr;
+};
+
+namespace {
+
+std::unique_ptr<Engine::EngineMetrics> build_engine_metrics(metrics::Provider* p,
+                                                            const std::vector<std::string>& op_names) {
+    auto em = std::make_unique<Engine::EngineMetrics>();
+    em->scheduler_runs = p->new_counter({"pine_scheduler_runs_total", "Total number of DAG scheduler runs.", {}});
+    em->active_ops = p->new_gauge({"pine_operator_active", "Number of operators currently executing.", {}});
+    em->op_exec_total = p->new_counter({"pine_operator_exec_total", "Total successful operator executions.", {"operator"}});
+    em->op_exec_duration = p->new_histogram({
+        {"pine_operator_exec_duration_seconds", "Operator execution duration in seconds.", {"operator"}},
+        {0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}
+    });
+    em->op_skip_total = p->new_counter({"pine_operator_skip_total", "Total skipped operator executions.", {"operator"}});
+    em->op_error_total = p->new_counter({"pine_operator_error_total", "Total failed operator executions.", {"operator"}});
+    em->dag_exec_total = p->new_counter({"pine_dag_executions_total", "Total DAG executions.", {"status"}});
+    em->dag_exec_duration = p->new_histogram({
+        {"pine_dag_execution_duration_seconds", "DAG execution duration in seconds.", {}},
+        {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}
+    });
+    em->dag_ops_executed = p->new_histogram({
+        {"pine_dag_operators_executed", "Number of operators executed per DAG run.", {}},
+        {1, 5, 10, 20, 50, 100, 200}
+    });
+    for (const auto& n : op_names) {
+        em->op_exec_total->with({n});
+        em->op_exec_duration->with({n});
+        em->op_skip_total->with({n});
+        em->op_error_total->with({n});
+    }
+    em->dag_exec_total->with({"success"});
+    em->dag_exec_total->with({"error"});
+    return em;
+}
+
+}  // namespace
+
 Engine::Engine(Config config) : Engine(std::move(config), EngineOptions{}) {}
+
+Engine::~Engine() = default;
+Engine::Engine(Engine&&) noexcept = default;
+Engine& Engine::operator=(Engine&&) noexcept = default;
 
 Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)) {
     bool global_debug = options.debug.has_value() ? *options.debug : config_.debug;
     if (global_debug) {
         for (auto& [_, op] : config_.operators) op.debug = true;
     }
+    log_prefix_ = options.log_prefix.has_value() ? *options.log_prefix : config_.log_prefix;
+    peak_concurrency_ = std::make_unique<std::atomic<int64_t>>(0);
+    metrics_provider_ = options.metrics_provider ? options.metrics_provider : metrics::nop_provider();
     expanded_ = expand_operator_sequence_with_subflows(config_);
     graph_ = build_dag(config_, expanded_);
+    engine_metrics_ = build_engine_metrics(metrics_provider_, expanded_.sequence);
+
+    // Instantiate and init one Operator per config operator.
+    for (auto& [op_name, op_cfg] : config_.operators) {
+        const auto* entry = registry_entry(op_cfg.type_name);
+        if (!entry || !entry->factory) {
+            throw RegistryError("operator \"" + op_name + "\": operator type not registered: \"" + op_cfg.type_name + "\"");
+        }
+        auto instance = entry->factory();
+        instance->init(op_cfg);
+        operators_.emplace(op_name, std::move(instance));
+    }
 }
 
 Engine Engine::from_file(const std::string& path) { return Engine(load_config_from_file(path)); }
@@ -871,25 +257,14 @@ Engine Engine::from_file(const std::string& path, EngineOptions options) {
 
 namespace {
 
-void dispatch_operator(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
-    if (op.type_name == "transform_copy") run_transform_copy(frame, op, out);
-    else if (op.type_name == "transform_dispatch") run_transform_dispatch(frame, op, out);
-    else if (op.type_name == "transform_size") run_transform_size(frame, op, out);
-    else if (op.type_name == "transform_normalize") run_transform_normalize(frame, op, out);
-    else if (op.type_name == "transform_by_lua") run_transform_by_lua(frame, op, out);
-    else if (op.type_name == "filter_truncate") run_filter_truncate(frame, op, out);
-    else if (op.type_name == "filter_condition") run_filter_condition(frame, op, out);
-    else if (op.type_name == "filter_paginate") run_filter_paginate(frame, op, out);
-    else if (op.type_name == "recall_static") run_recall_static(frame, op, out);
-    else if (op.type_name == "recall_resource") run_recall_resource(frame, op, out);
-    else if (op.type_name == "transform_resource_lookup") run_transform_resource_lookup(frame, op, out);
-    else if (op.type_name == "transform_redis_set") run_transform_redis_set(frame, op, out);
-    else if (op.type_name == "transform_redis_get") run_transform_redis_get(frame, op, out);
-    else if (op.type_name == "reorder_sort") run_reorder_sort(frame, op, out);
-    else if (op.type_name == "reorder_shuffle_by_salt") run_reorder_shuffle_by_salt(frame, op, out);
-    else if (op.type_name == "merge_dedup") run_merge_dedup(frame, op, out);
-    else if (op.type_name == "observe_log") run_observe_log(frame, op, out);
-    else throw RegistryError("operator \"" + op.name + "\": operator type not registered: \"" + op.type_name + "\"");
+void dispatch_operator(const Frame& frame, const OperatorConfig& op,
+                       const std::map<std::string, std::unique_ptr<Operator>>& operators,
+                       OperatorOutput& out) {
+    auto it = operators.find(op.name);
+    if (it == operators.end() || !it->second) {
+        throw RegistryError("operator \"" + op.name + "\": operator type not registered: \"" + op.type_name + "\"");
+    }
+    it->second->execute(frame, out);
 }
 
 void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
@@ -908,9 +283,11 @@ void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
 // exception into a PanicError carrying the operator name. Pine typed errors
 // (ExecutionError, RegistryError, etc.) propagate unchanged because they
 // already encode the operator context in their message.
-void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
+void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
+                            const std::map<std::string, std::unique_ptr<Operator>>& operators,
+                            OperatorOutput& out) {
     try {
-        dispatch_operator(frame, op, out);
+        dispatch_operator(frame, op, operators, out);
     } catch (const Error&) {
         throw;
     } catch (const std::exception& e) {
@@ -947,11 +324,13 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offs
 //   - op.metadata.common_output is empty
 //   - op.type_name is in the ConcurrentSafe set
 // Therefore shards only emit item_writes / removed_items / warnings.
-void parallel_execute(const Frame& frame, const OperatorConfig& op, OperatorOutput& out) {
+void parallel_execute(const Frame& frame, const OperatorConfig& op,
+                      const std::map<std::string, std::unique_ptr<Operator>>& operators,
+                      OperatorOutput& out) {
     int total = static_cast<int>(frame.item_count());
     int n = op.data_parallel;
     if (n <= 1 || total == 0) {
-        dispatch_with_recovery(frame, op, out);
+        dispatch_with_recovery(frame, op, operators, out);
         return;
     }
     if (n > total) n = total;
@@ -992,9 +371,9 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op, OperatorOutp
     std::vector<std::thread> threads;
     threads.reserve(static_cast<std::size_t>(n));
     for (int i = 0; i < n; ++i) {
-        threads.emplace_back([&shards, &shard_outs, &op, &err_mu, &first_err, i]() {
+        threads.emplace_back([&shards, &shard_outs, &op, &operators, &err_mu, &first_err, i]() {
             try {
-                dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op,
+                dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op, operators,
                                        shard_outs[static_cast<std::size_t>(i)]);
             } catch (...) {
                 std::lock_guard<std::mutex> lk(err_mu);
@@ -1021,9 +400,16 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op, OperatorOutp
 // channels, fatalOnce + context cancel).
 std::vector<OpTrace> run_dag(const Config& config,
                              const Graph& graph,
+                             const std::map<std::string, std::unique_ptr<Operator>>& operators,
                              Frame& frame,
-                             bool collect_traces) {
+                             bool collect_traces,
+                             std::atomic<int64_t>* peak_concurrency = nullptr,
+                             Engine::EngineMetrics* em = nullptr) {
     const std::size_t n = graph.nodes.size();
+
+    if (em && em->scheduler_runs) em->scheduler_runs->inc();
+    auto dag_start = std::chrono::steady_clock::now();
+    std::atomic<int64_t> ops_executed{0};
 
     std::vector<std::promise<void>> promises(n);
     std::vector<std::shared_future<void>> futures;
@@ -1037,12 +423,27 @@ std::vector<OpTrace> run_dag(const Config& config,
     std::mutex fatal_mu;
     std::exception_ptr fatal_err;
     std::atomic<bool> cancelled{false};
+    std::atomic<int64_t> active_ops{0};
 
     auto fail = [&](std::exception_ptr e) {
         std::lock_guard<std::mutex> lk(fatal_mu);
         if (!fatal_err) {
             fatal_err = e;
             cancelled.store(true, std::memory_order_release);
+        }
+    };
+
+    // CAS-update the cumulative peak to at least n_current.
+    // Mirrors pine-go internal/runtime/stats.go Stats.RecordConcurrency.
+    auto record_peak = [&](int64_t n_current) {
+        if (!peak_concurrency) return;
+        for (;;) {
+            int64_t cur = peak_concurrency->load(std::memory_order_relaxed);
+            if (n_current <= cur) return;
+            if (peak_concurrency->compare_exchange_weak(cur, n_current,
+                                                       std::memory_order_relaxed)) {
+                return;
+            }
         }
     };
 
@@ -1065,6 +466,16 @@ std::vector<OpTrace> run_dag(const Config& config,
             }
             if (cancelled.load(std::memory_order_acquire)) return;
 
+            // Track active concurrency (mirrors pine-go scheduler activeOps + RecordConcurrency).
+            struct ActiveGuard {
+                std::atomic<int64_t>& counter;
+                ~ActiveGuard() { counter.fetch_sub(1, std::memory_order_relaxed); }
+            };
+            int64_t cur_active = active_ops.fetch_add(1, std::memory_order_relaxed) + 1;
+            ActiveGuard active_guard{active_ops};
+            record_peak(cur_active);
+            if (em && em->active_ops) em->active_ops->set(static_cast<double>(cur_active));
+
             OpTrace trace;
             if (collect_traces) {
                 trace.name = op.name;
@@ -1079,6 +490,7 @@ std::vector<OpTrace> run_dag(const Config& config,
                     skip = should_skip(frame, op);
                 }
                 if (skip) {
+                    if (em && em->op_skip_total) em->op_skip_total->with({op.name})->inc();
                     if (collect_traces) {
                         auto end = std::chrono::steady_clock::now();
                         trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -1096,7 +508,7 @@ std::vector<OpTrace> run_dag(const Config& config,
                         trace.input_snapshot = snapshot_input(frame, op);
                         trace.has_input_snapshot = true;
                     }
-                    parallel_execute(frame, op, out);
+                    parallel_execute(frame, op, operators, out);
                 }
                 if (collect_traces && op.debug) {
                     trace.output_snapshot = snapshot_output(out);
@@ -1106,18 +518,39 @@ std::vector<OpTrace> run_dag(const Config& config,
                     std::unique_lock<std::shared_mutex> lk(frame_mu);
                     frame.apply_output(out, op.name, op.operator_type == "recall");
                 }
+                auto end = std::chrono::steady_clock::now();
+                auto dur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+                if (em) {
+                    if (em->op_exec_total) em->op_exec_total->with({op.name})->inc();
+                    if (em->op_exec_duration) em->op_exec_duration->with({op.name})->observe(metrics::duration_seconds(dur_ns));
+                }
+                ops_executed.fetch_add(1, std::memory_order_relaxed);
                 if (collect_traces) {
-                    auto end = std::chrono::steady_clock::now();
                     trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
                     traces[i] = std::move(trace);
                 }
             } catch (...) {
+                if (em && em->op_error_total) em->op_error_total->with({op.name})->inc();
                 fail(std::current_exception());
             }
         });
     }
 
     for (auto& t : threads) t.join();
+
+    auto dag_end = std::chrono::steady_clock::now();
+    if (em) {
+        if (em->dag_exec_duration) {
+            em->dag_exec_duration->observe(metrics::duration_seconds(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(dag_end - dag_start)));
+        }
+        if (em->dag_ops_executed) {
+            em->dag_ops_executed->observe(static_cast<double>(ops_executed.load(std::memory_order_relaxed)));
+        }
+        if (em->dag_exec_total) {
+            em->dag_exec_total->with({fatal_err ? "error" : "success"})->inc();
+        }
+    }
 
     if (fatal_err) std::rethrow_exception(fatal_err);
 
@@ -1135,7 +568,7 @@ Result Engine::execute(const Request& request, const std::map<std::string, JsonV
     validate_request(request, config_.flow_contract);
     Frame frame(request.common, request.items);
     frame.set_resources(&resources);
-    run_dag(config_, graph_, frame, /*collect_traces=*/false);
+    run_dag(config_, graph_, operators_, frame, /*collect_traces=*/false, peak_concurrency_.get(), engine_metrics_.get());
     return project_result(frame, config_.flow_contract);
 }
 
@@ -1144,7 +577,7 @@ TracedResult Engine::execute_traced(const Request& request, const std::map<std::
     validate_request(request, config_.flow_contract);
     Frame frame(request.common, request.items);
     frame.set_resources(&resources);
-    traced.trace = run_dag(config_, graph_, frame, /*collect_traces=*/true);
+    traced.trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get());
     traced.result = project_result(frame, config_.flow_contract);
     traced.warnings = frame.take_warnings();
     return traced;
@@ -1154,6 +587,10 @@ std::string Engine::render_dag(const std::string& format, int collapse) const {
     if (format == "dot") return collapse > 0 ? render_collapsed_dot(graph_, collapse) : render_dot(graph_);
     if (format == "mermaid") return collapse > 0 ? render_collapsed_mermaid(graph_, collapse) : render_mermaid(graph_);
     throw ValidationError("unsupported DAG format \"" + format + "\" (use \"dot\" or \"mermaid\")");
+}
+
+int64_t Engine::peak_concurrency() const {
+    return peak_concurrency_ ? peak_concurrency_->load(std::memory_order_relaxed) : 0;
 }
 
 }  // namespace pine

@@ -1,25 +1,26 @@
 #include <doctest/doctest.h>
 
 #include "pine/pine.hpp"
+#include "pine/operator.hpp"
 
 using namespace pine;
 
-TEST_CASE("registry_lookup: returns traits for known operators") {
-    const auto* traits = registry_lookup("filter_truncate");
-    REQUIRE(traits != nullptr);
-    CHECK(traits->operator_type == "filter");
+TEST_CASE("registry: returns entry for known operators") {
+    const auto* entry = registry_entry("filter_truncate");
+    REQUIRE(entry != nullptr);
+    CHECK(op_type_to_string(entry->schema.type) == std::string("filter"));
 
-    traits = registry_lookup("transform_copy");
-    REQUIRE(traits != nullptr);
-    CHECK(traits->operator_type == "transform");
+    entry = registry_entry("transform_copy");
+    REQUIRE(entry != nullptr);
+    CHECK(op_type_to_string(entry->schema.type) == std::string("transform"));
 
-    traits = registry_lookup("recall_static");
-    REQUIRE(traits != nullptr);
-    CHECK(traits->operator_type == "recall");
+    entry = registry_entry("recall_static");
+    REQUIRE(entry != nullptr);
+    CHECK(op_type_to_string(entry->schema.type) == std::string("recall"));
 }
 
-TEST_CASE("registry_lookup: returns null for unknown type") {
-    CHECK(registry_lookup("definitely_not_a_real_operator") == nullptr);
+TEST_CASE("registry: returns null for unknown type") {
+    CHECK(registry_entry("definitely_not_a_real_operator") == nullptr);
 }
 
 TEST_CASE("export_schema_json: produces JSON parseable as an array") {

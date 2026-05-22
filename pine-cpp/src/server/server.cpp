@@ -146,6 +146,8 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
     // Parse headers
     std::string headers_str = buffer.substr(first_line_end + 2, header_end - first_line_end - 2);
     req.content_length = 0;
+    bool has_content_length = false;
+    bool invalid_content_length = false;
     std::istringstream header_stream(headers_str);
     std::string line;
     while (std::getline(header_stream, line)) {
@@ -161,7 +163,18 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
         std::string lower_key = key;
         std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(), ::tolower);
         if (lower_key == "content-length") {
-            req.content_length = std::stoll(val);
+            has_content_length = true;
+            try {
+                size_t consumed = 0;
+                long long parsed = std::stoll(val, &consumed);
+                if (consumed != val.size() || parsed < 0) {
+                    invalid_content_length = true;
+                } else {
+                    req.content_length = parsed;
+                }
+            } catch (...) {
+                invalid_content_length = true;
+            }
         } else if (lower_key == "connection") {
             std::string lower_val = val;
             std::transform(lower_val.begin(), lower_val.end(), lower_val.begin(), ::tolower);
@@ -169,24 +182,42 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
         }
     }
 
-    // Check body size limit BEFORE reading body
+    if (invalid_content_length) {
+        // Signal malformed request to caller.
+        req.content_length = -2;
+        req.body = "";
+        return true;
+    }
+    (void)has_content_length;  // POST bodies without Content-Length read 0 bytes (matches existing behavior).
+
+    // Check declared body size against the hard cap BEFORE reading.
     if (req.content_length > max_body_size) {
-        // Signal to caller that body is too large.
-        // We still need to consume or discard remaining data.
         req.content_length = max_body_size + 1;  // signal "too large"
         req.body = "";
         return true;
     }
 
-    // Read body
+    // Read body — bounded by both Content-Length and max_body_size + 1 so a
+    // misbehaving client cannot stream past the cap even if its header lied.
     size_t body_start = header_end + 4;
     std::string body_so_far = buffer.substr(body_start);
+    const int64_t hard_cap = max_body_size + 1;
     int64_t need = req.content_length - static_cast<int64_t>(body_so_far.size());
-    while (need > 0) {
-        ssize_t n = recv(fd, chunk, std::min(sizeof(chunk), static_cast<size_t>(need)), 0);
+    while (need > 0 && static_cast<int64_t>(body_so_far.size()) < hard_cap) {
+        size_t want = std::min(sizeof(chunk), static_cast<size_t>(need));
+        // Never read past the hard cap.
+        if (static_cast<int64_t>(body_so_far.size()) + static_cast<int64_t>(want) > hard_cap) {
+            want = static_cast<size_t>(hard_cap - static_cast<int64_t>(body_so_far.size()));
+        }
+        ssize_t n = recv(fd, chunk, want, 0);
         if (n <= 0) break;
         body_so_far.append(chunk, static_cast<size_t>(n));
         need -= n;
+    }
+    if (static_cast<int64_t>(body_so_far.size()) > max_body_size) {
+        req.content_length = max_body_size + 1;  // signal "too large"
+        req.body = "";
+        return true;
     }
     req.body = std::move(body_so_far);
     return true;
@@ -312,7 +343,23 @@ std::string items_to_json(const std::vector<std::map<std::string, JsonValue>>& i
 
 }  // anonymous namespace
 
+// Public-to-file helper: map a request path to a small set of known buckets
+// so per-path metric label cardinality stays bounded. Mirrors pine-go
+// http_metrics.go normalizePath.
+static std::string normalize_path(const std::string& path) {
+    if (path == "/execute" || path == "/health" || path == "/stats" || path == "/dag") {
+        return path;
+    }
+    return "_other";
+}
+
 // ---- Server implementation ----
+
+// Thread-local pointer to the current request's MiddlewareContext, so that
+// send_response can record the outgoing HTTP status for HTTP-layer
+// instrumentation (P2-G/P2-H). Set in the per-connection thread before
+// dispatch, cleared after.
+thread_local MiddlewareContext* t_mw_ctx = nullptr;
 
 Server::Server() = default;
 Server::~Server() {
@@ -321,6 +368,7 @@ Server::~Server() {
 
 void Server::send_response(int fd, int status, const std::string& content_type,
                            const std::string& body) {
+    if (t_mw_ctx) t_mw_ctx->status = status;
     std::string response = "HTTP/1.1 " + std::to_string(status) + " " + status_text(status) + "\r\n";
     response += "Content-Type: " + content_type + "\r\n";
     response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
@@ -439,12 +487,12 @@ void Server::handle_execute(int client_fd, const std::string& method,
     auto exec_result = execute_with_trace(req, return_trace);
 
     // Build response JSON — match Go's executeResponse structure.
-    // Go always emits "common" and "items" (even if nil → null).
-    // When there's an error with no result, Go writes null for both.
+    // Go writes resp.Common/Items from result only when result != nil; an
+    // engine-level error leaves them as nil maps → JSON `null`. A successful
+    // run that produces an empty common/items still serializes as `{}`/`[]`.
     std::string response = "{";
 
-    if (exec_result.has_error && exec_result.result.common.empty() && exec_result.result.items.empty()) {
-        // Match Go: nil result → null common/items
+    if (!exec_result.has_result) {
         response += "\"common\":null";
         response += ",\"items\":null";
     } else {
@@ -540,7 +588,12 @@ void Server::handle_stats(int client_fd, const std::string& method) {
     // Build scheduler JSON
     std::string sched_json = "{";
     sched_json += "\"run_count\":" + std::to_string(run_count_.load(std::memory_order_relaxed));
-    sched_json += ",\"peak_concurrency\":0";
+    int64_t peak = 0;
+    {
+        std::shared_lock<std::shared_mutex> lock(engine_mu_);
+        if (engine_) peak = engine_->peak_concurrency();
+    }
+    sched_json += ",\"peak_concurrency\":" + std::to_string(peak);
     sched_json += "}";
 
     // Build server JSON
@@ -627,6 +680,7 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
         }
         exec_result.result = std::move(traced.result);
         exec_result.warnings = std::move(traced.warnings);
+        exec_result.has_result = true;
 
         for (const auto& t : traced.trace) {
             auto dur_ns = std::chrono::nanoseconds(t.duration_us * 1000);
@@ -656,14 +710,13 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     } catch (const ValidationError& e) {
         exec_result.has_error = true;
         exec_result.is_validation_error = true;
-        exec_result.error = std::string("pine: validation error: ") + e.what();
+        exec_result.error = e.what();
     } catch (const ExecutionError& e) {
         exec_result.has_error = true;
-        // ExecutionError already formats as `pine: execution error in operator "X": <inner>`
         exec_result.error = e.what();
     } catch (const RegistryError& e) {
         exec_result.has_error = true;
-        exec_result.error = std::string("pine: registry error: ") + e.what();
+        exec_result.error = e.what();
     } catch (const std::exception& e) {
         exec_result.has_error = true;
         exec_result.error = e.what();
@@ -743,6 +796,14 @@ int Server::run(const ServerConfig& cfg) {
     if (cfg.config_path.empty()) {
         std::cerr << "usage: pineapple-server -config <path-to-config.json>\n";
         return 1;
+    }
+
+    // If a metrics provider is configured, append the HTTP metrics middleware
+    // as the innermost layer so it measures handler duration excluding user
+    // middleware overhead. Mirrors pine-go server.go line "Apply HTTP metrics
+    // as innermost middleware".
+    if (config_.metrics_provider) {
+        config_.middlewares.push_back(http_metrics_middleware(config_.metrics_provider));
     }
 
     // Load engine
@@ -840,10 +901,38 @@ int Server::run(const ServerConfig& cfg) {
             continue;
         }
 
+        // Apply per-connection socket timeouts. Mirrors pine-go's
+        // http.Server ReadTimeout / WriteTimeout (raw sockets cannot
+        // separately model ReadHeaderTimeout vs ReadTimeout, so the
+        // wider window is applied via SO_RCVTIMEO). IdleTimeout and
+        // ReadHeaderTimeout are accepted in config for CLI parity but
+        // do not have a direct raw-socket equivalent without keep-alive.
+        int rcv_secs = config_.read_timeout_seconds > 0 ? config_.read_timeout_seconds : 30;
+        int snd_secs = config_.write_timeout_seconds > 0 ? config_.write_timeout_seconds : 60;
+        struct timeval rcv_to{rcv_secs, 0};
+        struct timeval snd_to{snd_secs, 0};
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_to, sizeof(rcv_to));
+        setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &snd_to, sizeof(snd_to));
+
         // Handle request in a detached thread for concurrency
+        in_flight_.fetch_add(1, std::memory_order_relaxed);
         std::thread([this, client_fd]() {
+            // RAII decrement so detached threads always release the counter.
+            struct InFlightGuard {
+                std::atomic<int64_t>& c;
+                ~InFlightGuard() { c.fetch_sub(1, std::memory_order_relaxed); }
+            } guard{in_flight_};
+            (void)guard;
+
             HttpRequest req;
             if (!read_http_request(client_fd, req, config_.max_request_body_size)) {
+                ::close(client_fd);
+                return;
+            }
+
+            // Check parse status: malformed Content-Length → 400
+            if (req.content_length == -2) {
+                send_error(client_fd, 400, "invalid Content-Length header");
                 ::close(client_fd);
                 return;
             }
@@ -855,18 +944,42 @@ int Server::run(const ServerConfig& cfg) {
                 return;
             }
 
-            // Route
-            if (req.path == "/health") {
-                handle_health(client_fd, req.method);
-            } else if (req.path == "/execute") {
-                handle_execute(client_fd, req.method, req.body, req.content_length);
-            } else if (req.path == "/stats") {
-                handle_stats(client_fd, req.method);
-            } else if (req.path == "/dag") {
-                handle_dag(client_fd, req.method, req.query_string);
-            } else {
-                handle_not_found(client_fd);
+            // Set up middleware context + dispatch chain.
+            MiddlewareContext mw_ctx;
+            mw_ctx.method = req.method;
+            mw_ctx.path = req.path;
+            mw_ctx.normalized_path = normalize_path(req.path);
+            mw_ctx.request_bytes = req.content_length > 0 ? req.content_length : 0;
+            mw_ctx.status = 200;
+
+            // Innermost handler: actual route dispatch.
+            std::function<void()> dispatch = [&]() {
+                if (req.path == "/health") {
+                    handle_health(client_fd, req.method);
+                } else if (req.path == "/execute") {
+                    handle_execute(client_fd, req.method, req.body, req.content_length);
+                } else if (req.path == "/stats") {
+                    handle_stats(client_fd, req.method);
+                } else if (req.path == "/dag") {
+                    handle_dag(client_fd, req.method, req.query_string);
+                } else {
+                    handle_not_found(client_fd);
+                }
+            };
+
+            // Apply user middlewares outer-to-inner: the first middleware
+            // sees the request first, matching pine-go's loop direction.
+            std::function<void()> chain = dispatch;
+            const auto& mws = config_.middlewares;
+            for (auto it = mws.rbegin(); it != mws.rend(); ++it) {
+                Middleware mw = *it;
+                std::function<void()> next = chain;
+                chain = [&mw_ctx, mw, next]() { mw(mw_ctx, next); };
             }
+
+            t_mw_ctx = &mw_ctx;
+            chain();
+            t_mw_ctx = nullptr;
 
             ::close(client_fd);
         }).detach();
@@ -878,7 +991,20 @@ int Server::run(const ServerConfig& cfg) {
         ::close(listen_fd_);
         listen_fd_ = -1;
     }
+    // Graceful drain: wait up to ~5s for in-flight handler threads to finish.
+    // Mirrors pine-go http.Server.Shutdown(ctx) with 5s deadline.
     std::cerr << "shutting down...\n";
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (in_flight_.load(std::memory_order_relaxed) > 0 &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        int64_t remaining = in_flight_.load(std::memory_order_relaxed);
+        if (remaining > 0) {
+            std::cerr << "shutdown: " << remaining << " in-flight request(s) abandoned after 5s\n";
+        }
+    }
     return 0;
 }
 

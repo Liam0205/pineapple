@@ -1,0 +1,37 @@
+{
+  "name": "Config error: skip field must also appear in $metadata.common_input",
+  "description": "Locks the byte-exact ConfigError message across engines when a skip field is declared but not listed in $metadata.common_input. Reference audit `.llmdoc-tmp/cpp-runtime-parity-audit/01-types-config-dag-cmd.md` P1-B: Go/Java/Python already enforce this validation; C++ added in this commit.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "filter_op": {
+          "type_name": "filter_condition",
+          "value": "blocked",
+          "skip": ["_should_skip"],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["status"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["filter_op"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["status"],
+      "common_output": [],
+      "item_output": ["status"]
+    }
+  },
+  "request": {"common": {}, "items": [{"status": "ok"}]},
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "must also appear in $metadata.common_input",
+    "wrapping_exact": "pine: config error: operator \"filter_op\": skip field \"_should_skip\" must also appear in $metadata.common_input to ensure correct DAG ordering",
+    "wrapping_exact_engines": ["go", "java", "cpp"]
+  }
+}

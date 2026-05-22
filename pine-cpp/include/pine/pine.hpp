@@ -1,6 +1,10 @@
 #pragma once
 
+#include "pine/metrics.hpp"
+
+#include <atomic>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -16,19 +20,32 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+// ConfigError, ValidationError, RegistryError auto-prefix their what() output
+// with `pine: <category> error: ...` to match pine-go's Error() format
+// (types/errors.go ConfigError/ValidationError/RegistryError). Throw sites
+// should pass the bare message body; the prefix is added once at construction.
 class ConfigError : public Error {
 public:
-    using Error::Error;
+    explicit ConfigError(const std::string& msg) : Error("pine: config error: " + msg) {}
+    explicit ConfigError(const char* msg) : Error(std::string("pine: config error: ") + msg) {}
 };
 
 class ValidationError : public Error {
 public:
-    using Error::Error;
+    explicit ValidationError(const std::string& msg) : Error("pine: validation error: " + msg) {}
+    explicit ValidationError(const char* msg) : Error(std::string("pine: validation error: ") + msg) {}
 };
 
+// RegistryError supports both `pine: registry error: <msg>` (legacy 1-arg
+// throw sites where the operator name is already embedded in the message)
+// and `pine: registry error [<op>]: <msg>` (matches pine-go RegistryError
+// with explicit Operator field).
 class RegistryError : public Error {
 public:
-    using Error::Error;
+    explicit RegistryError(const std::string& msg) : Error("pine: registry error: " + msg) {}
+    explicit RegistryError(const char* msg) : Error(std::string("pine: registry error: ") + msg) {}
+    RegistryError(const std::string& operator_name, const std::string& msg)
+        : Error("pine: registry error [" + operator_name + "]: " + msg) {}
 };
 
 // ExecutionError carries the operator name and an inner error message and
@@ -129,6 +146,7 @@ struct OperatorConfig {
     bool consumes_row_set = false;
     bool mutates_row_set = false;
     bool additive_writes_row_set = false;
+    bool concurrent_safe = false;
     bool debug = false;
     std::map<std::string, JsonValue> common_defaults;
     std::map<std::string, JsonValue> item_defaults;
@@ -145,6 +163,17 @@ struct FlowContract {
     std::vector<std::string> item_output;
 };
 
+// ResourceEntry mirrors pine-go's resource.resourceConfig: a single entry in
+// the root `resource_config` map. C++ does not yet have a Manager runtime
+// subsystem (callers still inject resources via Frame::set_resources), so
+// these fields are parsed and stored for downstream tooling / future wiring
+// without producing fetchers at config-load time.
+struct ResourceEntry {
+    std::string type;
+    int interval = 0;  // seconds
+    JsonValue params;  // arbitrary object passed to the fetcher factory
+};
+
 struct Config {
     std::map<std::string, OperatorConfig> operators;
     std::map<std::string, std::vector<std::string>> pipeline_map;
@@ -152,6 +181,15 @@ struct Config {
     FlowContract flow_contract;
     std::string storage_mode = "row";
     bool debug = false;
+    std::string log_prefix;
+    // Metadata fields written by codegen at config-build time. Surfaced
+    // verbatim so downstream tooling can read them; the engine itself does
+    // not act on them. Mirrors pine-go RootConfig._PINEAPPLE_VERSION /
+    // _PINEAPPLE_CREATE_TIME.
+    std::string pineapple_version;
+    std::string pineapple_create_time;
+    // Optional resource_config block. Empty when omitted.
+    std::map<std::string, ResourceEntry> resource_config;
 };
 
 struct ExpandedSequence {
@@ -172,18 +210,6 @@ struct ParamSchema {
     std::string description;
 };
 
-struct OperatorTraits {
-    std::string operator_type;          // "recall", "transform", "filter", etc.
-    bool consumes_row_set = false;
-    bool mutates_row_set = false;
-    bool additive_writes_row_set = false;
-    bool concurrent_safe = false;
-    std::string schema_type;            // Capitalized: "Filter", "Transform", etc.
-    std::string description;
-    std::map<std::string, ParamSchema> params;
-};
-
-const OperatorTraits* registry_lookup(const std::string& type_name);
 void apply_registry_traits(Config& config);
 std::string export_schema_json();
 
@@ -273,12 +299,38 @@ struct EngineOptions {
     // When set, forces debug snapshot collection on/off, overriding Config.debug
     // and any per-operator debug flag in JSON. Mirrors Go's pine.WithDebug.
     std::optional<bool> debug;
+    // When set, overrides root-level log_prefix from JSON config. Mirrors Go's
+    // pine.WithLogPrefix. When both are empty/unset, no prefix is applied.
+    std::optional<std::string> log_prefix;
+    // Optional metrics provider. Defaults to metrics::nop_provider().
+    // Mirrors Go's pine.WithMetrics.
+    metrics::Provider* metrics_provider = nullptr;
+};
+
+// Forward declaration: ColumnFrame is defined in pine/column_frame.hpp.
+// Operator::execute takes Frame (= ColumnFrame) by const ref.
+class ColumnFrame;
+
+// Operator base class (mirrors pine-go's Operator interface).
+// Concrete operators subclass this. Placed here so that Engine's
+// unique_ptr<Operator> member has a complete type in all TUs that
+// include pine.hpp.
+class Operator {
+public:
+    virtual ~Operator() = default;
+    virtual void init(const OperatorConfig& config) { (void)config; }
+    virtual void execute(const ColumnFrame& frame, OperatorOutput& out) = 0;
 };
 
 class Engine {
 public:
     explicit Engine(Config config);
     Engine(Config config, EngineOptions options);
+    ~Engine();
+    Engine(Engine&&) noexcept;
+    Engine& operator=(Engine&&) noexcept;
+    Engine(const Engine&) = delete;
+    Engine& operator=(const Engine&) = delete;
     static Engine from_file(const std::string& path);
     static Engine from_file(const std::string& path, EngineOptions options);
 
@@ -288,11 +340,26 @@ public:
     std::string render_dag(const std::string& format, int collapse = 0) const;
 
     const ExpandedSequence& expanded() const { return expanded_; }
+    const std::string& log_prefix() const { return log_prefix_; }
+    // Cumulative peak DAG-node concurrency observed across all execute calls.
+    // Mirrors pine-go internal/runtime/stats.go peakConcurrency.
+    int64_t peak_concurrency() const;
+    // Returns the configured metrics provider (never nullptr; nop by default).
+    metrics::Provider* metrics_provider() const { return metrics_provider_; }
+
+    // Pre-created scheduler/operator metrics. Public so the scheduler in
+    // engine.cpp can record observations; not part of the stable public API.
+    struct EngineMetrics;
 
 private:
     Config config_;
     ExpandedSequence expanded_;
     Graph graph_;
+    std::map<std::string, std::unique_ptr<Operator>> operators_;
+    std::string log_prefix_;
+    std::unique_ptr<std::atomic<int64_t>> peak_concurrency_;
+    metrics::Provider* metrics_provider_ = nullptr;
+    std::unique_ptr<EngineMetrics> engine_metrics_;
 };
 
 Request load_request_from_file(const std::string& path);

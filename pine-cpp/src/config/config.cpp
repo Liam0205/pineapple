@@ -1,7 +1,7 @@
 #include "pine/pine.hpp"
 
+#include <algorithm>
 #include <fstream>
-#include <set>
 #include <sstream>
 
 namespace pine {
@@ -95,6 +95,10 @@ void validate_config(const Config& config) {
             if (skip.empty() || skip[0] != '_') {
                 throw ConfigError("operator \"" + name + "\": skip field \"" + skip + "\" must start with '_' (control fields are engine-internal)");
             }
+            const auto& ci = op.metadata.common_input;
+            if (std::find(ci.begin(), ci.end(), skip) == ci.end()) {
+                throw ConfigError("operator \"" + name + "\": skip field \"" + skip + "\" must also appear in $metadata.common_input to ensure correct DAG ordering");
+            }
         }
         for (const auto& src : op.sources) {
             if (!config.operators.count(src)) {
@@ -134,20 +138,14 @@ void validate_config(const Config& config) {
             if (!op.metadata.common_output.empty()) {
                 throw ValidationError("operator \"" + name + "\": data_parallel=" + std::to_string(op.data_parallel) + " requires empty $metadata.common_output for Transform operators");
             }
-            static const std::set<std::string> concurrent_safe = {
-                "transform_copy", "transform_dispatch", "transform_size",
-                "transform_by_lua", "transform_resource_lookup",
-                "transform_redis_set", "transform_redis_get",
-                "transform_remote_pineapple"
-            };
-            if (!concurrent_safe.count(op.type_name)) {
+            if (!op.concurrent_safe) {
                 throw ValidationError("operator \"" + name + "\": data_parallel=" + std::to_string(op.data_parallel) + " requires the operator to implement ConcurrentSafe interface (type \"" + op.type_name + "\" does not)");
             }
         }
     }
     for (const auto& [name, _] : config.operators) {
         if (config.pipeline_map.count(name)) {
-            throw ConfigError("\"" + name + "\" exists in both operators and pipeline_map");
+            throw ConfigError("name \"" + name + "\" exists in both operators and pipeline_map");
         }
     }
 }
@@ -190,6 +188,20 @@ Config load_config_from_json(const std::string& text) {
     Config config;
     if (auto it = root.find("storage_mode"); it != root.end()) config.storage_mode = it->second.as_string();
     if (auto it = root.find("debug"); it != root.end() && it->second.is_bool()) config.debug = it->second.as_bool();
+    if (auto it = root.find("log_prefix"); it != root.end() && it->second.is_string()) config.log_prefix = it->second.as_string();
+    if (auto it = root.find("_PINEAPPLE_VERSION"); it != root.end() && it->second.is_string()) config.pineapple_version = it->second.as_string();
+    if (auto it = root.find("_PINEAPPLE_CREATE_TIME"); it != root.end() && it->second.is_string()) config.pineapple_create_time = it->second.as_string();
+    if (auto it = root.find("resource_config"); it != root.end() && it->second.is_object()) {
+        for (const auto& [name, entry] : it->second.as_object()) {
+            if (!entry.is_object()) throw ConfigError("resource_config entry \"" + name + "\" must be an object");
+            const auto& eo = entry.as_object();
+            ResourceEntry re;
+            if (auto tit = eo.find("type"); tit != eo.end() && tit->second.is_string()) re.type = tit->second.as_string();
+            if (auto iit = eo.find("interval"); iit != eo.end() && iit->second.is_number()) re.interval = static_cast<int>(iit->second.as_number());
+            if (auto pit = eo.find("params"); pit != eo.end()) re.params = pit->second;
+            config.resource_config[name] = std::move(re);
+        }
+    }
     const auto& flow = require_obj(root, "flow_contract");
     config.flow_contract.common_input = as_string_list(flow, "common_input");
     config.flow_contract.item_input = as_string_list(flow, "item_input");

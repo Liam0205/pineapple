@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 
-#include "dataframe/column.hpp"
+#include "pine/column.hpp"
 
 using namespace pine;
 

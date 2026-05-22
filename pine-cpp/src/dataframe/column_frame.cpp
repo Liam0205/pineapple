@@ -1,4 +1,4 @@
-#include "dataframe/column_frame.hpp"
+#include "pine/column_frame.hpp"
 
 #include <algorithm>
 #include <mutex>
@@ -165,7 +165,7 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
     // 2. item writes
     for (const auto& [idx, fields] : out.item_writes()) {
         if (idx < 0 || static_cast<std::size_t>(idx) >= items_->row_count()) {
-            throw ExecutionError(op_name, "set_item index " +
+            throw ExecutionError(op_name, "SetItem index " +
                                  std::to_string(idx) + " out of range [0, " +
                                  std::to_string(items_->row_count()) + ")");
         }
@@ -179,7 +179,7 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
         const auto& removed = out.removed_items();
         for (int idx : removed) {
             if (idx < 0 || static_cast<std::size_t>(idx) >= items_->row_count()) {
-                throw ExecutionError(op_name, "remove_item index " +
+                throw ExecutionError(op_name, "RemoveItem index " +
                                      std::to_string(idx) + " out of range [0, " +
                                      std::to_string(items_->row_count()) + ")");
             }
@@ -191,14 +191,14 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
     if (out.has_item_order()) {
         const auto& order = out.item_order();
         if (order.size() != items_->row_count()) {
-            throw ExecutionError(op_name, "set_item_order length " +
+            throw ExecutionError(op_name, "SetItemOrder length " +
                                  std::to_string(order.size()) +
                                  " does not match item count " +
                                  std::to_string(items_->row_count()));
         }
         for (int idx : order) {
             if (idx < 0 || static_cast<std::size_t>(idx) >= items_->row_count()) {
-                throw ExecutionError(op_name, "set_item_order index " +
+                throw ExecutionError(op_name, "SetItemOrder index " +
                                      std::to_string(idx) + " out of range [0, " +
                                      std::to_string(items_->row_count()) + ")");
             }
@@ -221,9 +221,12 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
         }
     }
 
-    // 6. warning (collected per-operator on the frame — every warning recorded)
+    // 6. warning (collected per-operator on the frame — every warning recorded).
+    // Mirrors pine-go pine.go:246 (`fmt.Errorf("operator %q: %w", w.Operator, w.Err)`):
+    // operator code emits the bare message; the engine layer prepends the
+    // `operator "name": ` prefix uniformly here.
     if (out.has_warning()) {
-        warnings_.push_back(out.warning());
+        warnings_.push_back("operator \"" + op_name + "\": " + out.warning());
     }
 }
 

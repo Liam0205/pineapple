@@ -19,7 +19,7 @@ endif()
 message(STATUS "LuaJIT lib: ${LUAJIT_LIB}")
 message(STATUS "LuaJIT include: ${LUAJIT_INCLUDE}")
 
-add_library(pine_cpp_core
+add_library(pine_cpp_core OBJECT
     src/config/json.cpp
     src/config/config.cpp
     src/registry/registry.cpp
@@ -28,17 +28,33 @@ add_library(pine_cpp_core
     src/dataframe/column_store.cpp
     src/dataframe/column_frame.cpp
     src/runtime/engine.cpp
+    src/runtime/metrics_nop.cpp
+    src/resource/resource.cpp
     src/render/render.cpp
     src/lua/lua_bridge.cpp
     src/redis/redis_client.cpp
+    operators/_helpers.cpp
+    operators/filter/filter_condition.cpp
+    operators/filter/filter_paginate.cpp
     operators/filter/filter_truncate.cpp
+    operators/merge/merge_dedup.cpp
+    operators/observe/observe_log.cpp
+    operators/recall/recall_resource.cpp
     operators/recall/recall_static.cpp
+    operators/reorder/reorder_shuffle_by_salt.cpp
     operators/reorder/reorder_sort.cpp
+    operators/transform/transform_by_lua.cpp
     operators/transform/transform_copy.cpp
+    operators/transform/transform_dispatch.cpp
+    operators/transform/transform_normalize.cpp
+    operators/transform/transform_redis_get.cpp
+    operators/transform/transform_redis_set.cpp
+    operators/transform/transform_resource_lookup.cpp
+    operators/transform/transform_size.cpp
 )
 
 target_include_directories(pine_cpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pine_cpp_core PUBLIC ${LUAJIT_LIB})
 
 target_compile_options(pine_cpp_core PRIVATE -Wall -Wextra -Wpedantic)
@@ -68,7 +84,7 @@ add_executable(pineapple-codegen cmd/pineapple-codegen/main.cpp)
 target_link_libraries(pineapple-codegen PRIVATE pine_cpp_core)
 pine_cpp_target_warnings(pineapple-codegen)
 
-add_executable(pineapple-server cmd/pineapple-server/main.cpp src/server/server.cpp)
+add_executable(pineapple-server cmd/pineapple-server/main.cpp src/server/server.cpp src/server/http_metrics.cpp)
 target_include_directories(pineapple-server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(pineapple-server PRIVATE pine_cpp_core pthread)
 pine_cpp_target_warnings(pineapple-server)
@@ -97,7 +113,12 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_trace.cpp
         tests/test_column.cpp
         tests/test_column_frame.cpp
+        tests/test_register_operator.cpp
+        tests/test_metrics.cpp
+        tests/test_resource.cpp
+        tests/test_http_metrics.cpp
     )
+    target_sources(pine_cpp_tests PRIVATE src/server/http_metrics.cpp)
     target_link_libraries(pine_cpp_tests PRIVATE pine_cpp_core doctest::doctest)
     target_include_directories(pine_cpp_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src

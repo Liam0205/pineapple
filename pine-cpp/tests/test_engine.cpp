@@ -71,3 +71,57 @@ TEST_CASE("Engine::render_dag: rejects unknown format") {
     Engine engine(load_config_from_json(kCopyConfig));
     CHECK_THROWS(engine.render_dag("unknown"));
 }
+
+namespace {
+
+constexpr const char* kCopyConfigWithLogPrefix = R"({
+  "log_prefix": "[from-config] ",
+  "pipeline_config": {
+    "operators": {
+      "copy": {
+        "type_name": "transform_copy",
+        "direction": "common_to_common",
+        "source": "src",
+        "target": "dst",
+        "$metadata": {
+          "common_input": ["src"],
+          "common_output": ["dst"]
+        }
+      }
+    },
+    "pipeline_map": {
+      "stage": {"pipeline": ["copy"]}
+    }
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["stage"]}
+  },
+  "flow_contract": {
+    "common_input": ["src"],
+    "item_input": [],
+    "common_output": ["dst"],
+    "item_output": []
+  }
+})";
+
+}  // namespace
+
+TEST_CASE("Config::log_prefix: parsed from root and exposed by Engine") {
+    auto config = load_config_from_json(kCopyConfigWithLogPrefix);
+    CHECK(config.log_prefix == "[from-config] ");
+    Engine engine(std::move(config));
+    CHECK(engine.log_prefix() == "[from-config] ");
+}
+
+TEST_CASE("EngineOptions::log_prefix: overrides Config.log_prefix") {
+    auto config = load_config_from_json(kCopyConfigWithLogPrefix);
+    EngineOptions options;
+    options.log_prefix = std::string("[override] ");
+    Engine engine(std::move(config), std::move(options));
+    CHECK(engine.log_prefix() == "[override] ");
+}
+
+TEST_CASE("Engine::log_prefix: empty when unset on both Config and EngineOptions") {
+    Engine engine(load_config_from_json(kCopyConfig));
+    CHECK(engine.log_prefix() == "");
+}

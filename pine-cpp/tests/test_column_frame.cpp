@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 
-#include "dataframe/column_frame.hpp"
+#include "pine/column_frame.hpp"
 
 #include <algorithm>
 
@@ -143,7 +143,9 @@ TEST_CASE("ColumnFrame: to_result projects strict fields") {
     CHECK(r.items[2].at("score").as_number() == 30.0);
 }
 
-TEST_CASE("ColumnFrame: warnings collected per operator") {
+TEST_CASE("ColumnFrame: warnings collected per operator with operator-name prefix") {
+    // apply_output prepends `operator "<name>": ` to each warning, mirroring
+    // pine-go pine.go:246 (`fmt.Errorf("operator %q: %w", w.Operator, w.Err)`).
     auto frame = make_frame();
     OperatorOutput out;
     out.set_warning("op A warning");
@@ -155,8 +157,8 @@ TEST_CASE("ColumnFrame: warnings collected per operator") {
 
     auto w = frame.take_warnings();
     REQUIRE(w.size() == 2);
-    CHECK(w[0] == "op A warning");
-    CHECK(w[1] == "op B warning");
+    CHECK(w[0] == "operator \"opA\": op A warning");
+    CHECK(w[1] == "operator \"opB\": op B warning");
 }
 
 TEST_CASE("ColumnFrame: out-of-range item write raises ExecutionError") {

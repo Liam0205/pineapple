@@ -1,4 +1,4 @@
-#include "dataframe/column_store.hpp"
+#include "pine/column_store.hpp"
 
 #include <stdexcept>
 

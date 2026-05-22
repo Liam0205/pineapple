@@ -77,3 +77,74 @@ TEST_CASE("expand_operator_sequence_with_subflows: produces topological order") 
 TEST_CASE("load_config_from_json: invalid JSON throws ConfigError") {
     CHECK_THROWS_AS(load_config_from_json("{not valid json"), ConfigError);
 }
+
+namespace {
+
+constexpr const char* kConfigWithMetadata = R"({
+  "_PINEAPPLE_VERSION": "1.2.3",
+  "_PINEAPPLE_CREATE_TIME": "2026-05-22T10:00:00Z",
+  "resource_config": {
+    "user_profile": {
+      "type": "static_table",
+      "interval": 60,
+      "params": {"path": "/tmp/profile.json"}
+    },
+    "no_interval_default": {
+      "type": "noop",
+      "params": {}
+    }
+  },
+  "pipeline_config": {
+    "operators": {
+      "copy": {
+        "type_name": "transform_copy",
+        "direction": "common_to_common",
+        "source": "src",
+        "target": "dst",
+        "$metadata": {
+          "common_input": ["src"],
+          "common_output": ["dst"]
+        }
+      }
+    },
+    "pipeline_map": {
+      "stage": {"pipeline": ["copy"]}
+    }
+  },
+  "pipeline_group": {
+    "main": {"pipeline": ["stage"]}
+  },
+  "flow_contract": {
+    "common_input": ["src"],
+    "item_input": [],
+    "common_output": ["dst"],
+    "item_output": []
+  }
+})";
+
+}  // namespace
+
+TEST_CASE("load_config_from_json: parses _PINEAPPLE_VERSION and _PINEAPPLE_CREATE_TIME") {
+    Config cfg = load_config_from_json(kConfigWithMetadata);
+    CHECK(cfg.pineapple_version == "1.2.3");
+    CHECK(cfg.pineapple_create_time == "2026-05-22T10:00:00Z");
+}
+
+TEST_CASE("load_config_from_json: parses resource_config entries") {
+    Config cfg = load_config_from_json(kConfigWithMetadata);
+    REQUIRE(cfg.resource_config.size() == 2);
+    const auto& up = cfg.resource_config.at("user_profile");
+    CHECK(up.type == "static_table");
+    CHECK(up.interval == 60);
+    REQUIRE(up.params.is_object());
+    CHECK(up.params.as_object().at("path").as_string() == "/tmp/profile.json");
+    const auto& nd = cfg.resource_config.at("no_interval_default");
+    CHECK(nd.type == "noop");
+    CHECK(nd.interval == 0);
+}
+
+TEST_CASE("load_config_from_json: omits resource_config when absent") {
+    Config cfg = load_config_from_json(kSimpleConfig);
+    CHECK(cfg.resource_config.empty());
+    CHECK(cfg.pineapple_create_time == "");
+}

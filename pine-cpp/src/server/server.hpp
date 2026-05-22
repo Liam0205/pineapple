@@ -52,6 +52,10 @@ struct ExecuteResult {
     std::string error;
     bool is_validation_error = false;
     bool has_error = false;
+    // Whether `result` was populated by the engine. Mirrors pine-go's
+    // `result != nil` check: on engine-level errors the result is "nil",
+    // and the response must serialize common/items as JSON `null` (not `{}`/`[]`).
+    bool has_result = false;
 };
 
 // Stats accumulator for per-operator metrics.
@@ -81,11 +85,47 @@ struct SchedulerStatsSnapshot {
     int64_t peak_concurrency = 0;
 };
 
+// Per-request context passed through the middleware chain. `status` is set by
+// `send_response` (via thread-local capture) and visible to middleware after
+// `next()` returns. Mirrors pine-go's `statusRecorder`.
+struct MiddlewareContext {
+    std::string method;
+    std::string path;          // raw request path
+    std::string normalized_path; // /execute, /health, /stats, /dag, or "_other"
+    int64_t request_bytes = 0;
+    int status = 200;          // populated by inner handler
+};
+
+// User-supplied middleware. Middleware MUST call `next()` exactly once unless
+// it intends to short-circuit the request. Outer-to-inner composition matches
+// pine-go's Config.Middlewares semantics.
+using Middleware = std::function<void(MiddlewareContext&, const std::function<void()>& next)>;
+
+// Builds the HTTP-layer metrics middleware (requests_total + duration
+// histogram). Append the returned Middleware to `ServerConfig::middlewares`
+// to enable instrumentation. Mirrors pine-go pkg/server/http_metrics.go.
+Middleware http_metrics_middleware(pine::metrics::Provider* provider);
+
 // Server configuration.
 struct ServerConfig {
     std::string config_path;
     std::string addr = ":8080";
     int64_t max_request_body_size = 10 * 1024 * 1024;  // 10 MB
+    // HTTP socket timeouts, seconds. 0 means "use default":
+    //   read_header: 10s, read: 30s, write: 60s, idle: 120s.
+    // Mirrors pine-go's pineapple-server -read-header-timeout / -read-timeout
+    // / -write-timeout / -idle-timeout flags + server.Config defaults.
+    int read_header_timeout_seconds = 0;
+    int read_timeout_seconds = 0;
+    int write_timeout_seconds = 0;
+    int idle_timeout_seconds = 0;
+
+    // HTTP middlewares applied outer-to-inner (first sees request first).
+    // Mirrors pine-go server.Config.Middlewares.
+    std::vector<Middleware> middlewares;
+
+    // Optional metrics provider for HTTP-layer instrumentation. nullptr → no-op.
+    pine::metrics::Provider* metrics_provider = nullptr;
 };
 
 // Minimal HTTP server for pine-cpp.
@@ -135,6 +175,10 @@ private:
 
     // Scheduler-level stats
     std::atomic<int64_t> run_count_{0};
+
+    // In-flight request counter for graceful shutdown.
+    // Mirrors pine-go http.Server.Shutdown waiting for active conns.
+    std::atomic<int64_t> in_flight_{0};
 
     // Hot-reload stats
     std::atomic<int64_t> reload_count_{0};

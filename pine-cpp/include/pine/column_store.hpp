@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dataframe/column.hpp"
+#include "pine/column.hpp"
 
 #include <map>
 #include <memory>
