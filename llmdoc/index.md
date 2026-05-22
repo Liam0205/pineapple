@@ -86,3 +86,4 @@
 - `llmdoc/memory/reflections/dag-implicit-row-set-fix-v080.md` — v0.8.0 DAG 隐式行集依赖修复复盘，记录 auto-inject 机制（三标记模型的第四机制）、6 算子 ConsumesRowSet 清理、dag-differential-fuzz 基础设施、文档中"三标记模型"与"可选 ConsumesRowSet"描述过时。
 - `llmdoc/memory/reflections/pine-cpp-mvp-to-full-runtime.md` — pine-cpp 从 MVP 文档化到完整第四运行时的 34 commit 累积期偏差复盘，记录 MVP 措辞时效性、引擎数量第五次失效、累积心理模型与新核心概念发现路径缺失。
 - `llmdoc/memory/reflections/pine-cpp-p1-p2-buildout.md` — pine-cpp P1/P2 全运行时建设阶段（18 commit）复盘，记录"上一轮 reflection 未落地是放大器"、跨运行时观测契约表格缺失、CLI flag 作为用户契约的同步要求。
+- `llmdoc/memory/reflections/pine-cpp-p3-series-buildout.md` — pine-cpp P3-A to P3-D 阶段复盘，涉及 LuaVM StatePool 隔离、StatsProvider/MetricsAware 基建与 remote pineapple SSRF 保护接入。

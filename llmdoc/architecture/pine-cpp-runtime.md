@@ -100,10 +100,12 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - `PanicError` + dispatch recovery 把意外异常映射为可观察的算子错误
 - **可插拔观测与扩展**
   - `pine::metrics::Provider` / `Counter` / `Gauge` / `Histogram` / `NopProvider`（对齐 pine-go `pkg/metrics`）
+  - `MetricsAware` 接口（`Engine` 预创建后自动注入）与 `StatsProvider` 接口（向 `/stats` 暴露算子内部计数）
   - `EngineOptions::metrics_provider` 注入；未设置时回退到 `metrics::nop_provider()`
   - `ServerConfig::middlewares`：outer-to-inner 调用链 + `MiddlewareContext`（method / path / normalized_path / request_bytes / status）
   - `pine::server::http_metrics_middleware(provider)` 工厂返回内置 HTTP 指标 middleware，指标名与桶与 pine-go `pkg/server/http_metrics.go` 一致
   - `pine::resource::Manager` + `FetcherFactory` + `register_fetcher_factory(type, factory)` 与 pine-go `pkg/resource` 等价：后台刷新线程、`snapshot()`、可重入 `stop()`
+  - `transform_by_remote_pineapple` 算子：基于 `libcurl` 实现 SSRF 安全保护（拦截 loopback/private IP 配置）、HTTP POST 超时与最大体积限制
 - **根级配置扩展**
   - `log_prefix`（同时支持 `EngineOptions::log_prefix` 覆盖），最终通过 `log::SetPrefix` + `Ldate|Ltime|Lshortfile` 应用
   - `_PINEAPPLE_VERSION` / `_PINEAPPLE_CREATE_TIME` 解析并通过 `Config` 暴露，供下游工具读取
@@ -133,6 +135,7 @@ cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 c
 - 选择 **LuaJIT**
 - 保持 Lua 5.1 语义，与现有脚本公共子集兼容
 - 重点收益来自 tracing JIT 与更低解释器分发成本
+- `StatePool` 提供按需 `LuaVM` 分配与借用，维护 baseline globals 快照并在释放时清理变异；实现 `StatsProvider`（`/stats` 接口暴露 pool 计数）和 `MetricsAware`（注入外部提供商）
 
 ### 4. 内存与对象生命周期
 
