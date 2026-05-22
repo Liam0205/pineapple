@@ -13,7 +13,7 @@
 
 ## CI workflow 架构
 
-`.github/workflows/ci.yml` 包含 11 个 job：
+`.github/workflows/ci.yml` 包含多个 job（数量与依赖关系以该文件为准，禁止在本指南中硬编码计数）。典型分组：
 
 | Job | 职责 | 依赖 |
 |-----|------|------|
@@ -23,16 +23,20 @@
 | java-test | Java 测试 + 覆盖率 | 无 |
 | python-test | Python DSL 测试 + 覆盖率 | 无 |
 | pine-python-test | Python 引擎测试 + 覆盖率 | 无 |
+| cpp-build | pine-cpp Release 构建（4 个可执行文件） | 无 |
+| cpp-sanitizer | pine-cpp ASan/UBSan smoke | cpp-build |
+| cpp-lint | pine-cpp `-Werror` 严格构建 + 基础卫生检查 | 无 |
+| cpp-test | pine-cpp doctest 单测套件 | cpp-build |
 | codegen-check | 重生成 + git diff 校验 | 无 |
 | fuzz | Go native fuzz 短时运行 | go-test |
 | pine-python-fuzz | Hypothesis property-based fuzz | pine-python-test |
 | benchmark | Go benchmark + job summary + artifact | go-test |
 | pine-python-benchmark | Python 引擎 benchmark | pine-python-test |
+| cross-validate | 多 section 跨运行时校验 | go-test + java-test + pine-python-test + cpp-build |
+| differential-fuzz | CI 模式 100 轮三引擎差异模糊测试 | go-test + java-test + pine-python-test |
 
-另有两个独立 workflow：
+另有独立 nightly workflow：
 
-- **Cross-validate**（`.github/workflows/ci.yml` 中的 cross-validate job）：依赖 go-test + java-test + pine-python-test，运行十三层三引擎跨验证
-- **Differential-fuzz**（`.github/workflows/ci.yml` 中的 differential-fuzz job）：CI 模式运行 100 轮三引擎差异模糊测试
 - **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行 5000 轮，发现分歧时自动创建 GitHub issue
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
@@ -130,18 +134,18 @@ fuzz 通用策略分两步推进：
 
 ## Cross-validate 架构
 
-`scripts/cross-validate.sh` 运行十三层三引擎跨验证。sections 默认并行执行（`scripts/cross-validate/_parallel.sh` 调度），`--serial` 可回退串行；单 section 内三引擎也并行运行。
+`scripts/cross-validate.sh` 运行多 section 跨运行时校验。具体 section 列表以 `scripts/cross-validate/` 目录为准，禁止在本指南中硬编码层数。sections 默认并行执行（`scripts/cross-validate/_parallel.sh` 调度），`--serial` 可回退串行；单 section 内各运行时也并行运行。
 
-### Section 13: Metrics Parity
+C++ 端是否参与某次比对取决于该 section 中对 `CPP_RUN` / `CPP_DAG` / `CPP_SERVER` / `CPP_CODEGEN` 的引用，以及 `scripts/cross-validate/_prebuild.sh` 是否成功构建 pine-cpp 二进制（输出到 `$WORK_DIR/pineapple-*-cpp`）。
 
-`scripts/cross-validate/13-metrics-parity.sh` 验证三引擎 pre-init 行为和 `/stats` 数值一致性，包含 6 项检查：
+### Metrics Parity section
+
+`scripts/cross-validate/13-metrics-parity.sh` 验证各运行时 pre-init 行为和 `/stats` 数值一致性，包含：
 
 - zero-traffic pre-init：引擎启动后、无请求时 `/stats` 已暴露全部算子
-- operator names match：三引擎的算子名集合一致
-- exec_count match：执行计数三引擎一致
-- skip_count match：跳过计数三引擎一致
-- error_count match：错误计数三引擎一致
-- scheduler.run_count match：调度器运行计数三引擎一致
+- operator names match：各运行时的算子名集合一致
+- exec_count / skip_count / error_count match：算子执行/跳过/错误计数一致
+- scheduler.run_count match：调度器运行计数一致
 
 ## 跨引擎 Benchmark 基础设施
 
@@ -199,9 +203,9 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Pine-Python fuzz：`pine-python/tests/` (Hypothesis)
 - Differential-fuzz 脚本：`scripts/differential-fuzz.py`、`scripts/differential-fuzz.sh`
 - DAG differential-fuzz 脚本：`scripts/dag-differential-fuzz.py`
-- Cross-validate 脚本：`scripts/cross-validate.sh`、`scripts/cross-validate/`
-- Cross-validate 并行调度：`scripts/cross-validate/_parallel.sh`
-- Cross-validate section 13：`scripts/cross-validate/13-metrics-parity.sh`
+- Cross-validate section 列表：`scripts/cross-validate/`
+- Cross-validate metrics-parity section：`scripts/cross-validate/13-metrics-parity.sh`
+- Cross-validate pine-cpp 预构建：`scripts/cross-validate/_prebuild.sh`
 - 跨引擎 benchmark：`scripts/cross-engine-bench.py`、`scripts/cross-engine-bench-cli.sh`、`scripts/bench-generate-fixtures.py`
 - Tag release：`scripts/tag-release.sh`
 - Server stress 入口：`pine-go/pkg/server/server_test.go`
