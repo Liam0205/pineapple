@@ -535,7 +535,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 
 - MutatesRowSet 算子（Filter/Merge/Reorder）序列化行集变异
 - recall 是追加型 item 写者（AdditiveWritesRowSet）
-- observe 算子不产生活跃读者 WAR 压力
+- observe 算子同样登记为活跃读者（pine-go `dag.go:165`），所以对同一字段的后续 mutating 写会产生 WAR 边——参考 `TestObserveCreatesWAR`；仅当后续算子也是读者（如 `TestObserveInNestedSubFlowDoesNotBlock` 中的 item 字段二次读）时才不形成 WAR
 - 有 item 字段的 Transform/Observe 通过 auto-inject 自动获得 `_row_set_` 读依赖
 - ConsumesRowSet 仅用于 metadata 中 item 字段为空但仍结构性访问行集的算子（如 `transform_size`）
 
