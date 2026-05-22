@@ -1,3 +1,5 @@
+#define LUA_COMPAT_ALL 1
+
 #include "lua_bridge.hpp"
 
 extern "C" {
@@ -8,8 +10,64 @@ extern "C" {
 
 #include <cmath>
 
+// LuaJIT 2.1 compat
+#ifndef lua_pushglobaltable
+#define lua_pushglobaltable(L) lua_pushvalue(L, LUA_GLOBALSINDEX)
+#endif
+
 namespace pine {
 namespace lua {
+
+LuaSnapshot::LuaSnapshot(lua_State* L) {
+    lua_pushglobaltable(L);
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            std::string key = lua_tostring(L, -2);
+            globals.insert(key);
+        }
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+}
+
+std::map<std::string, int> LuaSnapshot::capture_values(lua_State* L) const {
+    std::map<std::string, int> values;
+    // Pushing references to the registry to keep them alive
+    for (const auto& key : globals) {
+        lua_getglobal(L, key.c_str());
+        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        values[key] = ref;
+    }
+    return values;
+}
+
+void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, int>& borrow_snap) const {
+    lua_pushglobaltable(L);
+    lua_pushnil(L);
+    std::vector<std::string> to_remove;
+    while (lua_next(L, -2) != 0) {
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            std::string key = lua_tostring(L, -2);
+            if (globals.find(key) == globals.end()) {
+                to_remove.push_back(key);
+            }
+        }
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    for (const auto& key : to_remove) {
+        lua_pushnil(L);
+        lua_setglobal(L, key.c_str());
+    }
+
+    for (const auto& [key, ref] : borrow_snap) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+        lua_setglobal(L, key.c_str());
+        luaL_unref(L, LUA_REGISTRYINDEX, ref);
+    }
+}
 
 LuaVM::LuaVM() {
     L_ = luaL_newstate();

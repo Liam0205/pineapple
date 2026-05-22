@@ -19,6 +19,17 @@ endif()
 message(STATUS "LuaJIT lib: ${LUAJIT_LIB}")
 message(STATUS "LuaJIT include: ${LUAJIT_INCLUDE}")
 
+# --- libcurl (for transform_by_remote_pineapple) ---
+find_library(CURL_LIB NAMES curl
+    HINTS /home/linuxbrew/.linuxbrew/lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu)
+find_path(CURL_INCLUDE NAMES curl/curl.h
+    HINTS /home/linuxbrew/.linuxbrew/include /usr/local/include /usr/include)
+if(NOT CURL_LIB OR NOT CURL_INCLUDE)
+    message(FATAL_ERROR "libcurl not found. Install with: brew install curl OR apt install libcurl4-openssl-dev")
+endif()
+message(STATUS "libcurl lib: ${CURL_LIB}")
+message(STATUS "libcurl include: ${CURL_INCLUDE}")
+
 add_library(pine_cpp_core OBJECT
     src/config/json.cpp
     src/config/config.cpp
@@ -32,6 +43,7 @@ add_library(pine_cpp_core OBJECT
     src/resource/resource.cpp
     src/render/render.cpp
     src/lua/lua_bridge.cpp
+    src/lua/lua_pool.cpp
     src/redis/redis_client.cpp
     operators/_helpers.cpp
     operators/filter/filter_condition.cpp
@@ -49,13 +61,16 @@ add_library(pine_cpp_core OBJECT
     operators/transform/transform_normalize.cpp
     operators/transform/transform_redis_get.cpp
     operators/transform/transform_redis_set.cpp
+    operators/transform/transform_remote_pineapple.cpp
+    src/http/http_client.cpp
+    src/http/ssrf.cpp
     operators/transform/transform_resource_lookup.cpp
     operators/transform/transform_size.cpp
 )
 
 target_include_directories(pine_cpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(pine_cpp_core PUBLIC ${LUAJIT_LIB})
+target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CURL_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(pine_cpp_core PUBLIC ${LUAJIT_LIB} ${CURL_LIB})
 
 target_compile_options(pine_cpp_core PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -117,6 +132,9 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_metrics.cpp
         tests/test_resource.cpp
         tests/test_http_metrics.cpp
+        tests/test_metrics_aware.cpp
+        tests/test_stats_provider.cpp
+        tests/test_remote_pineapple.cpp
     )
     target_sources(pine_cpp_tests PRIVATE src/server/http_metrics.cpp)
     target_link_libraries(pine_cpp_tests PRIVATE pine_cpp_core doctest::doctest)

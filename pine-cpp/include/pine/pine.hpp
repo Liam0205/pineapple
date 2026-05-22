@@ -347,6 +347,10 @@ public:
     // Returns the configured metrics provider (never nullptr; nop by default).
     metrics::Provider* metrics_provider() const { return metrics_provider_; }
 
+    // OperatorCustomStats collects custom statistics from operators that implement
+    // StatsProvider. Returns an empty map when no operator reports custom stats.
+    std::map<std::string, std::map<std::string, int64_t>> operator_custom_stats() const;
+
     // Pre-created scheduler/operator metrics. Public so the scheduler in
     // engine.cpp can record observations; not part of the stable public API.
     struct EngineMetrics;

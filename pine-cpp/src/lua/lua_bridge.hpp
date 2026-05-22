@@ -1,11 +1,26 @@
 #pragma once
 
 #include "pine/pine.hpp"
+#include <set>
+#include <map>
+#include <string>
 
 struct lua_State;
 
 namespace pine {
 namespace lua {
+
+class LuaSnapshot {
+public:
+    LuaSnapshot() = default;
+    explicit LuaSnapshot(lua_State* L);
+
+    std::map<std::string, int> capture_values(lua_State* L) const;
+    void reset_to_baseline(lua_State* L, const std::map<std::string, int>& borrow_snap) const;
+
+private:
+    std::set<std::string> globals;
+};
 
 class LuaVM {
 public:
@@ -19,6 +34,8 @@ public:
     void set_global(const std::string& name, const JsonValue& value);
     void set_global_table(const std::string& name, const std::vector<JsonValue>& values);
     std::vector<JsonValue> call_function(const std::string& func_name, int nret, const std::string& op_name);
+
+    lua_State* state() const { return L_; }
 
 private:
     void push_value(const JsonValue& value);

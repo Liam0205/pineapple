@@ -246,6 +246,11 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
         }
         auto instance = entry->factory();
         instance->init(op_cfg);
+        // Inject metrics provider for operators that opt-in. Mirrors
+        // pine-go pine.go:170 — init first, then provider injection.
+        if (auto* ma = dynamic_cast<MetricsAware*>(instance.get())) {
+            ma->set_metrics_provider(metrics_provider_);
+        }
         operators_.emplace(op_name, std::move(instance));
     }
 }
@@ -591,6 +596,22 @@ std::string Engine::render_dag(const std::string& format, int collapse) const {
 
 int64_t Engine::peak_concurrency() const {
     return peak_concurrency_ ? peak_concurrency_->load(std::memory_order_relaxed) : 0;
+}
+
+std::map<std::string, std::map<std::string, int64_t>> Engine::operator_custom_stats() const {
+    std::map<std::string, std::map<std::string, int64_t>> result;
+    for (const auto& cop : expanded_.sequence) {
+        auto it = operators_.find(cop); // cop is std::string
+        if (it != operators_.end()) {
+            if (auto* sp = dynamic_cast<const StatsProvider*>(it->second.get())) {
+                auto s = sp->operator_stats();
+                if (!s.empty()) {
+                    result[cop] = std::move(s);
+                }
+            }
+        }
+    }
+    return result;
 }
 
 }  // namespace pine
