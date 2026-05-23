@@ -1,4 +1,5 @@
 #include "server/server.hpp"
+#include "server/http_stats.hpp"
 #include "pine/resource.hpp"
 
 #include <algorithm>
@@ -610,6 +611,34 @@ void Server::handle_stats(int client_fd, const std::string& method) {
                        ",\"scheduler\":" + sched_json +
                        ",\"server\":" + server_json;
 
+    // Build http JSON (mirrors pine-go /stats.http subtree). Maps from
+    // HttpStats are already lexicographically ordered (std::map) so iteration
+    // order produces byte-exact JSON to match Go's encoding/json.
+    if (http_stats_) {
+        auto duration_snap = http_stats_->durations_snapshot();
+        auto requests_snap = http_stats_->requests_snapshot();
+
+        std::string http_json = "{\"request_duration_seconds\":{";
+        bool first_dur = true;
+        for (const auto& [key, bucket] : duration_snap) {
+            if (!first_dur) http_json += ",";
+            first_dur = false;
+            http_json += "\"" + json_escape(key) + "\":{";
+            http_json += "\"count\":" + std::to_string(bucket.count);
+            http_json += ",\"sum_ns\":" + std::to_string(bucket.sum_ns);
+            http_json += "}";
+        }
+        http_json += "},\"requests_total\":{";
+        bool first_req = true;
+        for (const auto& [key, count] : requests_snap) {
+            if (!first_req) http_json += ",";
+            first_req = false;
+            http_json += "\"" + json_escape(key) + "\":" + std::to_string(count);
+        }
+        http_json += "}}";
+        body += ",\"http\":" + http_json;
+    }
+
     {
         std::shared_lock<std::shared_mutex> lock(engine_mu_);
         if (engine_) {
@@ -844,13 +873,14 @@ int Server::run(const ServerConfig& cfg) {
         return 1;
     }
 
-    // If a metrics provider is configured, append the HTTP metrics middleware
-    // as the innermost layer so it measures handler duration excluding user
-    // middleware overhead. Mirrors pine-go server.go line "Apply HTTP metrics
-    // as innermost middleware".
-    if (config_.metrics_provider) {
-        config_.middlewares.push_back(http_metrics_middleware(config_.metrics_provider));
-    }
+    // Apply HTTP metrics as innermost middleware. Standard behavior: we use
+    // the configured metrics_provider, or fall back to nop_provider() so the
+    // middleware chain is ALWAYS configured identically to Go/Java/Python.
+    // The middleware also feeds an in-process HttpStats that surfaces through
+    // GET /stats.http; timing excludes user middleware overhead.
+    metrics::Provider* provider = config_.metrics_provider ? config_.metrics_provider : metrics::nop_provider();
+    http_stats_ = std::make_unique<HttpStats>();
+    config_.middlewares.push_back(http_metrics_middleware(provider, http_stats_.get()));
 
     // Load engine and start resource manager if configured
     try {

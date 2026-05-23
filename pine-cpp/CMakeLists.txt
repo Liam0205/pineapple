@@ -99,7 +99,7 @@ add_executable(pineapple-codegen cmd/pineapple-codegen/main.cpp)
 target_link_libraries(pineapple-codegen PRIVATE pine_cpp_core)
 pine_cpp_target_warnings(pineapple-codegen)
 
-add_executable(pineapple-server cmd/pineapple-server/main.cpp src/server/server.cpp src/server/http_metrics.cpp)
+add_executable(pineapple-server cmd/pineapple-server/main.cpp src/server/server.cpp src/server/http_metrics.cpp src/server/http_stats.cpp)
 target_include_directories(pineapple-server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(pineapple-server PRIVATE pine_cpp_core pthread)
 pine_cpp_target_warnings(pineapple-server)
@@ -132,11 +132,12 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_metrics.cpp
         tests/test_resource.cpp
         tests/test_http_metrics.cpp
+        tests/test_http_stats.cpp
         tests/test_metrics_aware.cpp
         tests/test_stats_provider.cpp
         tests/test_remote_pineapple.cpp
     )
-    target_sources(pine_cpp_tests PRIVATE src/server/http_metrics.cpp)
+    target_sources(pine_cpp_tests PRIVATE src/server/http_metrics.cpp src/server/http_stats.cpp)
     target_link_libraries(pine_cpp_tests PRIVATE pine_cpp_core doctest::doctest)
     target_include_directories(pine_cpp_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
