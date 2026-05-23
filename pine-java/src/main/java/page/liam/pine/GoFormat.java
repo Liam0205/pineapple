@@ -248,6 +248,14 @@ public final class GoFormat {
             public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
                 if (Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0.0)) {
                     gen.writeNumber(0);
+                } else if (!Double.isNaN(value) && !Double.isInfinite(value)
+                        && value == Math.floor(value)
+                        && value >= -9.007199254740992e15
+                        && value <= 9.007199254740992e15) {
+                    // Go json.Encoder omits the trailing ".0" for integer-valued
+                    // doubles (e.g. 1.0 → "1") since it serializes via %g/strconv.
+                    // Match that exactly.
+                    gen.writeNumber((long) value.doubleValue());
                 } else {
                     gen.writeNumber(value.doubleValue());
                 }
