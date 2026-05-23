@@ -236,9 +236,9 @@
 
 ### 隐式行集依赖测试
 
-跨引擎 fixture 验证 auto-inject 机制在多种 item 字段组合下的正确性，确保有 item 字段的算子即使不带显式 ConsumesRowSet 也能获得正确的 `_row_set_` 依赖边。三引擎的 fuzz 测试（Go `FuzzBuild`、Java、Python）均添加了行集安全不变量断言：每个拥有 item 字段的算子在构建后的图中必须有 `_row_set_` 依赖边。
+跨引擎 fixture 验证 auto-inject 机制在多种 item 字段组合下的正确性，确保有 item 字段的算子即使不带显式 ConsumesRowSet 也能获得正确的 `_row_set_` 依赖边。Go/Java/Python 各运行时的 fuzz 测试（Go `FuzzBuild`、Java、Python）均添加了行集安全不变量断言：每个拥有 item 字段的算子在构建后的图中必须有 `_row_set_` 依赖边。
 
-`scripts/dag-differential-fuzz.py` 提供 DAG 级别的三引擎差异模糊测试，生成随机管道配置，在 Go/Java/Python 中构建 DAG 后比对边集（而非执行输出），检测 DAG 构建层面的跨引擎不一致。
+`scripts/dag-differential-fuzz.py` 提供 DAG 级别的多引擎差异模糊测试，生成随机管道配置，在 Go/Java/Python 中构建 DAG 后比对边集（而非执行输出），检测 DAG 构建层面的跨引擎不一致。
 
 ## 行集依赖模型（Row Set Markers）
 
@@ -779,7 +779,7 @@ Pine-Java 注册全部 18 个内置算子（`AllOperators.java`），与 Pine-Go
 
 ### Schema 独立性
 
-Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。三侧通过 CI 十三层交叉验证（`scripts/cross-validate.sh`：Codegen-Schema、Render-DAG、Execution、Column-store、Error、Server-HTTP、Cancellation、Concurrent、Raw-byte、Hot-reload、Redis-integration、Extensibility-parity、Metrics-parity）保持对齐，无运行时耦合。
+Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`OperatorSchema.java`），`validateAndExtractParams()` 执行与 Go 等效的严格校验。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON。各运行时通过 CI 多层交叉验证（`scripts/cross-validate.sh`：Codegen-Schema、Render-DAG、Execution、Column-store、Error、Server-HTTP、Cancellation、Concurrent、Raw-byte、Hot-reload、Redis-integration、Extensibility-parity、Metrics-parity）保持对齐，无运行时耦合。
 
 ## 检索指针
 
@@ -847,3 +847,17 @@ Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`Ope
 - HTTP 服务：`pine-python/pine/cli/server.py`
 - CLI 入口：`pine-python/pine/cli/run.py`、`pine-python/pine/cli/dag.py`、`pine-python/pine/cli/codegen.py`
 - 算子实现：`pine-python/pine/operators/`
+
+### Pine-C++ 功能对等
+
+`pine-cpp/` 提供完整对等的 C++ 运行时，与 Go/Java/Python 共享同一 JSON 配置格式和 fixture 财富。
+
+核心差异（独有特性，不影响对等语义）：
+
+- **调度模型**：per-node `std::thread`（每 DAG 节点独立线程），而非 Go 的 goroutine 或 Java 的 Virtual Thread；data_parallel 通过 sharded workers 实现
+- **数据表示**：ColumnFrame（`src/dataframe/column_frame.cpp`），基于 ColumnStore + Column 类型层级 + validity bitmap；所有算子通过 OperatorOutput write-log + `apply_output()` 写回
+- **错误分级**：PanicError 包装 unexpected exception，与 Go/Java 的 `PanicError` 对等
+
+功能覆盖（与 Go/Java/Python 对等）：HTTP server `/execute`/`/stats`/`/dag`/`/health`、配置热加载（mtime-polling）、所有交叉验证层接入、codegen、DAG 可视化、全算子覆盖。
+
+详见 `llmdoc/architecture/pine-cpp-runtime.md`。

@@ -105,18 +105,18 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 
 ## 6. 扩展点对等验证
 
-验证各引擎对外暴露的扩展能力是否一致，而非仅验证已有功能输出。此维度覆盖"能力等价"——下游能否在三引擎间使用相同的集成模式。
+验证各引擎对外暴露的扩展能力是否一致，而非仅验证已有功能输出。此维度覆盖"能力等价"——下游能否在各运行时间使用相同的集成模式。
 
 检查点：
 
 - middleware 是否能看到所有 HTTP 请求（包括未注册路径）
 - 下游注入自定义 handler/endpoint 的 API 是否存在且语义一致
-- Option pattern 覆盖面一致（相同的 withXxx 选项在三引擎均可用）
+- Option pattern 覆盖面一致（相同的 withXxx 选项在各运行时均可用）
 - 生命周期钩子对等（shutdown callback、reload 回调等）
 
 方法：
 
-- 编写"下游典型使用模式"用例，在三引擎各自实现并验证可行性
+- 编写"下游典型使用模式"用例，在各运行时各自实现并验证可行性
 - 对未注册路径发送请求，验证 middleware 是否能拦截
-- 对比三引擎的公共 API surface（不只是内部实现）
-- 枚举 Server 级扩展点（add handler、wrap middleware、custom route），验证三引擎均暴露等价能力
+- 对比各运行时的公共 API surface（不只是内部实现）
+- 枚举 Server 级扩展点（add handler、wrap middleware、custom route），验证各运行时均暴露等价能力
