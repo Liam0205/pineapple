@@ -83,3 +83,15 @@ def test_raise_from_chain_preserves_full_path():
             assert isinstance(outer.__cause__, ValueError)
             assert isinstance(outer.__cause__.__cause__, FakeRedisError)
             assert outer.__cause__.__cause__.key == "deep"
+
+
+def test_execution_error_legacy_single_arg_emits_deprecation_warning():
+    """Legacy `raise ExecutionError("msg")` must still work but warn."""
+    import warnings as warnings_mod
+    with warnings_mod.catch_warnings(record=True) as caught:
+        warnings_mod.simplefilter("always")
+        err = ExecutionError("legacy message")
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+    assert str(err) == "legacy message"
+    assert err.operator == ""
+    assert err.__cause__ is None
