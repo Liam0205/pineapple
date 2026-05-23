@@ -131,6 +131,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_operator_output.cpp
         tests/test_trace.cpp
         tests/test_column.cpp
+        tests/test_format_g.cpp
         tests/test_column_frame.cpp
         tests/test_register_operator.cpp
         tests/test_metrics.cpp
@@ -146,7 +147,8 @@ if(PINE_CPP_BUILD_TESTS)
     target_link_libraries(pine_cpp_tests PRIVATE pine_cpp_core doctest::doctest)
     target_include_directories(pine_cpp_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR})
     pine_cpp_target_warnings(pine_cpp_tests)
 
     enable_testing()

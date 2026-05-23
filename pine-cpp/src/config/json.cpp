@@ -275,7 +275,7 @@ std::string indent(int depth, int spaces) { return std::string(depth * spaces, '
 // shortest). Both with precision=-1 (shortest representation). Diverges from
 // Go's fmt.Sprintf("%g") which uses different thresholds — keep them separate.
 std::string go_format_json_number(double d) {
-    if (d == 0.0) return "0";
+    if (d == 0.0) return std::signbit(d) ? "-0" : "0";
     double abs_d = std::abs(d);
     bool use_scientific = (abs_d < 1e-6) || (abs_d >= 1e21);
     char buf[64];
