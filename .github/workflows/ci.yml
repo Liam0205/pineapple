@@ -163,7 +163,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev
+            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
       - name: Configure pine-cpp
         working-directory: pine-cpp
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -200,7 +200,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev
+            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
       - name: Run ASan/UBSan smoke
         run: bash scripts/cpp-sanitizer-smoke.sh
 
@@ -212,7 +212,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev
+            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
       - name: Strict build (-Werror)
         working-directory: pine-cpp
         run: |
@@ -262,7 +262,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev
+            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
       - name: Configure with tests enabled
         working-directory: pine-cpp
         run: |
@@ -400,7 +400,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            redis-server=5:7.* cmake build-essential libluajit-5.1-dev
+            redis-server=5:7.* cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
           redis-server --version
       - name: Cross-validate Go vs Java vs Python vs C++
         run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
