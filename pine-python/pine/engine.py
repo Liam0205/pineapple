@@ -452,18 +452,24 @@ class Engine:
                     input_snapshot=input_snapshot,
                 )
                 self._stats.record_error(cop.name, duration_ns)
-                # Classify error
+                # Classify error. Preserve the original exception object as
+                # __cause__ so downstream code can walk the chain via
+                # ``err.__cause__`` (mirrors Go errors.As / pine-cpp
+                # std::nested_exception). The user-facing message is
+                # unchanged so cross-validate Section 5 stays byte-exact.
                 if isinstance(exec_err, PanicError):
                     wrapped = exec_err
                 elif isinstance(exec_err, OperatorException):
                     wrapped = PanicError(
                         f'pine: execution error in operator "{cop.name}": {exec_err}',
                         detail="",
+                        cause=exec_err,
                     )
                 else:
                     wrapped = PanicError(
                         f'pine: panic in operator "{cop.name}": unexpected panic',
                         detail=traceback.format_exc(),
+                        cause=exec_err,
                     )
                 set_fatal(wrapped)
                 return
@@ -506,6 +512,7 @@ class Engine:
                 wrapped = PanicError(
                     f'pine: execution error in operator "{cop.name}": apply output: {apply_err}',
                     detail=traceback.format_exc(),
+                    cause=apply_err,
                 )
                 set_fatal(wrapped)
                 return
