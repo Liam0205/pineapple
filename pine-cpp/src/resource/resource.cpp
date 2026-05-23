@@ -1,4 +1,5 @@
 #include "pine/resource.hpp"
+#include "pine/pine.hpp"
 
 #include <chrono>
 #include <future>
@@ -100,6 +101,14 @@ void Manager::load_from_config(const Config& config) {
                                            : std::chrono::seconds(0);
         register_resource(name, std::move(fetcher), interval);
     }
+    // P1-D6: every load_from_config call now validates resource dependencies
+    // against the operators in the same config. The previous design ran
+    // validate_resource_deps only from server.cpp / pineapple-run; unit
+    // tests, Python bindings, or any future caller that constructed an
+    // Engine + Manager directly silently skipped the check. Closing the
+    // validate-or-die loop here makes the invariant unsurvivable from any
+    // path that loads config.
+    validate_resource_deps(config);
 }
 
 void Manager::start() {
@@ -195,7 +204,10 @@ void Manager::validate_resource_deps(const Config& config) const {
             if (i > 0) err_msg += ", ";
             err_msg += missing[i];
         }
-        throw std::runtime_error(err_msg);
+        // P1-D5: raise the canonical ConfigError so callers see the
+        // `pine: config error: ...` prefix and exception type that
+        // matches every other init-time config defect.
+        throw ConfigError(err_msg);
     }
 }
 

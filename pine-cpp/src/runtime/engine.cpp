@@ -257,18 +257,11 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     graph_ = build_dag(config_, expanded_);
     engine_metrics_ = build_engine_metrics(metrics_provider_, expanded_.sequence);
 
-    // Validate sources order matching pine-go validateSourcesOrder.
-    // Sources references must exist and be declared before the current operator.
-    std::set<std::string> seen_ops;
-    for (const auto& op_name : expanded_.sequence) {
-        const auto& op_cfg = config_.operators.at(op_name);
-        for (const auto& src : op_cfg.sources) {
-            if (!seen_ops.count(src)) {
-                throw ValidationError("operator \"" + op_name + "\": sources references \"" + src + "\" which is declared after the current operator (forward reference)");
-            }
-        }
-        seen_ops.insert(op_name);
-    }
+    // Forward-reference validation runs inside build_dag() above
+    // (dag.cpp:155 raises ConfigError("operator \"X\": sources contains
+    // forward reference to \"Y\"")), so by the time we reach this point
+    // every operator's sources are guaranteed to refer to nodes already
+    // visited. A second native-side check would be dead code (P1-D4).
 
     // Instantiate and init one Operator per config operator.
     for (auto& [op_name, op_cfg] : config_.operators) {
