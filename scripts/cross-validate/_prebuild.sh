@@ -11,6 +11,7 @@ echo "    Building Go CLIs..."
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pineapple-dag" ./cmd/pineapple-dag/)
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pineapple-run" ./cmd/pineapple-run/)
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pineapple-server" ./cmd/pineapple-server/)
+(cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pine-cause-chain-probe" ./cmd/pine-cause-chain-probe/)
 
 echo "    Compiling Java + resolving classpath..."
 (cd "$REPO_ROOT/pine-java" && mvn compile -B -q)
@@ -24,10 +25,12 @@ if [[ -d "$REPO_ROOT/pine-cpp" ]]; then
     cp "$REPO_ROOT/pine-cpp/build/pineapple-render-dag" "$WORK_DIR/pineapple-dag-cpp" 2>/dev/null && \
     cp "$REPO_ROOT/pine-cpp/build/pineapple-codegen" "$WORK_DIR/pineapple-codegen-cpp" 2>/dev/null && \
     cp "$REPO_ROOT/pine-cpp/build/pineapple-server" "$WORK_DIR/pineapple-server-cpp" 2>/dev/null && \
+    cp "$REPO_ROOT/pine-cpp/build/pineapple-cause-chain-probe" "$WORK_DIR/pineapple-cause-chain-probe-cpp" 2>/dev/null && \
     export CPP_RUN="$WORK_DIR/pineapple-run-cpp" && \
     export CPP_DAG="$WORK_DIR/pineapple-dag-cpp" && \
     export CPP_CODEGEN="$WORK_DIR/pineapple-codegen-cpp" && \
-    export CPP_SERVER="$WORK_DIR/pineapple-server-cpp" || \
+    export CPP_SERVER="$WORK_DIR/pineapple-server-cpp" && \
+    export CPP_CAUSE_CHAIN_PROBE="$WORK_DIR/pineapple-cause-chain-probe-cpp" || \
     echo "    (C++ build skipped or failed — C++ parity checks will be skipped)"
 fi
 

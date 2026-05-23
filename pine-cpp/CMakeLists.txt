@@ -104,6 +104,10 @@ target_include_directories(pineapple-server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/
 target_link_libraries(pineapple-server PRIVATE pine_cpp_core pthread)
 pine_cpp_target_warnings(pineapple-server)
 
+add_executable(pineapple-cause-chain-probe cmd/pineapple-cause-chain-probe/main.cpp)
+target_link_libraries(pineapple-cause-chain-probe PRIVATE pine_cpp_core)
+pine_cpp_target_warnings(pineapple-cause-chain-probe)
+
 # --- Tests ---
 option(PINE_CPP_BUILD_TESTS "Build pine-cpp unit tests" OFF)
 if(PINE_CPP_BUILD_TESTS)

@@ -44,7 +44,7 @@ parse_sections() {
   echo "${result[@]}"
 }
 
-TOTAL_SECTIONS=14
+TOTAL_SECTIONS=15
 export TOTAL_SECTIONS
 
 if [[ $# -gt 0 ]]; then

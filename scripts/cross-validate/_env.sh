@@ -14,7 +14,7 @@ _CV_ENV_LOADED=1
 set -euo pipefail
 
 _CV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-: "${TOTAL_SECTIONS:=12}"
+: "${TOTAL_SECTIONS:=15}"
 
 # If REPO_ROOT not set, we're running standalone
 if [[ -z "${REPO_ROOT:-}" ]]; then

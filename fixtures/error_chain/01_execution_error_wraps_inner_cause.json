@@ -1,0 +1,21 @@
+{
+  "description": "Cause-chain parity: wrapping an inner exception via the runtime's ExecutionError must preserve the inner exception object so downstream code can recover it through the language's native unwrap idiom (Go errors.As / Java Throwable.getCause() / Python __cause__ / C++ pine::error_as<T>).",
+  "scenario": {
+    "inner_exception_type": "FakeRedisError",
+    "inner_exception_msg": "key=user:42 not found",
+    "outer_wrapper": "ExecutionError",
+    "outer_operator_name": "redis_getter"
+  },
+  "expected_probe_output": "PASS:key=user:42 not found",
+  "languages": ["go", "java", "python", "cpp"],
+  "probe_entrypoints": {
+    "go": "pine-go/cmd/pine-cause-chain-probe",
+    "java": "page.liam.pine.CauseChainProbe",
+    "python": "pine.cli.cause_chain_probe",
+    "cpp": "pine-cpp/build/pineapple-cause-chain-probe"
+  },
+  "notes": [
+    "FAIL:<reason> output indicates the language has lost the cause-chain capability (regressed parity).",
+    "This fixture is consumed by scripts/cross-validate/15-error-cause-chain.sh which spawns the four probe binaries and asserts byte-identical stdout."
+  ]
+}
