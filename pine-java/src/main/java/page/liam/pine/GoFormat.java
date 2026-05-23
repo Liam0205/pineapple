@@ -247,7 +247,11 @@ public final class GoFormat {
             @Override
             public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
                 if (Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0.0)) {
-                    gen.writeNumber(0);
+                    // Go encoding/json preserves the sign bit on negative zero:
+                    // json.Marshal(math.Copysign(0, -1)) emits "-0".
+                    // Jackson's writeNumber(-0.0) emits "-0.0", so we have to
+                    // write the raw literal to match Go byte-for-byte.
+                    gen.writeRawValue("-0");
                 } else if (!Double.isNaN(value) && !Double.isInfinite(value)
                         && value == Math.floor(value)
                         && value >= -9.007199254740992e15
