@@ -146,6 +146,23 @@ C++ 端是否参与某次比对取决于该 section 中对 `CPP_RUN` / `CPP_DAG`
 - operator names match：各运行时的算子名集合一致
 - exec_count / skip_count / error_count match：算子执行/跳过/错误计数一致
 - scheduler.run_count match：调度器运行计数一致
+- http.requests_total `POST /execute 2xx` 四方计数一致
+- http.request_duration_seconds `POST /execute` count 四方一致
+- `/stats.http` schema shape 四方一致（`requests_total` + `request_duration_seconds` 两子树存在 + duration bucket 含 `count`/`sum_ns` 字段）
+
+### Section 15: Error Cause Chain Parity
+
+`scripts/cross-validate/15-error-cause-chain.sh` 用 **probe binary 矩阵**验证四运行时的 ExecutionError cause chain 输出一致 -- 这是 cross-validate 框架的第二种验证模式（第一种是 fixture-driven HTTP 字节对比）。
+
+每方 probe binary:
+- pine-go: `cmd/pine-cause-chain-probe/main.go`
+- pine-java: `page.liam.pine.CauseChainProbe`
+- pine-python: `pine.cli.cause_chain_probe`
+- pine-cpp: `cmd/pineapple-cause-chain-probe/main.cpp`
+
+probe 流程：构造 `FakeRedisError("user:42")` -> 包装为 ExecutionError -> catch 外层 -> 用语言原生 idiom 取出 inner -> stdout 输出 `PASS:key=user:42 not found`。Section 15 收集四方 stdout 做字节级 diff。
+
+适用场景：当 parity 维度在 HTTP 接口不可见时（语言层 API 形态、原生能力可用性），用 probe binary 把维度具象化为可比对的 stdout 字符串。
 
 ## 跨引擎 Benchmark 基础设施
 

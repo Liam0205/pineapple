@@ -98,12 +98,13 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - `ConfigError` / `ValidationError` / `RegistryError` 在构造时自动加 `pine: <kind> error: ...` 前缀，与 pine-go `types/errors.go` 字节级一致
   - `RegistryError` 支持 `(operator_name, msg)` 双参形态对齐 Go 的 `RegistryError.Operator` 字段
   - `PanicError` + dispatch recovery 把意外异常映射为可观察的算子错误
+  - **Cause chain 支持**：`ExecutionError` 与 `PanicError` 多继承 `std::nested_exception`，`dispatch_with_recovery` 用 `std::throw_with_nested` 重抛保留 inner cause。`include/pine/error_chain.hpp` 提供 `pine::error_as<T>(const std::exception&)` / `pine::error_is<T>(const std::exception&)` 模板 helper，沿 nested 链下钻，对偶 Go `errors.As` / Java `Throwable.getCause()` / Python `__cause__`。注意：helper 内部显式检查 `nested_ptr() != nullptr` 后才调用 `rethrow_nested()`，避开标准 `std::rethrow_if_nested` 在 null 时 `std::terminate` 的 footgun
 - **可插拔观测与扩展**
   - `pine::metrics::Provider` / `Counter` / `Gauge` / `Histogram` / `NopProvider`（对齐 pine-go `pkg/metrics`）
   - `MetricsAware` 接口（`Engine` 预创建后自动注入）与 `StatsProvider` 接口（向 `/stats` 暴露算子内部计数）
   - `EngineOptions::metrics_provider` 注入；未设置时回退到 `metrics::nop_provider()`
   - `ServerConfig::middlewares`：outer-to-inner 调用链 + `MiddlewareContext`（method / path / normalized_path / request_bytes / status）
-  - `pine::server::http_metrics_middleware(provider)` 工厂返回内置 HTTP 指标 middleware，指标名与桶与 pine-go `pkg/server/http_metrics.go` 一致
+  - `pine::server::http_metrics_middleware(provider)` 工厂返回内置 HTTP 指标 middleware，指标名与桶与 pine-go `pkg/server/http_metrics.go` 一致。`Server::run()` 现在**无条件** `push_back(http_metrics_middleware(provider, http_stats_.get()))`，不再需要用户显式注入。当 `ServerConfig::metrics_provider` 为 nullptr 时自动 tie-off 至 `metrics::nop_provider()`。`HttpStats` 累加器（`src/server/http_stats.{hpp,cpp}`）是 middleware 第二写入路径，数据由 `handle_stats()` 序列化为 `"http"` 子树
   - `pine::resource::Manager` + `FetcherFactory` + `register_fetcher_factory(type, factory)` 与 pine-go `pkg/resource` 等价：后台刷新线程、`snapshot()`、可重入 `stop()`
   - `transform_by_remote_pineapple` 算子：基于 `libcurl` 实现 SSRF 安全保护（拦截 loopback/private IP 配置）、HTTP POST 超时与最大体积限制
 - **根级配置扩展**

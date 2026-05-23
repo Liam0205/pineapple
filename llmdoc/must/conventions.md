@@ -172,3 +172,20 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 - CI job 数量 → 引用 `.github/workflows/ci.yml` 而非硬编码
 
 定量数字若必须出现，应放在有维护责任人的表格内并与代码处于同一文档目录，便于一同更新。
+
+## http_metrics middleware 必须 default-on
+
+各运行时（pine-go / pine-java / pine-python / pine-cpp）的 HTTP server 必须**无条件**注入 `http_metrics_middleware`（含 `HttpStats` 累加器作为第二写入路径），不得要求用户显式 opt-in。`metrics_provider` 为 null 时自动 tie-off 至 `NopProvider`，middleware 链与外部观测语义保持各方字节一致。
+
+理由：R2 后续审计（2026-05-23）发现 pine-java 此前是 conditional 接入，pine-python 完全缺失，与 R2 时 pine-cpp 的 conditional 状态同型。本约定收口"各方装配条件统一"，由 Section 13 schema shape 检查长期监管。
+
+## ExecutionError/PanicError 必须保留 cause chain
+
+各运行时的 `ExecutionError` / `PanicError` 在包装内层异常时，必须保留 inner exception 的对象引用以支持沿链下钻：
+
+- pine-go: `Err error` 字段 + `Unwrap() error`，通过 `errors.Is/As` 解包
+- pine-java: 构造时 `super(msg, cause)`，通过 `Throwable.getCause()` + `instanceof` 解包
+- pine-python: 显式 `self.__cause__ = cause`，通过 `isinstance(e.__cause__, T)` 解包
+- pine-cpp: 多继承 `std::nested_exception` + `std::throw_with_nested` 重抛，通过 `pine::error_as<T>()` helper 走链（注意 helper 须先检查 `nested_ptr() != nullptr`，避开标准 `std::rethrow_if_nested` 的 footgun）
+
+理由：cause chain 属于"语言层 API 形态对等"的一部分，虽然不在 HTTP /execute 返回 JSON 中可见（已被 string flatten），但下游用户对该能力有预期。Section 15（`15-error-cause-chain.sh`）通过四方 probe binary stdout 字节级一致验证（`PASS:key=user:42 not found`）。
