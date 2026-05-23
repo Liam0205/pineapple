@@ -189,3 +189,15 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 - pine-cpp: 多继承 `std::nested_exception` + `std::throw_with_nested` 重抛，通过 `pine::error_as<T>()` helper 走链（注意 helper 须先检查 `nested_ptr() != nullptr`，避开标准 `std::rethrow_if_nested` 的 footgun）
 
 理由：cause chain 属于"语言层 API 形态对等"的一部分，虽然不在 HTTP /execute 返回 JSON 中可见（已被 string flatten），但下游用户对该能力有预期。Section 15（`15-error-cause-chain.sh`）通过四方 probe binary stdout 字节级一致验证（`PASS:key=user:42 not found`）。
+
+## 错误类型分类约定(ConfigError / ValidationError / RegistryError)
+
+各运行时在 init / build / dispatch 阶段抛出的错误类型必须按以下边界统一:
+
+- **ConfigError**:配置文件结构错(缺字段、空 operators、JSON parse、name 冲突)。`pine: config error: ...` 前缀。
+- **ValidationError**:语义错(`data_parallel < 0`、`skip` 字段非 `_` 开头、`skip` 字段未出现在 `common_input`、forward source reference、resource_name 引用未注册资源)。`pine: validation error: ...` 前缀。
+- **RegistryError**:算子注册系统错(未知算子类型、参数 schema 校验失败、Init 失败 wrap、参数语义违反如 `top_n` 必须为数字 / `unsupported order`)。`pine: registry error [<op>]: ...` 前缀。
+
+**Section 5 (error-parity) 不强制 enforce type 字段**(只用 `message_contains` 子串匹配),所以历史上各运行时分类略有 ad-hoc。本约定的目的是给未来贡献者一个边界判断标准,避免再扩大漂移。reviewer P1-O1 审计现状大致已符合此分类(C++/Java/Python 都把 init-time wrap 走 RegistryError,跟 Go `BuildOperator` 一致;ValidationError 用于明确"语义不变量")。
+
+边角案例 — `additive_writes_row_set + mutates_row_set` 冲突:Go 端原是 `fmt.Errorf` plain error;C++/Java/Python 当前用 RegistryError。后续如需统一,选 ValidationError(语义边界冲突)。
