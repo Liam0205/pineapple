@@ -66,6 +66,7 @@ type Server struct {
 		reloadErrors   metrics.Counter
 		reloadDuration metrics.Histogram
 	}
+	httpStats *HttpStats
 }
 
 // Run starts the Pine HTTP server with the given configuration.
@@ -165,7 +166,8 @@ func (s *Server) run(cfg Config) error {
 
 	// Apply HTTP metrics as innermost middleware (measures handler duration
 	// excluding user middleware overhead).
-	handler := httpMetricsMiddleware(mp, mux)
+	s.httpStats = NewHttpStats()
+	handler := httpMetricsMiddleware(mp, s.httpStats, mux)
 
 	// Apply user middlewares (outer-to-inner: first middleware sees request first)
 	for i := len(cfg.Middlewares) - 1; i >= 0; i-- {
@@ -391,6 +393,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"operators": snap.engine.Stats(),
 		"scheduler": snap.engine.SchedulerStats(),
 		"server":    s.serverStats(),
+	}
+	if s.httpStats != nil {
+		resp["http"] = s.httpStats.Snapshot()
 	}
 	if custom := snap.engine.OperatorCustomStats(); custom != nil {
 		resp["operator_detail"] = custom
