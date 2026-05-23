@@ -40,11 +40,13 @@ add_library(pine_cpp_core OBJECT
     src/dataframe/column_frame.cpp
     src/runtime/engine.cpp
     src/runtime/metrics_nop.cpp
+    src/runtime/thread_pool.cpp
+    src/redis/redis_client.cpp
+    src/redis/connection_pool.cpp
     src/resource/resource.cpp
     src/render/render.cpp
     src/lua/lua_bridge.cpp
     src/lua/lua_pool.cpp
-    src/redis/redis_client.cpp
     operators/_helpers.cpp
     operators/filter/filter_condition.cpp
     operators/filter/filter_paginate.cpp

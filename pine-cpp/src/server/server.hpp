@@ -9,6 +9,7 @@
 #include <map>
 #include <mutex>
 #include <shared_mutex>
+#include <condition_variable>
 #include <string>
 #include <vector>
 
@@ -187,6 +188,11 @@ private:
     // In-flight request counter for graceful shutdown.
     // Mirrors pine-go http.Server.Shutdown waiting for active conns.
     std::atomic<int64_t> in_flight_{0};
+    // Drain cv lets stop() wait on in_flight_ → 0 without sleep-for polling.
+    // The request thread guard decrements in_flight_ then notifies the cv.
+    // P1-P5.
+    std::mutex drain_mu_;
+    std::condition_variable drain_cv_;
 
     // Hot-reload stats
     std::atomic<int64_t> reload_count_{0};

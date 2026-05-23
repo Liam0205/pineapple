@@ -9,6 +9,8 @@ extern "C" {
 }
 
 #include <cmath>
+#include <set>
+#include <vector>
 
 // LuaJIT 2.1 compat
 #ifndef lua_pushglobaltable
@@ -62,9 +64,49 @@ void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, in
         lua_setglobal(L, key.c_str());
     }
 
+    // P1-E3: Re-open the safe built-in libraries so any sub-table mutation
+    // done by the script (`math.huge = 0`, `string.format = nil`, ...) is
+    // wiped before the next borrow. This is the effective equivalent of
+    // deep-cloning the baseline tables — luaopen_* allocates fresh table
+    // instances on every call and registers fresh C closures into them.
+    // Cheaper than maintaining a cross-state native deep-clone and avoids
+    // the Lua-to-C-state mapping headache (registry refs are per-state).
+    static const struct { const char* name; lua_CFunction fn; } kSafeLibs[] = {
+        {"",              luaopen_base},
+        {LUA_TABLIBNAME,  luaopen_table},
+        {LUA_STRLIBNAME,  luaopen_string},
+        {LUA_MATHLIBNAME, luaopen_math},
+    };
+    for (const auto& lib : kSafeLibs) {
+        lua_pushcfunction(L, lib.fn);
+        lua_pushstring(L, lib.name);
+        lua_call(L, 1, 0);
+    }
+    // Re-strip the filesystem-exposing globals the LuaVM ctor stripped,
+    // because luaopen_base re-installs them.
+    lua_pushnil(L); lua_setglobal(L, "dofile");
+    lua_pushnil(L); lua_setglobal(L, "loadfile");
+
+    // Restore non-builtin baseline globals from the captured snapshot.
+    // The builtin tables (`string`, `table`, `math`, base lib functions on
+    // `_G`) have just been reset above; overwriting them from the snapshot
+    // would restore the *polluted* references the borrow had, defeating
+    // the deep-clone. We free those refs but skip the setglobal.
+    static const std::set<std::string> kSkipBuiltins = {
+        // base lib functions (luaopen_base sets these on _G)
+        "_G", "_VERSION", "assert", "collectgarbage", "error", "getfenv",
+        "getmetatable", "ipairs", "load", "loadstring", "next", "pairs",
+        "pcall", "print", "rawequal", "rawget", "rawset", "select",
+        "setfenv", "setmetatable", "tonumber", "tostring", "type",
+        "unpack", "xpcall",
+        // top-level tables
+        "string", "table", "math",
+    };
     for (const auto& [key, ref] : borrow_snap) {
-        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
-        lua_setglobal(L, key.c_str());
+        if (kSkipBuiltins.find(key) == kSkipBuiltins.end()) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+            lua_setglobal(L, key.c_str());
+        }
         luaL_unref(L, LUA_REGISTRYINDEX, ref);
     }
 }

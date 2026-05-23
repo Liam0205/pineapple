@@ -1,10 +1,12 @@
 #include "pine/pine.hpp"
 #include "pine/column_frame.hpp"
 #include "pine/operator.hpp"
+#include "runtime/thread_pool.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <exception>
 #include <future>
@@ -15,6 +17,7 @@
 #include <set>
 #include <shared_mutex>
 #include <sstream>
+#include <stop_token>
 #include <thread>
 
 namespace pine {
@@ -221,6 +224,13 @@ std::unique_ptr<Engine::EngineMetrics> build_engine_metrics(metrics::Provider* p
 
 }  // namespace
 
+// Engine::PoolHolder wraps the worker pool, hidden from pine.hpp so the
+// public header does not depend on runtime/thread_pool.hpp.
+struct Engine::PoolHolder {
+    runtime::ThreadPool pool;
+    explicit PoolHolder(std::size_t n) : pool(n) {}
+};
+
 Engine::Engine(Config config) : Engine(std::move(config), EngineOptions{}) {}
 
 Engine::~Engine() = default;
@@ -235,6 +245,14 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     log_prefix_ = options.log_prefix.has_value() ? *options.log_prefix : config_.log_prefix;
     peak_concurrency_ = std::make_unique<std::atomic<int64_t>>(0);
     metrics_provider_ = options.metrics_provider ? options.metrics_provider : metrics::nop_provider();
+    // Engine-level worker pool reused across data_parallel shards. Sized to
+    // hardware_concurrency (≥1). Avoids the per-request spawn/join cost
+    // that becomes dominant under high QPS. P1-P1.
+    {
+        unsigned hw = std::thread::hardware_concurrency();
+        if (hw == 0) hw = 4;
+        shard_pool_ = std::make_unique<PoolHolder>(static_cast<std::size_t>(hw));
+    }
     expanded_ = expand_operator_sequence_with_subflows(config_);
     graph_ = build_dag(config_, expanded_);
     engine_metrics_ = build_engine_metrics(metrics_provider_, expanded_.sequence);
@@ -369,9 +387,16 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
 //   - op.metadata.common_output is empty
 //   - op.type_name is in the ConcurrentSafe set
 // Therefore shards only emit item_writes / removed_items / warnings.
+//
+// When `pool` is non-null shard tasks are dispatched through the Engine's
+// shared ThreadPool, avoiding the per-request OS-thread spawn cost that
+// pine-go gets for free through goroutines (P1-P1). When `pool` is null
+// the legacy per-shard std::thread fallback runs — kept so unit tests and
+// stand-alone callers that construct Frame directly still work.
 void parallel_execute(const Frame& frame, const OperatorConfig& op,
                       const std::map<std::string, std::unique_ptr<Operator>>& operators,
-                      OperatorOutput& out) {
+                      OperatorOutput& out,
+                      runtime::ThreadPool* pool = nullptr) {
     int total = static_cast<int>(frame.item_count());
     int n = op.data_parallel;
     if (n <= 1 || total == 0) {
@@ -413,20 +438,31 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     std::mutex err_mu;
     std::exception_ptr first_err;
 
-    std::vector<std::thread> threads;
-    threads.reserve(static_cast<std::size_t>(n));
-    for (int i = 0; i < n; ++i) {
-        threads.emplace_back([&shards, &shard_outs, &op, &operators, &err_mu, &first_err, i]() {
-            try {
-                dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op, operators,
-                                       shard_outs[static_cast<std::size_t>(i)]);
-            } catch (...) {
-                std::lock_guard<std::mutex> lk(err_mu);
-                if (!first_err) first_err = std::current_exception();
-            }
-        });
+    auto shard_body = [&](int i) {
+        try {
+            dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op, operators,
+                                   shard_outs[static_cast<std::size_t>(i)]);
+        } catch (...) {
+            std::lock_guard<std::mutex> lk(err_mu);
+            if (!first_err) first_err = std::current_exception();
+        }
+    };
+
+    if (pool != nullptr) {
+        std::vector<std::future<void>> futs;
+        futs.reserve(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            futs.push_back(pool->submit([&, i]() { shard_body(i); }));
+        }
+        for (auto& f : futs) f.wait();
+    } else {
+        std::vector<std::thread> threads;
+        threads.reserve(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            threads.emplace_back([&, i]() { shard_body(i); });
+        }
+        for (auto& t : threads) t.join();
     }
-    for (auto& t : threads) t.join();
 
     if (first_err) std::rethrow_exception(first_err);
 
@@ -449,33 +485,67 @@ std::vector<OpTrace> run_dag(const Config& config,
                              Frame& frame,
                              bool collect_traces,
                              std::atomic<int64_t>* peak_concurrency = nullptr,
-                             Engine::EngineMetrics* em = nullptr) {
+                             Engine::EngineMetrics* em = nullptr,
+                             runtime::ThreadPool* shard_pool = nullptr) {
     const std::size_t n = graph.nodes.size();
 
     if (em && em->scheduler_runs) em->scheduler_runs->inc();
     auto dag_start = std::chrono::steady_clock::now();
     std::atomic<int64_t> ops_executed{0};
 
-    std::vector<std::promise<void>> promises(n);
-    std::vector<std::shared_future<void>> futures;
-    futures.reserve(n);
-    for (auto& p : promises) futures.push_back(p.get_future().share());
+    // NodeSignal replaces std::promise/shared_future so that a fail() can
+    // interrupt waits on still-pending predecessors through a stop_token,
+    // rather than the old "wait until predecessor self-terminates" pattern
+    // which forced every sibling to block until its own predecessors
+    // finished (inc1 #5). condition_variable_any::wait(lock, stop_token,
+    // pred) is C++20 P0660 — it returns immediately when stop is requested.
+    struct NodeSignal {
+        std::mutex mu;
+        std::condition_variable_any cv;
+        bool done = false;
+    };
+    std::vector<std::unique_ptr<NodeSignal>> signals;
+    signals.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        signals.emplace_back(std::make_unique<NodeSignal>());
+    }
 
     std::vector<OpTrace> traces;
     if (collect_traces) traces.assign(n, OpTrace{});
 
-    std::shared_mutex frame_mu;
+    // P1-P3: Frame concurrency is managed by ColumnFrame's internal
+    // shared_mutex (column_frame.hpp:79). The DAG topology guarantees
+    // predecessor-successor ordering through NodeSignal, and parallel_execute
+    // shards copy items out before mutating, so siblings on the same DAG
+    // level only ever issue concurrent reads. We removed the redundant
+    // engine-level frame_mu — the inner lock is the source of truth.
     std::mutex fatal_mu;
     std::exception_ptr fatal_err;
-    std::atomic<bool> cancelled{false};
     std::atomic<int64_t> active_ops{0};
+
+    // stop_source broadcasts cancellation to every node waiting on a
+    // predecessor via cv.wait(lock, stop_token, pred). Replacing the
+    // old `std::atomic<bool> cancelled` with stop_token lets the cv
+    // implementation interrupt the wait directly — no polling, no
+    // sleep_for. P1-P2.
+    std::stop_source cancel_source;
+    auto stop_token = cancel_source.get_token();
 
     auto fail = [&](std::exception_ptr e) {
         std::lock_guard<std::mutex> lk(fatal_mu);
         if (!fatal_err) {
             fatal_err = e;
-            cancelled.store(true, std::memory_order_release);
+            cancel_source.request_stop();
         }
+    };
+
+    auto mark_done = [&](std::size_t idx) {
+        auto& s = *signals[idx];
+        {
+            std::lock_guard<std::mutex> lk(s.mu);
+            s.done = true;
+        }
+        s.cv.notify_all();
     };
 
     // CAS-update the cumulative peak to at least n_current.
@@ -498,26 +568,40 @@ std::vector<OpTrace> run_dag(const Config& config,
         threads.emplace_back([&, i]() {
             // RAII: always notify successors, even on early return / exception.
             struct Notifier {
-                std::promise<void>& p;
-                ~Notifier() { try { p.set_value(); } catch (...) {} }
-            } notifier{promises[i]};
+                std::function<void()> fn;
+                ~Notifier() { try { fn(); } catch (...) {} }
+            } notifier{[&, i] { mark_done(i); }};
             (void)notifier;
 
             const auto& node = graph.nodes[i];
             const auto& op = config.operators.at(node.name);
 
+            // Wait on every predecessor's done flag; cv.wait with stop_token
+            // returns false when fail() requests stop, letting us bail out
+            // without serializing through still-running siblings.
             for (int pred : node.preds) {
-                futures[static_cast<std::size_t>(pred)].wait();
+                auto& s = *signals[static_cast<std::size_t>(pred)];
+                std::unique_lock<std::mutex> lk(s.mu);
+                bool got_pred = s.cv.wait(lk, stop_token, [&] { return s.done; });
+                if (!got_pred) return;  // stop requested
             }
-            if (cancelled.load(std::memory_order_acquire)) return;
+            if (stop_token.stop_requested()) return;
 
             // Track active concurrency (mirrors pine-go scheduler activeOps + RecordConcurrency).
+            // P1-E1: Gauge must be updated on both increment AND decrement.
+            // The earlier guard only fetch_sub'd the atomic without touching
+            // the Prometheus handle, leaving pine_operator_active monotonic-
+            // increasing and meaningless for monitoring.
             struct ActiveGuard {
                 std::atomic<int64_t>& counter;
-                ~ActiveGuard() { counter.fetch_sub(1, std::memory_order_relaxed); }
+                metrics::Gauge* gauge;
+                ~ActiveGuard() {
+                    int64_t after = counter.fetch_sub(1, std::memory_order_relaxed) - 1;
+                    if (gauge) gauge->set(static_cast<double>(after));
+                }
             };
             int64_t cur_active = active_ops.fetch_add(1, std::memory_order_relaxed) + 1;
-            ActiveGuard active_guard{active_ops};
+            ActiveGuard active_guard{active_ops, em ? em->active_ops : nullptr};
             record_peak(cur_active);
             if (em && em->active_ops) em->active_ops->set(static_cast<double>(cur_active));
 
@@ -529,11 +613,7 @@ std::vector<OpTrace> run_dag(const Config& config,
             auto start = std::chrono::steady_clock::now();
 
             try {
-                bool skip;
-                {
-                    std::shared_lock<std::shared_mutex> lk(frame_mu);
-                    skip = should_skip(frame, op);
-                }
+                bool skip = should_skip(frame, op);
                 if (skip) {
                     if (em && em->op_skip_total) em->op_skip_total->with({op.name})->inc();
                     if (collect_traces) {
@@ -546,23 +626,17 @@ std::vector<OpTrace> run_dag(const Config& config,
                 }
 
                 OperatorOutput out;
-                {
-                    std::shared_lock<std::shared_mutex> lk(frame_mu);
-                    validate_item_inputs(frame, op);
-                    if (collect_traces && op.debug) {
-                        trace.input_snapshot = snapshot_input(frame, op);
-                        trace.has_input_snapshot = true;
-                    }
-                    parallel_execute(frame, op, operators, out);
+                validate_item_inputs(frame, op);
+                if (collect_traces && op.debug) {
+                    trace.input_snapshot = snapshot_input(frame, op);
+                    trace.has_input_snapshot = true;
                 }
+                parallel_execute(frame, op, operators, out, shard_pool);
                 if (collect_traces && op.debug) {
                     trace.output_snapshot = snapshot_output(out);
                     trace.has_output_snapshot = true;
                 }
-                {
-                    std::unique_lock<std::shared_mutex> lk(frame_mu);
-                    frame.apply_output(out, op.name, op.operator_type == "recall");
-                }
+                frame.apply_output(out, op.name, op.operator_type == "recall");
                 auto end = std::chrono::steady_clock::now();
                 auto dur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
                 if (em) {
@@ -613,7 +687,8 @@ Result Engine::execute(const Request& request, const std::map<std::string, JsonV
     validate_request(request, config_.flow_contract);
     Frame frame(request.common, request.items);
     frame.set_resources(&resources);
-    run_dag(config_, graph_, operators_, frame, /*collect_traces=*/false, peak_concurrency_.get(), engine_metrics_.get());
+    run_dag(config_, graph_, operators_, frame, /*collect_traces=*/false, peak_concurrency_.get(), engine_metrics_.get(),
+            shard_pool_ ? &shard_pool_->pool : nullptr);
     return project_result(frame, config_.flow_contract);
 }
 
@@ -631,7 +706,8 @@ void Engine::execute_traced_into(const Request& request,
     frame.set_resources(&resources);
     std::exception_ptr run_err = nullptr;
     try {
-        out->trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get());
+        out->trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
+                             shard_pool_ ? &shard_pool_->pool : nullptr);
     } catch (...) {
         run_err = std::current_exception();
     }

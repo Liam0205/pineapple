@@ -378,6 +378,11 @@ private:
     std::unique_ptr<std::atomic<int64_t>> peak_concurrency_;
     metrics::Provider* metrics_provider_ = nullptr;
     std::unique_ptr<EngineMetrics> engine_metrics_;
+    // Shared worker pool for data-parallel shards. Constructed in Engine
+    // ctor body (engine.cpp) so this header stays free of the pool
+    // implementation. See P1-P1.
+    struct PoolHolder;
+    std::unique_ptr<PoolHolder> shard_pool_;
 };
 
 Request load_request_from_file(const std::string& path);

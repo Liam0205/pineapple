@@ -1,5 +1,6 @@
 #include "operators/_helpers.hpp"
 #include "pine/operator.hpp"
+#include "redis/connection_pool.hpp"
 #include "redis/redis_client.hpp"
 
 #include <memory>
@@ -23,9 +24,12 @@ public:
 
         std::string key = rp_.key_prefix + operators::build_key_suffix(frame, common_input_);
 
+        // Borrow a connection from the shared pool to avoid the full
+        // getaddrinfo + connect + AUTH + SELECT round-trip on every
+        // dispatch. P1-P4.
         std::unique_ptr<redis::Client> client;
         try {
-            client = std::make_unique<redis::Client>(rp_.host, rp_.port, rp_.password, rp_.db);
+            client = redis::shared_pool().acquire(rp_.host, rp_.port, rp_.password, rp_.db);
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
                 throw ExecutionError("transform_redis_get: " + std::string(e.what()));
@@ -40,10 +44,26 @@ public:
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
         }
+        // Return-to-pool RAII guard: takes ownership of `client`, releases
+        // back to the pool on every path. ConnectionPool::release drops
+        // disconnected handles instead of recycling.
+        struct PoolGuard {
+            redis::ConnectionPool& pool;
+            const std::string host;
+            const int port;
+            const std::string password;
+            const int db;
+            std::unique_ptr<redis::Client> c;
+            ~PoolGuard() {
+                if (c) pool.release(host, port, password, db, std::move(c));
+            }
+        };
+        PoolGuard guard{redis::shared_pool(), rp_.host, rp_.port, rp_.password, rp_.db, std::move(client)};
+        redis::Client* cli = guard.c.get();
 
         try {
             if (rp_.data_type == "string") {
-                auto val = client->get(key);
+                auto val = cli->get(key);
                 if (val && !val->empty()) {
                     out.set_common(result_field_, JsonValue(*val));
                     out.set_common(cache_hit_field_, JsonValue(true));
@@ -51,7 +71,7 @@ public:
                     out.set_common(cache_hit_field_, JsonValue(false));
                 }
             } else if (rp_.data_type == "set") {
-                auto members = client->smembers(key);
+                auto members = cli->smembers(key);
                 if (!members.empty()) {
                     JsonValue::array_t arr;
                     for (auto& m : members) arr.push_back(JsonValue(std::move(m)));
@@ -61,7 +81,7 @@ public:
                     out.set_common(cache_hit_field_, JsonValue(false));
                 }
             } else if (rp_.data_type == "list") {
-                auto vals = client->lrange(key, 0, -1);
+                auto vals = cli->lrange(key, 0, -1);
                 if (!vals.empty()) {
                     JsonValue::array_t arr;
                     for (auto& v : vals) arr.push_back(JsonValue(std::move(v)));
