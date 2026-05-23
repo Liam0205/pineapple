@@ -12,10 +12,75 @@ from typing import Any, Callable
 from pine.engine import Engine, StaticResourceProvider
 from pine.errors import ConfigError, RegistryError, ValidationError
 from pine.go_format import go_json_marshal, _go_encode_value
+from pine.http_stats import HttpStats
+from pine.metrics import (
+    HistogramOpts,
+    MetricOpts,
+    NopProvider,
+    Provider,
+)
 
 _DEFAULT_MAX_BODY = 10 * 1024 * 1024  # 10MB
 
+_KNOWN_PATHS = {"/execute", "/health", "/stats", "/dag"}
+
+_HTTP_BUCKETS = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
 Middleware = Callable[["_PineHandler", Callable[[], None]], None]
+
+
+def _normalize_path(path: str) -> str:
+    return path if path in _KNOWN_PATHS else "_other"
+
+
+def _status_bucket(code: int) -> str:
+    if code >= 500:
+        return "5xx"
+    if code >= 400:
+        return "4xx"
+    if code >= 300:
+        return "3xx"
+    if code >= 200:
+        return "2xx"
+    return "other"
+
+
+def _http_metrics_middleware(provider: Provider, http_stats: HttpStats) -> Middleware:
+    """Build the innermost HTTP metrics middleware.
+
+    Always installed by the server core, with NopProvider fallback when
+    the caller does not supply a Provider. Mirrors pine-go's
+    httpMetricsMiddleware: external Provider + in-process HttpStats
+    are both written here so /stats and Prometheus exports stay in sync.
+    """
+    requests_total = provider.new_counter(MetricOpts(
+        name="pine_http_requests_total",
+        help="Total HTTP requests.",
+        label_names=("method", "path", "status"),
+    ))
+    request_duration = provider.new_histogram(HistogramOpts(
+        name="pine_http_request_duration_seconds",
+        help="HTTP request duration in seconds.",
+        buckets=_HTTP_BUCKETS,
+        label_names=("method", "path"),
+    ))
+
+    def middleware(handler: "_PineHandler", next_fn: Callable[[], None]) -> None:
+        start_ns = time.perf_counter_ns()
+        try:
+            next_fn()
+        finally:
+            elapsed_ns = time.perf_counter_ns() - start_ns
+            raw_path = handler.path.split("?")[0]
+            path = _normalize_path(raw_path)
+            method = handler.command
+            code = getattr(handler, "_recorded_status", 200)
+            bucket_name = _status_bucket(code)
+            requests_total.with_(method, path, bucket_name).inc()
+            request_duration.with_(method, path).observe(elapsed_ns / 1e9)
+            http_stats.record_request(method, path, bucket_name, elapsed_ns)
+
+    return middleware
 
 
 class _ServerState:
@@ -56,9 +121,16 @@ class _PineHandler(BaseHTTPRequestHandler):
     state: _ServerState
     max_body: int
     middlewares: list[Middleware]
+    http_stats: HttpStats
+
+    _recorded_status: int = 200
 
     def log_message(self, format, *args):
         pass
+
+    def send_response(self, code, message=None):
+        self._recorded_status = code
+        super().send_response(code, message)
 
     def _dispatch(self):
         """Route request to internal handlers or 404."""
@@ -159,6 +231,7 @@ class _PineHandler(BaseHTTPRequestHandler):
             "operators": stats,
             "scheduler": sched,
             "server": self.state.server_stats(),
+            "http": self.http_stats.snapshot(),
         }
 
         if custom:
@@ -318,7 +391,8 @@ class PineServer:
 
     def __init__(self, config_path: str, *, port: int = 8080, host: str = "",
                  max_body: int = _DEFAULT_MAX_BODY,
-                 resource_provider: Any = None):
+                 resource_provider: Any = None,
+                 metrics_provider: Provider | None = None):
         from pine.operators import ensure_registered
         ensure_registered()
 
@@ -327,6 +401,7 @@ class PineServer:
         self._port = port
         self._max_body = max_body
         self._resource_provider = resource_provider
+        self._metrics_provider: Provider = metrics_provider or NopProvider()
         self._middlewares: list[Middleware] = []
         self._started = False
         self._server: HTTPServer | None = None
@@ -348,11 +423,16 @@ class PineServer:
             raise RuntimeError(f"error creating engine: {e}") from e
 
         state = _ServerState(engine)
+        http_stats = HttpStats()
+        chain = list(self._middlewares) + [
+            _http_metrics_middleware(self._metrics_provider, http_stats),
+        ]
 
         handler = type("Handler", (_PineHandler,), {
             "state": state,
             "max_body": self._max_body,
-            "middlewares": list(self._middlewares),
+            "middlewares": chain,
+            "http_stats": http_stats,
         })
 
         watcher = threading.Thread(
@@ -421,6 +501,9 @@ def main():
         sys.exit(1)
 
     state = _ServerState(engine)
+    http_stats = HttpStats()
+    provider: Provider = NopProvider()
+    chain: list[Middleware] = [_http_metrics_middleware(provider, http_stats)]
 
     host = ""
     port = 8080
@@ -434,7 +517,8 @@ def main():
     handler = type("Handler", (_PineHandler,), {
         "state": state,
         "max_body": max_body,
-        "middlewares": [],
+        "middlewares": chain,
+        "http_stats": http_stats,
     })
 
     stop_event = threading.Event()
