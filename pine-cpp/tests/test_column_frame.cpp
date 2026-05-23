@@ -185,3 +185,26 @@ TEST_CASE("ColumnFrame: SetItemOrder accepts valid permutation") {
     out.set_item_order({2, 1, 0});
     CHECK_NOTHROW(frame.apply_output(out, "op", false));
 }
+
+TEST_CASE("ColumnFrame: make_window_view rejects out-of-bounds window (R8-2)") {
+    auto frame = make_frame();
+    CHECK_THROWS_AS(ColumnFrame::make_window_view(frame, 0, 4), Error);
+    CHECK_THROWS_AS(ColumnFrame::make_window_view(frame, 2, 2), Error);
+    CHECK_THROWS_AS(ColumnFrame::make_window_view(frame, 5, 0), Error);
+    CHECK_NOTHROW(ColumnFrame::make_window_view(frame, 0, 3));
+    CHECK_NOTHROW(ColumnFrame::make_window_view(frame, 1, 2));
+    CHECK_NOTHROW(ColumnFrame::make_window_view(frame, 3, 0));  // empty at end is fine
+}
+
+TEST_CASE("ColumnFrame: window view reads parent common via view_common_ (R8-1)") {
+    // The earlier window view drop-ctor left common_ empty and items_ as
+    // null. to_result was the only read path that did not delegate to
+    // view_common_/view_items_, and would crash on null deref. After R8-1
+    // we throw early instead of dereferencing.
+    auto frame = make_frame();
+    auto view = ColumnFrame::make_window_view(frame, 0, 2);
+    CHECK(view->common("region").as_string() == "us");
+    CHECK(view->item_count() == 2);
+    CHECK(view->item(0, "score").as_number() == 10.0);
+    CHECK_THROWS_AS(view->to_result({"region"}, {"id"}), Error);
+}

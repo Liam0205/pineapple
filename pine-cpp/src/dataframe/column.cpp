@@ -23,7 +23,7 @@ bool is_integral_number(const JsonValue& v) {
     if (!v.is_number()) return false;
     double d = v.as_number();
     return std::isfinite(d) && std::trunc(d) == d &&
-           d >= -9.2233720368547758e18 && d <= 9.2233720368547758e18;
+           d > -9.2233720368547758e18 && d < 9.2233720368547758e18;
 }
 
 void apply_remove(std::vector<bool>& validity, const std::set<int>& indices) {

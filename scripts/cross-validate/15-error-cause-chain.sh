@@ -12,7 +12,22 @@ echo "      Java   outer.getCause() instanceof Inner"
 echo "      Python isinstance(outer.__cause__, Inner)"
 echo "      C++    pine::error_as<Inner>(outer)"
 
-EXPECTED="PASS:key=user:42 not found"
+# P2-24: read the expected probe output from the fixture so the
+# canonical string lives in one place (the fixture documents the
+# scenario; the script enforces it). Falls back to the hard-coded
+# value if the fixture is missing, to keep the smoke path resilient.
+FIXTURE="$REPO_ROOT/fixtures/error_chain/01_execution_error_wraps_inner_cause.json"
+EXPECTED=$(python3 -c "
+import json
+try:
+    with open('$FIXTURE') as f:
+        print(json.load(f).get('expected_probe_output', ''), end='')
+except Exception:
+    pass
+")
+if [[ -z "$EXPECTED" ]]; then
+    EXPECTED="PASS:key=user:42 not found"
+fi
 
 probe_total=0
 probe_pass=0

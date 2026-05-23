@@ -34,7 +34,6 @@ static const OperatorSchema k_recall_static_schema{
                    .description = "JSON array of item maps to emit as candidates."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_recall_static_schema,
-    ([] { return std::make_unique<RecallStaticOp>(); }))
+PINE_REGISTER_OPERATOR_T(RecallStaticOp, k_recall_static_schema)
 
 }  // namespace pine

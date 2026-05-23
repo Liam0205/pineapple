@@ -114,14 +114,17 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
     std::string buffer;
     char chunk[4096];
 
-    // Read until we get full headers, hard cap headers size at 1MB to prevent OOM
+    // Read until we get full headers, hard cap headers size at 1MB to prevent OOM.
+    // P2-18: check the cap *after* append rather than before, so a single
+    // chunk that overflows the limit is reliably caught instead of letting
+    // the buffer grow to `max_header_size + chunk_size` before we notice.
     const std::size_t max_header_size = 1024 * 1024;
     std::string::size_type header_end = std::string::npos;
     while (header_end == std::string::npos) {
-        if (buffer.size() > max_header_size) return false;
         ssize_t n = recv(fd, chunk, sizeof(chunk), 0);
         if (n <= 0) return false;
         buffer.append(chunk, static_cast<size_t>(n));
+        if (buffer.size() > max_header_size) return false;
         header_end = buffer.find("\r\n\r\n");
     }
 

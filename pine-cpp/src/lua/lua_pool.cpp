@@ -24,7 +24,17 @@ StatePool::~StatePool() {
 
 void StatePool::Releaser::operator()(LuaVM* vm) const {
     if (pool && vm) {
-        pool->release_vm(vm, snap);
+        // Releaser is a unique_ptr deleter — invoked from ~unique_ptr,
+        // which is noexcept. release_vm() can throw if reset_to_baseline
+        // faults on a script-corrupted state; letting that exception cross
+        // the noexcept boundary triggers std::terminate (inc-6 阻塞 B1).
+        // Counters and metrics are still updated inside release_vm's catch
+        // block before it rethrows, so swallowing here loses no observability.
+        try {
+            pool->release_vm(vm, snap);
+        } catch (...) {
+            // intentionally swallow: cannot propagate past unique_ptr dtor.
+        }
     }
 }
 

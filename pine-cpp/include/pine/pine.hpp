@@ -273,6 +273,16 @@ class OperatorOutput {
 public:
     OperatorOutput() = default;
 
+    // ItemWrite is a single (index, field, value) log entry. set_item()
+    // appends; apply_output replays in order (last write wins per cell).
+    // Replaces the old nested map<int, map<string, JsonValue>> which paid
+    // two tree-node allocations per write — P2-06.
+    struct ItemWrite {
+        int index;
+        std::string field;
+        JsonValue value;
+    };
+
     void set_common(const std::string& field, JsonValue value);
     void set_item(int index, const std::string& field, JsonValue value);
     void add_item(std::map<std::string, JsonValue> fields);
@@ -281,7 +291,7 @@ public:
     void set_warning(std::string msg);  // first warning wins
 
     const std::map<std::string, JsonValue>& common_writes() const { return common_writes_; }
-    const std::map<int, std::map<std::string, JsonValue>>& item_writes() const { return item_writes_; }
+    const std::vector<ItemWrite>& item_writes() const { return item_writes_; }
     const std::vector<std::map<std::string, JsonValue>>& added_items() const { return added_items_; }
     const std::set<int>& removed_items() const { return removed_items_; }
     const std::vector<int>& item_order() const { return item_order_; }
@@ -291,7 +301,7 @@ public:
 
 private:
     std::map<std::string, JsonValue> common_writes_;
-    std::map<int, std::map<std::string, JsonValue>> item_writes_;
+    std::vector<ItemWrite> item_writes_;
     std::vector<std::map<std::string, JsonValue>> added_items_;
     std::set<int> removed_items_;
     std::vector<int> item_order_;

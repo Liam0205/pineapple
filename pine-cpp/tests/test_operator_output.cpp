@@ -13,15 +13,21 @@ TEST_CASE("OperatorOutput: set_common collects field writes") {
     CHECK(out.common_writes().at("b").as_number() == 2.0);
 }
 
-TEST_CASE("OperatorOutput: set_item collects per-index field writes") {
+TEST_CASE("OperatorOutput: set_item collects ordered (idx, field, value) log") {
     OperatorOutput out;
     out.set_item(0, "x", JsonValue(std::string("hello")));
     out.set_item(0, "y", JsonValue(true));
     out.set_item(2, "x", JsonValue(std::string("world")));
-    CHECK(out.item_writes().size() == 2);
-    CHECK(out.item_writes().at(0).size() == 2);
-    CHECK(out.item_writes().at(0).at("y").as_bool() == true);
-    CHECK(out.item_writes().at(2).at("x").as_string() == "world");
+    REQUIRE(out.item_writes().size() == 3);
+    CHECK(out.item_writes()[0].index == 0);
+    CHECK(out.item_writes()[0].field == "x");
+    CHECK(out.item_writes()[0].value.as_string() == "hello");
+    CHECK(out.item_writes()[1].index == 0);
+    CHECK(out.item_writes()[1].field == "y");
+    CHECK(out.item_writes()[1].value.as_bool() == true);
+    CHECK(out.item_writes()[2].index == 2);
+    CHECK(out.item_writes()[2].field == "x");
+    CHECK(out.item_writes()[2].value.as_string() == "world");
 }
 
 TEST_CASE("OperatorOutput: add_item appends rows") {

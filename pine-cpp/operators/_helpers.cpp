@@ -17,6 +17,16 @@ double to_double(const JsonValue& value) {
     throw OperatorError("cannot convert map[string]interface {} to float64");
 }
 
+std::string json_type_name(const JsonValue& value) {
+    if (value.is_null()) return "<nil>";
+    if (value.is_bool()) return "bool";
+    if (value.is_number()) return "float64";
+    if (value.is_string()) return "string";
+    if (value.is_array()) return "[]interface {}";
+    if (value.is_object()) return "map[string]interface {}";
+    return "unknown";
+}
+
 JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field) {
     JsonValue v = frame.common(field);
     if (!v.is_null()) return v;
@@ -28,6 +38,24 @@ JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t
     JsonValue v = frame.item(index, field);
     if (!v.is_null()) return v;
     if (auto def = op.item_defaults.find(field); def != op.item_defaults.end()) return def->second;
+    throw ExecutionError("required field \"" + field + "\" is nil on item[" + std::to_string(index) + "]");
+}
+
+JsonValue require_common_by_name(const Frame& frame,
+                                  const std::map<std::string, JsonValue>& defaults,
+                                  const std::string& field) {
+    JsonValue v = frame.common(field);
+    if (!v.is_null()) return v;
+    if (auto def = defaults.find(field); def != defaults.end()) return def->second;
+    throw ExecutionError("required field \"" + field + "\" is nil in common");
+}
+
+JsonValue require_item_by_name(const Frame& frame, std::size_t index,
+                                const std::map<std::string, JsonValue>& defaults,
+                                const std::string& field) {
+    JsonValue v = frame.item(index, field);
+    if (!v.is_null()) return v;
+    if (auto def = defaults.find(field); def != defaults.end()) return def->second;
     throw ExecutionError("required field \"" + field + "\" is nil on item[" + std::to_string(index) + "]");
 }
 

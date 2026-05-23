@@ -29,7 +29,6 @@ static const OperatorSchema k_filter_truncate_schema{
                    .description = "Number of items to keep."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_filter_truncate_schema,
-    ([] { return std::make_unique<FilterTruncateOp>(); }))
+PINE_REGISTER_OPERATOR_T(FilterTruncateOp, k_filter_truncate_schema)
 
 }  // namespace pine

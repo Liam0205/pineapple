@@ -5,20 +5,6 @@
 
 namespace pine {
 
-namespace {
-
-std::string inline_type_name(const JsonValue& v) {
-    if (v.is_null()) return "nil";
-    if (v.is_bool()) return "bool";
-    if (v.is_number()) return "float64";
-    if (v.is_string()) return "string";
-    if (v.is_array()) return "array";
-    if (v.is_object()) return "object";
-    return "unknown";
-}
-
-}  // namespace
-
 class TransformResourceLookupOp : public Operator, public ConcurrentSafe {
 public:
     void init(const OperatorConfig& cfg) override {
@@ -51,7 +37,7 @@ public:
             throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" not found");
         const auto& resource = res_it->second;
         if (!resource.is_object())
-            throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" is " + inline_type_name(resource) + ", want map[string]any");
+            throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" is " + pine::operators::json_type_name(resource) + ", want map[string]any");
         const auto& table = resource.as_object();
 
         for (std::size_t i = 0; i < frame.item_count(); ++i) {
@@ -100,7 +86,6 @@ static const OperatorSchema k_transform_resource_lookup_schema{
                            .description = "Name of the resource to read."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_resource_lookup_schema,
-    ([] { return std::make_unique<TransformResourceLookupOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformResourceLookupOp, k_transform_resource_lookup_schema)
 
 }  // namespace pine

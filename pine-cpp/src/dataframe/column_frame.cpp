@@ -63,41 +63,81 @@ ColumnFrame::ColumnFrame(std::map<std::string, JsonValue> common,
     }
 }
 
+std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(
+    const ColumnFrame& parent,
+    std::size_t row_offset,
+    std::size_t row_count) {
+    // The CONTRACT in column_frame.hpp says parent is read-only during the
+    // view's lifetime. Read parent.items_ unlocked: the only writer that
+    // could race is apply_output, and parallel_execute (the sole caller)
+    // guarantees the parent frame is not being mutated for the duration.
+    const std::size_t parent_rows = parent.items_ ? parent.items_->row_count() : 0;
+    if (row_offset + row_count > parent_rows) {
+        throw Error("ColumnFrame::make_window_view: window ("
+                    + std::to_string(row_offset) + ", "
+                    + std::to_string(row_count) + ") exceeds parent row count "
+                    + std::to_string(parent_rows));
+    }
+    auto v = std::unique_ptr<ColumnFrame>(new ColumnFrame());
+    // Drop the empty owned items_ allocated by the default ctor — view
+    // never reads its own items_; reads route through view_items_.
+    v->items_.reset();
+    v->view_common_ = &parent.common_;
+    v->view_items_  = parent.items_.get();
+    v->view_offset_ = row_offset;
+    v->view_count_  = row_count;
+    v->resources_   = parent.resources_;
+    return v;
+}
+
 JsonValue ColumnFrame::common(const std::string& field) const {
     std::shared_lock<std::shared_mutex> lk(mu_);
-    auto it = common_.find(field);
-    if (it == common_.end()) return JsonValue();
+    const auto& src = view_common_ ? *view_common_ : common_;
+    auto it = src.find(field);
+    if (it == src.end()) return JsonValue();
     return it->second;
 }
 
 bool ColumnFrame::has_common(const std::string& field) const {
     std::shared_lock<std::shared_mutex> lk(mu_);
-    auto it = common_.find(field);
-    return it != common_.end() && !it->second.is_null();
+    const auto& src = view_common_ ? *view_common_ : common_;
+    auto it = src.find(field);
+    return it != src.end() && !it->second.is_null();
 }
 
 void ColumnFrame::set_common(const std::string& field, JsonValue value) {
+    if (is_window_view()) {
+        throw Error("ColumnFrame::set_common called on window view "
+                    "(parallel shard contract violation)");
+    }
     std::unique_lock<std::shared_mutex> lk(mu_);
     common_[field] = std::move(value);
 }
 
 std::vector<std::string> ColumnFrame::common_fields() const {
     std::shared_lock<std::shared_mutex> lk(mu_);
+    const auto& src = view_common_ ? *view_common_ : common_;
     std::vector<std::string> out;
-    out.reserve(common_.size());
-    for (const auto& [k, _] : common_) out.push_back(k);
+    out.reserve(src.size());
+    for (const auto& [k, _] : src) out.push_back(k);
     return out;
 }
 
 std::size_t ColumnFrame::item_count() const {
     std::shared_lock<std::shared_mutex> lk(mu_);
-    return items_->row_count();
+    return view_items_ ? view_count_ : items_->row_count();
 }
 
 JsonValue ColumnFrame::item(std::size_t index, const std::string& field) const {
     std::shared_lock<std::shared_mutex> lk(mu_);
-    if (index >= items_->row_count()) return JsonValue();
-    const Column* col = items_->column(field);
+    const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+    if (view_items_) {
+        if (index >= view_count_) return JsonValue();
+        index += view_offset_;
+    } else if (index >= store->row_count()) {
+        return JsonValue();
+    }
+    const Column* col = store->column(field);
     if (!col) return JsonValue();
     if (col->is_null(index)) return JsonValue();
     return col->get(index);
@@ -105,18 +145,29 @@ JsonValue ColumnFrame::item(std::size_t index, const std::string& field) const {
 
 bool ColumnFrame::item_has(std::size_t index, const std::string& field) const {
     std::shared_lock<std::shared_mutex> lk(mu_);
-    if (index >= items_->row_count()) return false;
-    const Column* col = items_->column(field);
+    const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+    if (view_items_) {
+        if (index >= view_count_) return false;
+        index += view_offset_;
+    } else if (index >= store->row_count()) {
+        return false;
+    }
+    const Column* col = store->column(field);
     if (!col) return false;
     return !col->is_null(index);
 }
 
 std::vector<std::string> ColumnFrame::item_fields() const {
     std::shared_lock<std::shared_mutex> lk(mu_);
-    return items_->fields();
+    const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+    return store->fields();
 }
 
 void ColumnFrame::push_warning(std::string msg) {
+    if (is_window_view()) {
+        throw Error("ColumnFrame::push_warning called on window view "
+                    "(parallel shard contract violation)");
+    }
     std::unique_lock<std::shared_mutex> lk(mu_);
     warnings_.push_back(std::move(msg));
 }
@@ -155,6 +206,10 @@ void ColumnFrame::write_item_field_locked(std::size_t idx,
 void ColumnFrame::apply_output(const OperatorOutput& out,
                                const std::string& op_name,
                                bool is_recall) {
+    if (is_window_view()) {
+        throw Error("ColumnFrame::apply_output called on window view "
+                    "(parallel shard contract violation)");
+    }
     std::unique_lock<std::shared_mutex> lk(mu_);
 
     // 1. common writes
@@ -163,15 +218,13 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
     }
 
     // 2. item writes
-    for (const auto& [idx, fields] : out.item_writes()) {
+    for (const auto& [idx, field, value] : out.item_writes()) {
         if (idx < 0 || static_cast<std::size_t>(idx) >= items_->row_count()) {
             throw ExecutionError(op_name, "SetItem index " +
                                  std::to_string(idx) + " out of range [0, " +
                                  std::to_string(items_->row_count()) + ")");
         }
-        for (const auto& [field, value] : fields) {
-            write_item_field_locked(static_cast<std::size_t>(idx), field, value);
-        }
+        write_item_field_locked(static_cast<std::size_t>(idx), field, value);
     }
 
     // 3. removals
@@ -243,6 +296,16 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
 
 Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
                               const std::vector<std::string>& item_out) const {
+    // Window views are read-only temporary projections meant for parallel
+    // shard dispatch; to_result is the response-rendering surface and only
+    // makes sense on the master frame after apply_output. Reject early to
+    // surface programming errors before they segfault on the null items_.
+    // (review #8 R8-1)
+    if (is_window_view()) {
+        throw Error("ColumnFrame::to_result called on window view "
+                    "(window views are read-only shard projections, "
+                    "not response sources)");
+    }
     std::shared_lock<std::shared_mutex> lk(mu_);
     Result r;
     for (const auto& field : common_out) {
@@ -268,9 +331,15 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
 JsonValue::object_t ColumnFrame::item_object(std::size_t index) const {
     std::shared_lock<std::shared_mutex> lk(mu_);
     JsonValue::object_t out;
-    if (index >= items_->row_count()) return out;
-    for (const auto& field : items_->fields()) {
-        const Column* col = items_->column(field);
+    const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+    if (view_items_) {
+        if (index >= view_count_) return out;
+        index += view_offset_;
+    } else if (index >= store->row_count()) {
+        return out;
+    }
+    for (const auto& field : store->fields()) {
+        const Column* col = store->column(field);
         if (col && col->is_present(index)) {
             out[field] = col->get(index);
         }

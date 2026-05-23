@@ -122,7 +122,6 @@ static const OperatorSchema k_transform_redis_set_schema{
                  .description = "TTL in seconds. 0 means no expiry."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_redis_set_schema,
-    ([] { return std::make_unique<TransformRedisSetOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformRedisSetOp, k_transform_redis_set_schema)
 
 }  // namespace pine

@@ -185,7 +185,17 @@ jobs:
             sleep 0.3
           done
           curl -fsS http://localhost:18999/health || (kill $SERVER_PID; exit 1)
-          kill $SERVER_PID || true
+          # P2-04: graceful kill — SIGTERM first so graceful_drain runs to
+          # completion (in-flight requests finish, ~Server() runs the
+          # destructors in order); fall back to SIGKILL if drain takes
+          # too long. Wait is bounded so the step does not hang on a
+          # stuck handler.
+          kill -TERM $SERVER_PID 2>/dev/null || true
+          for i in 1 2 3 4 5; do
+            kill -0 $SERVER_PID 2>/dev/null || break
+            sleep 1
+          done
+          kill -KILL $SERVER_PID 2>/dev/null || true
           wait $SERVER_PID 2>/dev/null || true
 
   cpp-sanitizer:
@@ -231,6 +241,13 @@ jobs:
             if grep -nP "\t" "$f" >/dev/null 2>&1; then
               echo "tab character in $f:"
               grep -nP "\t" "$f" | head -5
+              BAD=1
+            fi
+            # P2-16: trailing newline guard. Files lacking a final \n
+            # produced silent diffs when subsequent commits appended
+            # to them; cpp-lint now rejects the shape outright.
+            if [[ $(tail -c1 "$f" | wc -l) -eq 0 ]]; then
+              echo "missing trailing newline in $f"
               BAD=1
             fi
           done < <(find pine-cpp -type f \( -name '*.cpp' -o -name '*.hpp' \) -not -path '*/build*')

@@ -264,7 +264,6 @@ static const OperatorSchema k_transform_by_remote_pineapple_schema{
                            .description = "Downstream item response field names, positionally mapped to item_output."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_by_remote_pineapple_schema,
-    ([] { return std::make_unique<TransformByRemotePineappleOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformByRemotePineappleOp, k_transform_by_remote_pineapple_schema)
 
 }  // namespace pine

@@ -63,7 +63,6 @@ static const OperatorSchema k_reorder_sort_schema{
                    .description = "Sort direction \xe2\x80\x94 \"asc\" or \"desc\"."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_reorder_sort_schema,
-    ([] { return std::make_unique<ReorderSortOp>(); }))
+PINE_REGISTER_OPERATOR_T(ReorderSortOp, k_reorder_sort_schema)
 
 }  // namespace pine

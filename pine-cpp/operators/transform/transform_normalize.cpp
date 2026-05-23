@@ -54,7 +54,6 @@ static const OperatorSchema k_transform_normalize_schema{
                     .description = "Normalization method."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_normalize_schema,
-    ([] { return std::make_unique<TransformNormalizeOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformNormalizeOp, k_transform_normalize_schema)
 
 }  // namespace pine

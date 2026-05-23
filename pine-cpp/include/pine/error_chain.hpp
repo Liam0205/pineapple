@@ -63,6 +63,11 @@ auto walk_nested(const std::exception& e, Visitor visitor) -> decltype(visitor(e
 // `err` itself). Returns nullptr if no match found.
 //
 // Equivalent to Go's errors.As(err, &target) but typed via dynamic_cast.
+//
+// Complexity: O(chain_depth) catch + rethrow_nested invocations. The
+// recursive call inside walk_nested's visitor descends one level per
+// recursive step — total catch count is N, not N² (P2-22 verified the
+// reviewer assertion of O(N²) was a misreading of the call structure).
 template <typename T>
 const T* error_as(const std::exception& err) {
     if (auto self = dynamic_cast<const T*>(&err)) return self;

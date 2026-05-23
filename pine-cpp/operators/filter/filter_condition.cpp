@@ -35,7 +35,6 @@ static const OperatorSchema k_filter_condition_schema{
                    .description = "Items where field == value are removed."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_filter_condition_schema,
-    ([] { return std::make_unique<FilterConditionOp>(); }))
+PINE_REGISTER_OPERATOR_T(FilterConditionOp, k_filter_condition_schema)
 
 }  // namespace pine

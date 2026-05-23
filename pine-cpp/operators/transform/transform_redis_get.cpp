@@ -130,7 +130,6 @@ static const OperatorSchema k_transform_redis_get_schema{
                             .description = "Redis password."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_redis_get_schema,
-    ([] { return std::make_unique<TransformRedisGetOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformRedisGetOp, k_transform_redis_get_schema)
 
 }  // namespace pine

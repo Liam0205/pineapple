@@ -23,7 +23,6 @@ static const OperatorSchema k_transform_size_schema{
     .description = "Outputs the current item count to a common field.",
     .params = {},
 };
-PINE_REGISTER_OPERATOR(k_transform_size_schema,
-    ([] { return std::make_unique<TransformSizeOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformSizeOp, k_transform_size_schema)
 
 }  // namespace pine

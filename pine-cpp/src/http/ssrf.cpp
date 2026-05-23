@@ -183,6 +183,21 @@ bool host_is_private(const std::string& host, std::string* error_out) {
         if (error_out) *error_out = "host \"" + host + "\" is not allowed (private/loopback)";
         return true;
     }
+    // P2-17: reject any character outside the RFC 1123 hostname charset
+    // (letters, digits, dot, hyphen) or IPv6 literal charset (hex, colon).
+    // Stops URL-smuggling shapes like `trusted.com/@127.0.0.1` where the
+    // libcurl parser would interpret the `/@127.0.0.1` tail as userinfo /
+    // path and connect to 127.0.0.1 anyway. inet_pton() and addrinfo
+    // recognise IPv6 explicitly so we don't need to be lenient here.
+    for (char c : host) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (!(std::isalnum(u) || c == '-' || c == '.' || c == ':')) {
+            if (error_out) *error_out =
+                "host \"" + host + "\" contains invalid character; "
+                "only RFC 1123 hostnames and IPv6 literals are accepted";
+            return true;
+        }
+    }
     // Reject obfuscated IPv4 shapes that bypass inet_pton but resolve to
     // private addresses in libcurl's own parser (DNS rebinding precursor).
     if (looks_like_obfuscated_ipv4(host)) {

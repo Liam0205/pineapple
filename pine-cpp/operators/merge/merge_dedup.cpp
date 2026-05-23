@@ -37,7 +37,6 @@ static const OperatorSchema k_merge_dedup_schema{
                       .description = "Dedup strategy \xe2\x80\x94 \"first\" keeps first occurrence."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_merge_dedup_schema,
-    ([] { return std::make_unique<MergeDedupOp>(); }))
+PINE_REGISTER_OPERATOR_T(MergeDedupOp, k_merge_dedup_schema)
 
 }  // namespace pine

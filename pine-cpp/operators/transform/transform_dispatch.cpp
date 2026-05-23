@@ -35,7 +35,6 @@ static const OperatorSchema k_transform_dispatch_schema{
     .description = "Copies a common-side field value to every item as an item-side field.",
     .params = {},
 };
-PINE_REGISTER_OPERATOR(k_transform_dispatch_schema,
-    ([] { return std::make_unique<TransformDispatchOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformDispatchOp, k_transform_dispatch_schema)
 
 }  // namespace pine

@@ -271,10 +271,13 @@ TEST_CASE("remote_pineapple: happy path maps response fields") {
     CHECK(cw.at("b").as_string() == "world");
 
     const auto& iw = out.item_writes();
-    REQUIRE(iw.count(0) == 1);
-    REQUIRE(iw.count(1) == 1);
-    CHECK(iw.at(0).at("y").as_string() == "r1");
-    CHECK(iw.at(1).at("y").as_string() == "r2");
+    REQUIRE(iw.size() == 2);
+    std::map<int, std::string> by_idx;
+    for (const auto& w : iw) {
+        if (w.field == "y") by_idx[w.index] = w.value.as_string();
+    }
+    CHECK(by_idx.at(0) == "r1");
+    CHECK(by_idx.at(1) == "r2");
 
     // Verify request body included our local common/item values, keyed by the
     // local field names (no common_request/item_request override).
