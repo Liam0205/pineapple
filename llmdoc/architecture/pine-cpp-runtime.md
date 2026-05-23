@@ -98,7 +98,8 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - `ConfigError` / `ValidationError` / `RegistryError` 在构造时自动加 `pine: <kind> error: ...` 前缀，与 pine-go `types/errors.go` 字节级一致
   - `RegistryError` 支持 `(operator_name, msg)` 双参形态对齐 Go 的 `RegistryError.Operator` 字段
   - `PanicError` + dispatch recovery 把意外异常映射为可观察的算子错误
-  - **Cause chain 支持**：`ExecutionError` 与 `PanicError` 多继承 `std::nested_exception`，`dispatch_with_recovery` 用 `std::throw_with_nested` 重抛保留 inner cause。`include/pine/error_chain.hpp` 提供 `pine::error_as<T>(const std::exception&)` / `pine::error_is<T>(const std::exception&)` 模板 helper，沿 nested 链下钻，对偶 Go `errors.As` / Java `Throwable.getCause()` / Python `__cause__`。注意：helper 内部显式检查 `nested_ptr() != nullptr` 后才调用 `rethrow_nested()`，避开标准 `std::rethrow_if_nested` 在 null 时 `std::terminate` 的 footgun
+  - **ExecutionError 双参/单参 + engine 层 promote**(P1-D1):`ExecutionError(op, inner)` 双参构造直接拼 `pine: execution error in operator "X": <inner>`；算子级 throw 站点可以用单参 `ExecutionError(msg)`(`operator_name()` 返回空,`inner()` 即 msg),由 `dispatch_with_recovery` (engine.cpp) 捕获后用 `std::throw_with_nested(ExecutionError(op.name, e.inner()))` 重抛,前缀在 engine 层统一加,所以最终 `what()` 仍与 pine-go 字节级一致。**算子不需要重复拼前缀**。
+  - **Cause chain 支持**:`ExecutionError` 与 `PanicError` 多继承 `std::nested_exception`,`dispatch_with_recovery` 用 `std::throw_with_nested` 重抛保留 inner cause。`include/pine/error_chain.hpp` 提供 `pine::error_as<T>(const std::exception&)` / `pine::error_is<T>(const std::exception&)` 模板 helper,沿 nested 链下钻,对偶 Go `errors.As` / Java `Throwable.getCause()` / Python `__cause__`。注意:helper 内部显式检查 `nested_ptr() != nullptr` 后才调用 `rethrow_nested()`,避开标准 `std::rethrow_if_nested` 在 null 时 `std::terminate` 的 footgun
 - **可插拔观测与扩展**
   - `pine::metrics::Provider` / `Counter` / `Gauge` / `Histogram` / `NopProvider`（对齐 pine-go `pkg/metrics`）
   - `MetricsAware` 接口（`Engine` 预创建后自动注入）与 `StatsProvider` 接口（向 `/stats` 暴露算子内部计数）

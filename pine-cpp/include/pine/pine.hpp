@@ -51,8 +51,22 @@ public:
 
 // ExecutionError carries the operator name and an inner error message and
 // formats like pine-go: `pine: execution error in operator "X": <inner>`.
-// The legacy single-string ctor remains for sites that don't yet pass an
-// operator name (the message will be used as-is and may not byte-match Go).
+//
+// Two construction forms:
+//   ExecutionError(operator_name, inner_msg)
+//     The canonical form. Builds the full `pine: execution error in
+//     operator "X": <inner>` what() string at construction time.
+//
+//   ExecutionError(msg)
+//     The legacy single-string form, used by operator-level throw sites
+//     that don't know their own operator name. `operator_name()` returns
+//     empty; `inner()` returns the message verbatim. The engine layer
+//     (`dispatch_with_recovery`, see runtime/engine.cpp) catches this
+//     form and re-wraps it via `std::throw_with_nested(ExecutionError(
+//     op.name, e.inner()))` so the eventual what() string still matches
+//     pine-go byte-for-byte. **In short: operator code may throw with
+//     either form; the byte-exact prefix is applied centrally by the
+//     scheduler, not by every throw site.** Tracked as P1-D1.
 //
 // Also inherits std::nested_exception so that when thrown via
 // std::throw_with_nested the original in-flight exception is preserved as a
