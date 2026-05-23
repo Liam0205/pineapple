@@ -350,6 +350,153 @@ print(cpp.get('scheduler', {}).get('run_count', 0))
     fi
   fi
 
+  # ------------------------------------------------------------------
+  # [7] /stats.http.requests_total: byte-exact key set + counts across
+  # engines. The HTTP metrics middleware is always-on with NopProvider
+  # fallback in each runtime, so /stats must expose the same shape.
+  # ------------------------------------------------------------------
+  metrics_total=$((metrics_total + 1))
+  http_req_ok=$(python3 -c "
+import json
+go = json.loads('''$GO_STATS''').get('http', {}).get('requests_total', {})
+java = json.loads('''$JAVA_STATS''').get('http', {}).get('requests_total', {})
+py = json.loads('''$PY_STATS''').get('http', {}).get('requests_total', {})
+# Filter to only POST /execute counts (the workload Section 13 generates).
+# Other entries (e.g. /stats GET from the test harness itself) vary by run.
+def execute_count(d):
+    return d.get('POST /execute 2xx', 0)
+ge, je, pe = execute_count(go), execute_count(java), execute_count(py)
+if ge == je == pe == 5:
+    print('match')
+else:
+    print(f'go={ge} java={je} py={pe}; full go={go} java={java} py={py}')
+")
+  if [[ "$http_req_ok" == "match" ]]; then
+    metrics_pass=$((metrics_pass + 1))
+    echo "    [7] http.requests_total POST /execute 2xx = 5 for all engines"
+  else
+    fail "metrics: http.requests_total differs: $http_req_ok"
+  fi
+
+  if $cpp_srv_ready; then
+    cpp_metrics_total=$((cpp_metrics_total + 1))
+    cpp_http_req_ok=$(python3 -c "
+import json
+go = json.loads('''$GO_STATS''').get('http', {}).get('requests_total', {})
+cpp = json.loads('''$CPP_STATS''').get('http', {}).get('requests_total', {})
+ge, ce = go.get('POST /execute 2xx', 0), cpp.get('POST /execute 2xx', 0)
+print('match' if ge == ce == 5 else f'go={ge} cpp={ce}; full cpp={cpp}')
+")
+    if [[ "$cpp_http_req_ok" == "match" ]]; then
+      cpp_metrics_pass=$((cpp_metrics_pass + 1))
+      echo "    [7] C++ http.requests_total POST /execute 2xx matches Go"
+    else
+      fail "metrics: C++ http.requests_total differs: $cpp_http_req_ok"
+    fi
+  fi
+
+  # ------------------------------------------------------------------
+  # [8] /stats.http.request_duration_seconds: count parity (sum_ns is
+  # host-load dependent so we only assert structure + count match).
+  # ------------------------------------------------------------------
+  metrics_total=$((metrics_total + 1))
+  http_dur_ok=$(python3 -c "
+import json
+def get_dur_count(stats):
+    return stats.get('http', {}).get('request_duration_seconds', {}).get('POST /execute', {}).get('count', 0)
+go = json.loads('''$GO_STATS''')
+java = json.loads('''$JAVA_STATS''')
+py = json.loads('''$PY_STATS''')
+gc, jc, pc = get_dur_count(go), get_dur_count(java), get_dur_count(py)
+if gc == jc == pc == 5:
+    print('match')
+else:
+    print(f'go={gc} java={jc} py={pc}')
+")
+  if [[ "$http_dur_ok" == "match" ]]; then
+    metrics_pass=$((metrics_pass + 1))
+    echo "    [8] http.request_duration_seconds POST /execute count = 5 for all engines"
+  else
+    fail "metrics: http.request_duration_seconds count differs: $http_dur_ok"
+  fi
+
+  if $cpp_srv_ready; then
+    cpp_metrics_total=$((cpp_metrics_total + 1))
+    cpp_http_dur_ok=$(python3 -c "
+import json
+def get_dur_count(stats):
+    return stats.get('http', {}).get('request_duration_seconds', {}).get('POST /execute', {}).get('count', 0)
+go = json.loads('''$GO_STATS''')
+cpp = json.loads('''$CPP_STATS''')
+gc, cc = get_dur_count(go), get_dur_count(cpp)
+print('match' if gc == cc == 5 else f'go={gc} cpp={cc}')
+")
+    if [[ "$cpp_http_dur_ok" == "match" ]]; then
+      cpp_metrics_pass=$((cpp_metrics_pass + 1))
+      echo "    [8] C++ http.request_duration_seconds POST /execute count matches Go"
+    else
+      fail "metrics: C++ http.request_duration_seconds count differs: $cpp_http_dur_ok"
+    fi
+  fi
+
+  # ------------------------------------------------------------------
+  # [9] /stats.http schema shape: both subtree keys present + duration
+  # bucket has {count, sum_ns} fields. Validates http_metrics middleware
+  # is unconditionally installed (NopProvider fallback) in every runtime.
+  # ------------------------------------------------------------------
+  metrics_total=$((metrics_total + 1))
+  http_shape_ok=$(python3 -c "
+import json
+def shape(name, stats):
+    http = stats.get('http')
+    if http is None:
+        return f'{name}: missing http subtree'
+    if 'requests_total' not in http or 'request_duration_seconds' not in http:
+        return f'{name}: missing requests_total or request_duration_seconds'
+    durs = http['request_duration_seconds']
+    for k, v in durs.items():
+        if 'count' not in v or 'sum_ns' not in v:
+            return f'{name}: duration bucket {k!r} missing count/sum_ns: {v}'
+    return None
+for name, stats_str in [('go', '''$GO_STATS'''), ('java', '''$JAVA_STATS'''), ('py', '''$PY_STATS''')]:
+    err = shape(name, json.loads(stats_str))
+    if err:
+        print(err); break
+else:
+    print('match')
+")
+  if [[ "$http_shape_ok" == "match" ]]; then
+    metrics_pass=$((metrics_pass + 1))
+    echo "    [9] http subtree schema present in all engines"
+  else
+    fail "metrics: http subtree schema: $http_shape_ok"
+  fi
+
+  if $cpp_srv_ready; then
+    cpp_metrics_total=$((cpp_metrics_total + 1))
+    cpp_http_shape_ok=$(python3 -c "
+import json
+http = json.loads('''$CPP_STATS''').get('http')
+if http is None:
+    print('cpp: missing http subtree')
+elif 'requests_total' not in http or 'request_duration_seconds' not in http:
+    print('cpp: missing requests_total or request_duration_seconds')
+else:
+    bad = None
+    for k, v in http['request_duration_seconds'].items():
+        if 'count' not in v or 'sum_ns' not in v:
+            bad = f'cpp: bucket {k!r} missing count/sum_ns: {v}'
+            break
+    print(bad or 'match')
+")
+    if [[ "$cpp_http_shape_ok" == "match" ]]; then
+      cpp_metrics_pass=$((cpp_metrics_pass + 1))
+      echo "    [9] C++ http subtree schema matches Go"
+    else
+      fail "metrics: C++ http subtree schema: $cpp_http_shape_ok"
+    fi
+  fi
+
   kill $GO_PID $JAVA_PID $PY_PID 2>/dev/null || true
   [[ -n "$CPP_PID" ]] && kill $CPP_PID 2>/dev/null || true
   wait $GO_PID $JAVA_PID $PY_PID 2>/dev/null || true
