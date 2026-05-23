@@ -1073,19 +1073,21 @@ int Server::run(const ServerConfig& cfg) {
         ::close(listen_fd_);
         listen_fd_ = -1;
     }
-    // Graceful drain: wait up to ~5s for in-flight handler threads to finish.
-    // Mirrors pine-go http.Server.Shutdown(ctx) with 5s deadline.
+    // Graceful drain: wait for all in-flight handler threads to finish.
+    // No deadline — abandoning still-running threads is a use-after-free
+    // hazard once Server members (engine_, config_, engine_mu_, stats_)
+    // get torn down by ~Server(). Detached threads hold raw `this` and
+    // raw references into those members; outliving the destructor would
+    // touch freed storage.
+    //
+    // Socket read/write timeouts (config_.read_timeout_seconds etc.) bound
+    // the runtime of each individual request, so this loop terminates as
+    // long as no handler is genuinely stuck. If a future regression makes
+    // a handler unbounded, we will deadlock here — that is louder and
+    // safer than the UAF it replaces. Tracked as P0-2.
     std::cerr << "shutting down...\n";
-    {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (in_flight_.load(std::memory_order_relaxed) > 0 &&
-               std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-        int64_t remaining = in_flight_.load(std::memory_order_relaxed);
-        if (remaining > 0) {
-            std::cerr << "shutdown: " << remaining << " in-flight request(s) abandoned after 5s\n";
-        }
+    while (in_flight_.load(std::memory_order_relaxed) > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     return 0;
 }

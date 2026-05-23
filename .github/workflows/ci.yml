@@ -238,6 +238,20 @@ jobs:
             echo "cpp-lint: hygiene failures detected (see above)"
             exit 1
           fi
+      - name: Adjacent string-literal concat with bare identifier (typo guard)
+        run: |
+          # Catches `"... "" + var + ""` patterns where the author meant
+          # to embed an identifier inside double quotes but the C++ compiler
+          # silently concatenates adjacent string literals, dropping the
+          # intended quotes. Tracked under .code-review/from-v0.8.0 as
+          # P0-1 — five rounds of code review caught a single instance
+          # (config.cpp:191) that hid via this exact shape.
+          if grep -rEn '""[[:space:]]*\+[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\+[[:space:]]*""' \
+              pine-cpp/src pine-cpp/include pine-cpp/cmd pine-cpp/operators; then
+            echo "cpp-lint: suspicious adjacent-literal concat with bare identifier" >&2
+            echo "         (likely missing \\\" around an embedded variable; see P0-1)" >&2
+            exit 1
+          fi
 
   cpp-test:
     runs-on: ubuntu-latest

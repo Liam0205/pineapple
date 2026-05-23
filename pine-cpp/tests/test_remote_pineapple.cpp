@@ -146,6 +146,10 @@ TEST_CASE("remote_pineapple: ssrf rejects localhost / loopback") {
 
     CHECK(host_is_private("localhost"));
     CHECK(host_is_private(""));
+    // Case-insensitive: LOCALHOST / LocalHost variants must all reject.
+    CHECK(host_is_private("LOCALHOST"));
+    CHECK(host_is_private("LocalHost"));
+    CHECK(host_is_private("localHOST"));
     CHECK(ip_literal_is_private("127.0.0.1"));
     CHECK(ip_literal_is_private("10.1.2.3"));
     CHECK(ip_literal_is_private("172.16.0.1"));
@@ -155,6 +159,93 @@ TEST_CASE("remote_pineapple: ssrf rejects localhost / loopback") {
     CHECK(ip_literal_is_private("fc00::1"));
     CHECK_FALSE(ip_literal_is_private("8.8.8.8"));
     CHECK_FALSE(ip_literal_is_private("1.1.1.1"));
+}
+
+TEST_CASE("remote_pineapple: ssrf rejects obfuscated IPv4 literals") {
+    using pine::http::host_is_private;
+    // Hex form: 0x7f000001 = 127.0.0.1
+    CHECK(host_is_private("0x7f000001"));
+    CHECK(host_is_private("0X7F000001"));
+    // 32-bit integer form: 2130706433 = 127.0.0.1
+    CHECK(host_is_private("2130706433"));
+    // Short-form IPv4: 127.1 = 127.0.0.1 in BSD parser
+    CHECK(host_is_private("127.1"));
+    CHECK(host_is_private("127.0.1"));
+    CHECK(host_is_private("10.1"));
+    // Real hostnames must still pass through (the obfuscation rejector
+    // only fires on shapes that look numeric — not "google.com").
+    std::string reason;
+    CHECK_FALSE(host_is_private("example.com", &reason));
+}
+
+TEST_CASE("remote_pineapple: sockaddr_is_private dial-time guard") {
+    using pine::http::sockaddr_is_private;
+    sockaddr_in in4{};
+    in4.sin_family = AF_INET;
+    inet_pton(AF_INET, "127.0.0.1", &in4.sin_addr);
+    CHECK(sockaddr_is_private(reinterpret_cast<sockaddr*>(&in4)));
+
+    inet_pton(AF_INET, "169.254.169.254", &in4.sin_addr);
+    CHECK(sockaddr_is_private(reinterpret_cast<sockaddr*>(&in4)));
+
+    inet_pton(AF_INET, "8.8.8.8", &in4.sin_addr);
+    CHECK_FALSE(sockaddr_is_private(reinterpret_cast<sockaddr*>(&in4)));
+
+    sockaddr_in6 in6{};
+    in6.sin6_family = AF_INET6;
+    inet_pton(AF_INET6, "::1", &in6.sin6_addr);
+    CHECK(sockaddr_is_private(reinterpret_cast<sockaddr*>(&in6)));
+
+    inet_pton(AF_INET6, "2606:4700:4700::1111", &in6.sin6_addr);
+    CHECK_FALSE(sockaddr_is_private(reinterpret_cast<sockaddr*>(&in6)));
+
+    CHECK_FALSE(sockaddr_is_private(nullptr));
+}
+
+TEST_CASE("remote_pineapple: ssrf private range coverage (RFC 6890 / 6598)") {
+    using pine::http::ip_literal_is_private;
+    // CGN — RFC 6598
+    CHECK(ip_literal_is_private("100.64.0.0"));
+    CHECK(ip_literal_is_private("100.96.0.10"));
+    CHECK(ip_literal_is_private("100.127.255.255"));
+    CHECK_FALSE(ip_literal_is_private("100.128.0.0"));  // outside /10
+    CHECK_FALSE(ip_literal_is_private("100.63.255.255"));
+    // Multicast / reserved / broadcast
+    CHECK(ip_literal_is_private("224.0.0.1"));
+    CHECK(ip_literal_is_private("239.255.255.255"));
+    CHECK(ip_literal_is_private("240.0.0.0"));
+    CHECK(ip_literal_is_private("255.255.255.255"));
+    // TEST-NET / documentation / benchmark / 6to4
+    CHECK(ip_literal_is_private("192.0.0.0"));
+    CHECK(ip_literal_is_private("192.0.2.42"));
+    CHECK(ip_literal_is_private("192.88.99.1"));
+    CHECK(ip_literal_is_private("198.18.0.0"));
+    CHECK(ip_literal_is_private("198.19.255.255"));
+    CHECK(ip_literal_is_private("198.51.100.5"));
+    CHECK(ip_literal_is_private("203.0.113.5"));
+    // Real public addresses remain dialable
+    CHECK_FALSE(ip_literal_is_private("8.8.8.8"));
+    CHECK_FALSE(ip_literal_is_private("1.1.1.1"));
+    CHECK_FALSE(ip_literal_is_private("203.0.114.1"));   // just past TEST-NET-3
+    CHECK_FALSE(ip_literal_is_private("198.20.0.0"));    // just past benchmark
+}
+
+TEST_CASE("remote_pineapple: ssrf IPv6 extended coverage") {
+    using pine::http::ip_literal_is_private;
+    // Multicast (ff00::/8)
+    CHECK(ip_literal_is_private("ff02::1"));
+    CHECK(ip_literal_is_private("ff00::"));
+    // Discard prefix (100::/64)
+    CHECK(ip_literal_is_private("100::"));
+    CHECK(ip_literal_is_private("100::1"));
+    CHECK_FALSE(ip_literal_is_private("100:1::"));  // not in 100::/64
+    // Documentation (2001:db8::/32)
+    CHECK(ip_literal_is_private("2001:db8::"));
+    CHECK(ip_literal_is_private("2001:db8:ffff::1"));
+    CHECK_FALSE(ip_literal_is_private("2001:db9::"));
+    // Public IPv6 remains dialable
+    CHECK_FALSE(ip_literal_is_private("2606:4700:4700::1111"));
+    CHECK_FALSE(ip_literal_is_private("2a00:1450:4001:830::200e"));
 }
 
 TEST_CASE("remote_pineapple: init rejects loopback when allow_private=false") {

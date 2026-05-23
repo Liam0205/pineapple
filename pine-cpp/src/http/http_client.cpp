@@ -3,6 +3,10 @@
 
 #include <curl/curl.h>
 
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include <mutex>
 #include <string>
 
@@ -29,14 +33,24 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return bytes;
 }
 
-int sockopt_ssrf_callback(void* clientp, curl_socket_t /*curlfd*/, curlsocktype /*purpose*/) {
-    // libcurl has already resolved DNS and is about to open a connection.
-    // Re-check the resolved peer address by reading getsockname() — but at
-    // this point the socket is unconnected. Instead we rely on the
-    // host-validation pass before the curl_easy_perform() call. This callback
-    // exists as a hook for future refinement (e.g. CURLOPT_OPENSOCKETFUNCTION).
-    (void)clientp;
-    return CURL_SOCKOPT_OK;
+// Dial-time SSRF guard. libcurl invokes this just before opening a socket
+// to the resolved peer; we get the actual IP that will be dialed (not the
+// init-time DNS result), so this defeats DNS rebinding — even if an
+// attacker-controlled hostname returned a public IP during host validation
+// and later flips DNS to 169.254.169.254 / 127.0.0.1, the dial-time check
+// rejects it. Returning CURL_SOCKET_BAD aborts the transfer cleanly.
+//
+// `clientp` carries the caller's `allow_private` flag; when set, we skip
+// the check so local testing still works.
+curl_socket_t opensocket_ssrf_callback(void* clientp,
+                                        curlsocktype /*purpose*/,
+                                        struct curl_sockaddr* address) {
+    if (address == nullptr) return CURL_SOCKET_BAD;
+    bool allow_private = (clientp != nullptr) && *static_cast<bool*>(clientp);
+    if (!allow_private && sockaddr_is_private(&address->addr)) {
+        return CURL_SOCKET_BAD;
+    }
+    return ::socket(address->family, address->socktype, address->protocol);
 }
 
 }  // namespace
@@ -92,6 +106,8 @@ PostResult post(const PostOptions& opts) {
         ("Content-Type: " + opts.content_type).c_str());
     struct HdrScope { curl_slist* h; ~HdrScope() { if (h) curl_slist_free_all(h); } } hscope{headers};
 
+    bool allow_private_flag = opts.allow_private;
+
     curl_easy_setopt(curl, CURLOPT_URL, opts.url.c_str());
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, opts.body.data());
@@ -102,7 +118,11 @@ PostResult post(const PostOptions& opts) {
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf_state);
-    curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, &sockopt_ssrf_callback);
+    // Dial-time SSRF guard — defeats DNS rebinding by checking the actual
+    // peer IP libcurl chose, not the one we resolved during init-time host
+    // validation.
+    curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, &opensocket_ssrf_callback);
+    curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, &allow_private_flag);
     // Reject TLS by default for now — pine-go uses plain HTTP for downstream
     // pineapple. If a future caller needs HTTPS, lift this restriction.
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
@@ -116,6 +136,12 @@ PostResult post(const PostOptions& opts) {
             static_cast<int64_t>(result.body.size()) > opts.max_response_size) {
             result.error = "transform_by_remote_pineapple: response body exceeds " +
                            std::to_string(opts.max_response_size) + " bytes limit";
+        } else if (rc == CURLE_COULDNT_CONNECT || rc == CURLE_COULDNT_RESOLVE_HOST) {
+            // CURL_SOCKET_BAD from the open-socket callback surfaces here as
+            // a "couldn't connect"; relabel it so the cause is obvious.
+            result.error = std::string("transform_by_remote_pineapple: request failed: ") +
+                           curl_easy_strerror(rc) +
+                           " (peer rejected by SSRF dial-time guard if hostname resolved to a private address)";
         } else {
             result.error = std::string("transform_by_remote_pineapple: request failed: ") +
                            curl_easy_strerror(rc);
