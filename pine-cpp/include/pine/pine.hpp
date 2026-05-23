@@ -3,6 +3,7 @@
 #include "pine/metrics.hpp"
 
 #include <atomic>
+#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
@@ -52,7 +53,12 @@ public:
 // formats like pine-go: `pine: execution error in operator "X": <inner>`.
 // The legacy single-string ctor remains for sites that don't yet pass an
 // operator name (the message will be used as-is and may not byte-match Go).
-class ExecutionError : public Error {
+//
+// Also inherits std::nested_exception so that when thrown via
+// std::throw_with_nested the original in-flight exception is preserved as a
+// nested cause. Use pine::error_as<T>() (include/pine/error_chain.hpp) to
+// walk the cause chain, mirroring Go's errors.As / Java's Throwable.getCause().
+class ExecutionError : public Error, public std::nested_exception {
 public:
     explicit ExecutionError(std::string msg) : Error(msg), inner_(std::move(msg)) {}
     ExecutionError(std::string operator_name, std::string inner)
@@ -70,8 +76,10 @@ private:
 };
 
 // PanicError wraps an unexpected (non-pine::Error) exception thrown from an
-// operator. Mirrors pine-go's types.PanicError.
-class PanicError : public Error {
+// operator. Mirrors pine-go's types.PanicError. Inherits std::nested_exception
+// so the recovered std::exception is preserved as a nested cause when thrown
+// via std::throw_with_nested.
+class PanicError : public Error, public std::nested_exception {
 public:
     PanicError(std::string operator_name, std::string value)
         : Error(format_msg(operator_name, value)),

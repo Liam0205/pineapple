@@ -136,6 +136,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_metrics_aware.cpp
         tests/test_stats_provider.cpp
         tests/test_remote_pineapple.cpp
+        tests/test_error_chain.cpp
     )
     target_sources(pine_cpp_tests PRIVATE src/server/http_metrics.cpp src/server/http_stats.cpp)
     target_link_libraries(pine_cpp_tests PRIVATE pine_cpp_core doctest::doctest)

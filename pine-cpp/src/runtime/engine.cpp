@@ -302,6 +302,11 @@ void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
 // exception into a PanicError carrying the operator name. Pine typed errors
 // (ExecutionError, RegistryError, etc.) propagate unchanged after ensuring
 // they are correctly formatted matching Go.
+//
+// Both re-wrap paths use std::throw_with_nested so the original in-flight
+// exception is preserved as a nested cause on the outgoing ExecutionError /
+// PanicError. Downstream code can use pine::error_as<T>() to walk the chain,
+// mirroring Go's errors.As / Java's Throwable.getCause().
 void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
                             const std::map<std::string, std::unique_ptr<Operator>>& operators,
                             OperatorOutput& out) {
@@ -312,13 +317,13 @@ void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
         // formatted with raw inner message, ensure it matches:
         // `pine: execution error in operator "X": <inner>`
         if (e.operator_name().empty()) {
-            throw ExecutionError(op.name, e.inner().empty() ? std::string(e.what()) : e.inner());
+            std::throw_with_nested(ExecutionError(op.name, e.inner().empty() ? std::string(e.what()) : e.inner()));
         }
         throw;
     } catch (const Error&) {
         throw;
     } catch (const std::exception& e) {
-        throw PanicError(op.name, e.what());
+        std::throw_with_nested(PanicError(op.name, e.what()));
     } catch (...) {
         throw PanicError(op.name, "unknown exception");
     }
