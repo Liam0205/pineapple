@@ -245,7 +245,11 @@ Result RowFrame::to_result(const std::vector<std::string>& common_out,
         std::map<std::string, JsonValue> out_row;
         for (const auto& field : item_out) {
             auto it = row.find(field);
-            if (it != row.end() && !it->second.is_null()) {
+            // Keep explicit nulls — pine-go RowFrame.ToResult / projectMap
+            // and pine-cpp ColumnFrame.to_result (via Column::is_present)
+            // both preserve PRESENT-NULL. Only ABSENT keys are stripped.
+            // (R3-X2 dual-impl equivalence demands the same rule.)
+            if (it != row.end()) {
                 out_row[field] = it->second;
             }
         }
