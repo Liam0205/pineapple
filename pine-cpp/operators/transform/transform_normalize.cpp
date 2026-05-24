@@ -9,8 +9,12 @@ class TransformNormalizeOp : public Operator {
 public:
     void init(const OperatorConfig& cfg) override {
         op_name_ = cfg.name;
-        field_ = cfg.metadata.item_input.at(0);
-        out_field_ = cfg.metadata.item_output.at(0);
+        // R3 follow-up: read item_input / item_output lazily so an
+        // operator that's permanently skipped doesn't crash at init.
+        // pine-go normalize.go reads in Execute (lines 59-60), so when
+        // a skip branch is active the OOB never fires. We mirror that.
+        item_input_ = cfg.metadata.item_input;
+        item_output_ = cfg.metadata.item_output;
         item_defaults_ = cfg.item_defaults;
         // method param: only "min_max" is implemented. Mirrors pine-go
         // normalize.go:47 — unsupported values are rejected at init
@@ -27,6 +31,14 @@ public:
     }
     void execute(const Frame& frame, OperatorOutput& out) override {
         if (frame.item_count() == 0) return;
+        if (item_input_.empty()) {
+            throw ExecutionError(op_name_, "transform_normalize: item_input is empty");
+        }
+        if (item_output_.empty()) {
+            throw ExecutionError(op_name_, "transform_normalize: item_output is empty");
+        }
+        const std::string& field_ = item_input_[0];
+        const std::string& out_field_ = item_output_[0];
         std::vector<double> vals;
         vals.reserve(frame.item_count());
         for (std::size_t i = 0; i < frame.item_count(); ++i) {
@@ -52,8 +64,8 @@ public:
     }
 private:
     std::string op_name_;
-    std::string field_;
-    std::string out_field_;
+    std::vector<std::string> item_input_;
+    std::vector<std::string> item_output_;
     std::map<std::string, JsonValue> item_defaults_;
 };
 
