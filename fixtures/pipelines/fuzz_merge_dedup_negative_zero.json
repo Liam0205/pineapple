@@ -1,0 +1,70 @@
+{
+  "name": "merge_dedup: -0.0 and 0 are the same dedup key",
+  "description": "Fuzz-discovered (30k rounds, divergence_005471): merge_dedup strategy='first' with dedup key containing -0.0 and 0 (integer). Go normalizes -0.0 to '0' via go_format_g → both map to same key → deduplicated. Java/C++ treat -0.0 and 0 as distinct keys. Go's behavior is canonical (IEEE 754: -0 == +0).",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {
+              "id": "first",
+              "key": -0.0
+            },
+            {
+              "id": "second",
+              "key": 0
+            },
+            {
+              "id": "third",
+              "key": 1
+            }
+          ],
+          "$metadata": {
+            "item_output": [
+              "id",
+              "key"
+            ]
+          }
+        },
+        "dedup": {
+          "type_name": "merge_dedup",
+          "strategy": "first",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [
+              "key"
+            ],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "recall",
+          "dedup"
+        ]
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "-0.0 and 0 should deduplicate (same key per IEEE 754)",
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {},
+          {}
+        ]
+      }
+    }
+  ]
+}
