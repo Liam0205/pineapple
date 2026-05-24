@@ -96,6 +96,10 @@ struct MiddlewareContext {
     std::string normalized_path; // /execute, /health, /stats, /dag, or "_other"
     int64_t request_bytes = 0;
     int status = 200;          // populated by inner handler
+    // R3-L9b: whether the outer connection loop will reuse this socket
+    // for a follow-up request. send_response reads this to choose
+    // `Connection: keep-alive` vs `Connection: close`.
+    bool keep_alive = false;
 };
 
 // User-supplied middleware. Middleware MUST call `next()` exactly once unless
@@ -198,6 +202,12 @@ private:
     std::atomic<int64_t> reload_count_{0};
     std::atomic<int64_t> reload_error_count_{0};
     std::atomic<int64_t> last_reload_duration_ns_{0};
+    // R3-M6: Provider-side hot-reload counters/histogram. Mirrors pine-go
+    // pkg/server/server.go:100-114. Pointers owned by the Provider; we
+    // only hold non-owning references for hot-path use.
+    metrics::Counter* m_reload_total_ = nullptr;
+    metrics::Counter* m_reload_errors_ = nullptr;
+    metrics::Histogram* m_reload_duration_ = nullptr;
 
     // HTTP request stats fed by the default http_metrics middleware.
     std::unique_ptr<HttpStats> http_stats_;

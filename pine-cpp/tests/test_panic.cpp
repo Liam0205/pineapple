@@ -73,3 +73,19 @@ TEST_CASE("dispatch_with_recovery: pine::ExecutionError passes through unwrapped
     CHECK(caught_execution);
     CHECK_FALSE(caught_panic);
 }
+
+TEST_CASE("PanicError captures stack trace via std::stacktrace (R3-L1)") {
+    pine::PanicError p("opX", "boom");
+    CHECK(std::string(p.what()).find("pine: panic in operator \"opX\": boom") != std::string::npos);
+    // stack may be empty if the toolchain lacks std::stacktrace linkage,
+    // but with PINE_HAS_STACKTRACE the field should be populated.
+#if defined(PINE_HAS_STACKTRACE)
+    CHECK(!p.stack().empty());
+    std::string detailed = p.detailed_error();
+    CHECK(detailed.find("stack trace:") != std::string::npos);
+    CHECK(detailed.find(p.what()) != std::string::npos);
+#else
+    CHECK(p.stack().empty());
+    CHECK(p.detailed_error() == std::string(p.what()));
+#endif
+}

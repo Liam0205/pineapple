@@ -88,6 +88,14 @@ ColumnFrame::ColumnFrame(std::map<std::string, JsonValue> common,
     }
 }
 
+std::unique_ptr<Frame> ColumnFrame::make_window_view(std::size_t row_offset,
+                                                       std::size_t row_count) const {
+    // Frame-interface override delegates to the static ColumnFrame factory
+    // and returns a base-class pointer for parallel_execute, which holds
+    // shards as unique_ptr<Frame>. (R3-L3)
+    return std::unique_ptr<Frame>(make_window_view(*this, row_offset, row_count).release());
+}
+
 std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(
     const ColumnFrame& parent,
     std::size_t row_offset,

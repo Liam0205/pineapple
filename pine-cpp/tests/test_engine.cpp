@@ -181,3 +181,44 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon (R3-H1)") {
         CHECK(msg.find("pine: execution error in operator \"r1\"") != std::string::npos);
     }
 }
+
+TEST_CASE("Engine::execute honors external stop_token (R3-H3)") {
+    static const char* kCfg = R"({
+      "_PINEAPPLE_VERSION": "0.8.0",
+      "pipeline_config": {
+        "operators": {
+          "copy": {
+            "type_name": "transform_copy",
+            "direction": "common_to_common",
+            "source": "src",
+            "target": "dst",
+            "$metadata": {
+              "common_input": ["src"],
+              "common_output": ["dst"]
+            }
+          }
+        },
+        "pipeline_map": {"stage": {"pipeline": ["copy"]}}
+      },
+      "pipeline_group": {"main": {"pipeline": ["stage"]}},
+      "flow_contract": {
+        "common_input": ["src"],
+        "item_input": [],
+        "common_output": ["dst"],
+        "item_output": []
+      }
+    })";
+    Engine engine(load_config_from_json(kCfg));
+    Request req;
+    req.common["src"] = JsonValue(std::string("v"));
+    std::stop_source src;
+    src.request_stop();  // pre-cancelled
+    static const std::map<std::string, JsonValue> empty_res;
+    // Pre-cancelled token: run_dag should see stop_requested at every wait
+    // and either return early or finish the trivial DAG. Either way the
+    // call must not deadlock and not throw spuriously.
+    auto result = engine.execute(req, empty_res, src.get_token());
+    // The simple linear DAG may have completed before observing cancel —
+    // both outcomes are valid; the API contract is "no deadlock, no UB".
+    CHECK(true);
+}

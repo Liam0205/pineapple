@@ -9,7 +9,7 @@
 namespace pine {
 namespace operators {
 
-using Frame = ColumnFrame;
+using Frame = pine::Frame;
 
 // Exception type for operator-internal errors (converted to ExecutionError by caller).
 class OperatorError : public std::runtime_error {
@@ -43,6 +43,12 @@ JsonValue require_item_by_name(const Frame& frame, std::size_t index,
                                 const std::string& field);
 
 std::string go_format_g(double d);
+// go_format_lookup_key mirrors pine-go transform/resource_lookup.go:91-96:
+// integer-valued floats serialize with FormatInt (no decimal point) and
+// non-integer floats with FormatFloat(v, 'f', -1, 64) — never scientific.
+// transform_resource_lookup uses this for table keys so `1e-5` (lookup
+// value) matches the `0.00001` key form pine-go produces. R3-H4.
+std::string go_format_lookup_key(double d);
 std::string sprint_value(const JsonValue& v);
 std::string any_to_string(const JsonValue& v);
 std::string dedup_key(const JsonValue& v);

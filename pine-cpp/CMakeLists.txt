@@ -1,9 +1,37 @@
 cmake_minimum_required(VERSION 3.20)
 project(pine_cpp_mvp LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+# R3-L1: bumped from C++20 to C++23 for std::stacktrace (PanicError detail).
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Detect the linker library needed for std::stacktrace. GCC 13+ ships
+# the implementation in libstdc++exp.a; older toolchains use the legacy
+# name libstdc++_libbacktrace. Both are independent backend wrappers
+# around libbacktrace. We probe at configure time and skip stacktrace
+# linkage if neither is available — PanicError still works, just without
+# the stack field. (R3-L1)
+include(CheckLibraryExists)
+include(CheckCXXSourceCompiles)
+set(PINE_STACKTRACE_LIB "")
+foreach(lib stdc++exp stdc++_libbacktrace)
+  set(CMAKE_REQUIRED_LIBRARIES "${lib}")
+  check_cxx_source_compiles(
+    "#include <stacktrace>
+     int main(){ auto t = std::stacktrace::current(); return t.size() == 0 ? 1 : 0; }"
+    PINE_HAS_${lib})
+  unset(CMAKE_REQUIRED_LIBRARIES)
+  if(PINE_HAS_${lib})
+    set(PINE_STACKTRACE_LIB "${lib}")
+    add_compile_definitions(PINE_HAS_STACKTRACE=1)
+    message(STATUS "std::stacktrace available via lib${lib}")
+    break()
+  endif()
+endforeach()
+if(PINE_STACKTRACE_LIB STREQUAL "")
+  message(WARNING "std::stacktrace not available — PanicError will not carry stack frames")
+endif()
 
 # --- LuaJIT ---
 # Search common install locations (linuxbrew, system apt, /usr/local).
@@ -38,7 +66,9 @@ add_library(pine_cpp_core OBJECT
     src/dataframe/column.cpp
     src/dataframe/column_store.cpp
     src/dataframe/column_frame.cpp
+    src/dataframe/row_frame.cpp
     src/runtime/engine.cpp
+    src/runtime/errors.cpp
     src/runtime/metrics_nop.cpp
     src/runtime/thread_pool.cpp
     src/redis/redis_client.cpp
@@ -73,6 +103,12 @@ add_library(pine_cpp_core OBJECT
 target_include_directories(pine_cpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CURL_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pine_cpp_core PUBLIC ${LUAJIT_LIB} ${CURL_LIB})
+if(NOT PINE_STACKTRACE_LIB STREQUAL "")
+  target_link_libraries(pine_cpp_core PUBLIC ${PINE_STACKTRACE_LIB})
+endif()
+# Debug symbols are required for std::stacktrace to resolve source
+# file / line numbers; without them the trace prints `at :0`. R3-L1.
+target_compile_options(pine_cpp_core PUBLIC -g)
 
 target_compile_options(pine_cpp_core PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -135,6 +171,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_column.cpp
         tests/test_format_g.cpp
         tests/test_column_frame.cpp
+        tests/test_row_frame.cpp
         tests/test_register_operator.cpp
         tests/test_metrics.cpp
         tests/test_resource.cpp

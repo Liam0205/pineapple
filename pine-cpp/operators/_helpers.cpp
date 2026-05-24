@@ -4,6 +4,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace pine {
 namespace operators {
@@ -118,6 +119,34 @@ std::string go_format_g(double d) {
         }
     }
     return result;
+}
+
+// go_format_lookup_key mirrors pine-go transform/resource_lookup.go:91-96.
+// Note: distinct from go_format_g — never emits scientific notation, so
+// `1e-5` becomes `"0.00001"` not `"1e-05"`. R3-H4.
+std::string go_format_lookup_key(double d) {
+    if (std::isnan(d) || std::isinf(d)) {
+        // Match strconv.FormatFloat for these edge cases via go_format_g —
+        // they will not normally hit a lookup table anyway.
+        return go_format_g(d);
+    }
+    // Integer-valued floats: strconv.FormatInt produces the decimal
+    // representation with no decimal point.
+    if (d == static_cast<double>(static_cast<int64_t>(d)) &&
+        d >= static_cast<double>(std::numeric_limits<int64_t>::min()) &&
+        d <= static_cast<double>(std::numeric_limits<int64_t>::max())) {
+        return std::to_string(static_cast<int64_t>(d));
+    }
+    // FormatFloat(d, 'f', -1, 64): shortest non-scientific representation
+    // that round-trips. std::to_chars(d, chars_format::fixed) is the
+    // closest C++ analog and produces identical output for finite
+    // doubles in the cases that matter here.
+    char buf[64];
+    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d, std::chars_format::fixed);
+    if (ec != std::errc{}) {
+        return go_format_g(d);  // fallback
+    }
+    return std::string(buf, ptr);
 }
 
 std::string sprint_value(const JsonValue& v) {
