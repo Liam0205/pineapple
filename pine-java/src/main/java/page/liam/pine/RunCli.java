@@ -115,11 +115,24 @@ public class RunCli {
             return;
         }
 
+        // R3-X4 follow-up: avoid mapper.convertValue here. The GoFormat
+        // ObjectMapper installs a Double serializer that writes -0.0 as
+        // `gen.writeRawValue("-0")` for byte-exact parity with Go's
+        // json.Marshal. convertValue routes the value through a Jackson
+        // TokenBuffer (serialize → deserialize) and the RawValue token
+        // survives the round-trip, surfacing later as a
+        // `com.fasterxml.jackson.databind.util.RawValue` instance in the
+        // frame — which ColumnFrame.checkValue then rejects as
+        // "unsupported value type". A plain `Map<String,Object>` cast
+        // skips the round-trip; the value was already deserialized into
+        // proper Java types by the outer mapper.readValue.
+        @SuppressWarnings("unchecked")
         Map<String, Object> common = req.containsKey("common")
-                ? mapper.convertValue(req.get("common"), new TypeReference<Map<String, Object>>() {})
+                ? (Map<String, Object>) req.get("common")
                 : Collections.emptyMap();
+        @SuppressWarnings("unchecked")
         List<Map<String, Object>> items = req.containsKey("items")
-                ? mapper.convertValue(req.get("items"), new TypeReference<List<Map<String, Object>>>() {})
+                ? (List<Map<String, Object>>) req.get("items")
                 : Collections.emptyList();
 
         Engine.Result result = engine.execute(common, items);
