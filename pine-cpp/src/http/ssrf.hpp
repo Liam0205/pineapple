@@ -18,6 +18,20 @@ namespace http {
 // outright — libcurl's URL parser accepts several non-RFC forms that
 // `inet_pton` rejects, so init-time validation must guard those shapes.
 //
+// KNOWN GAP — octal IPv4 literals: forms like `0177.0.0.1` (leading-zero
+// dotted-quad) are accepted by getaddrinfo on most glibc systems as
+// octal-interpreted IPv4 and resolve to 127.0.0.1. host_is_private's
+// numeric-segment heuristic does not flag them because they look like
+// any other dotted-quad to inet_pton (which rejects octal) and the
+// addrinfo path then has to catch them via the resolved sockaddr.
+// This is exactly what sockaddr_is_private at dial time is for: the
+// CURLOPT_OPENSOCKETFUNCTION hook intercepts the resolved peer address
+// before connect(2), so octal-encoded loopback addresses are rejected
+// there even if init-time host_is_private misses them. The dial-time
+// guard is therefore the load-bearing defense; host_is_private is a
+// fast-fail layer for the shapes we can catch syntactically.
+// (P2-25 — inc-6 follow-up)
+//
 // `error_out` (when non-null) receives a human-readable reason on rejection.
 bool host_is_private(const std::string& host, std::string* error_out = nullptr);
 

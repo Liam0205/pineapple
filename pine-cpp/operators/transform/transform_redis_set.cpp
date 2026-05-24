@@ -27,34 +27,22 @@ public:
 
         // Borrow from the shared pool (P1-P4). See transform_redis_get for
         // pool semantics; same RAII guard pattern.
-        std::unique_ptr<redis::Client> client;
+        redis::ConnectionPool::ScopedClient client;
         try {
-            client = redis::shared_pool().acquire(rp_.host, rp_.port, rp_.password, rp_.db);
+            client = redis::shared_pool().acquire_scoped(rp_.host, rp_.port, rp_.password, rp_.db);
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
                 throw ExecutionError("transform_redis_set: write key " + key + ": " + e.what());
             out.set_warning("transform_redis_set: write key " + key + ": " + std::string(e.what()));
             return;
         }
-        if (!client->connected()) {
+        if (!client || !client->connected()) {
             if (rp_.fail_on_error)
                 throw ExecutionError("transform_redis_set: write key " + key + ": connection failed");
             out.set_warning("transform_redis_set: write key " + key + ": connection failed");
             return;
         }
-        struct PoolGuard {
-            redis::ConnectionPool& pool;
-            const std::string host;
-            const int port;
-            const std::string password;
-            const int db;
-            std::unique_ptr<redis::Client> c;
-            ~PoolGuard() {
-                if (c) pool.release(host, port, password, db, std::move(c));
-            }
-        };
-        PoolGuard guard{redis::shared_pool(), rp_.host, rp_.port, rp_.password, rp_.db, std::move(client)};
-        redis::Client* cli = guard.c.get();
+        redis::Client* cli = client.get();
 
         try {
             if (rp_.data_type == "string") {
