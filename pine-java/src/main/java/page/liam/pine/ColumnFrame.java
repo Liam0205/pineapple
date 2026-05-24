@@ -176,7 +176,14 @@ public class ColumnFrame implements Frame {
             List<Integer> order = out.getItemOrder();
             if (order != null) {
                 if (order.size() != rowCount) {
-                    throw new IllegalArgumentException("SetItemOrder length " + order.size() + " does not match item count " + rowCount);
+                    // SetItemOrder errors use ExecutionError uniformly across
+                    // the four runtimes (pine-cpp / pine-python use the same
+                    // class; pine-go wraps via the engine layer). The earlier
+                    // IllegalArgumentException / IndexOutOfBoundsException
+                    // diverged with no upside — runtime error parity treats
+                    // exception types as part of the contract. (P2-26)
+                    throw new PineErrors.ExecutionError(opName,
+                        "SetItemOrder length " + order.size() + " does not match item count " + rowCount);
                 }
                 // Permutation check — without this, setItemOrder([0,0,0])
                 // silently duplicates item 0 across the frame.
@@ -185,10 +192,12 @@ public class ColumnFrame implements Frame {
                 for (int i = 0; i < rowCount; i++) {
                     int origIdx = order.get(i);
                     if (origIdx < 0 || origIdx >= rowCount) {
-                        throw new IndexOutOfBoundsException("SetItemOrder index " + origIdx + " out of range [0, " + rowCount + ")");
+                        throw new PineErrors.ExecutionError(opName,
+                            "SetItemOrder index " + origIdx + " out of range [0, " + rowCount + ")");
                     }
                     if (seen[origIdx]) {
-                        throw new IllegalArgumentException("SetItemOrder duplicate index " + origIdx + " (order must be a permutation)");
+                        throw new PineErrors.ExecutionError(opName,
+                            "SetItemOrder duplicate index " + origIdx + " (order must be a permutation)");
                     }
                     seen[origIdx] = true;
                     mapping[i] = origIdx;
