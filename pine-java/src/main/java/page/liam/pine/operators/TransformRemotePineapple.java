@@ -201,7 +201,8 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     // for inclusion in error messages / warnings. P1-E4.
     private static final int ERROR_BODY_MAX = 1024;
     private static String truncateBody(byte[] body) {
-        if (body == null || body.length <= ERROR_BODY_MAX) return new String(body, java.nio.charset.StandardCharsets.UTF_8);
+        if (body == null) return "";
+        if (body.length <= ERROR_BODY_MAX) return new String(body, java.nio.charset.StandardCharsets.UTF_8);
         return new String(body, 0, ERROR_BODY_MAX, java.nio.charset.StandardCharsets.UTF_8)
             + "...(truncated, total " + body.length + " bytes)";
     }
