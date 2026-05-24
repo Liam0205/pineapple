@@ -61,13 +61,26 @@ jobs:
       - name: Run differential fuzz
         timeout-minutes: 355
         run: |
+          # Weekend (Saturday UTC) gets 100k rounds + shrink for deeper coverage;
+          # weekdays get 10k. Manual dispatch uses the input value as-is.
+          if [ -n "${{ inputs.rounds }}" ]; then
+            ROUNDS="${{ inputs.rounds }}"
+            EXTRA_FLAGS=""
+          elif [ "$(date -u +%u)" = "6" ]; then
+            ROUNDS=100000
+            EXTRA_FLAGS="--shrink"
+          else
+            ROUNDS=10000
+            EXTRA_FLAGS=""
+          fi
           python3 scripts/differential-fuzz.py \
-            --rounds ${{ inputs.rounds || '10000' }} \
+            --rounds "$ROUNDS" \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
             --go-bin pine-go/pineapple-run \
             --cpp-bin pine-cpp/build/pineapple-run \
             --engines go,python,java,cpp \
             --save-dir /tmp/diff-fuzz-nightly \
+            $EXTRA_FLAGS \
             2>&1 | tee diff-fuzz-output.log || true
 
       - name: Evaluate results

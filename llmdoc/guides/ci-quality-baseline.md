@@ -37,8 +37,7 @@
 
 另有独立 nightly workflow：
 
-- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行 10000 轮四引擎差异比对，发现分歧时自动创建 GitHub issue
-- **Weekend deep-fuzz**（`.github/workflows/weekend-deep-fuzz.yml`）：周末运行 100000 轮四引擎差异比对 + shrink 最小复现，30 天 artifact 保留
+- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行四引擎差异比对；平日 10000 轮，**周六自动升级到 100000 轮 + `--shrink` 最小复现**（复用同一 workflow，通过 `date -u +%u` 判断星期）；发现分歧时自动创建 GitHub issue
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
 
@@ -115,7 +114,7 @@ CI 中 Hypothesis 使用默认 settings profile（200 examples），依赖 `pine
 
 - CI 模式：100 轮，发现分歧则 job 失败
 - **Nightly 模式**（`.github/workflows/nightly-diff-fuzz.yml`）：**10000 轮**，4 引擎 6 pairs 比对，发现分歧时自动创建 GitHub issue 附带复现 fixture
-- **Weekend 深度模式**（`.github/workflows/weekend-deep-fuzz.yml`，R3-X5）：**100000 轮**，周六 00:00 UTC 执行，`--shrink` 启用最小复现，30 天 artifact 保留
+- **Weekend 深度模式**（nightly workflow 内置，周六 `date -u +%u == 6` 自动升级）：**100000 轮** + `--shrink` 启用最小复现，30 天 artifact 保留
 - 分歧产物保存为 CI artifact，可直接下载复现
 - Stability runs：每个配置执行 3 次以排除非确定性差异
 - **15 个算子类型**（R3-X5 从 10 扩展）：filter_truncate, filter_condition, filter_paginate, recall_static, recall_resource, reorder_sort, reorder_shuffle_by_salt, merge_dedup, transform_by_lua, transform_copy（4 方向）, transform_dispatch, transform_size, transform_normalize, transform_resource_lookup, observe_log
