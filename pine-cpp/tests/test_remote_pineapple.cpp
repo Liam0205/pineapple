@@ -281,10 +281,11 @@ TEST_CASE("remote_pineapple: happy path maps response fields") {
 
     // Verify request body included our local common/item values, keyed by the
     // local field names (no common_request/item_request override).
+    // R13-1: dump_json(value, 0) now uses compact format (no space after colon).
     auto req = srv.last_request();
-    CHECK(req.find("\"a\": \"hello\"") != std::string::npos);
-    CHECK(req.find("\"x\": \"v1\"") != std::string::npos);
-    CHECK(req.find("\"x\": \"v2\"") != std::string::npos);
+    CHECK(req.find("\"a\":\"hello\"") != std::string::npos);
+    CHECK(req.find("\"x\":\"v1\"") != std::string::npos);
+    CHECK(req.find("\"x\":\"v2\"") != std::string::npos);
 }
 
 TEST_CASE("remote_pineapple: HTTP 500 throws when fail_on_error=true") {
