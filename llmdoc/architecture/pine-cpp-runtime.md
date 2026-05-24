@@ -71,7 +71,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
 - **CLI 入口**
   - `pineapple-cpp-run -config ... -request ... [-static-resources ...]`
   - `pineapple-cpp-render-dag -config ... -format dot|mermaid [-collapse N]`
-  - `pineapple-cpp-server -config ... [-addr :8080] [-read-header-timeout 10s] [-read-timeout 30s] [-write-timeout 60s] [-idle-timeout 120s] [-max-body-size 10485760]`
+  - `pineapple-cpp-server -config ... [-addr :8080] [-read-timeout 30s] [-write-timeout 60s] [-max-body-size 10485760]`
   - CLI stderr 错误前缀（`error reading config:` / `error creating engine:` / `execution error:` 等）与 pine-go 字节级一致
 - **HTTP server**
   - `/health`、`/execute`、`/stats`、`/dag` 端点
@@ -82,17 +82,19 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - per-node thread DAG 调度，节点完成时 fan-out 后继
   - `Engine::peak_concurrency()` 通过 atomic CAS 追踪累积峰值，序列化到 `/stats.scheduler.peak_concurrency`
   - debug snapshot + `StartTime` 在 `OpTrace` 中可选记录
-  - `data_parallel` transform 在固定线程池中分片执行
+  - `data_parallel` transform 在固定线程池中分片执行；分片通过 `ColumnFrame::make_window_view` 零拷贝窗口视图实现——shard 共享 parent frame 的 ColumnStore，以 `(offset, count)` 做行级翻译，避免逐行物化。window view 是只读投影，所有写方法（`set_common` / `push_warning` / `apply_output` / `to_result`）均 throw `Error`
 - **数据表示**
   - 强类型 `Column` 抽象（Int64/Double/String/Bool）+ JsonColumn 退路、validity bitmap
   - `ColumnStore` 接口（默认 `TypedColumnStore`），保留 Arrow-backed 实现的扩展点
   - `ColumnFrame` 为请求级 DataFrame，内部使用 `shared_mutex` 自治并发；canonical 5-stage write log（common writes / item writes / removals / reorder / additions）
-  - `OperatorOutput` write-log 模式：算子只声明写入意图，由 frame 应用，便于 trace/debug
+  - `OperatorOutput` write-log 模式：算子只声明写入意图，由 frame 应用，便于 trace/debug。`item_writes_` 内部为 `vector<ItemWrite>`（`struct ItemWrite { int index; std::string field; JsonValue value; }`），`set_item` 为 O(1) 摊销 push_back；`apply_output` 按顺序重放（last-write-wins 语义），`snapshot_output` 显式 group 到 map 保持最终状态视图
 - **算子框架**
   - `pine::Operator` 基类（`init` + `execute(const ColumnFrame&, OperatorOutput&)`）
   - marker 类型 `ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` / `ConcurrentSafe`
-  - `register_operator(schema, factory)` API + `PINE_REGISTER_OPERATOR` 宏（static init 注册）
-  - 17 个内置算子按 category 拆分到 `operators/<category>/<name>.cpp`，统一通过宏注册
+  - `OperatorTraits<T>` 编译期 `std::is_base_of_v` 标记检查，替代注册时的 `dynamic_cast` probe
+  - `register_operator(schema, factory)` API + `PINE_REGISTER_OPERATOR` 宏（legacy，仍可用）
+  - `register_operator_typed<T>(schema)` API + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏（首选）**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
+  - 17 个内置算子已全部迁移到 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`
   - warning operator-name 前缀（`{op_name}: ...`）由框架在 `apply_output` 阶段统一加上
 - **错误体系**
   - `ConfigError` / `ValidationError` / `RegistryError` 在构造时自动加 `pine: <kind> error: ...` 前缀，与 pine-go `types/errors.go` 字节级一致
@@ -108,6 +110,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - `pine::server::http_metrics_middleware(provider)` 工厂返回内置 HTTP 指标 middleware，指标名与桶与 pine-go `pkg/server/http_metrics.go` 一致。`Server::run()` 现在**无条件** `push_back(http_metrics_middleware(provider, http_stats_.get()))`，不再需要用户显式注入。当 `ServerConfig::metrics_provider` 为 nullptr 时自动 tie-off 至 `metrics::nop_provider()`。`HttpStats` 累加器（`src/server/http_stats.{hpp,cpp}`）是 middleware 第二写入路径，数据由 `handle_stats()` 序列化为 `"http"` 子树
   - `pine::resource::Manager` + `FetcherFactory` + `register_fetcher_factory(type, factory)` 与 pine-go `pkg/resource` 等价：后台刷新线程、`snapshot()`、可重入 `stop()`
   - `transform_by_remote_pineapple` 算子：基于 `libcurl` 实现 SSRF 安全保护（拦截 loopback/private IP 配置）、HTTP POST 超时与最大体积限制
+  - Redis `ConnectionPool`：per-key idle 上限（`kMaxIdlePerKey=16`）+ idle timeout（`kIdleTimeout=60s`）+ acquire 时 LIFO stale discard + `connected()` 健康检查。`ScopedClient` RAII handle 自动 release back to pool，替代算子内 inline PoolGuard
 - **根级配置扩展**
   - `log_prefix`（同时支持 `EngineOptions::log_prefix` 覆盖），最终通过 `log::SetPrefix` + `Ldate|Ltime|Lshortfile` 应用
   - `_PINEAPPLE_VERSION` / `_PINEAPPLE_CREATE_TIME` 解析并通过 `Config` 暴露，供下游工具读取
@@ -137,7 +140,7 @@ cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 c
 - 选择 **LuaJIT**
 - 保持 Lua 5.1 语义，与现有脚本公共子集兼容
 - 重点收益来自 tracing JIT 与更低解释器分发成本
-- `StatePool` 提供按需 `LuaVM` 分配与借用，维护 baseline globals 快照并在释放时清理变异；实现 `StatsProvider`（`/stats` 接口暴露 pool 计数）和 `MetricsAware`（注入外部提供商）
+- `StatePool` 提供按需 `LuaVM` 分配与借用，维护 baseline globals 快照并在释放时清理变异；实现 `StatsProvider`（`/stats` 接口暴露 pool 计数）和 `MetricsAware`（注入外部提供商）。`Releaser::operator()` 是 `unique_ptr` deleter，在 noexcept `~unique_ptr` 边界内用 `try/catch(...)` 包裹 `release_vm`，防止 `reset_to_baseline` 异常触发 `std::terminate`。`kSkipBuiltins` 为 `constexpr string_view[]` + `binary_search`（消除每进程首次调用的堆分配）
 
 ### 4. 内存与对象生命周期
 

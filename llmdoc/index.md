@@ -88,3 +88,4 @@
 - `llmdoc/memory/reflections/pine-cpp-p1-p2-buildout.md` — pine-cpp P1/P2 全运行时建设阶段（18 commit）复盘，记录"上一轮 reflection 未落地是放大器"、跨运行时观测契约表格缺失、CLI flag 作为用户契约的同步要求。
 - `llmdoc/memory/reflections/pine-cpp-p3-series-buildout.md` — pine-cpp P3-A to P3-D 阶段复盘，涉及 LuaVM StatePool 隔离、StatsProvider/MetricsAware 基建与 remote pineapple SSRF 保护接入。
 - `llmdoc/memory/reflections/cause-chain-and-stats-http.md` — /stats.http 四方对齐与 cause-chain parity 复盘（9 commits），记录跨语言状态辨识盲区、std::rethrow_if_nested footgun、R2 审计反向修正机制、cross-validate 第二种验证模式（probe binary stdout 对比）。
+- `llmdoc/memory/reflections/p2-perf-and-review-driven-fixes.md` — P2 性能优化批次与审查驱动修复周期复盘（22 commits），记录 CRTP 注册宏、OperatorOutput 向量化、zero-copy window view、Redis idle bound、progress.md 遗漏增量发现、数据结构级变更需文档同步的教训。

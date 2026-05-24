@@ -58,6 +58,17 @@ Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput inp
 
 使用 `pine-go/operator_io.go` 中的 `OperatorInput` 和 `OperatorOutput`，而非直接触及运行时内部。
 
+### Pine-C++ 注册与 CRTP traits
+
+C++ 侧提供两种注册路径：
+
+- **`PINE_REGISTER_OPERATOR_T(Type, schema)`**（首选）——通过 `OperatorTraits<T>` 在编译期 `std::is_base_of_v` 检查四个 marker 位（`ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` / `ConcurrentSafe`），调用 `register_operator_typed<T>(schema)` → `register_operator_with_traits(schema, factory, ...)` 直接填充 `OperatorEntry` 的标记字段，跳过注册时的 `dynamic_cast` probe 和 factory 调用。重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付一次构造成本。
+- **`PINE_REGISTER_OPERATOR(schema, factory)`**（legacy）——运行时调用 factory 创建临时实例并 `dynamic_cast` 探测 marker。仍可用但非首选。
+
+两种路径的校验逻辑等价：空 name、空 description、空 param description、null factory、重复 name 均 throw `RegistryError`。
+
+17 个内置算子已全部迁移到 `PINE_REGISTER_OPERATOR_T`。新增 C++ 算子应使用此宏。
+
 ## 注册契约
 
 算子通过 `pine-go/registry.go` 中的 `pine.Register(schema, factory)` 注册，通常在算子源文件的 `init()` 函数中。
