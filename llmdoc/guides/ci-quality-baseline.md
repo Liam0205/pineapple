@@ -33,11 +33,12 @@
 | benchmark | Go benchmark + job summary + artifact | go-test |
 | pine-python-benchmark | Python 引擎 benchmark | pine-python-test |
 | cross-validate | 多 section 跨运行时校验 | go-test + java-test + pine-python-test + cpp-build |
-| differential-fuzz | CI 模式 100 轮三引擎差异模糊测试 | go-test + java-test + pine-python-test |
+| differential-fuzz | CI 模式 100 轮四引擎差异模糊测试 | go-test + java-test + pine-python-test + pine-cpp-test |
 
 另有独立 nightly workflow：
 
-- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行 5000 轮，发现分歧时自动创建 GitHub issue
+- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行 10000 轮四引擎差异比对，发现分歧时自动创建 GitHub issue
+- **Weekend deep-fuzz**（`.github/workflows/weekend-deep-fuzz.yml`）：周末运行 100000 轮四引擎差异比对 + shrink 最小复现，30 天 artifact 保留
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
 
@@ -110,12 +111,16 @@ CI 中 Hypothesis 使用默认 settings profile（200 examples），依赖 `pine
 
 ### 差异模糊测试（Differential Fuzz）
 
-`scripts/differential-fuzz.py` 生成随机管道配置，Go/Java/Python 三引擎执行并比对输出：
+`scripts/differential-fuzz.py` 生成随机管道配置，**Go/Java/Python/C++ 四引擎**执行并比对输出（R3-X4 接入 C++）：
 
 - CI 模式：100 轮，发现分歧则 job 失败
-- Nightly 模式（`.github/workflows/nightly-diff-fuzz.yml`）：5000 轮，发现分歧时自动创建 GitHub issue 附带复现 fixture
+- **Nightly 模式**（`.github/workflows/nightly-diff-fuzz.yml`）：**10000 轮**，4 引擎 6 pairs 比对，发现分歧时自动创建 GitHub issue 附带复现 fixture
+- **Weekend 深度模式**（`.github/workflows/weekend-deep-fuzz.yml`，R3-X5）：**100000 轮**，周六 00:00 UTC 执行，`--shrink` 启用最小复现，30 天 artifact 保留
 - 分歧产物保存为 CI artifact，可直接下载复现
-- Stability runs：每个配置执行 2 次以排除非确定性差异
+- Stability runs：每个配置执行 3 次以排除非确定性差异
+- **15 个算子类型**（R3-X5 从 10 扩展）：filter_truncate, filter_condition, filter_paginate, recall_static, recall_resource, reorder_sort, reorder_shuffle_by_salt, merge_dedup, transform_by_lua, transform_copy（4 方向）, transform_dispatch, transform_size, transform_normalize, transform_resource_lookup, observe_log
+- **11 个随机化维度**：pipeline 拓扑 / 算子参数 / 数据形状 / 边界值 / data_parallel / storage_mode（50/50 row/column）/ SubFlow / skip / sources（显式 DAG 边）/ common_defaults+item_defaults / debug+_return_trace / 请求直接提供 items / 稀疏 items（部分行缺字段）/ 嵌套 dict/array 值
+- **Stratified 报告**：summary 输出 `row=A/B column=C/D` pass/fail 分布 + per-dimension 覆盖计数
 
 ### DAG 差异模糊测试（DAG Differential Fuzz）
 

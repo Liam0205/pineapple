@@ -77,17 +77,25 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - `/health`、`/execute`、`/stats`、`/dag` 端点
   - 配置 mtime 监听 + 原子替换实现热加载
   - graceful shutdown：`Server::stop()` 在停止接受新连接后等待 in-flight 请求计数归零，5s 超时
+  - **HTTP/1.1 keep-alive**（R3-L9b）：连接处理 while-loop 复用 socket；`Connection: keep-alive/close` 头由 `MiddlewareContext.keep_alive` 控制（HTTP/1.1 默认 keep-alive，HTTP/1.0 默认 close）。`-idle-timeout` 控制 keep-alive 连接两次请求间的空闲超时
+  - **read-header-timeout**（R3-L9a）：`read_http_request` 入参增 `header_timeout` / `body_timeout`；header 阶段 `SO_RCVTIMEO` 短窗口防 Slowloris，`\r\n\r\n` 边界后 swap 为 body_timeout 长窗口
+  - **客户端断连取消**（R10-2）：`execute_with_trace` 接收 `client_fd`，spawn watcher 线程 `poll(POLLRDHUP|POLLHUP|POLLERR)` 100ms 周期检测断连，`request_stop()` 转发到 Engine `stop_token`
   - 双重边界 body 读取：Content-Length 与 `max_request_body_size+1` hard cap 同时生效；malformed Content-Length 直接拒绝
 - **Engine / 调度**
-  - per-node thread DAG 调度，节点完成时 fan-out 后继
+  - per-node thread DAG 调度，节点完成时 fan-out 后继；C++20 `std::stop_token` + `condition_variable_any::wait(lock, token, pred)` 协作取消
+  - **外部取消 API**（R3-H3）：`Engine::execute` / `execute_traced_into` 接受可选 `std::stop_token external_cancel`；run_dag 通过 `std::stop_callback` 桥接到内部 `cancel_source`
+  - **shard 级取消**（R3-M3）：parallel_execute 首个 shard 失败后 `atomic<bool> shard_cancel` 阻止后续 shard 启动
   - `Engine::peak_concurrency()` 通过 atomic CAS 追踪累积峰值，序列化到 `/stats.scheduler.peak_concurrency`
   - debug snapshot + `StartTime` 在 `OpTrace` 中可选记录
   - `data_parallel` transform 在固定线程池中分片执行；分片通过 `ColumnFrame::make_window_view` 零拷贝窗口视图实现——shard 共享 parent frame 的 ColumnStore，以 `(offset, count)` 做行级翻译，避免逐行物化。window view 是只读投影，所有写方法（`set_common` / `push_warning` / `apply_output` / `to_result`）均 throw `Error`
 - **数据表示**
   - 强类型 `Column` 抽象（Int64/Double/String/Bool）+ JsonColumn 退路、validity bitmap
   - `ColumnStore` 接口（默认 `TypedColumnStore`），保留 Arrow-backed 实现的扩展点
-  - `ColumnFrame` 为请求级 DataFrame，内部使用 `shared_mutex` 自治并发；canonical 5-stage write log（common writes / item writes / removals / reorder / additions）
+  - **`Frame` 抽象基类**（`include/pine/frame.hpp`，R3-L3）：`ColumnFrame` 和 `RowFrame` 两个物理实现。`Operator::execute` 签名为 `const Frame&`（不绑定具体实现）。`pine::make_frame(storage_mode, common, items)` 工厂按 `Config.storage_mode` 路由（`"row"` → RowFrame，其他 → ColumnFrame）
+  - `ColumnFrame` 为请求级 DataFrame，内部使用 `shared_mutex` 自治并发；canonical 5-stage write log（common writes / item writes / removals / reorder / additions）。NaN/Inf 在 apply_output 三阶段校验（R3-H2）
+  - `RowFrame` 为行存 DataFrame，items 以 `vector<map<string, JsonValue>>` 存储，同样内部 `shared_mutex` + 5-stage write log + NaN/Inf 校验。适用于逐行访问密集场景（Lua snapshot、remote request、observe logging）
   - `OperatorOutput` write-log 模式：算子只声明写入意图，由 frame 应用，便于 trace/debug。`item_writes_` 内部为 `vector<ItemWrite>`（`struct ItemWrite { int index; std::string field; JsonValue value; }`），`set_item` 为 O(1) 摊销 push_back；`apply_output` 按顺序重放（last-write-wins 语义），`snapshot_output` 显式 group 到 map 保持最终状态视图
+  - **ValidateOutput 类型约束**（R3-H1）：每个算子 execute 后、apply_output 前，按 operator_type 检查输出方法是否合法（Recall 不能 SetCommon 等），违规抛 ExecutionError `"type violation: operator type X must not call [Method1 Method2]"`
 - **算子框架**
   - `pine::Operator` 基类（`init` + `execute(const ColumnFrame&, OperatorOutput&)`）
   - marker 类型 `ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` / `ConcurrentSafe`
@@ -95,11 +103,15 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - `register_operator(schema, factory)` API + `PINE_REGISTER_OPERATOR` 宏（legacy，仍可用）
   - `register_operator_typed<T>(schema)` API + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏（首选）**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
   - 17 个内置算子已全部迁移到 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`
+  - `observe_log` 完整实现（R3-L8）：init 读取 metadata 字段列表和 `log_prefix`，execute 构造 `{common, items}` snapshot 后 `dump_json(value, 0)` 紧凑输出到 stderr。`dump_json(value, 0)` 紧凑模式（R13-1）抑制所有 `\n` / 缩进 / 冒号后空格，与 Go `json.Marshal` 格式对齐
+  - `[pine-debug]` stderr 日志（R3-L6）：debug=true 的算子在 execute 后、apply_output 前输出 `operator/duration/input_size/output_size/input/output` 单行日志
+  - `inline constexpr const char* kVersion = "0.8.0"`（R3-L2）：编译期版本常量，对齐 Go `const Version`
   - warning operator-name 前缀（`{op_name}: ...`）由框架在 `apply_output` 阶段统一加上
 - **错误体系**
   - `ConfigError` / `ValidationError` / `RegistryError` 在构造时自动加 `pine: <kind> error: ...` 前缀，与 pine-go `types/errors.go` 字节级一致
   - `RegistryError` 支持 `(operator_name, msg)` 双参形态对齐 Go 的 `RegistryError.Operator` 字段
   - `PanicError` + dispatch recovery 把意外异常映射为可观察的算子错误
+  - **PanicError.stack() + detailed_error()**（R3-L1）：C++23 `std::stacktrace` 在 PanicError 构造时捕获当前线程帧栈，`detailed_error()` 返回 `"pine: panic in operator \"X\": Y\nstack trace:\n<frames>"` 格式，对偶 Go `PanicError.DetailedError()`。CMake 探测 `libstdc++exp` / `libstdc++_libbacktrace`，缺失时退化为空 stack。需 `-g` 才能解析文件/行号
   - **ExecutionError 双参/单参 + engine 层 promote**(P1-D1):`ExecutionError(op, inner)` 双参构造直接拼 `pine: execution error in operator "X": <inner>`；算子级 throw 站点可以用单参 `ExecutionError(msg)`(`operator_name()` 返回空,`inner()` 即 msg),由 `dispatch_with_recovery` (engine.cpp) 捕获后用 `std::throw_with_nested(ExecutionError(op.name, e.inner()))` 重抛,前缀在 engine 层统一加,所以最终 `what()` 仍与 pine-go 字节级一致。**算子不需要重复拼前缀**。
   - **Cause chain 支持**:`ExecutionError` 与 `PanicError` 多继承 `std::nested_exception`,`dispatch_with_recovery` 用 `std::throw_with_nested` 重抛保留 inner cause。`include/pine/error_chain.hpp` 提供 `pine::error_as<T>(const std::exception&)` / `pine::error_is<T>(const std::exception&)` 模板 helper,沿 nested 链下钻,对偶 Go `errors.As` / Java `Throwable.getCause()` / Python `__cause__`。注意:helper 内部显式检查 `nested_ptr() != nullptr` 后才调用 `rethrow_nested()`,避开标准 `std::rethrow_if_nested` 在 null 时 `std::terminate` 的 footgun
 - **可插拔观测与扩展**

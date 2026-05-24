@@ -14,7 +14,7 @@
 
 - `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、ExecutionError/PanicError 因果链（四运行时 cause chain parity）、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
-- `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时架构：作为完整第四运行时的定位、错误/fixture parity 契约、CLI 与 HTTP 入口（含 timeout / max-body-size / middleware / graceful shutdown）、`metrics::Provider` 与 `resource::Manager` 对等、ColumnFrame/Column 类型层级、`PINE_REGISTER_OPERATOR` 注册模型、4 CI job 测试策略。
+- `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时架构：作为完整第四运行时的定位、错误/fixture parity 契约、CLI 与 HTTP 入口（含 HTTP/1.1 keep-alive / read-header-timeout / idle-timeout / max-body-size / middleware / graceful shutdown / 客户端断连取消）、`metrics::Provider` 与 `resource::Manager` 对等、Frame 多态基类 + ColumnFrame/RowFrame 双物理实现（C++23）、Column 类型层级、`PINE_REGISTER_OPERATOR_T` 注册模型、ValidateOutput 类型约束、NaN/Inf 校验、PanicError stacktrace、外部 stop_token 取消、observe_log/pine-debug 日志。
 
 ## guides/
 
@@ -89,3 +89,4 @@
 - `llmdoc/memory/reflections/pine-cpp-p3-series-buildout.md` — pine-cpp P3-A to P3-D 阶段复盘，涉及 LuaVM StatePool 隔离、StatsProvider/MetricsAware 基建与 remote pineapple SSRF 保护接入。
 - `llmdoc/memory/reflections/cause-chain-and-stats-http.md` — /stats.http 四方对齐与 cause-chain parity 复盘（9 commits），记录跨语言状态辨识盲区、std::rethrow_if_nested footgun、R2 审计反向修正机制、cross-validate 第二种验证模式（probe binary stdout 对比）。
 - `llmdoc/memory/reflections/p2-perf-and-review-driven-fixes.md` — P2 性能优化批次与审查驱动修复周期复盘（22 commits），记录 CRTP 注册宏、OperatorOutput 向量化、zero-copy window view、Redis idle bound、progress.md 遗漏增量发现、数据结构级变更需文档同步的教训。
+- `llmdoc/memory/reflections/r3-audit-and-fuzz-enhancement.md` — R3 parity audit（26+5 项）+ differential fuzz 增强（11 新维度 + 4 引擎接入）复盘（34 commits），记录 Frame 多态化架构变更、C++23 采纳、HTTP/1.1 keep-alive、fuzz 50-round smoke 立即暴露 17 divergence + RawValue 泄漏的 ROI 验证、dual-impl 等价测试覆盖。
