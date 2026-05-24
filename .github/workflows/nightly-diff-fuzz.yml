@@ -7,7 +7,7 @@ on:
     inputs:
       rounds:
         description: "Number of fuzz rounds"
-        default: "5000"
+        default: "10000"
       stability-runs:
         description: "Stability check reruns per case"
         default: "3"
@@ -15,7 +15,7 @@ on:
 jobs:
   differential-fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v6
 
@@ -34,6 +34,12 @@ jobs:
           java-version: "21"
           cache: maven
 
+      - name: Install C++ build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++-13 libluajit-5.1-dev libcurl4-openssl-dev
+
       - name: Build Go binary
         run: go build -o pineapple-run ./cmd/pineapple-run/
         working-directory: pine-go
@@ -46,14 +52,21 @@ jobs:
         run: mvn package -B -q -DskipTests
         working-directory: pine-java
 
+      - name: Build C++ engine
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
+          cmake --build build --target pineapple-run
+        working-directory: pine-cpp
+
       - name: Run differential fuzz
-        timeout-minutes: 295
+        timeout-minutes: 355
         run: |
           python3 scripts/differential-fuzz.py \
-            --rounds ${{ inputs.rounds || '5000' }} \
+            --rounds ${{ inputs.rounds || '10000' }} \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
             --go-bin pine-go/pineapple-run \
-            --engines go,python,java \
+            --cpp-bin pine-cpp/build/pineapple-run \
+            --engines go,python,java,cpp \
             --save-dir /tmp/diff-fuzz-nightly \
             2>&1 | tee diff-fuzz-output.log || true
 

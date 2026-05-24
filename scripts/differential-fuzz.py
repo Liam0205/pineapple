@@ -1,6 +1,6 @@
 """Differential fuzzer: generates random configs+requests, runs all engines, reports divergences.
 
-Supported engines: Go, Java, Python (extensible via --engines flag).
+Supported engines: Go, Java, Python, C++ (extensible via --engines flag).
 Randomization dimensions:
   - Pipeline topology (1-8 ops, 10 operator types, random combinations)
   - Operator parameters (type-specific random values)
@@ -13,7 +13,7 @@ Randomization dimensions:
   - Edge numerics (near-zero, large, negative zero boundary)
 
 Usage:
-    python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,python,java]
+    python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,python,java,cpp]
 """
 from __future__ import annotations
 
@@ -474,7 +474,14 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
         group_pipeline = pipeline
 
     # Randomly inject storage_mode
-    storage_mode = rng.choice(["row", "row", "row", "column"])  # 25% column
+    # R3-X5: 50/50 storage_mode split. The prior 75% row / 25% column bias
+    # was inherited from when pine-python and pine-cpp lacked RowFrame
+    # impls — the row mode silently downgraded to column on those engines,
+    # so 75% bias was a way to over-sample what was effectively column.
+    # With R3-L3 (cpp) + R3-X1 (python) both impls real on every engine,
+    # equal weighting exercises each path equally and surfaces row-vs-
+    # column drift faster.
+    storage_mode = rng.choice(["row", "column"])
 
     config: dict[str, Any] = {
         "_PINEAPPLE_VERSION": "0.6.6",
@@ -716,6 +723,23 @@ class JavaEngine(Engine):
         return result.returncode, result.stdout, result.stderr
 
 
+class CppEngine(Engine):
+    """Pine-cpp backend (R3-X4). Invokes the same pineapple-run binary
+    shape as GoEngine; built via CMake into pine-cpp/build/pineapple-run.
+    """
+    name = "cpp"
+
+    def __init__(self, binary: str):
+        self.binary = binary
+
+    def run(self, config_file: str, request_file: str) -> tuple[int, str, str]:
+        result = subprocess.run(
+            [self.binary, "-config", config_file, "-request", request_file],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.returncode, result.stdout, result.stderr
+
+
 # ---------------------------------------------------------------------------
 # Comparison
 # ---------------------------------------------------------------------------
@@ -872,9 +896,11 @@ def main():
     parser = argparse.ArgumentParser(description="Differential fuzzer: multi-engine parity")
     parser.add_argument("--rounds", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--engines", type=str, default="go,python,java",
-                        help="Comma-separated engines to compare (go,python,java)")
+    parser.add_argument("--engines", type=str, default="go,python,java,cpp",
+                        help="Comma-separated engines to compare (go,python,java,cpp)")
     parser.add_argument("--go-bin", type=str, default="")
+    parser.add_argument("--cpp-bin", type=str, default="",
+                        help="Path to pine-cpp pineapple-run binary (R3-X4)")
     parser.add_argument("--save-dir", type=str, default="")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--stability-runs", type=int, default=0,
@@ -909,6 +935,13 @@ def main():
                 engines.append(JavaEngine(cp))
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
                 print(f"  WARNING: Java not available ({e}), skipping")
+        elif name == "cpp":
+            cpp_bin = args.cpp_bin or str(REPO_ROOT / "pine-cpp" / "build" / "pineapple-run")
+            if not Path(cpp_bin).exists():
+                print(f"  WARNING: pine-cpp binary not found at {cpp_bin}, skipping")
+                print(f"           build first: cmake -S pine-cpp -B pine-cpp/build && cmake --build pine-cpp/build")
+                continue
+            engines.append(CppEngine(cpp_bin))
         else:
             print(f"  WARNING: unknown engine '{name}', skipping")
 
@@ -926,7 +959,10 @@ def main():
     errors = 0
     unstable = 0
     stats = {"flat": 0, "subflow": 0, "nested": 0, "deep_nested": 0, "column": 0, "skip": 0,
-             "data_parallel": 0, "strict_order": 0, "error_path": 0}
+             "data_parallel": 0, "strict_order": 0, "error_path": 0,
+             # R3-X5: row mode count + per-storage-mode pass/fail buckets so
+             # the summary surfaces stratification across the two impls.
+             "row": 0, "pass_row": 0, "pass_column": 0, "fail_row": 0, "fail_column": 0}
     start_time = time.time()
 
     def _progress(i: int):
@@ -962,6 +998,8 @@ def main():
                 if not is_error_path:
                     if config.get("storage_mode") == "column":
                         stats["column"] += 1
+                    else:
+                        stats["row"] += 1
                     pm = config.get("pipeline_config", {}).get("pipeline_map", {})
                     if pm:
                         # Count nesting depth
@@ -1042,11 +1080,21 @@ def main():
 
                 if all_match:
                     passed += 1
+                    # R3-X5: stratify pass/fail by storage_mode so the summary
+                    # exposes row-vs-column divergence rates.
+                    if config.get("storage_mode") == "column":
+                        stats["pass_column"] += 1
+                    else:
+                        stats["pass_row"] += 1
                     if args.verbose:
                         sys.stderr.write("\n")
                         print(f"  [{i+1}] match")
                 else:
                     failed += 1
+                    if config.get("storage_mode") == "column":
+                        stats["fail_column"] += 1
+                    else:
+                        stats["fail_row"] += 1
                     outputs = {name: (rc, out) for name, (rc, out, _) in results.items()}
 
                     # Shrink if enabled
@@ -1086,8 +1134,10 @@ def main():
         print(f"  UNSTABLE: {unstable}")
     print(f"  ERROR: {errors}")
     print(f"  Coverage: flat={stats['flat']} subflow={stats['subflow']} nested={stats['nested']} deep_nested={stats['deep_nested']}")
-    print(f"            column={stats['column']} skip={stats['skip']} data_parallel={stats['data_parallel']}")
+    print(f"            row={stats['row']} column={stats['column']} skip={stats['skip']} data_parallel={stats['data_parallel']}")
     print(f"            strict_order={stats['strict_order']} error_path={stats['error_path']}")
+    # R3-X5 stratified summary:
+    print(f"  Storage stratified pass/fail:  row={stats['pass_row']}/{stats['fail_row']}  column={stats['pass_column']}/{stats['fail_column']}")
     if failed > 0:
         print(f"  Divergences: {save_dir}")
     print(f"{'='*60}")
