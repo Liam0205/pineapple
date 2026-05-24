@@ -1,0 +1,36 @@
+{
+  "name": "Runtime NaN/Inf rejection at apply_output common write — Go/Java byte-exact",
+  "description": "Locks the apply_output common-write NaN/Inf rejection message for Go and Java byte-exactly. Both runtimes let the Lua-emitted NaN propagate to ApplyOutput's validateValue. Python and C++ lua_bridge reject NaN earlier (lua-return-value layer) so their messages mention lua specifically — that is a legitimate implementation difference, surfaced before apply_output. R10-1 ensured Go and Java share the exact prefix shape (Go scheduler dropped the redundant `apply output:` wrap so it matches Java's direct ExecutionError path).",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "produce_nan_common": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function nan_common(_unused)\n  return 0/0\nend",
+          "function_for_item": "",
+          "function_for_common": "nan_common",
+          "$metadata": {
+            "common_input": ["seed"],
+            "common_output": ["ratio"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["produce_nan_common"]}},
+    "flow_contract": {
+      "common_input": ["seed"],
+      "item_input": [],
+      "common_output": ["ratio"],
+      "item_output": []
+    }
+  },
+  "request": {"common": {"seed": 1}, "items": []},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "NaN",
+    "wrapping_exact": "pine: execution error in operator \"produce_nan_common\": common write: field \"ratio\": NaN/Inf is not a valid JSON value",
+    "wrapping_exact_engines": ["go", "java"]
+  }
+}

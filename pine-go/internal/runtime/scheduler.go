@@ -252,9 +252,18 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 					em.OpExecDuration.With(cop.Name).Observe(metrics.DurationSeconds(duration))
 				}
 				fatalOnce.Do(func() {
+					// R10-1: ApplyOutput's error already carries the
+					// segment prefix (`common write:` / `item[N] write:`
+					// / `added item write:` / `SetItemOrder ...`). The
+					// earlier `apply output:` wrap added a redundant
+					// layer that pine-{cpp,java,python} do not emit,
+					// breaking cross-runtime byte-exact error parity.
+					// Strip it — engine-layer `pine: execution error in
+					// operator "X": ` prefix still applies via the
+					// outer ExecutionError String() format.
 					fatalErr = &types.ExecutionError{
 						Operator: cop.Name,
-						Err:      fmt.Errorf("apply output: %w", applyErr),
+						Err:      applyErr,
 					}
 					cancel()
 				})
