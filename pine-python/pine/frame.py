@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import math
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -142,6 +143,9 @@ class ColumnFrame(Frame):
         with self._lock:
             # 1. Common writes
             for field, value in out.common_writes.items():
+                v = _check_value(field, value)
+                if v is not None:
+                    raise ExecutionError(op_name, f"common write: {v}")
                 self._common[field] = value
 
             # 2. Item writes
@@ -149,6 +153,9 @@ class ColumnFrame(Frame):
                 if idx < 0 or idx >= self._row_count:
                     continue
                 for field, value in writes.items():
+                    v = _check_value(field, value)
+                    if v is not None:
+                        raise ExecutionError(op_name, f"item[{idx}] write: {v}")
                     if field not in self._columns:
                         self._columns[field] = [None] * self._row_count
                         self._presence[field] = [False] * self._row_count
@@ -199,6 +206,10 @@ class ColumnFrame(Frame):
             # 5. Add items (recall)
             if out.added_items:
                 for item in out.added_items:
+                    for field, value in item.items():
+                        v = _check_value(field, value)
+                        if v is not None:
+                            raise ExecutionError(op_name, f"added item write: {v}")
                     new_row_idx = self._row_count
                     self._row_count += 1
                     for field in list(self._columns.keys()):
@@ -256,3 +267,24 @@ class ColumnFrame(Frame):
                             row[field] = col[i]
                 items.append(row)
             return items
+
+
+def _check_value(field: str, value):
+    """Mirror pine-go validateValue (row_frame.go:224). Returns the
+    violation message (without prefix) or None when OK. Reject NaN/Inf
+    in any numeric write; everything else (str, bool, int, list, dict,
+    None) passes through. R3-H2.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return f'field "{field}": NaN/Inf is not a valid JSON value'
+        return None
+    if isinstance(value, str):
+        return None
+    if isinstance(value, (list, dict)):
+        return None
+    return f'field "{field}": unsupported type {type(value).__name__}'
