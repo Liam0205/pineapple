@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "pine/pine.hpp"
+#include "pine/operator.hpp"
 
 using namespace pine;
 
@@ -124,4 +125,59 @@ TEST_CASE("EngineOptions::log_prefix: overrides Config.log_prefix") {
 TEST_CASE("Engine::log_prefix: empty when unset on both Config and EngineOptions") {
     Engine engine(load_config_from_json(kCopyConfig));
     CHECK(engine.log_prefix() == "");
+}
+
+TEST_CASE("validate_output_against_type: Recall must not SetCommon (R3-H1)") {
+    // Use a custom in-process operator registered just for this test to keep
+    // the assertion focused on the validate_output codepath. The Recall type
+    // forbids SetCommon, SetItem, RemoveItem, SetItemOrder.
+    struct BadRecall : public pine::Operator {
+        void init(const pine::OperatorConfig&) override {}
+        void execute(const pine::Frame&, pine::OperatorOutput& out) override {
+            out.set_common("region", pine::JsonValue(std::string("us")));
+        }
+    };
+    static const pine::OperatorSchema s{
+        "bad_recall_set_common", pine::OpType::Recall,
+        "recall that illegally writes common",
+        {}};
+    static bool registered = false;
+    if (!registered) {
+        pine::register_operator_typed<BadRecall>(s);
+        registered = true;
+    }
+
+    static const char* kBadRecallConfig = R"({
+      "_PINEAPPLE_VERSION": "0.8.0",
+      "pipeline_config": {
+        "operators": {
+          "r1": {
+            "type_name": "bad_recall_set_common",
+            "$metadata": {"common_output": ["region"]}
+          }
+        },
+        "pipeline_map": {
+          "stage": {"pipeline": ["r1"]}
+        }
+      },
+      "pipeline_group": {
+        "main": {"pipeline": ["stage"]}
+      },
+      "flow_contract": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": ["region"],
+        "item_output": []
+      }
+    })";
+    Engine engine(load_config_from_json(kBadRecallConfig));
+    Request req;
+    try {
+        engine.execute(req);
+        FAIL("expected ExecutionError");
+    } catch (const Error& e) {
+        std::string msg = e.what();
+        CHECK(msg.find("type violation: operator type Recall must not call [SetCommon]") != std::string::npos);
+        CHECK(msg.find("pine: execution error in operator \"r1\"") != std::string::npos);
+    }
 }

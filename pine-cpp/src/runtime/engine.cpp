@@ -317,6 +317,83 @@ void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
     }
 }
 
+// validate_output_against_type mirrors pine-go types.OperatorType.ValidateOutput
+// (operator.go:57-150). After an operator runs, the engine checks that its
+// OperatorOutput only used the methods allowed for its declared OperatorType
+// — e.g. a Recall must not SetCommon/SetItem/RemoveItem/SetItemOrder.
+// Violations throw a two-arg ExecutionError(op_name, "type violation: ..."),
+// matching Go scheduler.go:172 which wraps the bare violation with
+// `fmt.Errorf("type violation: %w", vErr)` before the standard
+// `pine: execution error in operator "X": ...` prefix layer.
+//
+// Error format (Go-compatible byte-exact): `type violation: operator type X
+// must not call [Method1 Method2]`. The bracketed list mimics Go's `%v`
+// formatting of a []string (single space separator, no quotes).
+void validate_output_against_type(const std::string& op_name,
+                                  const std::string& op_type,
+                                  const OperatorOutput& out) {
+    const bool has_cw = !out.common_writes().empty();
+    const bool has_iw = !out.item_writes().empty();
+    const bool has_ai = !out.added_items().empty();
+    const bool has_ri = !out.removed_items().empty();
+    const bool has_io = out.has_item_order();
+
+    std::vector<std::string> violations;
+    // Note: op_type comes from OperatorConfig::operator_type which is the
+    // lowercase form ("recall" / "transform" / ...). pine-go's OperatorType
+    // is PascalCase ("Recall") and gets formatted into the error verbatim,
+    // so we need the PascalCase form here for byte-exact parity.
+    std::string display_type;
+    if (op_type == "recall") {
+        display_type = "Recall";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ri) violations.push_back("RemoveItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "transform") {
+        display_type = "Transform";
+        if (has_ai) violations.push_back("AddItem");
+        if (has_ri) violations.push_back("RemoveItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "filter") {
+        display_type = "Filter";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "merge") {
+        display_type = "Merge";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "reorder") {
+        display_type = "Reorder";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_ri) violations.push_back("RemoveItem");
+    } else if (op_type == "observe") {
+        display_type = "Observe";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_ri) violations.push_back("RemoveItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else {
+        return;  // unknown type — earlier validation should already have failed
+    }
+
+    if (violations.empty()) return;
+    std::string list = "[";
+    for (std::size_t i = 0; i < violations.size(); ++i) {
+        if (i > 0) list += " ";
+        list += violations[i];
+    }
+    list += "]";
+    throw ExecutionError(op_name, "type violation: operator type " + display_type +
+                                  " must not call " + list);
+}
+
 // dispatch_with_recovery runs dispatch_operator and converts any non-pine::Error
 // exception into a PanicError carrying the operator name. Pine typed errors
 // (ExecutionError, RegistryError, etc.) propagate unchanged after ensuring
@@ -640,6 +717,13 @@ std::vector<OpTrace> run_dag(const Config& config,
                     trace.output_snapshot = snapshot_output(out);
                     trace.has_output_snapshot = true;
                 }
+                // Type-constraint check (pine-go scheduler.go:171). Run before
+                // apply_output so a violation aborts the operator without
+                // mutating the master frame. The bare-message ExecutionError
+                // here gets the standard `pine: execution error in operator
+                // "X": ...` prefix added by the outer run_dag catch block.
+                // R3-H1.
+                validate_output_against_type(op.name, op.operator_type, out);
                 frame.apply_output(out, op.name, op.operator_type == "recall");
                 auto end = std::chrono::steady_clock::now();
                 auto dur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
