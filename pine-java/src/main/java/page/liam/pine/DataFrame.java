@@ -118,7 +118,10 @@ public class DataFrame implements Frame {
         try {
             // 1. Common writes
             for (Map.Entry<String, Object> entry : out.getCommonWrites().entrySet()) {
-                validateValue(entry.getKey(), entry.getValue());
+                String v = checkValue(entry.getKey(), entry.getValue());
+                if (v != null) {
+                    throw new PineErrors.ExecutionError(opName, "common write: " + v);
+                }
                 common.put(entry.getKey(), entry.getValue());
             }
 
@@ -129,7 +132,10 @@ public class DataFrame implements Frame {
                     throw new IndexOutOfBoundsException("SetItem index " + idx + " out of range [0, " + items.size() + ")");
                 }
                 for (Map.Entry<String, Object> fe : entry.getValue().entrySet()) {
-                    validateValue(fe.getKey(), fe.getValue());
+                    String v = checkValue(fe.getKey(), fe.getValue());
+                    if (v != null) {
+                        throw new PineErrors.ExecutionError(opName, "item[" + idx + "] write: " + v);
+                    }
                 }
                 items.get(idx).putAll(entry.getValue());
             }
@@ -181,7 +187,10 @@ public class DataFrame implements Frame {
             for (Map<String, Object> added : out.getAddedItems()) {
                 Map<String, Object> row = new LinkedHashMap<>(added);
                 for (Map.Entry<String, Object> entry : row.entrySet()) {
-                    validateValue(entry.getKey(), entry.getValue());
+                    String v = checkValue(entry.getKey(), entry.getValue());
+                    if (v != null) {
+                        throw new PineErrors.ExecutionError(opName, "added item write: " + v);
+                    }
                 }
                 if (recall) {
                     row.put("_source", opName);
@@ -227,26 +236,26 @@ public class DataFrame implements Frame {
         }
     }
 
-    private static void validateValue(String field, Object v) {
-        if (v == null) return;
-        if (v instanceof String) return;
+    private static String checkValue(String field, Object v) {
+        if (v == null) return null;
+        if (v instanceof String) return null;
         if (v instanceof Number) {
             if (v instanceof Double) {
                 double d = (Double) v;
                 if (Double.isNaN(d) || Double.isInfinite(d)) {
-                    throw new IllegalArgumentException("field \"" + field + "\": NaN/Inf is not a valid JSON value");
+                    return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
                 }
             } else if (v instanceof Float) {
                 float f = (Float) v;
                 if (Float.isNaN(f) || Float.isInfinite(f)) {
-                    throw new IllegalArgumentException("field \"" + field + "\": NaN/Inf is not a valid JSON value");
+                    return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
                 }
             }
-            return;
+            return null;
         }
-        if (v instanceof Boolean) return;
-        if (v instanceof Map) return;
-        if (v instanceof List) return;
-        throw new IllegalArgumentException("field \"" + field + "\": unsupported value type: " + v.getClass().getName());
+        if (v instanceof Boolean) return null;
+        if (v instanceof Map) return null;
+        if (v instanceof List) return null;
+        return "field \"" + field + "\": unsupported value type: " + v.getClass().getName();
     }
 }

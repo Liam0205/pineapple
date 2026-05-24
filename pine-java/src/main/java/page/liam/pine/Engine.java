@@ -457,8 +457,19 @@ public class Engine {
             stats.recordError(cop.name, duration);
             engineMetrics.opErrorTotal.with(cop.name).inc();
             engineMetrics.opExecDuration.with(cop.name).observe(duration / 1_000_000_000.0);
-            Exception wrapped = new PineErrors.ExecutionError(cop.name,
-                    new Exception("apply output: " + applyErr.getMessage(), applyErr));
+            // ExecutionError thrown from applyOutput (e.g. NaN/Inf validation,
+            // SetItemOrder permutation check) already carries the operator
+            // name and a structured `pine: execution error in operator "X":
+            // <segment>: <inner>` message — avoid double-wrapping with the
+            // `apply output: ` prefix which would diverge from Go's output
+            // shape. (R3-H2)
+            Exception wrapped;
+            if (applyErr instanceof PineErrors.ExecutionError) {
+                wrapped = applyErr;
+            } else {
+                wrapped = new PineErrors.ExecutionError(cop.name,
+                        new Exception("apply output: " + applyErr.getMessage(), applyErr));
+            }
             if (ctx.fatalError.compareAndSet(null, wrapped)) {
                 ctx.cancellationToken.cancel();
                 for (CompletableFuture<Void> f : ctx.applied) {
