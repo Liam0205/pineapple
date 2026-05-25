@@ -142,7 +142,7 @@ public:
         if (res.status_code != 200) {
             handle_error(out,
                 "transform_by_remote_pineapple: HTTP " + std::to_string(res.status_code) +
-                ": " + res.body);
+                ": " + truncate_body(res.body));
             return;
         }
 
@@ -203,6 +203,16 @@ private:
         if (fail_on_error_)
             throw ExecutionError(msg);
         out.set_warning(msg);
+    }
+
+    // truncate_body clips a downstream-response body to kErrorBodyMax bytes
+    // for inclusion in error messages / warnings. A 5 MB HTML 500 page
+    // should not fan out into log / JSON / exception streams as-is. P1-E4.
+    static constexpr std::size_t kErrorBodyMax = 1024;
+    static std::string truncate_body(const std::string& body) {
+        if (body.size() <= kErrorBodyMax) return body;
+        return body.substr(0, kErrorBodyMax) +
+               "...(truncated, total " + std::to_string(body.size()) + " bytes)";
     }
 
     std::string op_name_;
