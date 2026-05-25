@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <exception>
 #include <future>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -286,13 +287,21 @@ void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
 
 // dispatch_with_recovery runs dispatch_operator and converts any non-pine::Error
 // exception into a PanicError carrying the operator name. Pine typed errors
-// (ExecutionError, RegistryError, etc.) propagate unchanged because they
-// already encode the operator context in their message.
+// (ExecutionError, RegistryError, etc.) propagate unchanged after ensuring
+// they are correctly formatted matching Go.
 void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
                             const std::map<std::string, std::unique_ptr<Operator>>& operators,
                             OperatorOutput& out) {
     try {
         dispatch_operator(frame, op, operators, out);
+    } catch (ExecutionError& e) {
+        // If the execution error was thrown without operator name context or
+        // formatted with raw inner message, ensure it matches:
+        // `pine: execution error in operator "X": <inner>`
+        if (e.operator_name().empty()) {
+            throw ExecutionError(op.name, e.inner().empty() ? std::string(e.what()) : e.inner());
+        }
+        throw;
     } catch (const Error&) {
         throw;
     } catch (const std::exception& e) {
@@ -579,13 +588,26 @@ Result Engine::execute(const Request& request, const std::map<std::string, JsonV
 
 TracedResult Engine::execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const {
     TracedResult traced;
+    execute_traced_into(request, resources, &traced);
+    return traced;
+}
+
+void Engine::execute_traced_into(const Request& request,
+                                  const std::map<std::string, JsonValue>& resources,
+                                  TracedResult* out) const {
     validate_request(request, config_.flow_contract);
     Frame frame(request.common, request.items);
     frame.set_resources(&resources);
-    traced.trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get());
-    traced.result = project_result(frame, config_.flow_contract);
-    traced.warnings = frame.take_warnings();
-    return traced;
+    std::exception_ptr run_err = nullptr;
+    try {
+        out->trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get());
+    } catch (...) {
+        run_err = std::current_exception();
+    }
+    // Match Go: even on execution failure we project the partial Result and take warnings
+    out->result = project_result(frame, config_.flow_contract);
+    out->warnings = frame.take_warnings();
+    if (run_err) std::rethrow_exception(run_err);
 }
 
 std::string Engine::render_dag(const std::string& format, int collapse) const {

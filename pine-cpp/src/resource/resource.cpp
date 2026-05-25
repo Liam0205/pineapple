@@ -31,6 +31,17 @@ bool register_fetcher_factory(const std::string& type_name, FetcherFactory facto
     return true;
 }
 
+// Built-in Static fetcher registration triggered at static initialization time.
+// This allows both server-side mtime config reload and CLI parsing to resolve "type": "static" on resource_config out-of-the-box.
+const bool _static_fetcher_init = [] {
+    register_fetcher_factory("static", [](const JsonValue& params) {
+        auto val_it = params.as_object().find("value");
+        JsonValue val = (val_it != params.as_object().end()) ? val_it->second : JsonValue();
+        return Fetcher{[val]() { return val; }};
+    });
+    return true;
+}();
+
 const FetcherFactory* lookup_fetcher_factory(const std::string& type_name) {
     std::lock_guard<std::mutex> lk(registry_mu());
     auto& reg = factory_registry();

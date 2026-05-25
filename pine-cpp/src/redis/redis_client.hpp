@@ -29,6 +29,9 @@ public:
     void del(const std::string& key);
     void expire(const std::string& key, int seconds);
 
+    // Multi-Exec helper to wrap write operations under an atomic transaction
+    void write_multiexec(const std::vector<std::vector<std::string>>& command_args_list);
+
 private:
     int fd_ = -1;
 

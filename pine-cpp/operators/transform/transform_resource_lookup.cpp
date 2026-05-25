@@ -5,6 +5,20 @@
 
 namespace pine {
 
+namespace {
+
+std::string inline_type_name(const JsonValue& v) {
+    if (v.is_null()) return "nil";
+    if (v.is_bool()) return "bool";
+    if (v.is_number()) return "float64";
+    if (v.is_string()) return "string";
+    if (v.is_array()) return "array";
+    if (v.is_object()) return "object";
+    return "unknown";
+}
+
+}  // namespace
+
 class TransformResourceLookupOp : public Operator, public ConcurrentSafe {
 public:
     void init(const OperatorConfig& cfg) override {
@@ -12,17 +26,17 @@ public:
         const auto& params = cfg.params.as_object();
         auto rn_it = params.find("resource_name");
         if (rn_it == params.end() || !rn_it->second.is_string())
-            throw ExecutionError(cfg.name, "transform_resource_lookup: missing resource_name");
+            throw ExecutionError("transform_resource_lookup: missing resource_name");
         resource_name_ = rn_it->second.as_string();
 
         auto lk_it = params.find("lookup_key");
         if (lk_it == params.end() || !lk_it->second.is_string())
-            throw ExecutionError(cfg.name, "transform_resource_lookup: missing lookup_key");
+            throw ExecutionError("transform_resource_lookup: missing lookup_key");
         lookup_key_ = lk_it->second.as_string();
 
         auto of_it = params.find("output_field");
         if (of_it == params.end() || !of_it->second.is_string())
-            throw ExecutionError(cfg.name, "transform_resource_lookup: missing output_field");
+            throw ExecutionError("transform_resource_lookup: missing output_field");
         output_field_ = of_it->second.as_string();
 
         auto dv_it = params.find("default_value");
@@ -31,13 +45,13 @@ public:
     }
     void execute(const Frame& frame, OperatorOutput& out) override {
         if (!frame.resources())
-            throw ExecutionError(op_name_, "transform_resource_lookup: no resource provider in context");
+            throw ExecutionError("transform_resource_lookup: no resource provider in context");
         auto res_it = frame.resources()->find(resource_name_);
         if (res_it == frame.resources()->end())
-            throw ExecutionError(op_name_, "transform_resource_lookup: resource \"" + resource_name_ + "\" not found");
+            throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" not found");
         const auto& resource = res_it->second;
         if (!resource.is_object())
-            throw ExecutionError(op_name_, "transform_resource_lookup: resource \"" + resource_name_ + "\" is not an object, want map[string]any");
+            throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" is " + inline_type_name(resource) + ", want map[string]any");
         const auto& table = resource.as_object();
 
         for (std::size_t i = 0; i < frame.item_count(); ++i) {
@@ -50,14 +64,7 @@ public:
             if (field_val.is_string()) {
                 key = field_val.as_string();
             } else if (field_val.is_number()) {
-                double d = field_val.as_number();
-                if (d == static_cast<double>(static_cast<int64_t>(d))) {
-                    key = std::to_string(static_cast<int64_t>(d));
-                } else {
-                    char buf[32];
-                    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d);
-                    key = std::string(buf, ptr);
-                }
+                key = operators::go_format_g(field_val.as_number());
             } else {
                 key = operators::sprint_value(field_val);
             }

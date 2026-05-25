@@ -72,7 +72,26 @@ void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, in
 LuaVM::LuaVM() {
     L_ = luaL_newstate();
     if (!L_) throw ExecutionError("failed to create Lua state");
-    luaL_openlibs(L_);
+
+    // Sandbox: Only load safe standard libraries: base (including coroutine etc if opened via those, but here base, table, string, math)
+    // To match Go's SkipOpenLibs: true, we open libraries individually using standard luaopen_* functions.
+    lua_pushcfunction(L_, luaopen_base);
+    lua_pushstring(L_, "");
+    lua_call(L_, 1, 0);
+
+    lua_pushcfunction(L_, luaopen_table);
+    lua_pushstring(L_, LUA_TABLIBNAME);
+    lua_call(L_, 1, 0);
+
+    lua_pushcfunction(L_, luaopen_string);
+    lua_pushstring(L_, LUA_STRLIBNAME);
+    lua_call(L_, 1, 0);
+
+    lua_pushcfunction(L_, luaopen_math);
+    lua_pushstring(L_, LUA_MATHLIBNAME);
+    lua_call(L_, 1, 0);
+
+    // Remove potentially filesystem-accessing functions
     lua_pushnil(L_); lua_setglobal(L_, "dofile");
     lua_pushnil(L_); lua_setglobal(L_, "loadfile");
 }

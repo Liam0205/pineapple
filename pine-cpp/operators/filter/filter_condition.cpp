@@ -10,7 +10,7 @@ public:
         const auto& params = cfg.params.as_object();
         auto val_it = params.find("value");
         if (val_it == params.end())
-            throw ExecutionError(cfg.name, "filter_condition: missing required param 'value'");
+            throw ExecutionError("filter_condition: missing required param 'value'");
         target_ = operators::sprint_value(val_it->second);
         field_ = cfg.metadata.item_input.at(0);
     }

@@ -54,7 +54,7 @@ public:
 // operator name (the message will be used as-is and may not byte-match Go).
 class ExecutionError : public Error {
 public:
-    using Error::Error;
+    explicit ExecutionError(std::string msg) : Error(msg), inner_(std::move(msg)) {}
     ExecutionError(std::string operator_name, std::string inner)
         : Error(format_msg(operator_name, inner)),
           operator_(std::move(operator_name)),
@@ -337,6 +337,12 @@ public:
     Result execute(const Request& request) const;
     Result execute(const Request& request, const std::map<std::string, JsonValue>& resources) const;
     TracedResult execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const;
+    // Variant of execute_traced that writes the partial result/trace/warnings
+    // into *out before re-throwing any execution error. Mirrors pine-go's
+    // (*Result, error) return contract where partial results survive errors.
+    void execute_traced_into(const Request& request,
+                              const std::map<std::string, JsonValue>& resources,
+                              TracedResult* out) const;
     std::string render_dag(const std::string& format, int collapse = 0) const;
 
     const ExpandedSequence& expanded() const { return expanded_; }

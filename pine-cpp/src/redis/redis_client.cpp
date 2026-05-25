@@ -247,5 +247,34 @@ void Client::expire(const std::string& key, int seconds) {
     throw std::runtime_error("redis: unexpected response type for EXPIRE");
 }
 
+void Client::write_multiexec(const std::vector<std::vector<std::string>>& command_args_list) {
+    send_command({"MULTI"});
+    char type = read_type();
+    if (type == '-') throw std::runtime_error("redis error: " + read_error());
+    if (type == '+') { read_line(); } else { throw std::runtime_error("redis: unexpected MULTI response"); }
+
+    for (const auto& args : command_args_list) {
+        send_command(args);
+        type = read_type();
+        if (type == '-') {
+            std::string err = read_error();
+            // Try to abort transaction if possible
+            try { send_command({"DISCARD"}); read_line(); } catch (...) {}
+            throw std::runtime_error("redis error: " + err);
+        }
+        if (type == '+') { read_line(); } else { throw std::runtime_error("redis: unexpected queued response"); }
+    }
+
+    send_command({"EXEC"});
+    type = read_type();
+    if (type == '*') {
+        // Read and discard EXEC results
+        read_array();
+        return;
+    }
+    if (type == '-') throw std::runtime_error("redis error: " + read_error());
+    throw std::runtime_error("redis: unexpected response type for EXEC");
+}
+
 }  // namespace redis
 }  // namespace pine

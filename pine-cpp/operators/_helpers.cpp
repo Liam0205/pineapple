@@ -11,24 +11,24 @@ namespace operators {
 double to_double(const JsonValue& value) {
     if (value.is_bool()) throw OperatorError("cannot convert bool to float64");
     if (value.is_number()) return value.as_number();
-    if (value.is_null()) throw OperatorError("cannot convert null to double");
-    if (value.is_string()) throw OperatorError("cannot convert string to double");
-    if (value.is_array()) throw OperatorError("cannot convert array to double");
-    throw OperatorError("cannot convert object to double");
+    if (value.is_null()) throw OperatorError("cannot convert <nil> to float64");
+    if (value.is_string()) throw OperatorError("cannot convert string to float64");
+    if (value.is_array()) throw OperatorError("cannot convert []interface {} to float64");
+    throw OperatorError("cannot convert map[string]interface {} to float64");
 }
 
 JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field) {
     JsonValue v = frame.common(field);
     if (!v.is_null()) return v;
     if (auto def = op.common_defaults.find(field); def != op.common_defaults.end()) return def->second;
-    throw ExecutionError(op.name, "required field \"" + field + "\" is nil in common");
+    throw ExecutionError("required field \"" + field + "\" is nil in common");
 }
 
 JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t index, const std::string& field) {
     JsonValue v = frame.item(index, field);
     if (!v.is_null()) return v;
     if (auto def = op.item_defaults.find(field); def != op.item_defaults.end()) return def->second;
-    throw ExecutionError(op.name, "required field \"" + field + "\" is nil on item[" + std::to_string(index) + "]");
+    throw ExecutionError("required field \"" + field + "\" is nil on item[" + std::to_string(index) + "]");
 }
 
 std::string go_format_g(double d) {

@@ -115,8 +115,14 @@ void validate_config(const Config& config) {
         }
         if (op.type_name == "filter_truncate") {
             auto pit = op.params.as_object().find("top_n");
-            if (pit != op.params.as_object().end() && !pit->second.is_number()) {
-                throw RegistryError("operator \"" + name + "\": top_n must be numeric");
+            if (pit != op.params.as_object().end()) {
+                if (!pit->second.is_number()) {
+                    throw RegistryError("operator \"" + name + "\": top_n must be numeric");
+                }
+                double val = pit->second.as_number();
+                if (val < 0) {
+                    throw RegistryError("operator \"" + name + "\": filter_truncate: top_n must be non-negative, got " + std::to_string(static_cast<int>(val)));
+                }
             }
         }
         if (op.type_name == "reorder_sort") {

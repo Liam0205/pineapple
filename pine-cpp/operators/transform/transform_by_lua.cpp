@@ -12,7 +12,7 @@ public:
         const auto& params = cfg.params.as_object();
         auto script_it = params.find("lua_script");
         if (script_it == params.end() || !script_it->second.is_string())
-            throw ExecutionError(cfg.name, "lua: exactly one of function_for_item or function_for_common must be set");
+            throw ExecutionError("lua: exactly one of function_for_item or function_for_common must be set");
         lua_script_ = script_it->second.as_string();
 
         auto fi_it = params.find("function_for_item");
@@ -21,9 +21,9 @@ public:
         func_for_common_ = (fc_it != params.end() && fc_it->second.is_string()) ? fc_it->second.as_string() : "";
 
         if (func_for_item_.empty() && func_for_common_.empty())
-            throw ExecutionError(cfg.name, "lua: exactly one of function_for_item or function_for_common must be set");
+            throw ExecutionError("lua: exactly one of function_for_item or function_for_common must be set");
         if (!func_for_item_.empty() && !func_for_common_.empty())
-            throw ExecutionError(cfg.name, "lua: cannot set both function_for_item and function_for_common");
+            throw ExecutionError("lua: cannot set both function_for_item and function_for_common");
 
         common_input_ = cfg.metadata.common_input;
         item_input_ = cfg.metadata.item_input;

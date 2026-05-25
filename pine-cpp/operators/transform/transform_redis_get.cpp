@@ -28,14 +28,14 @@ public:
             client = std::make_unique<redis::Client>(rp_.host, rp_.port, rp_.password, rp_.db);
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_get: " + std::string(e.what()));
+                throw ExecutionError("transform_redis_get: " + std::string(e.what()));
             out.set_warning("transform_redis_get: Get(" + key + "): " + std::string(e.what()));
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
         }
         if (!client->connected()) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_get: connection failed");
+                throw ExecutionError("transform_redis_get: connection failed");
             out.set_warning("transform_redis_get: Get(" + key + "): connection failed");
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
@@ -71,13 +71,13 @@ public:
                     out.set_common(cache_hit_field_, JsonValue(false));
                 }
             } else {
-                throw ExecutionError(op_name_, "transform_redis_get: unsupported data_type \"" + rp_.data_type + "\"");
+                throw ExecutionError("transform_redis_get: unsupported data_type \"" + rp_.data_type + "\"");
             }
         } catch (const ExecutionError&) {
             throw;
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_get: " + std::string(e.what()));
+                throw ExecutionError("transform_redis_get: " + std::string(e.what()));
             std::string cmd_name = (rp_.data_type == "set") ? "SMembers" : (rp_.data_type == "list") ? "LRange" : "Get";
             out.set_warning("transform_redis_get: " + cmd_name + "(" + key + "): " + std::string(e.what()));
             out.set_common(cache_hit_field_, JsonValue(false));

@@ -16,7 +16,7 @@ public:
         if (v.is_null()) {
             auto def = common_defaults_.find(src_);
             if (def != common_defaults_.end()) v = def->second;
-            else throw ExecutionError(op_name_, "required field \"" + src_ + "\" is nil in common");
+            else throw ExecutionError("required field \"" + src_ + "\" is nil in common");
         }
         for (std::size_t j = 0; j < frame.item_count(); ++j) {
             out.set_item(static_cast<int>(j), dst_, v);
