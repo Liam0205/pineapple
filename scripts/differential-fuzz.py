@@ -559,12 +559,18 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
                 "params": {"value": fuzz_resource["value"]},
             }
 
-        # Randomly attach skip to some ops
+        # Randomly attach skip to some ops — but only if the operator has
+        # at least one non-skip common_input field. Otherwise skip filtering
+        # would empty CommonInput, causing operators that read CommonInput[0]
+        # (dispatch, paginate) to panic on empty access. V-10.
         if use_skip and skip_field and rng.random() < 0.3:
-            op_config["skip"] = skip_field
-            op_config["for_branch_control"] = True
-            if skip_field not in op_config["$metadata"]["common_input"]:
-                op_config["$metadata"]["common_input"].append(skip_field)
+            existing_common = op_config["$metadata"]["common_input"]
+            non_skip_common = [f for f in existing_common if f != skip_field]
+            if non_skip_common or not existing_common:
+                op_config["skip"] = skip_field
+                op_config["for_branch_control"] = True
+                if skip_field not in op_config["$metadata"]["common_input"]:
+                    op_config["$metadata"]["common_input"].append(skip_field)
 
         # ~15% chance add debug=true on this operator
         if rng.random() < 0.15:
