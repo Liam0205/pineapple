@@ -52,9 +52,14 @@ func (o *DedupOp) Init(params map[string]any) error {
 
 func (o *DedupOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	dedupBy := o.ItemInput[0]
-	seen := make(map[any]struct{})
+	seen := make(map[string]struct{})
 	for i := 0; i < in.ItemCount(); i++ {
-		key := in.Item(i, dedupBy)
+		raw := in.Item(i, dedupBy)
+		// V-9: stringify the key before using as map key. Go maps panic on
+		// unhashable types (map/slice) used as keys. C++/Java/Python already
+		// use string-based dedup keys via sprint/GoFormat. fmt.Sprint produces
+		// a deterministic string for any Go value.
+		key := fmt.Sprint(raw)
 		if _, dup := seen[key]; dup {
 			out.RemoveItem(i)
 		} else {
