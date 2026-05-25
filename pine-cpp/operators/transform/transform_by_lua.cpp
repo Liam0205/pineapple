@@ -29,8 +29,6 @@ public:
         item_input_ = cfg.metadata.item_input;
         item_output_ = cfg.metadata.item_output;
         common_output_ = cfg.metadata.common_output;
-        common_defaults_ = cfg.common_defaults;
-        item_defaults_ = cfg.item_defaults;
 
         pool_ = std::make_unique<lua::StatePool>(lua_script_, op_name_);
     }
@@ -44,32 +42,17 @@ public:
         return {};
     }
 
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        auto resolve_common = [&](const std::string& field) -> JsonValue {
-            JsonValue v = frame.common(field);
-            if (!v.is_null()) return v;
-            auto def = common_defaults_.find(field);
-            if (def != common_defaults_.end()) return def->second;
-            return JsonValue();
-        };
-        auto resolve_item = [&](std::size_t idx, const std::string& field) -> JsonValue {
-            JsonValue v = frame.item(idx, field);
-            if (!v.is_null()) return v;
-            auto def = item_defaults_.find(field);
-            if (def != item_defaults_.end()) return def->second;
-            return JsonValue();
-        };
-
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
         auto borrowed = pool_->borrow();
         lua::LuaVM& vm = *borrowed;
 
         if (!func_for_item_.empty()) {
             int nret = static_cast<int>(item_output_.size());
             for (const auto& field : common_input_)
-                vm.set_global(field, resolve_common(field));
-            for (std::size_t i = 0; i < frame.item_count(); ++i) {
+                vm.set_global(field, input.common(field));
+            for (std::size_t i = 0; i < input.item_count(); ++i) {
                 for (const auto& field : item_input_)
-                    vm.set_global(field, resolve_item(i, field));
+                    vm.set_global(field, input.item(i, field));
                 auto results = vm.call_function(func_for_item_, nret, op_name_);
                 for (int j = 0; j < nret; ++j)
                     out.set_item(static_cast<int>(i), item_output_[static_cast<std::size_t>(j)], results[static_cast<std::size_t>(j)]);
@@ -77,12 +60,12 @@ public:
         } else {
             int nret = static_cast<int>(common_output_.size());
             for (const auto& field : common_input_)
-                vm.set_global(field, resolve_common(field));
+                vm.set_global(field, input.common(field));
             for (const auto& field : item_input_) {
                 std::vector<JsonValue> column;
-                column.reserve(frame.item_count());
-                for (std::size_t i = 0; i < frame.item_count(); ++i)
-                    column.push_back(resolve_item(i, field));
+                column.reserve(input.item_count());
+                for (std::size_t i = 0; i < input.item_count(); ++i)
+                    column.push_back(input.item(i, field));
                 vm.set_global_table(field, column);
             }
             auto results = vm.call_function(func_for_common_, nret, op_name_);
@@ -99,8 +82,6 @@ private:
     std::vector<std::string> item_input_;
     std::vector<std::string> item_output_;
     std::vector<std::string> common_output_;
-    std::map<std::string, JsonValue> common_defaults_;
-    std::map<std::string, JsonValue> item_defaults_;
     std::unique_ptr<lua::StatePool> pool_;
 };
 

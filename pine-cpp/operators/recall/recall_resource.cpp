@@ -15,11 +15,11 @@ public:
             throw ExecutionError("recall_resource: missing resource_name");
         resource_name_ = rn_it->second.as_string();
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        if (!frame.resources())
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        if (!input.resources())
             throw ExecutionError("recall_resource: no resource provider in context");
-        auto res_it = frame.resources()->find(resource_name_);
-        if (res_it == frame.resources()->end())
+        auto res_it = input.resources()->find(resource_name_);
+        if (res_it == input.resources()->end())
             throw ExecutionError("recall_resource: resource \"" + resource_name_ + "\" not found");
         const auto& resource = res_it->second;
         if (!resource.is_array())

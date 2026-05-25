@@ -1,5 +1,6 @@
 #include "pine/pine.hpp"
 #include "pine/operator.hpp"
+#include "pine/operator_input.hpp"
 #include <doctest/doctest.h>
 
 using namespace pine;
@@ -43,7 +44,7 @@ TEST_CASE("register_operator: duplicate throws RegistryError") {
         .params = {},
     };
     struct DupOp : public Operator, public ConsumesRowSet, public MutatesRowSet {
-        void execute(const Frame&, OperatorOutput&) override {}
+        void execute(const OperatorInput&, OperatorOutput&) override {}
     };
     CHECK_THROWS_AS(
         register_operator(dup_schema,
@@ -59,7 +60,7 @@ TEST_CASE("register_operator: empty name throws RegistryError") {
         .params = {},
     };
     struct EmptyNameOp : public Operator {
-        void execute(const Frame&, OperatorOutput&) override {}
+        void execute(const OperatorInput&, OperatorOutput&) override {}
     };
     CHECK_THROWS_AS(
         register_operator(empty_schema,

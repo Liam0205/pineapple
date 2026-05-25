@@ -15,6 +15,7 @@
 #include <variant>
 #include <vector>
 
+
 namespace pine {
 
 // Pineapple engine version. Single source of truth for all C++ code —
@@ -191,6 +192,24 @@ struct OperatorConfig {
     int data_parallel = 0;
 };
 
+// InputFieldSpec describes which fields are strict (must be non-nil) vs
+// defaulted (nil → use default) for an operator. Computed once at config
+// load time from metadata + defaults maps.
+struct DefaultedField {
+    std::string name;
+    JsonValue default_value;
+};
+
+struct InputFieldSpec {
+    std::vector<std::string> strict_common;
+    std::vector<DefaultedField> defaulted_common;
+    std::vector<std::string> strict_item;
+    std::vector<DefaultedField> defaulted_item;
+};
+
+// compute_input_field_spec derives the InputFieldSpec from an OperatorConfig.
+InputFieldSpec compute_input_field_spec(const OperatorConfig& config);
+
 struct FlowContract {
     std::vector<std::string> common_input;
     std::vector<std::string> item_input;
@@ -359,6 +378,9 @@ class ColumnFrame;
 // Forward declaration: Frame is defined in frame.hpp / column_frame.hpp.
 class Frame;
 
+// Forward declaration: OperatorInput is defined in operator_input.hpp.
+class OperatorInput;
+
 // Operator base class (mirrors pine-go's Operator interface).
 // Concrete operators subclass this. Placed here so that Engine's
 // unique_ptr<Operator> member has a complete type in all TUs that
@@ -367,7 +389,7 @@ class Operator {
 public:
     virtual ~Operator() = default;
     virtual void init(const OperatorConfig& config) { (void)config; }
-    virtual void execute(const Frame& frame, OperatorOutput& out) = 0;
+    virtual void execute(const OperatorInput& input, OperatorOutput& out) = 0;
 };
 
 class Engine {
@@ -425,6 +447,7 @@ private:
     ExpandedSequence expanded_;
     Graph graph_;
     std::map<std::string, std::unique_ptr<Operator>> operators_;
+    std::map<std::string, InputFieldSpec> input_specs_;
     std::string log_prefix_;
     std::unique_ptr<std::atomic<int64_t>> peak_concurrency_;
     metrics::Provider* metrics_provider_ = nullptr;

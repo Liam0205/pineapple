@@ -15,13 +15,8 @@ public:
         common_output_ = cfg.metadata.common_output;
         item_input_ = cfg.metadata.item_input;
         item_output_ = cfg.metadata.item_output;
-        common_defaults_ = cfg.common_defaults;
-        item_defaults_ = cfg.item_defaults;
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        // P2-20: build the active-inputs view once. The earlier code repeated
-        // the skip-filter loop inside each direction branch, leaving four
-        // near-identical copies to maintain.
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
         std::set<std::string> skip_set(skip_.begin(), skip_.end());
         const auto active_inputs = [&](const std::vector<std::string>& src_list) {
             std::vector<std::string> out_list;
@@ -35,16 +30,16 @@ public:
         if (direction_ == "common_to_item") {
             const auto inputs = active_inputs(common_input_);
             for (std::size_t i = 0; i < inputs.size(); ++i) {
-                JsonValue value = operators::require_common_by_name(frame, common_defaults_, inputs[i]);
+                JsonValue value = input.common(inputs[i]);
                 const auto& dst = item_output_.at(i);
-                for (std::size_t j = 0; j < frame.item_count(); ++j) {
+                for (std::size_t j = 0; j < input.item_count(); ++j) {
                     out.set_item(static_cast<int>(j), dst, value);
                 }
             }
         } else if (direction_ == "common_to_common") {
             const auto inputs = active_inputs(common_input_);
             for (std::size_t i = 0; i < inputs.size(); ++i) {
-                JsonValue value = operators::require_common_by_name(frame, common_defaults_, inputs[i]);
+                JsonValue value = input.common(inputs[i]);
                 out.set_common(common_output_.at(i), value);
             }
         } else if (direction_ == "item_to_item") {
@@ -52,9 +47,8 @@ public:
             for (std::size_t i = 0; i < inputs.size(); ++i) {
                 const auto& src = inputs[i];
                 const auto& dst = item_output_.at(i);
-                for (std::size_t j = 0; j < frame.item_count(); ++j) {
-                    out.set_item(static_cast<int>(j), dst,
-                                 operators::require_item_by_name(frame, j, item_defaults_, src));
+                for (std::size_t j = 0; j < input.item_count(); ++j) {
+                    out.set_item(static_cast<int>(j), dst, input.item(j, src));
                 }
             }
         } else if (direction_ == "item_to_common") {
@@ -62,8 +56,8 @@ public:
             for (std::size_t i = 0; i < inputs.size(); ++i) {
                 const auto& src = inputs[i];
                 JsonValue::array_t vals;
-                for (std::size_t j = 0; j < frame.item_count(); ++j) {
-                    vals.push_back(frame.item(j, src));
+                for (std::size_t j = 0; j < input.item_count(); ++j) {
+                    vals.push_back(input.item(j, src));
                 }
                 out.set_common(common_output_.at(i), JsonValue(vals));
             }
@@ -80,8 +74,6 @@ private:
     std::vector<std::string> common_output_;
     std::vector<std::string> item_input_;
     std::vector<std::string> item_output_;
-    std::map<std::string, JsonValue> common_defaults_;
-    std::map<std::string, JsonValue> item_defaults_;
 };
 
 static const OperatorSchema k_transform_copy_schema{

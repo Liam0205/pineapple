@@ -99,7 +99,7 @@ public:
         }
     }
 
-    void execute(const Frame& frame, OperatorOutput& out) override {
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
         const auto& common_req_fields = common_req_.empty() ? common_input_ : common_req_;
         const auto& item_req_fields = item_req_.empty() ? item_input_ : item_req_;
         const auto& common_resp_fields = common_resp_.empty() ? common_output_ : common_resp_;
@@ -108,16 +108,16 @@ public:
         JsonValue::object_t req_common;
         for (std::size_t i = 0; i < common_input_.size(); ++i) {
             if (i >= common_req_fields.size()) break;
-            req_common.emplace(common_req_fields[i], frame.common(common_input_[i]));
+            req_common.emplace(common_req_fields[i], input.common(common_input_[i]));
         }
 
         JsonValue::array_t req_items;
-        req_items.reserve(frame.item_count());
-        for (std::size_t j = 0; j < frame.item_count(); ++j) {
+        req_items.reserve(input.item_count());
+        for (std::size_t j = 0; j < input.item_count(); ++j) {
             JsonValue::object_t item;
             for (std::size_t i = 0; i < item_input_.size(); ++i) {
                 if (i >= item_req_fields.size()) break;
-                item.emplace(item_req_fields[i], frame.item(j, item_input_[i]));
+                item.emplace(item_req_fields[i], input.item(j, item_input_[i]));
             }
             req_items.emplace_back(std::move(item));
         }
@@ -184,7 +184,7 @@ public:
             }
         }
         if (resp_items != nullptr) {
-            std::size_t n = std::min(frame.item_count(), resp_items->size());
+            std::size_t n = std::min(input.item_count(), resp_items->size());
             for (std::size_t j = 0; j < n; ++j) {
                 if (!(*resp_items)[j].is_object()) continue;
                 const auto& item_obj = (*resp_items)[j].as_object();

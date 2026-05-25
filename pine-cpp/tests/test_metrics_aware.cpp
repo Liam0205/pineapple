@@ -1,5 +1,6 @@
 #include "pine/pine.hpp"
 #include "pine/operator.hpp"
+#include "pine/operator_input.hpp"
 #include "pine/metrics.hpp"
 
 #include <doctest/doctest.h>
@@ -18,7 +19,7 @@ public:
     static metrics::Provider* injected;
     static int call_count;
 
-    void execute(const Frame&, OperatorOutput&) override {}
+    void execute(const OperatorInput&, OperatorOutput&) override {}
     void set_metrics_provider(metrics::Provider* p) override {
         injected = p;
         ++call_count;
@@ -31,7 +32,7 @@ int ProbeOp::call_count = 0;
 // set_metrics_provider on it (compile-time safety; we just register it).
 class NonAwareOp : public Operator {
 public:
-    void execute(const Frame&, OperatorOutput&) override {}
+    void execute(const OperatorInput&, OperatorOutput&) override {}
 };
 
 const bool _reg_probe = [] {

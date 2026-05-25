@@ -1,6 +1,7 @@
 #include "pine/pine.hpp"
 #include "pine/column_frame.hpp"
 #include "pine/operator.hpp"
+#include "pine/operator_input.hpp"
 #include "runtime/thread_pool.hpp"
 
 #include <algorithm>
@@ -292,6 +293,8 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
             ma->set_metrics_provider(metrics_provider_);
         }
         operators_.emplace(op_name, std::move(instance));
+        // Pre-compute InputFieldSpec for the BuildInput projection layer.
+        input_specs_.emplace(op_name, compute_input_field_spec(op_cfg));
     }
 }
 
@@ -302,40 +305,14 @@ Engine Engine::from_file(const std::string& path, EngineOptions options) {
 
 namespace {
 
-void dispatch_operator(const Frame& frame, const OperatorConfig& op,
+void dispatch_operator(const OperatorInput& input, const OperatorConfig& op,
                        const std::map<std::string, std::unique_ptr<Operator>>& operators,
                        OperatorOutput& out) {
     auto it = operators.find(op.name);
     if (it == operators.end() || !it->second) {
         throw RegistryError("operator \"" + op.name + "\": operator type not registered: \"" + op.type_name + "\"");
     }
-    it->second->execute(frame, out);
-}
-
-void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
-    // Strict common-field nil check — mirrors pine-go column_frame.go:93-97
-    // BuildInput. Strict fields are those listed in $metadata.common_input
-    // without a corresponding default in common_defaults. Common-side
-    // validation runs once per operator (not per item) and produces the
-    // canonical "required field "X" is nil in common" message. R3-M2.
-    for (const auto& field : op.metadata.common_input) {
-        if (op.common_defaults.count(field)) continue;
-        if (!frame.has_common(field)) {
-            throw ExecutionError(op.name, "required field \"" + field + "\" is nil in common");
-        }
-        if (frame.common(field).is_null()) {
-            throw ExecutionError(op.name, "required field \"" + field + "\" is nil in common");
-        }
-    }
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        for (const auto& field : op.metadata.item_input) {
-            if (op.item_defaults.count(field)) continue;
-            JsonValue v = frame.item(i, field);
-            if (v.is_null()) {
-                throw ExecutionError(op.name, "required field \"" + field + "\" is nil on item[" + std::to_string(i) + "]");
-            }
-        }
-    }
+    it->second->execute(input, out);
 }
 
 // validate_output_against_type mirrors pine-go types.OperatorType.ValidateOutput
@@ -424,11 +401,11 @@ void validate_output_against_type(const std::string& op_name,
 // exception is preserved as a nested cause on the outgoing ExecutionError /
 // PanicError. Downstream code can use pine::error_as<T>() to walk the chain,
 // mirroring Go's errors.As / Java's Throwable.getCause().
-void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
+void dispatch_with_recovery(const OperatorInput& input, const OperatorConfig& op,
                             const std::map<std::string, std::unique_ptr<Operator>>& operators,
                             OperatorOutput& out) {
     try {
-        dispatch_operator(frame, op, operators, out);
+        dispatch_operator(input, op, operators, out);
     } catch (ExecutionError& e) {
         // If the execution error was thrown without operator name context or
         // formatted with raw inner message, ensure it matches:
@@ -500,11 +477,13 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
 void parallel_execute(const Frame& frame, const OperatorConfig& op,
                       const std::map<std::string, std::unique_ptr<Operator>>& operators,
                       OperatorOutput& out,
+                      const InputFieldSpec& spec,
                       runtime::ThreadPool* pool = nullptr) {
     int total = static_cast<int>(frame.item_count());
     int n = op.data_parallel;
     if (n <= 1 || total == 0) {
-        dispatch_with_recovery(frame, op, operators, out);
+        OperatorInput input = build_operator_input(frame, op.name, spec);
+        dispatch_with_recovery(input, op, operators, out);
         return;
     }
     if (n > total) n = total;
@@ -547,7 +526,8 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     auto shard_body = [&](int i) {
         if (shard_cancel.load(std::memory_order_acquire)) return;
         try {
-            dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op, operators,
+            OperatorInput input = build_operator_input(*shards[static_cast<std::size_t>(i)], op.name, spec);
+            dispatch_with_recovery(input, op, operators,
                                    shard_outs[static_cast<std::size_t>(i)]);
         } catch (...) {
             std::lock_guard<std::mutex> lk(err_mu);
@@ -592,6 +572,7 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
 std::vector<OpTrace> run_dag(const Config& config,
                              const Graph& graph,
                              const std::map<std::string, std::unique_ptr<Operator>>& operators,
+                             const std::map<std::string, InputFieldSpec>& input_specs,
                              Frame& frame,
                              bool collect_traces,
                              std::atomic<int64_t>* peak_concurrency = nullptr,
@@ -757,12 +738,11 @@ std::vector<OpTrace> run_dag(const Config& config,
                     return;
                 }
 
-                validate_item_inputs(frame, op);
                 if (collect_traces && op.debug) {
                     trace.input_snapshot = snapshot_input(frame, op);
                     trace.has_input_snapshot = true;
                 }
-                parallel_execute(frame, op, operators, out, shard_pool);
+                parallel_execute(frame, op, operators, out, input_specs.at(op.name), shard_pool);
                 if (collect_traces && op.debug) {
                     trace.output_snapshot = snapshot_output(out);
                     trace.has_output_snapshot = true;
@@ -921,7 +901,7 @@ void Engine::execute_traced_into(const Request& request,
     frame.set_resources(&resources);
     std::exception_ptr run_err = nullptr;
     try {
-        out->trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
+        out->trace = run_dag(config_, graph_, operators_, input_specs_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
                              shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel);
     } catch (...) {
         run_err = std::current_exception();

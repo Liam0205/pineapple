@@ -9,10 +9,10 @@ public:
         op_name_ = cfg.name;
         field_ = cfg.metadata.item_input.at(0);
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
         std::vector<std::string> seen;
-        for (std::size_t i = 0; i < frame.item_count(); ++i) {
-            JsonValue fv = frame.item(i, field_);
+        for (std::size_t i = 0; i < input.item_count(); ++i) {
+            JsonValue fv = input.item(i, field_);
             std::string key = operators::dedup_key(fv);
             bool dup = false;
             for (const auto& s : seen) { if (s == key) { dup = true; break; } }

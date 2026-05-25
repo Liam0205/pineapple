@@ -33,19 +33,19 @@ public:
         common_inputs_ = cfg.metadata.common_input;
         item_field_ = cfg.metadata.item_input.at(0);
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        if (frame.item_count() == 0) return;
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        if (input.item_count() == 0) return;
         std::string salt;
         for (std::size_t i = 0; i < common_inputs_.size(); ++i) {
             if (i > 0) salt += '|';
-            salt += operators::any_to_string(frame.common(common_inputs_[i]));
+            salt += operators::any_to_string(input.common(common_inputs_[i]));
         }
         salt += '|';
         struct Ranked { std::size_t idx; double r; uint64_t id; };
         std::vector<Ranked> ranked;
-        ranked.reserve(frame.item_count());
-        for (std::size_t i = 0; i < frame.item_count(); ++i) {
-            std::string item_val = operators::any_to_string(frame.item(i, item_field_));
+        ranked.reserve(input.item_count());
+        for (std::size_t i = 0; i < input.item_count(); ++i) {
+            std::string item_val = operators::any_to_string(input.item(i, item_field_));
             uint64_t h = fnv64a(salt + item_val);
             double r = static_cast<double>(h) / (static_cast<double>(UINT64_MAX) + 1.0);
             ranked.push_back({i, r, parse_uint64(item_val)});
