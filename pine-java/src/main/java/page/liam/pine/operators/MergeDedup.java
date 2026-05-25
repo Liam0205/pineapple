@@ -42,7 +42,15 @@ public class MergeDedup extends AbstractOperator implements page.liam.pine.Consu
     }
 
     private static Object normalizeKey(Object v) {
-        if (v instanceof Number) return ((Number) v).doubleValue();
+        if (v instanceof Number) {
+            double d = ((Number) v).doubleValue();
+            // DF-B3: IEEE 754 -0.0 and +0.0 are semantically equal but
+            // Double.hashCode(-0.0) != Double.hashCode(0.0), so HashSet
+            // treats them as different keys. Go's map uses == for float
+            // keys which considers -0 == +0. Normalize to +0.0.
+            if (d == 0.0) d = 0.0;
+            return d;
+        }
         return v;
     }
 }
