@@ -79,6 +79,10 @@ public:
     // Returns the registered resource names, sorted.
     std::vector<std::string> names() const;
 
+    // ValidateResourceDeps checks that every resource_name referenced in the
+    // Config's operators is registered in the Manager. Throws on missing.
+    void validate_resource_deps(const Config& config) const;
+
 private:
     struct Managed {
         std::string name;

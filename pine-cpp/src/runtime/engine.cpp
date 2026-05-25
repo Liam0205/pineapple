@@ -239,6 +239,19 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     graph_ = build_dag(config_, expanded_);
     engine_metrics_ = build_engine_metrics(metrics_provider_, expanded_.sequence);
 
+    // Validate sources order matching pine-go validateSourcesOrder.
+    // Sources references must exist and be declared before the current operator.
+    std::set<std::string> seen_ops;
+    for (const auto& op_name : expanded_.sequence) {
+        const auto& op_cfg = config_.operators.at(op_name);
+        for (const auto& src : op_cfg.sources) {
+            if (!seen_ops.count(src)) {
+                throw ValidationError("operator \"" + op_name + "\": sources references \"" + src + "\" which is declared after the current operator (forward reference)");
+            }
+        }
+        seen_ops.insert(op_name);
+    }
+
     // Instantiate and init one Operator per config operator.
     for (auto& [op_name, op_cfg] : config_.operators) {
         const auto* entry = registry_entry(op_cfg.type_name);

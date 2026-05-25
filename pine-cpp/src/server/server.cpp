@@ -789,6 +789,7 @@ bool Server::reload_config() {
 
         auto new_resource_manager = std::make_unique<resource::Manager>();
         new_resource_manager->load_from_config(new_config);
+        new_resource_manager->validate_resource_deps(new_config);
         new_resource_manager->start();
 
         {
@@ -858,6 +859,7 @@ int Server::run(const ServerConfig& cfg) {
 
         resource_manager_ = std::make_unique<resource::Manager>();
         resource_manager_->load_from_config(config);
+        resource_manager_->validate_resource_deps(config);
         resource_manager_->start();
     } catch (const std::exception& e) {
         std::cerr << "failed to load engine/resources: " << e.what() << "\n";

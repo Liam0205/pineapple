@@ -152,6 +152,35 @@ std::vector<std::string> Manager::names() const {
     return out;
 }
 
+void Manager::validate_resource_deps(const Config& config) const {
+    std::shared_lock<std::shared_mutex> lk(mu_);
+    std::vector<std::string> missing;
+    for (const auto& [op_key, params] : config.operators) {
+        auto res_it = params.params.as_object().find("resource_name");
+        if (res_it == params.params.as_object().end()) {
+            continue;
+        }
+        if (!res_it->second.is_string()) {
+            continue;
+        }
+        std::string name = res_it->second.as_string();
+        if (name.empty()) {
+            continue;
+        }
+        if (!resources_.count(name)) {
+            missing.push_back(name + " (operator " + params.type_name + "/" + op_key + ")");
+        }
+    }
+    if (!missing.empty()) {
+        std::string err_msg = "resource: missing resource definitions: ";
+        for (std::size_t i = 0; i < missing.size(); ++i) {
+            if (i > 0) err_msg += ", ";
+            err_msg += missing[i];
+        }
+        throw std::runtime_error(err_msg);
+    }
+}
+
 void Manager::refresh_loop(Managed* r) {
     while (!stopping_.load(std::memory_order_acquire)) {
         std::unique_lock<std::mutex> lk(stop_mu_);
