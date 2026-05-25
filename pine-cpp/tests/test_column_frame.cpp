@@ -167,3 +167,21 @@ TEST_CASE("ColumnFrame: out-of-range item write raises ExecutionError") {
     out.set_item(99, "score", JsonValue(1.0));
     CHECK_THROWS_AS(frame.apply_output(out, "op", false), ExecutionError);
 }
+
+TEST_CASE("ColumnFrame: SetItemOrder rejects non-permutation (duplicate index)") {
+    // Permutation check guards against silent data loss when an operator
+    // emits an order like [0, 0, 0] — without it the frame would replace
+    // every item with item 0, no error surfaced. Tracked as P1-S3.
+    auto frame = make_frame();
+    OperatorOutput out;
+    out.set_item_order({0, 0, 0});  // duplicate 0 three times
+    CHECK_THROWS_AS(frame.apply_output(out, "op", false), ExecutionError);
+}
+
+TEST_CASE("ColumnFrame: SetItemOrder accepts valid permutation") {
+    auto frame = make_frame();
+    OperatorOutput out;
+    // make_frame builds 3 items (see helper above); reverse is a valid permutation.
+    out.set_item_order({2, 1, 0});
+    CHECK_NOTHROW(frame.apply_output(out, "op", false));
+}

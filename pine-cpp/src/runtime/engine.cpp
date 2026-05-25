@@ -333,7 +333,20 @@ void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
 // applying `offset` to item-index references. Parallel ops are constrained to
 // transforms (no added_items, no item_order, empty common_output), so only
 // item_writes, removed_items, and warnings need merging.
-void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offset) {
+//
+// Runtime assert: if a shard *does* emit added_items / item_order / common
+// writes (which would happen only if config validation or operator schema
+// was bypassed), fail loudly rather than silently dropping data — the
+// reviewer-flagged silent-drop path in inc1 #4.
+void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
+                        int offset, const std::string& op_name) {
+    if (!src.added_items().empty() || src.has_item_order() ||
+        !src.common_writes().empty()) {
+        throw PanicError(op_name,
+            "data_parallel shard emitted added_items, item_order, or common "
+            "writes; only item_writes / removed_items / warnings are allowed "
+            "(see parallel_execute preconditions)");
+    }
     for (const auto& [idx, fields] : src.item_writes()) {
         for (const auto& [field, value] : fields) {
             dst.set_item(idx + offset, field, value);
@@ -419,7 +432,7 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
 
     for (int i = 0; i < n; ++i) {
         merge_shard_output(out, shard_outs[static_cast<std::size_t>(i)],
-                           offsets[static_cast<std::size_t>(i)]);
+                           offsets[static_cast<std::size_t>(i)], op.name);
     }
 }
 
