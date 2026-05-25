@@ -35,4 +35,13 @@ class MergeDedup(AbstractOperator, ConsumesRowSet, MutatesRowSet):
 
 
 def _normalize_key(v):
+    # V-9: stringify composite types (dict/list) that are unhashable in
+    # Python sets. Matches Go fmt.Sprint / Java GoFormat.sprint / C++
+    # dedup_key string path. Scalar types (str/int/float/bool/None) are
+    # hashable and stay as-is for efficient set lookup.
+    if isinstance(v, (dict, list)):
+        import json
+        return json.dumps(v, sort_keys=True, ensure_ascii=False)
+    if isinstance(v, float) and v == 0.0:
+        return 0.0  # canonicalize -0.0 to +0.0
     return v
