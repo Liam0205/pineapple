@@ -5,6 +5,7 @@ import threading
 from typing import Any
 
 from pine.cancellation import CancellationToken
+from pine.errors import PanicError
 from pine.operator import Operator, OperatorInput, OperatorOutput
 
 
@@ -74,9 +75,18 @@ def _parallel_execute(
         if shard_out is None:
             continue
 
-        # Merge common writes (last writer wins)
-        for key, value in shard_out.common_writes.items():
-            merged.set_common(key, value)
+        # Parallel ops are restricted to Transform without common_output
+        # (enforced by config validation); shards may only emit item_writes,
+        # removed_items, and warnings. Anything else is a silent-drop
+        # corruption surface — raise loudly instead. Tracked as P1-S4.
+        if (shard_out.added_items or shard_out.item_order is not None or
+                shard_out.common_writes):
+            raise PanicError(
+                f'pine: panic in operator "{op_name}": '
+                f'data_parallel shard emitted added_items, item_order, '
+                f'or common writes; only item_writes / removed_items / '
+                f'warnings are allowed'
+            )
 
         # Merge item writes (remap shard-local indices to global)
         for local_idx, writes in shard_out.item_writes.items():
@@ -84,5 +94,15 @@ def _parallel_execute(
                 global_idx = shard_indices[si][local_idx]
                 for field_name, value in writes.items():
                     merged.set_item(global_idx, field_name, value)
+
+        # Merge removed items
+        for local_idx in shard_out.removed_items:
+            if local_idx < len(shard_indices[si]):
+                global_idx = shard_indices[si][local_idx]
+                merged.remove_item(global_idx)
+
+        # Merge warning
+        if shard_out.warning is not None:
+            merged.set_warning(shard_out.warning)
 
     return merged

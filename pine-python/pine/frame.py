@@ -173,7 +173,28 @@ class ColumnFrame(Frame):
 
             # 4. Reorder items
             if out.item_order is not None:
-                self._reindex(out.item_order)
+                order = out.item_order
+                if len(order) != self._row_count:
+                    raise ExecutionError(
+                        op_name,
+                        f"SetItemOrder length {len(order)} does not match item count {self._row_count}",
+                    )
+                # Length + OOB + permutation: without the permutation check,
+                # set_item_order([0,0,0]) would silently duplicate item 0.
+                seen = [False] * self._row_count
+                for idx in order:
+                    if idx < 0 or idx >= self._row_count:
+                        raise ExecutionError(
+                            op_name,
+                            f"SetItemOrder index {idx} out of range [0, {self._row_count})",
+                        )
+                    if seen[idx]:
+                        raise ExecutionError(
+                            op_name,
+                            f"SetItemOrder duplicate index {idx} (order must be a permutation)",
+                        )
+                    seen[idx] = True
+                self._reindex(order)
 
             # 5. Add items (recall)
             if out.added_items:
