@@ -573,6 +573,32 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
         operators[op_name] = op_config
         pipeline.append(op_name)
 
+    # DF-G1: when ≥2 recall-type ops exist AND filter_paginate is downstream,
+    # the parallel recalls produce non-deterministic item ordering → paginate
+    # cuts a position-dependent window → different item SETS each run (not
+    # just different order). Insert a stabilizing sort on _fuzz_distinctive_score
+    # just before the first paginate so its input is deterministic.
+    recall_count = sum(1 for v in operators.values()
+                       if v.get("type_name") in ("recall_static", "recall_resource")
+                       or v.get("recall"))
+    if recall_count >= 2 and "_fuzz_distinctive_score" in item_outputs:
+        paginate_indices = [i for i, name in enumerate(pipeline)
+                           if operators.get(name, {}).get("type_name") == "filter_paginate"]
+        if paginate_indices:
+            insert_at = paginate_indices[0]
+            stab_name = "_stabilize_sort"
+            operators[stab_name] = {
+                "type_name": "reorder_sort",
+                "order": "asc",
+                "$metadata": {
+                    "common_input": [],
+                    "common_output": [],
+                    "item_input": ["_fuzz_distinctive_score"],
+                    "item_output": [],
+                },
+            }
+            pipeline.insert(insert_at, stab_name)
+
     # ~40% chance: append a trailing sort on _fuzz_distinctive_score (enables strict order check)
     strict_order = False
     if rng.random() < 0.4 and "_fuzz_distinctive_score" in item_outputs:

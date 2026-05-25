@@ -62,6 +62,28 @@ print(json.dumps(normalize(json.load(sys.stdin)), sort_keys=True))
 "
 }
 
+# normalize_json_set: like normalize_json but sorts the top-level "items"
+# array by serialized content so item ORDER is ignored. Use when the
+# pipeline has non-deterministic item ordering (parallel recalls without
+# a trailing sort). Fixture declares "strict_order": false to opt in.
+normalize_json_set() {
+  python3 -c "
+import json, sys
+def normalize(obj):
+    if isinstance(obj, dict):
+        return {k: normalize(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [normalize(v) for v in obj]
+    elif isinstance(obj, (int, float)):
+        return float(obj)
+    return obj
+d = normalize(json.load(sys.stdin))
+if isinstance(d, dict) and 'items' in d and isinstance(d['items'], list):
+    d['items'] = sorted(d['items'], key=lambda x: json.dumps(x, sort_keys=True))
+print(json.dumps(d, sort_keys=True))
+"
+}
+
 java_run() {
   java -cp "$JAVA_CP" "$@"
 }

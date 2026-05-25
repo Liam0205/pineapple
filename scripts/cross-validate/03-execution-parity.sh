@@ -32,6 +32,12 @@ for i, c in enumerate(cases):
     ee = c.get('expect_error', '')
     with open('$WORK_DIR/expect_error_${fname}_' + str(i) + '.txt', 'w') as ef:
         ef.write(ee)
+# strict_order: when false, items are compared as sets (order-insensitive).
+# Fixtures with parallel DAG nodes (e.g. multiple recalls without trailing
+# sort) should set this to false. Default is true for backward compat.
+so = data.get('strict_order', True)
+with open('$WORK_DIR/strict_order_${fname}.txt', 'w') as sf:
+    sf.write('true' if so else 'false')
 sr = data.get('static_resources')
 if sr is not None:
     with open('$WORK_DIR/resources_${fname}.json', 'w') as sf:
@@ -146,8 +152,17 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
       fail "execution Java failed: $fname case $i"; case_results_j+="✗"
     fi
 
-    go_norm=$(cat "${out_prefix}.go.out" | normalize_json)
-    java_norm=$(cat "${out_prefix}.java.out" | normalize_json)
+    # Choose normalizer based on strict_order flag (default: list comparison).
+    # Fixtures with parallel DAG nodes and no trailing sort set
+    # "strict_order": false at the top level → set comparison on items array.
+    norm_fn=normalize_json
+    if [[ -f "$WORK_DIR/strict_order_${fname}.txt" ]]; then
+      so=$(cat "$WORK_DIR/strict_order_${fname}.txt")
+      [[ "$so" == "false" ]] && norm_fn=normalize_json_set
+    fi
+
+    go_norm=$(cat "${out_prefix}.go.out" | $norm_fn)
+    java_norm=$(cat "${out_prefix}.java.out" | $norm_fn)
 
     if [[ "$java_rc" == "0" ]]; then
       if [[ "$go_norm" == "$java_norm" ]]; then
@@ -164,7 +179,7 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
       fail "execution Python failed: $fname case $i"; case_results_p+="✗"; continue
     fi
 
-    py_norm=$(cat "${out_prefix}.py.out" | normalize_json)
+    py_norm=$(cat "${out_prefix}.py.out" | $norm_fn)
 
     if [[ "$go_norm" == "$py_norm" ]]; then
       py_exec_pass=$((py_exec_pass + 1))
@@ -182,7 +197,7 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
         fail "execution C++ failed: $fname case $i"
         case_results_c+="✗"
       else
-        cpp_norm=$(cat "${out_prefix}.cpp.out" | normalize_json)
+        cpp_norm=$(cat "${out_prefix}.cpp.out" | $norm_fn)
         if [[ "$go_norm" == "$cpp_norm" ]]; then
           cpp_exec_pass=$((cpp_exec_pass + 1))
           case_results_c+="✓"
