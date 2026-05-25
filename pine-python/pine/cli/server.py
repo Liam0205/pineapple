@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from pine.engine import Engine, StaticResourceProvider
 from pine.errors import ConfigError, RegistryError, ValidationError
-from pine.go_format import go_json_marshal
+from pine.go_format import go_json_marshal, _go_encode_value
 
 _DEFAULT_MAX_BODY = 10 * 1024 * 1024  # 10MB
 
@@ -198,13 +198,33 @@ class _PineHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def _json_response(self, status: int, obj: Any):
-        body = go_json_marshal(obj) + "\n"
+        # Preserve insertion order of top-level dict keys to match Go's struct
+        # field declaration order (Go json.Encoder honors struct order, not
+        # alphabetic). We rebuild the JSON manually for ordered dicts.
+        body = _ordered_marshal(obj) + "\n"
         encoded = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+
+def _ordered_marshal(obj: Any) -> str:
+    """JSON marshal that preserves dict insertion order (matching Go struct
+    field declaration order), recursing into nested dicts only at top level.
+    Nested dicts inside `common`, `items`, `trace` etc. still go through
+    go_json_marshal which sorts keys (matching Go's behavior for `map[string]T`)."""
+    if isinstance(obj, dict):
+        if not obj:
+            return "{}"
+        parts = []
+        for k, v in obj.items():
+            k_enc = go_json_marshal(k)
+            v_enc = _go_encode_value(v, indent="", current_indent="")
+            parts.append(f"{k_enc}:{v_enc}")
+        return "{" + ",".join(parts) + "}"
+    return go_json_marshal(obj)
 
 
 def _build_response(result: Any, return_trace: bool) -> dict[str, Any]:

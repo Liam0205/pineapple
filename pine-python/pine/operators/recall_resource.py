@@ -12,6 +12,26 @@ from pine.operator import (
 )
 
 
+def _go_type_name(value):
+    """Render a Python value's type using Go's reflection terminology so error
+    messages stay byte-identical with pine-{go,cpp,java}."""
+    if value is None:
+        return "<nil>"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float64"
+    if isinstance(value, list):
+        return "[]interface {}"
+    if isinstance(value, dict):
+        return "map[string]interface {}"
+    return type(value).__name__
+
+
 class RecallResource(AbstractOperator, AdditiveWritesRowSet, ResourceAware):
     def __init__(self):
         self._resource_name = ""
@@ -38,16 +58,14 @@ class RecallResource(AbstractOperator, AdditiveWritesRowSet, ResourceAware):
 
         raw = result.value()
         if not isinstance(raw, list):
-            type_name = type(raw).__name__ if raw is not None else "null"
             raise OperatorException(
-                f'recall_resource: resource "{self._resource_name}" is {type_name}, '
-                f"want list[dict[str, Any]]"
+                f'recall_resource: resource "{self._resource_name}" is {_go_type_name(raw)}, '
+                f"want []map[string]any"
             )
 
         for i, item in enumerate(raw):
             if not isinstance(item, dict):
-                type_name = type(item).__name__ if item is not None else "null"
                 raise OperatorException(
-                    f"recall_resource: items[{i}] is {type_name}, want dict"
+                    f"recall_resource: items[{i}] is {_go_type_name(item)}, want map[string]any"
                 )
             output.add_item(dict(item))

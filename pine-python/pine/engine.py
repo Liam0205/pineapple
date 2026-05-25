@@ -194,12 +194,12 @@ class Engine:
                 op.set_metrics_provider(metrics_provider)
 
             if isinstance(op, ResourceAware):
-                if resource_provider is None:
-                    raise ConfigError(
-                        f'operator "{name}" implements ResourceAware but no '
-                        f"ResourceProvider was supplied"
-                    )
-                op.set_resource_provider(resource_provider)
+                # Align with pine-{go,cpp}: don't fail at init when no provider is
+                # supplied. Operators check for the provider at execute time so
+                # pipelines without resource-dependent operators can be constructed
+                # even when no provider exists.
+                if resource_provider is not None:
+                    op.set_resource_provider(resource_provider)
 
             # Validate data_parallel constraints
             effective_data_parallel = op_cfg.data_parallel
@@ -457,12 +457,12 @@ class Engine:
                     wrapped = exec_err
                 elif isinstance(exec_err, OperatorException):
                     wrapped = PanicError(
-                        f'pine: operator "{cop.name}": {exec_err}',
+                        f'pine: execution error in operator "{cop.name}": {exec_err}',
                         detail="",
                     )
                 else:
                     wrapped = PanicError(
-                        f'pine: operator "{cop.name}": unexpected panic',
+                        f'pine: panic in operator "{cop.name}": unexpected panic',
                         detail=traceback.format_exc(),
                     )
                 set_fatal(wrapped)
@@ -504,7 +504,7 @@ class Engine:
                 )
                 self._stats.record_error(cop.name, duration_ns)
                 wrapped = PanicError(
-                    f'pine: operator "{cop.name}": apply output: {apply_err}',
+                    f'pine: execution error in operator "{cop.name}": apply output: {apply_err}',
                     detail=traceback.format_exc(),
                 )
                 set_fatal(wrapped)
