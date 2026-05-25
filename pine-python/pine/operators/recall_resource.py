@@ -47,6 +47,7 @@ class RecallResource(AbstractOperator, AdditiveWritesRowSet, ResourceAware):
         self, token: CancellationToken, input_: OperatorInput,
         output: OperatorOutput,
     ) -> None:
+        # Align with Go/C++: if we are missing resource provider, we raise matching message
         if self._resource_provider is None:
             raise OperatorException("recall_resource: no resource provider in context")
 
