@@ -178,12 +178,19 @@ public class ColumnFrame implements Frame {
                 if (order.size() != rowCount) {
                     throw new IllegalArgumentException("SetItemOrder length " + order.size() + " does not match item count " + rowCount);
                 }
+                // Permutation check — without this, setItemOrder([0,0,0])
+                // silently duplicates item 0 across the frame.
+                boolean[] seen = new boolean[rowCount];
                 int[] mapping = new int[rowCount];
                 for (int i = 0; i < rowCount; i++) {
                     int origIdx = order.get(i);
                     if (origIdx < 0 || origIdx >= rowCount) {
                         throw new IndexOutOfBoundsException("SetItemOrder index " + origIdx + " out of range [0, " + rowCount + ")");
                     }
+                    if (seen[origIdx]) {
+                        throw new IllegalArgumentException("SetItemOrder duplicate index " + origIdx + " (order must be a permutation)");
+                    }
+                    seen[origIdx] = true;
                     mapping[i] = origIdx;
                 }
                 compactColumns(mapping, rowCount);

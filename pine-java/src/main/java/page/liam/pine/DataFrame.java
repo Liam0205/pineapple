@@ -157,11 +157,18 @@ public class DataFrame implements Frame {
                 if (order.size() != items.size()) {
                     throw new IllegalArgumentException("SetItemOrder length " + order.size() + " does not match item count " + items.size());
                 }
+                // Permutation check — without this, setItemOrder([0,0,0])
+                // silently duplicates item 0 across the frame.
+                boolean[] seen = new boolean[items.size()];
                 List<Map<String, Object>> reordered = new ArrayList<>(order.size());
                 for (int origIdx : order) {
                     if (origIdx < 0 || origIdx >= items.size()) {
                         throw new IndexOutOfBoundsException("SetItemOrder index " + origIdx + " out of range [0, " + items.size() + ")");
                     }
+                    if (seen[origIdx]) {
+                        throw new IllegalArgumentException("SetItemOrder duplicate index " + origIdx + " (order must be a permutation)");
+                    }
+                    seen[origIdx] = true;
                     reordered.add(items.get(origIdx));
                 }
                 items = reordered;
