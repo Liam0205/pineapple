@@ -1,0 +1,39 @@
+{
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "set_common_a": {
+          "type_name": "transform_copy",
+          "direction": "common_to_common",
+          "$metadata": {
+            "common_input": ["src"],
+            "common_output": ["a"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "normalize_bad": {
+          "type_name": "transform_normalize",
+          "sources": ["set_common_a"],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["x_norm"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["set_common_a", "normalize_bad"]}},
+    "flow_contract": {
+      "common_input": ["src"],
+      "item_input": ["x"],
+      "common_output": ["a"],
+      "item_output": ["x", "x_norm"]
+    }
+  },
+  "request": {
+    "common": {"src": "first-op-succeeded"},
+    "items": [{"x": "non-numeric"}, {"x": "non-numeric-2"}]
+  }
+}
