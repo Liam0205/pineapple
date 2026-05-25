@@ -1,0 +1,56 @@
+{
+  "name": "redis unavailable with fail_on_error=true",
+  "requires": ["redis-unavailable"],
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "x1", "score": 10}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "score"]
+          }
+        },
+        "get_cache": {
+          "type_name": "transform_redis_get",
+          "redis_addr": "127.0.0.1:1",
+          "key_prefix": "unavail:",
+          "fail_on_error": true,
+          "$metadata": {
+            "common_input": ["uid"],
+            "common_output": ["result", "cache_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["recall_items", "get_cache"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["uid"],
+      "item_input": [],
+      "common_output": ["uid", "result", "cache_hit"],
+      "item_output": ["item_id", "score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "fail_on_error=true triggers execution error",
+      "request": {
+        "common": {"uid": "user1"},
+        "items": []
+      },
+      "expect_error": "transform_redis_get"
+    }
+  ]
+}

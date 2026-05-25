@@ -1,0 +1,79 @@
+{
+  "name": "reorder_shuffle_by_salt deterministic ordering parity",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a", "score": 10},
+            {"item_id": "b", "score": 20},
+            {"item_id": "c", "score": 30},
+            {"item_id": "d", "score": 40},
+            {"item_id": "e", "score": 50},
+            {"item_id": "f", "score": 60},
+            {"item_id": "g", "score": 70},
+            {"item_id": "h", "score": 80}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "score"]
+          }
+        },
+        "shuffle": {
+          "type_name": "reorder_shuffle_by_salt",
+          "$metadata": {
+            "common_input": ["salt"],
+            "common_output": [],
+            "item_input": ["item_id"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["recall_items", "shuffle"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["salt"],
+      "item_input": [],
+      "common_output": ["salt"],
+      "item_output": ["item_id", "score"]
+    }
+  },
+  "cases": [
+    {
+      "name": "salt alpha",
+      "request": {
+        "common": {"salt": "alpha"},
+        "items": []
+      }
+    },
+    {
+      "name": "salt beta (different ordering)",
+      "request": {
+        "common": {"salt": "beta"},
+        "items": []
+      }
+    },
+    {
+      "name": "salt alpha again (idempotent)",
+      "request": {
+        "common": {"salt": "alpha"},
+        "items": []
+      }
+    },
+    {
+      "name": "numeric salt",
+      "request": {
+        "common": {"salt": "12345"},
+        "items": []
+      }
+    }
+  ]
+}
