@@ -168,7 +168,15 @@ std::string any_to_string(const JsonValue& v) {
 std::string dedup_key(const JsonValue& v) {
     if (v.is_null()) return "N:";
     if (v.is_bool()) return v.as_bool() ? "B:1" : "B:0";
-    if (v.is_number()) return "F:" + go_format_g(v.as_number());
+    if (v.is_number()) {
+        double d = v.as_number();
+        // DF-B4: Go uses the raw float64 as map key; Go's map == considers
+        // -0.0 == +0.0 (IEEE 754), so they deduplicate. go_format_g(-0.0)
+        // returns "-0" which differs from "0" → different string keys.
+        // Canonicalize to +0.0 before formatting so the string key matches.
+        if (d == 0.0) d = 0.0;
+        return "F:" + go_format_g(d);
+    }
     if (v.is_string()) return "S:" + v.as_string();
     return "O:" + sprint_value(v);
 }
