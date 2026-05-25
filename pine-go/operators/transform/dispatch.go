@@ -40,7 +40,15 @@ func (o *DispatchOp) Init(params map[string]any) error {
 }
 
 func (o *DispatchOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+	// V-10: guard against empty CommonInput (can happen when skip filters
+	// out all common_input fields and the skip condition is falsy).
+	if len(o.CommonInput) == 0 {
+		return nil
+	}
 	commonField := o.CommonInput[0]
+	if len(o.ItemOutput) == 0 {
+		return nil
+	}
 	itemField := o.ItemOutput[0]
 	val := in.Common(commonField)
 	for i := 0; i < in.ItemCount(); i++ {
