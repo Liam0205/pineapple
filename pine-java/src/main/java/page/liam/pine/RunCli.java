@@ -60,6 +60,31 @@ public class RunCli {
         }
 
         ResourceProvider rp = null;
+        ResourceManager rm = null;
+
+        // Register a built-in "static" resource fetcher factory mirroring
+        // pine-{go,cpp}, so unified configs with resource_config blocks
+        // load out-of-the-box.
+        try {
+            ResourceManager.registerFactory("static", params -> {
+                Object value = params.get("value");
+                return () -> value;
+            });
+        } catch (IllegalStateException ignored) {
+            // already registered (re-run in tests etc.)
+        }
+
+        try {
+            rm = new ResourceManager();
+            rm.loadFromConfig(configData);
+            rm.start();
+            rp = rm;
+        } catch (Exception e) {
+            System.err.println("error loading resource_config: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
         if (!resourcesPath.isEmpty()) {
             try {
                 byte[] resData = Files.readAllBytes(Paths.get(resourcesPath));

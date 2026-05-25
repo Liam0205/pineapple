@@ -168,11 +168,13 @@ public class Engine {
                     eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
             }
             if (op instanceof ResourceAware) {
-                if (eo.resources == null) {
-                    throw new IllegalStateException(
-                            "operator \"" + name + "\" implements ResourceAware but no ResourceProvider was supplied");
+                // Align with pine-{go,cpp}: don't fail at init when ResourceProvider
+                // is missing. The operator itself throws at execute time so that
+                // pipelines without resource-dependent operators can construct even
+                // when no provider is supplied.
+                if (eo.resources != null) {
+                    ((ResourceAware) op).setResourceProvider(eo.resources);
                 }
-                ((ResourceAware) op).setResourceProvider(eo.resources);
             }
 
             int effectiveDataParallel = opCfg.dataParallel;
