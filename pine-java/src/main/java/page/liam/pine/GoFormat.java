@@ -1,10 +1,15 @@
 package page.liam.pine;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.SerializableString;
 import com.fasterxml.jackson.core.io.CharacterEscapes;
 import com.fasterxml.jackson.core.io.SerializedString;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -237,6 +242,18 @@ public final class GoFormat {
                 }
             }
         });
+        SimpleModule module = new SimpleModule();
+        module.addSerializer(Double.class, new StdSerializer<Double>(Double.class) {
+            @Override
+            public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
+                if (Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0.0)) {
+                    gen.writeNumber(0);
+                } else {
+                    gen.writeNumber(value.doubleValue());
+                }
+            }
+        });
+        m.registerModule(module);
         return m;
     }
 }
