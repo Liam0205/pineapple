@@ -49,6 +49,27 @@ func main() {
 
 	ctx := context.Background()
 
+	// Register standard 'static' fetchors to registry dynamically in Go's pineapple-run just like C++ does
+	// to allow CLI runtimes loading error test payloads or static pipelines with local candidates smoothly.
+	resource.Register(pine.ResourceSchema{
+		Name:            "static",
+		Description:     "static test resource",
+		DefaultInterval: 3600,
+	}, func(params map[string]any) (resource.Fetcher, error) {
+		val := params["value"]
+		return func(ctx context.Context) (any, error) {
+			return val, nil
+		}, nil
+	})
+
+	rm := resource.NewManager()
+	if err := rm.LoadFromRootConfig(configData); err == nil {
+		if err := rm.Start(ctx); err == nil {
+			ctx = resource.WithResources(ctx, rm)
+			defer rm.Stop()
+		}
+	}
+
 	if *resourcesPath != "" {
 		resData, err := os.ReadFile(*resourcesPath)
 		if err != nil {
