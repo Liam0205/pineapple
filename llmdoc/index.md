@@ -90,3 +90,4 @@
 - `llmdoc/memory/reflections/cause-chain-and-stats-http.md` — /stats.http 四方对齐与 cause-chain parity 复盘（9 commits），记录跨语言状态辨识盲区、std::rethrow_if_nested footgun、R2 审计反向修正机制、cross-validate 第二种验证模式（probe binary stdout 对比）。
 - `llmdoc/memory/reflections/p2-perf-and-review-driven-fixes.md` — P2 性能优化批次与审查驱动修复周期复盘（22 commits），记录 CRTP 注册宏、OperatorOutput 向量化、zero-copy window view、Redis idle bound、progress.md 遗漏增量发现、数据结构级变更需文档同步的教训。
 - `llmdoc/memory/reflections/r3-audit-and-fuzz-enhancement.md` — R3 parity audit（26+5 项）+ differential fuzz 增强（11 新维度 + 4 引擎接入）复盘（34 commits），记录 Frame 多态化架构变更、C++23 采纳、HTTP/1.1 keep-alive、fuzz 50-round smoke 立即暴露 17 divergence + RawValue 泄漏的 ROI 验证、dual-impl 等价测试覆盖。
+- `llmdoc/memory/reflections/differential-fuzz-discoveries.md` — 30k-round differential fuzz 发现与修复复盘（7 commits），记录 IEEE 754 -0.0 跨语言 hash/equality 差异、C++ item_defaults 投影时机缺陷、并行 recall+paginate 非确定性的生成器规避策略、cross-validate set comparison 防护。
