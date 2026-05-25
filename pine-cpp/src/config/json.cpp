@@ -260,7 +260,10 @@ private:
             if (pos_ < text_.size() && (text_[pos_] == '+' || text_[pos_] == '-')) ++pos_;
             while (pos_ < text_.size() && std::isdigit(static_cast<unsigned char>(text_[pos_]))) ++pos_;
         }
-        return std::stod(text_.substr(start, pos_ - start));
+        double result = 0;
+        auto [ptr, ec] = std::from_chars(text_.data() + start, text_.data() + pos_, result);
+        if (ec != std::errc()) throw ConfigError("failed to parse config JSON: invalid number");
+        return result;
     }
 };
 
