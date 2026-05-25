@@ -45,14 +45,25 @@ func splitInput(input *types.OperatorInput, n int) ([]*types.OperatorInput, []in
 }
 
 // mergeOutputs combines shard outputs into a single OperatorOutput by remapping
-// item write indices using the provided offsets. Only itemWrites and warnings
-// are merged (data_parallel is restricted to Transform without common_output).
-func mergeOutputs(outputs []*types.OperatorOutput, offsets []int) *types.OperatorOutput {
+// item write indices using the provided offsets. Parallel ops are restricted
+// to Transform without common_output (enforced by config validation), so
+// shards may only emit item_writes, removed_items, and warnings. If any
+// shard emits added_items, item_order, or common writes, we panic rather
+// than silently drop — that path used to be a silent corruption surface
+// (inc1 #4).
+func mergeOutputs(opName string, outputs []*types.OperatorOutput, offsets []int) *types.OperatorOutput {
 	merged := types.NewOperatorOutput()
 
 	for i, out := range outputs {
 		if out == nil {
 			continue
+		}
+		if len(out.GetAddedItems()) > 0 || out.GetItemOrder() != nil ||
+			len(out.GetCommonWrites()) > 0 {
+			panic(&types.PanicError{
+				Operator: opName,
+				Value:    "data_parallel shard emitted added_items, item_order, or common writes; only item_writes / removed_items / warnings are allowed",
+			})
 		}
 		if w := out.GetWarning(); w != nil {
 			merged.SetWarning(w)
@@ -63,6 +74,9 @@ func mergeOutputs(outputs []*types.OperatorOutput, offsets []int) *types.Operato
 			for field, value := range fields {
 				merged.SetItem(absIdx, field, value)
 			}
+		}
+		for localIdx := range out.GetRemovedItems() {
+			merged.RemoveItem(localIdx + offset)
 		}
 	}
 	return merged
@@ -113,7 +127,7 @@ func parallelExecute(ctx context.Context, cop *CompiledOperator, input *types.Op
 	if first != nil {
 		return nil, first
 	}
-	return mergeOutputs(outputs, offsets), nil
+	return mergeOutputs(cop.Name, outputs, offsets), nil
 }
 
 // executeWithRecovery runs a single operator Execute with panic recovery.
