@@ -198,7 +198,15 @@ public class Engine {
 
             compiledOps.add(new CompiledOperator(name, op, opCfg, effectiveDebug, effectiveRecall, effectiveDataParallel, effectiveOperatorType));
 
-            // Pre-compute InputFieldSpec for BuildInput
+            // Pre-compute InputFieldSpec for BuildInput.
+            // Control operators treat all common_input as defaulted-nil so that
+            // missing fields evaluate to nil instead of causing ExecutionError.
+            if (opCfg.forBranchControl) {
+                opCfg.commonDefaults = new java.util.HashMap<>(opCfg.commonDefaults);
+                for (String f : opCfg.metadata.commonInput) {
+                    opCfg.commonDefaults.putIfAbsent(f, null);
+                }
+            }
             opCfg.inputSpec = InputFieldSpec.compute(opCfg.metadata, opCfg.commonDefaults, opCfg.itemDefaults, opCfg.skip);
         }
 
