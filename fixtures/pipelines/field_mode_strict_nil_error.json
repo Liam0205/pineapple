@@ -1,38 +1,30 @@
 {
-  "name": "nullable field mode — explicit nil pass-through vs missing error",
+  "name": "strict field mode — nil triggers error",
   "config": {
     "_PINEAPPLE_VERSION": "0.8.0",
     "pipeline_config": {
       "operators": {
-        "set_nil": {
+        "write_nil": {
           "type_name": "transform_by_lua",
           "lua_script": "function f() return nil end",
           "function_for_common": "f",
           "function_for_item": "",
           "$metadata": {
             "common_input": [],
-            "common_output": ["nullable_field"],
+            "common_output": ["strict_field"],
             "item_input": [],
             "item_output": []
           }
         },
-        "read_nullable": {
+        "read_strict": {
           "type_name": "transform_by_lua",
-          "lua_script": "function f()\n  if nullable_field == nil then\n    return 'was_nil'\n  else\n    return tostring(nullable_field)\n  end\nend",
+          "lua_script": "function f() return strict_field end",
           "function_for_common": "f",
           "function_for_item": "",
+          "strict_common": ["strict_field"],
           "$metadata": {
-            "common_input": ["nullable_field"],
+            "common_input": ["strict_field"],
             "common_output": ["result"],
-            "item_input": [],
-            "item_output": []
-          }
-        },
-        "size": {
-          "type_name": "transform_size",
-          "$metadata": {
-            "common_input": [],
-            "common_output": ["size"],
             "item_input": [],
             "item_output": []
           }
@@ -42,27 +34,24 @@
     },
     "pipeline_group": {
       "main": {
-        "pipeline": ["set_nil", "read_nullable", "size"]
+        "pipeline": ["write_nil", "read_strict"]
       }
     },
     "flow_contract": {
       "common_input": [],
-      "common_output": ["result", "size"],
+      "common_output": ["result"],
       "item_input": [],
       "item_output": []
     }
   },
   "cases": [
     {
-      "name": "explicit nil is observable via nullable mode",
+      "name": "strict field nil triggers ExecutionError",
       "request": {
         "common": {},
         "items": [{"id": "a"}]
       },
-      "expected": {
-        "common": {"result": "was_nil", "size": 1},
-        "items": [{}]
-      }
+      "expect_error": "required field \"strict_field\" is nil in common"
     }
   ]
 }

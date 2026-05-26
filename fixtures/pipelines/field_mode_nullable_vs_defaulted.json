@@ -1,17 +1,17 @@
 {
-  "name": "nullable field mode — explicit nil pass-through vs missing error",
+  "name": "three field modes — strict vs nullable vs defaulted",
   "config": {
     "_PINEAPPLE_VERSION": "0.8.0",
     "pipeline_config": {
       "operators": {
-        "set_nil": {
+        "write_nil": {
           "type_name": "transform_by_lua",
           "lua_script": "function f() return nil end",
           "function_for_common": "f",
           "function_for_item": "",
           "$metadata": {
             "common_input": [],
-            "common_output": ["nullable_field"],
+            "common_output": ["nullable_field", "strict_field", "defaulted_field"],
             "item_input": [],
             "item_output": []
           }
@@ -23,7 +23,20 @@
           "function_for_item": "",
           "$metadata": {
             "common_input": ["nullable_field"],
-            "common_output": ["result"],
+            "common_output": ["nullable_result"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "read_defaulted": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function f()\n  return tostring(defaulted_field)\nend",
+          "function_for_common": "f",
+          "function_for_item": "",
+          "common_defaults": {"defaulted_field": "fallback"},
+          "$metadata": {
+            "common_input": ["defaulted_field"],
+            "common_output": ["defaulted_result"],
             "item_input": [],
             "item_output": []
           }
@@ -42,25 +55,25 @@
     },
     "pipeline_group": {
       "main": {
-        "pipeline": ["set_nil", "read_nullable", "size"]
+        "pipeline": ["write_nil", "read_nullable", "read_defaulted", "size"]
       }
     },
     "flow_contract": {
       "common_input": [],
-      "common_output": ["result", "size"],
+      "common_output": ["nullable_result", "defaulted_result", "size"],
       "item_input": [],
       "item_output": []
     }
   },
   "cases": [
     {
-      "name": "explicit nil is observable via nullable mode",
+      "name": "nullable passes nil through, defaulted substitutes fallback",
       "request": {
         "common": {},
         "items": [{"id": "a"}]
       },
       "expected": {
-        "common": {"result": "was_nil", "size": 1},
+        "common": {"nullable_result": "was_nil", "defaulted_result": "fallback", "size": 1},
         "items": [{}]
       }
     }
