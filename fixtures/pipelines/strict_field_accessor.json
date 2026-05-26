@@ -7,24 +7,46 @@
           "type_name": "recall_static",
           "recall": true,
           "items": [
-            {"item_id": "a1", "score": 10.0},
-            {"item_id": "a2", "score": 20.0}
+            {
+              "item_id": "a1",
+              "score": 10.0
+            },
+            {
+              "item_id": "a2",
+              "score": 20.0
+            }
           ],
           "$metadata": {
-            "common_input": [], "common_output": [],
-            "item_input": [], "item_output": ["item_id", "score"]
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "item_id",
+              "score"
+            ]
           }
         },
         "recall_b": {
           "type_name": "recall_static",
           "recall": true,
           "items": [
-            {"item_id": "b1", "tag": "hot"},
-            {"item_id": "b2", "tag": "new"}
+            {
+              "item_id": "b1",
+              "tag": "hot"
+            },
+            {
+              "item_id": "b2",
+              "tag": "new"
+            }
           ],
           "$metadata": {
-            "common_input": [], "common_output": [],
-            "item_input": [], "item_output": ["item_id", "tag"]
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "item_id",
+              "tag"
+            ]
           }
         },
         "sort_score": {
@@ -33,26 +55,48 @@
           "consumes_row_set": true,
           "mutates_row_set": true,
           "$metadata": {
-            "common_input": [], "common_output": [],
-            "item_input": ["score"], "item_output": []
-          }
+            "common_input": [],
+            "common_output": [],
+            "item_input": [
+              "score"
+            ],
+            "item_output": []
+          },
+          "strict_item": [
+            "score"
+          ]
         }
       }
     },
     "pipeline_group": {
-      "main": {"pipeline": ["recall_a", "recall_b", "sort_score"]}
+      "main": {
+        "pipeline": [
+          "recall_a",
+          "recall_b",
+          "sort_score"
+        ]
+      }
     },
     "flow_contract": {
-      "common_input": [], "item_input": [],
-      "common_output": [], "item_output": ["item_id", "score", "tag"]
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": [
+        "item_id",
+        "score",
+        "tag"
+      ]
     },
     "storage_mode": "column"
   },
   "cases": [
     {
       "name": "sort on field missing from some items => framework error",
-      "request": {"common": {}, "items": []},
-      "expect_error": "required field \"score\" is missing on item"
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expect_error": "required field \"score\" is nil on item"
     }
   ]
 }
