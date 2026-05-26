@@ -187,7 +187,7 @@ public class ColumnFrame implements Frame {
                     // class; pine-go wraps via the engine layer). The earlier
                     // IllegalArgumentException / IndexOutOfBoundsException
                     // diverged with no upside — runtime error parity treats
-                    // exception types as part of the contract. (P2-26)
+                    // exception types as part of the contract.
                     throw new PineErrors.ExecutionError(opName,
                         "SetItemOrder length " + order.size() + " does not match item count " + rowCount);
                 }
