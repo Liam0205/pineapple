@@ -187,6 +187,8 @@ struct OperatorConfig {
     bool for_branch_control = false;
     std::map<std::string, JsonValue> common_defaults;
     std::map<std::string, JsonValue> item_defaults;
+    std::vector<std::string> strict_common;
+    std::vector<std::string> strict_item;
     std::vector<std::string> sources;
     JsonValue params;
     std::string operator_type;
@@ -204,8 +206,10 @@ struct DefaultedField {
 struct InputFieldSpec {
     std::vector<std::string> strict_common;
     std::vector<DefaultedField> defaulted_common;
+    std::vector<std::string> nullable_common;
     std::vector<std::string> strict_item;
     std::vector<DefaultedField> defaulted_item;
+    std::vector<std::string> nullable_item;
 };
 
 // compute_input_field_spec derives the InputFieldSpec from an OperatorConfig.

@@ -297,15 +297,6 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
         }
         operators_.emplace(op_name, std::move(instance));
         // Pre-compute InputFieldSpec for the BuildInput projection layer.
-        // Control operators treat all common_input as defaulted-nil so that
-        // missing fields evaluate to nil instead of causing ExecutionError.
-        if (op_cfg.for_branch_control) {
-            for (const auto& f : op_cfg.metadata.common_input) {
-                if (op_cfg.common_defaults.find(f) == op_cfg.common_defaults.end()) {
-                    op_cfg.common_defaults[f] = JsonValue{};
-                }
-            }
-        }
         input_specs_.emplace(op_name, compute_input_field_spec(op_cfg));
     }
 }
