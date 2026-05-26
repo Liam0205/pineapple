@@ -145,7 +145,7 @@ func TestMergeOutputs_ItemWritesOffset(t *testing.T) {
 	out1.SetItem(0, "score", 3.0)
 	out1.SetItem(1, "score", 4.0)
 
-	merged := mergeOutputs([]*types.OperatorOutput{out0, out1}, []int{0, 2})
+	merged := mergeOutputs("op", []*types.OperatorOutput{out0, out1}, []int{0, 2})
 
 	iw := merged.GetItemWrites()
 	for absIdx, want := range map[int]float64{0: 1.0, 1: 2.0, 2: 3.0, 3: 4.0} {
@@ -165,7 +165,7 @@ func TestMergeOutputs_WarningOrder(t *testing.T) {
 	out2 := types.NewOperatorOutput()
 	out2.SetWarning(fmt.Errorf("warn2"))
 
-	merged := mergeOutputs([]*types.OperatorOutput{out0, out1, out2}, []int{0, 0, 0})
+	merged := mergeOutputs("op", []*types.OperatorOutput{out0, out1, out2}, []int{0, 0, 0})
 	w := merged.GetWarning()
 	if w == nil || w.Error() != "warn1" {
 		t.Errorf("warning=%v, want warn1", w)
@@ -176,7 +176,7 @@ func TestMergeOutputs_NilOutputSkipped(t *testing.T) {
 	out0 := types.NewOperatorOutput()
 	out0.SetItem(0, "x", 1)
 
-	merged := mergeOutputs([]*types.OperatorOutput{out0, nil}, []int{0, 1})
+	merged := mergeOutputs("op", []*types.OperatorOutput{out0, nil}, []int{0, 1})
 	iw := merged.GetItemWrites()
 	if iw[0]["x"] != 1 {
 		t.Errorf("itemWrites[0][x]=%v, want 1", iw[0]["x"])

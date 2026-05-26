@@ -197,7 +197,7 @@ func (o *RemotePineappleOp) Execute(ctx context.Context, in *pine.OperatorInput,
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return o.handleError(out, fmt.Errorf("transform_by_remote_pineapple: HTTP %d: %s", resp.StatusCode, string(respBody)))
+		return o.handleError(out, fmt.Errorf("transform_by_remote_pineapple: HTTP %d: %s", resp.StatusCode, truncateBody(respBody)))
 	}
 
 	var result remoteResponse
@@ -236,6 +236,18 @@ func (o *RemotePineappleOp) handleError(out *pine.OperatorOutput, err error) err
 	}
 	out.SetWarning(err)
 	return nil
+}
+
+// truncateBody clips a downstream-response body to errorBodyMax bytes for
+// inclusion in error messages / warnings. A 5 MB HTML 500 page should not
+// fan out into log/JSON/exception streams as-is. P1-E4.
+const errorBodyMax = 1024
+
+func truncateBody(body []byte) string {
+	if len(body) <= errorBodyMax {
+		return string(body)
+	}
+	return string(body[:errorBodyMax]) + fmt.Sprintf("...(truncated, total %d bytes)", len(body))
 }
 
 type remoteRequest struct {

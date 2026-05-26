@@ -164,11 +164,18 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 		if len(order) != len(f.items) {
 			return fmt.Errorf("SetItemOrder length %d does not match item count %d", len(order), len(f.items))
 		}
+		// Permutation check — without this, set_item_order([0,0,0]) would
+		// silently duplicate item 0 across the frame.
+		seen := make([]bool, len(f.items))
 		reordered := make([]map[string]any, len(order))
 		for newIdx, origIdx := range order {
 			if origIdx < 0 || origIdx >= len(f.items) {
 				return fmt.Errorf("SetItemOrder index %d out of range [0, %d)", origIdx, len(f.items))
 			}
+			if seen[origIdx] {
+				return fmt.Errorf("SetItemOrder duplicate index %d (order must be a permutation)", origIdx)
+			}
+			seen[origIdx] = true
 			reordered[newIdx] = f.items[origIdx]
 		}
 		f.items = reordered
