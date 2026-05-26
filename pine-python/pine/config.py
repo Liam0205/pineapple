@@ -10,6 +10,7 @@ RESERVED_KEYS = frozenset({
     "type_name", "$metadata", "$code_info", "skip", "recall", "sources",
     "debug", "consumes_row_set", "mutates_row_set",
     "additive_writes_row_set", "common_defaults", "item_defaults",
+    "strict_common", "strict_item",
     "for_branch_control", "data_parallel",
 })
 
@@ -39,6 +40,8 @@ class OperatorConfig:
     data_parallel: int = 1
     common_defaults: dict[str, Any] = field(default_factory=dict)
     item_defaults: dict[str, Any] = field(default_factory=dict)
+    strict_common: list[str] = field(default_factory=list)
+    strict_item: list[str] = field(default_factory=list)
     raw_params: dict[str, Any] = field(default_factory=dict)
     operator_type: str = ""
     input_spec: InputFieldSpec | None = None
@@ -53,45 +56,67 @@ class DefaultedField:
 
 
 class InputFieldSpec:
-    """Resolved input field specification with defaults and strict fields."""
+    """Resolved input field specification with defaults, strict, and nullable fields."""
 
-    __slots__ = ("strict_common", "defaulted_common", "strict_item", "defaulted_item")
+    __slots__ = (
+        "strict_common", "defaulted_common", "nullable_common",
+        "strict_item", "defaulted_item", "nullable_item",
+    )
 
     def __init__(
         self,
         strict_common: list[str],
         defaulted_common: list[DefaultedField],
+        nullable_common: list[str],
         strict_item: list[str],
         defaulted_item: list[DefaultedField],
+        nullable_item: list[str],
     ):
         self.strict_common = strict_common
         self.defaulted_common = defaulted_common
+        self.nullable_common = nullable_common
         self.strict_item = strict_item
         self.defaulted_item = defaulted_item
+        self.nullable_item = nullable_item
 
     @staticmethod
-    def compute(metadata: "Metadata", common_defaults: dict[str, Any],
-                item_defaults: dict[str, Any], skip: list[str]) -> "InputFieldSpec":
+    def compute(
+        metadata: "Metadata",
+        common_defaults: dict[str, Any],
+        item_defaults: dict[str, Any],
+        strict_common: list[str],
+        strict_item: list[str],
+        skip: list[str],
+    ) -> "InputFieldSpec":
         skip_set = set(skip)
-        strict_common: list[str] = []
-        defaulted_common: list[DefaultedField] = []
+        strict_common_set = set(strict_common)
+        strict_item_set = set(strict_item)
+
+        s_common: list[str] = []
+        d_common: list[DefaultedField] = []
+        n_common: list[str] = []
         for f in metadata.common_input:
             if f in skip_set:
                 continue
             if f in common_defaults:
-                defaulted_common.append(DefaultedField(f, common_defaults[f]))
+                d_common.append(DefaultedField(f, common_defaults[f]))
+            elif f in strict_common_set:
+                s_common.append(f)
             else:
-                strict_common.append(f)
+                n_common.append(f)
 
-        strict_item: list[str] = []
-        defaulted_item: list[DefaultedField] = []
+        s_item: list[str] = []
+        d_item: list[DefaultedField] = []
+        n_item: list[str] = []
         for f in metadata.item_input:
             if f in item_defaults:
-                defaulted_item.append(DefaultedField(f, item_defaults[f]))
+                d_item.append(DefaultedField(f, item_defaults[f]))
+            elif f in strict_item_set:
+                s_item.append(f)
             else:
-                strict_item.append(f)
+                n_item.append(f)
 
-        return InputFieldSpec(strict_common, defaulted_common, strict_item, defaulted_item)
+        return InputFieldSpec(s_common, d_common, n_common, s_item, d_item, n_item)
 
 
 class SubFlowRef:
@@ -264,6 +289,8 @@ def _parse_operator_config(node: dict[str, Any]) -> OperatorConfig:
 
     op_cfg.common_defaults = node.get("common_defaults", {})
     op_cfg.item_defaults = node.get("item_defaults", {})
+    op_cfg.strict_common = node.get("strict_common", [])
+    op_cfg.strict_item = node.get("strict_item", [])
 
     op_cfg.raw_params = {}
     for key, value in node.items():

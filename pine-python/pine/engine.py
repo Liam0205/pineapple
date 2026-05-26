@@ -230,16 +230,9 @@ class Engine:
                     )
 
             # Pre-compute InputFieldSpec.
-            # Control operators treat all common_input as defaulted-nil so that
-            # missing fields evaluate to None instead of raising ExecutionError.
-            if op_cfg.for_branch_control:
-                if op_cfg.common_defaults is None:
-                    op_cfg.common_defaults = {}
-                for f in op_cfg.metadata.common_input:
-                    if f not in op_cfg.common_defaults:
-                        op_cfg.common_defaults[f] = None
             op_cfg.input_spec = InputFieldSpec.compute(
-                op_cfg.metadata, op_cfg.common_defaults, op_cfg.item_defaults, op_cfg.skip
+                op_cfg.metadata, op_cfg.common_defaults, op_cfg.item_defaults,
+                op_cfg.strict_common, op_cfg.strict_item, op_cfg.skip,
             )
 
             compiled_ops.append(CompiledOperator(
