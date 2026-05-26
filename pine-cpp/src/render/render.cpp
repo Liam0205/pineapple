@@ -12,13 +12,23 @@ std::string sanitize(const std::string& name) {
     return out;
 }
 
+const std::map<std::string, std::string>& dot_colors_map() {
+    static const std::map<std::string, std::string> m = {
+        {"recall", "#E8F5E9"},
+        {"transform", "#E3F2FD"},
+        {"filter", "#FFF3E0"},
+        {"merge", "#F3E5F5"},
+        {"reorder", "#FFFDE7"},
+        {"observe", "#F5F5F5"},
+    };
+    return m;
+}
+
 std::string color_for(const std::string& t) {
-    if (t == "recall") return "#E8F5E9";
-    if (t == "transform") return "#E3F2FD";
-    if (t == "filter") return "#FFF3E0";
-    if (t == "merge") return "#F3E5F5";
-    if (t == "reorder") return "#FFFDE7";
-    return "#F5F5F5";
+    const auto& m = dot_colors_map();
+    auto it = m.find(t);
+    if (it != m.end()) return it->second;
+    return "#FFFFFF";
 }
 
 std::string collapse_key(const std::string& subflow, int level) {
@@ -44,6 +54,7 @@ struct Group {
     std::string key;
     std::string label;
     bool subflow;
+    std::string operator_type;  // non-empty for standalone nodes (preserves type coloring)
 };
 
 std::pair<std::vector<Group>, std::vector<std::pair<int, int>>> build_collapsed(const Graph& graph, int level) {
@@ -55,11 +66,12 @@ std::pair<std::vector<Group>, std::vector<std::pair<int, int>>> build_collapsed(
         const auto key = collapse_key(node.subflow, level);
         if (key.empty()) {
             node_to_group[i] = static_cast<int>(groups.size());
-            groups.push_back({"standalone_" + std::to_string(i), node.name, false});
+            std::string op_type = node.config ? node.config->operator_type : "";
+            groups.push_back({"standalone_" + std::to_string(i), node.name, false, op_type});
         } else if (!key_to_group.count(key)) {
             key_to_group[key] = static_cast<int>(groups.size());
             node_to_group[i] = static_cast<int>(groups.size());
-            groups.push_back({key, key, true});
+            groups.push_back({key, key, true, ""});
         } else {
             node_to_group[i] = key_to_group[key];
         }
@@ -122,7 +134,15 @@ std::string render_collapsed_dot(const Graph& graph, int level) {
     std::ostringstream oss;
     oss << "digraph pipeline {\n    rankdir=TB;\n    node [shape=box, style=filled, fontname=\"Helvetica\"];\n\n";
     for (std::size_t i = 0; i < groups.size(); ++i) {
-        oss << "    \"g" << i << "\" [label=\"" << groups[i].label << "\", fillcolor=\"" << (groups[i].subflow ? "#BBDEFB" : "#E0E0E0") << "\"];\n";
+        std::string color = "#E0E0E0";
+        if (groups[i].subflow) {
+            color = "#BBDEFB";
+        } else if (!groups[i].operator_type.empty()) {
+            const auto& m = dot_colors_map();
+            auto it = m.find(groups[i].operator_type);
+            if (it != m.end()) color = it->second;
+        }
+        oss << "    \"g" << i << "\" [label=\"" << groups[i].label << "\", fillcolor=\"" << color << "\"];\n";
     }
     oss << "\n";
     for (auto [a, b] : edges) oss << "    \"g" << a << "\" -> \"g" << b << "\";\n";
@@ -135,14 +155,26 @@ std::string render_collapsed_mermaid(const Graph& graph, int level) {
     std::ostringstream oss;
     oss << "graph TB\n";
     for (std::size_t i = 0; i < groups.size(); ++i) {
+        std::string cls = "standalone";
+        if (groups[i].subflow) {
+            cls = "subflow";
+        } else if (!groups[i].operator_type.empty()) {
+            cls = groups[i].operator_type;
+        }
         oss << "    g" << i << "[\"" << groups[i].label << "\"]:::"
-            << (groups[i].subflow ? "subflow" : "standalone") << "\n";
+            << cls << "\n";
     }
     oss << "\n";
     for (auto [a, b] : edges) oss << "    g" << a << " --> g" << b << "\n";
     oss << "\n"
         << "    classDef subflow fill:#BBDEFB,stroke:#1976D2\n"
-        << "    classDef standalone fill:#E0E0E0,stroke:#616161\n";
+        << "    classDef standalone fill:#E0E0E0,stroke:#616161\n"
+        << "    classDef recall fill:#E8F5E9,stroke:#4CAF50\n"
+        << "    classDef transform fill:#E3F2FD,stroke:#2196F3\n"
+        << "    classDef filter fill:#FFF3E0,stroke:#FF9800\n"
+        << "    classDef merge fill:#F3E5F5,stroke:#9C27B0\n"
+        << "    classDef reorder fill:#FFFDE7,stroke:#FFC107\n"
+        << "    classDef observe fill:#F5F5F5,stroke:#9E9E9E\n";
     return oss.str();
 }
 
