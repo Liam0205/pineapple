@@ -31,6 +31,8 @@
   },
   "expected_error": {
     "type": "ConfigError",
-    "message_contains": "exists in both"
+    "message_contains": "exists in both",
+    "wrapping_exact": "pine: config error: name \"stage\" exists in both operators and pipeline_map",
+    "wrapping_exact_engines": ["go", "cpp"]
   }
 }

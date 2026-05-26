@@ -1,0 +1,53 @@
+{
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_bad": {
+          "type_name": "recall_resource",
+          "resource_name": "bad_res",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["id", "val"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "recall_bad"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["id", "val"]
+    },
+    "resource_config": {
+      "bad_res": {
+        "type": "static",
+        "params": {
+          "value": [
+            {"id": "a", "val": 100},
+            {"id": "b", "val": 200},
+            "i_am_not_an_object"
+          ]
+        }
+      }
+    }
+  },
+  "request": {
+    "common": {},
+    "items": []
+  },
+  "expected_error": {
+    "type": "execution",
+    "message_contains": "recall_resource: items.*is string, want map",
+    "wrapping_exact": "items[2] is string",
+    "wrapping_exact_engines": ["go", "cpp"]
+  }
+}

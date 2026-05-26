@@ -34,7 +34,7 @@
     {
       "name": "small float",
       "request": {"common": {"value": 0.1}, "items": []},
-      "expected": {"common": {"value": 0.1, "doubled": 0.2, "plus_point_one": 0.2, "squared": 0.01}, "items": []}
+      "expected": {"common": {"value": 0.1, "doubled": 0.2, "plus_point_one": 0.2, "squared": 0.010000000000000002}, "items": []}
     },
     {
       "name": "large float",

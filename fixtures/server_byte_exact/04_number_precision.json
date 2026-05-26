@@ -1,0 +1,35 @@
+{
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "compute": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function f()\n  return item_score * 2\nend",
+          "function_for_item": "f",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": ["doubled"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["compute"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["item_score"],
+      "common_output": [],
+      "item_output": ["item_score", "doubled"]
+    }
+  },
+  "request": {
+    "common": {},
+    "items": [
+      {"item_score": 100000},
+      {"item_score": 1000001},
+      {"item_score": 0.5}
+    ]
+  }
+}

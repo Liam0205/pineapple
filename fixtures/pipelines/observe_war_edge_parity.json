@@ -1,0 +1,57 @@
+{
+  "name": "observe registers as active reader → WAR edge to subsequent mutator",
+  "description": "pine-go's DAG builder adds observe operators to the activeReaders list for every read field, so a later mutating-write triggers a WAR (write-after-read) edge from observe → mutator. pine-cpp originally guarded with `if (op.operator_type != \"observe\")` which dropped the active-reader entry and produced a different reduced DAG. Reference: P0-4 in `.llmdoc-tmp/cpp-runtime-parity-audit/01-types-config-dag-cmd.md`.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "produce_score": {
+          "type_name": "transform_size",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["score"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "observe_score": {
+          "type_name": "observe_log",
+          "$metadata": {
+            "common_input": ["score"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "overwrite_score": {
+          "type_name": "transform_size",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["score"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["produce_score", "observe_score", "overwrite_score"]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": ["score"],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "observe between two writers must serialize via WAR edge",
+      "request": {
+        "common": {},
+        "items": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "name": "filter_condition with item_defaults: nil field uses default before comparison",
+  "description": "Fuzz-discovered (30k rounds, divergence_000218): filter_condition value=null + item_defaults={x:'fallback'}. Go BuildInput substitutes default for nil BEFORE the operator executes. C++/Java/Python that bypass BuildInput see raw null → match → incorrectly remove.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "filter": {
+          "type_name": "filter_condition",
+          "value": null,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [
+              "x"
+            ],
+            "item_output": []
+          },
+          "item_defaults": {
+            "x": "fallback"
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "filter"
+        ]
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "nil field with default should NOT be filtered",
+      "request": {
+        "common": {},
+        "items": [
+          {
+            "x": "a"
+          },
+          {
+            "x": null
+          },
+          {
+            "x": "b"
+          }
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {},
+          {},
+          {}
+        ]
+      }
+    }
+  ]
+}
