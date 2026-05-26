@@ -4,13 +4,15 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_parallel.sh"
 
 # ---------- 3. Dual-engine execution parity ----------
 echo
-echo "==> [3/$TOTAL_SECTIONS] Execution parity (Go vs Java vs Python on same config+request)"
+echo "==> [3/$TOTAL_SECTIONS] Execution parity (Go vs Java vs Python vs C++ on same config+request)"
 
 FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 exec_pass=0
 exec_total=0
 py_exec_pass=0
 py_exec_total=0
+cpp_exec_pass=0
+cpp_exec_total=0
 
 for fixture_file in "$FIXTURES_DIR"/*.json; do
   [[ -f "$fixture_file" ]] || continue
@@ -30,6 +32,12 @@ for i, c in enumerate(cases):
     ee = c.get('expect_error', '')
     with open('$WORK_DIR/expect_error_${fname}_' + str(i) + '.txt', 'w') as ef:
         ef.write(ee)
+# strict_order: when false, items are compared as sets (order-insensitive).
+# Fixtures with parallel DAG nodes (e.g. multiple recalls without trailing
+# sort) should set this to false. Default is true for backward compat.
+so = data.get('strict_order', True)
+with open('$WORK_DIR/strict_order_${fname}.txt', 'w') as sf:
+    sf.write('true' if so else 'false')
 sr = data.get('static_resources')
 if sr is not None:
     with open('$WORK_DIR/resources_${fname}.json', 'w') as sf:
@@ -49,12 +57,16 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
 
   case_results_j=""
   case_results_p=""
+  case_results_c=""
   for ((i=0; i<cases; i++)); do
     req_file="$WORK_DIR/req_${fname}_${i}.json"
     config_file="$WORK_DIR/config_${fname}"
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     exec_total=$((exec_total + 1))
     py_exec_total=$((py_exec_total + 1))
+    if [[ -n "${CPP_RUN:-}" ]]; then
+      cpp_exec_total=$((cpp_exec_total + 1))
+    fi
 
     res_args=()
     if [[ -f "$WORK_DIR/resources_${fname}.json" ]]; then
@@ -78,13 +90,13 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
     if [[ -n "$expect_error" ]]; then
       # All should fail
       if [[ "$go_rc" == "0" ]]; then
-        fail "expect_error but Go succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; continue
+        fail "expect_error but Go succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
       fi
       if [[ "$java_rc" == "0" ]]; then
-        fail "expect_error but Java succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; continue
+        fail "expect_error but Java succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
       fi
       if [[ "$py_rc" == "0" ]]; then
-        fail "expect_error but Python succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; continue
+        fail "expect_error but Python succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
       fi
 
       go_err=$(cat "${out_prefix}.go.err")
@@ -102,14 +114,32 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
         fail "Python error mismatch: $fname case $i (want '$expect_error')"; err_ok=false
       fi
 
+      # C++ error parity (if available)
+      if [[ -n "${CPP_RUN:-}" ]]; then
+        cpp_rc=$(cat "${out_prefix}.cpp.rc")
+        if [[ "$cpp_rc" == "0" ]]; then
+          fail "expect_error but C++ succeeded: $fname case $i"; err_ok=false
+        else
+          cpp_err=$(cat "${out_prefix}.cpp.err")
+          if [[ "$cpp_err" != *"$expect_error"* ]]; then
+            fail "C++ error mismatch: $fname case $i (want '$expect_error')"; err_ok=false
+          fi
+        fi
+      fi
+
       if [[ "$err_ok" == "true" ]]; then
         exec_pass=$((exec_pass + 1))
         py_exec_pass=$((py_exec_pass + 1))
         case_results_j+="✓"
         case_results_p+="✓"
+        if [[ -n "${CPP_RUN:-}" ]]; then
+          cpp_exec_pass=$((cpp_exec_pass + 1))
+          case_results_c+="✓"
+        fi
       else
         case_results_j+="✗"
         case_results_p+="✗"
+        case_results_c+="✗"
       fi
       continue
     fi
@@ -122,8 +152,17 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
       fail "execution Java failed: $fname case $i"; case_results_j+="✗"
     fi
 
-    go_norm=$(cat "${out_prefix}.go.out" | normalize_json)
-    java_norm=$(cat "${out_prefix}.java.out" | normalize_json)
+    # Choose normalizer based on strict_order flag (default: list comparison).
+    # Fixtures with parallel DAG nodes and no trailing sort set
+    # "strict_order": false at the top level → set comparison on items array.
+    norm_fn=normalize_json
+    if [[ -f "$WORK_DIR/strict_order_${fname}.txt" ]]; then
+      so=$(cat "$WORK_DIR/strict_order_${fname}.txt")
+      [[ "$so" == "false" ]] && norm_fn=normalize_json_set
+    fi
+
+    go_norm=$(cat "${out_prefix}.go.out" | $norm_fn)
+    java_norm=$(cat "${out_prefix}.java.out" | $norm_fn)
 
     if [[ "$java_rc" == "0" ]]; then
       if [[ "$go_norm" == "$java_norm" ]]; then
@@ -140,7 +179,7 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
       fail "execution Python failed: $fname case $i"; case_results_p+="✗"; continue
     fi
 
-    py_norm=$(cat "${out_prefix}.py.out" | normalize_json)
+    py_norm=$(cat "${out_prefix}.py.out" | $norm_fn)
 
     if [[ "$go_norm" == "$py_norm" ]]; then
       py_exec_pass=$((py_exec_pass + 1))
@@ -150,8 +189,29 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
       diff <(echo "$go_norm" | python3 -m json.tool) <(echo "$py_norm" | python3 -m json.tool) >&2 || true
       case_results_p+="✗"
     fi
+
+    # C++ comparison (if available)
+    if [[ -n "${CPP_RUN:-}" && -f "${out_prefix}.cpp.rc" ]]; then
+      cpp_rc=$(cat "${out_prefix}.cpp.rc")
+      if [[ "$cpp_rc" != "0" ]]; then
+        fail "execution C++ failed: $fname case $i"
+        case_results_c+="✗"
+      else
+        cpp_norm=$(cat "${out_prefix}.cpp.out" | $norm_fn)
+        if [[ "$go_norm" == "$cpp_norm" ]]; then
+          cpp_exec_pass=$((cpp_exec_pass + 1))
+          case_results_c+="✓"
+        else
+          fail "execution divergence (Go vs C++): $fname case $i"
+          diff <(echo "$go_norm" | python3 -m json.tool) <(echo "$cpp_norm" | python3 -m json.tool) >&2 || true
+          case_results_c+="✗"
+        fi
+      fi
+    fi
   done
-  echo "    $fname ($cases cases) [J${case_results_j}P${case_results_p}]"
+  cpp_tag=""
+  [[ -n "${CPP_RUN:-}" ]] && cpp_tag="C${case_results_c}"
+  echo "    $fname ($cases cases) [J${case_results_j}P${case_results_p}${cpp_tag}]"
 done
 
 if [[ $exec_total -gt 0 && $exec_pass -eq $exec_total ]]; then
@@ -164,6 +224,14 @@ if [[ $py_exec_total -gt 0 && $py_exec_pass -eq $py_exec_total ]]; then
   pass "execution parity Go vs Python ($py_exec_pass/$py_exec_total cases)"
 elif [[ $py_exec_total -eq 0 ]]; then
   pass "execution parity Go vs Python (no pipeline fixture cases found, skipped)"
+fi
+
+if [[ -n "${CPP_RUN:-}" ]]; then
+  if [[ $cpp_exec_total -gt 0 && $cpp_exec_pass -eq $cpp_exec_total ]]; then
+    pass "execution parity Go vs C++ ($cpp_exec_pass/$cpp_exec_total cases)"
+  elif [[ $cpp_exec_total -eq 0 ]]; then
+    pass "execution parity Go vs C++ (no pipeline fixture cases found, skipped)"
+  fi
 fi
 
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit $_CV_FAIL || true
