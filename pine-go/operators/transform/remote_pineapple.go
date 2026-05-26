@@ -240,7 +240,7 @@ func (o *RemotePineappleOp) handleError(out *pine.OperatorOutput, err error) err
 
 // truncateBody clips a downstream-response body to errorBodyMax bytes for
 // inclusion in error messages / warnings. A 5 MB HTML 500 page should not
-// fan out into log/JSON/exception streams as-is. P1-E4.
+// fan out into log/JSON/exception streams as-is.
 const errorBodyMax = 1024
 
 func truncateBody(body []byte) string {

@@ -40,7 +40,7 @@ func (o *DispatchOp) Init(params map[string]any) error {
 }
 
 func (o *DispatchOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
-	// V-10: guard against empty CommonInput (can happen when skip filters
+	// Guard against empty CommonInput (can happen when skip filters
 	// out all common_input fields and the skip condition is falsy).
 	if len(o.CommonInput) == 0 {
 		return nil
