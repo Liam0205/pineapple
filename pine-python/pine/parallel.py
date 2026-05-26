@@ -78,7 +78,7 @@ def _parallel_execute(
         # Parallel ops are restricted to Transform without common_output
         # (enforced by config validation); shards may only emit item_writes,
         # removed_items, and warnings. Anything else is a silent-drop
-        # corruption surface — raise loudly instead. Tracked as P1-S4.
+        # corruption surface — raise loudly instead.
         if (shard_out.added_items or shard_out.item_order is not None or
                 shard_out.common_writes):
             raise PanicError(

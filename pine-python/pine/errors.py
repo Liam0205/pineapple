@@ -20,7 +20,7 @@ class OperatorException(Exception):
 class ExecutionError(RuntimeError):
     """Raised when an operator hits a fatal error during DAG execution.
 
-    Modern form (P1-E5 / issue #34): ``ExecutionError(operator, cause)``.
+    Modern form: ``ExecutionError(operator, cause)``.
     When ``cause`` is a ``BaseException`` it is stored on ``__cause__``
     so downstream code can do ``isinstance(err.__cause__, SomeType)`` —
     mirrors Go ``errors.As`` / Java ``Throwable.getCause()`` / pine-cpp

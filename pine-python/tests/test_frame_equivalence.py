@@ -1,4 +1,4 @@
-"""Row vs Column Frame equivalence — R3-X1 / R3-X2 / R3-X3 cross-runtime parity.
+"""Row vs Column Frame equivalence — cross-runtime parity.
 
 Mirrors pine-go FuzzApplyOutputStorageEquivalence (dataframe_test.go:886):
 for the same (common, items, output) input, RowFrame and ColumnFrame must

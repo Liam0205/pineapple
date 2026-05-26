@@ -184,7 +184,7 @@ _ERROR_BODY_MAX = 1024
 
 def _truncate_body(body: bytes) -> str:
     """Clip a downstream response body to _ERROR_BODY_MAX bytes for error
-    messages / warnings. P1-E4 — keeps a 5 MB HTML 500 page from
+    messages / warnings. Keeps a 5 MB HTML 500 page from
     fanning out into log/JSON/exception streams as-is."""
     if len(body) <= _ERROR_BODY_MAX:
         return body.decode("utf-8", errors="replace")
