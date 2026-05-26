@@ -1,5 +1,6 @@
 #pragma once
 #include "pine/pine.hpp"
+#include "pine/operator_input.hpp"
 #include "pine/column_frame.hpp"
 
 #include <cstdint>
@@ -53,6 +54,7 @@ std::string sprint_value(const JsonValue& v);
 std::string any_to_string(const JsonValue& v);
 std::string dedup_key(const JsonValue& v);
 std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields);
+std::string build_key_suffix(const OperatorInput& input, const std::vector<std::string>& fields);
 std::vector<std::string> json_to_string_slice(const JsonValue& v);
 
 struct RedisParams {

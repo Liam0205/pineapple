@@ -17,40 +17,29 @@ public:
         }
     }
 
-    void execute(const Frame& frame, OperatorOutput& /*out*/) override {
-        // Mirrors pine-go observe/log.go:51. Build the snapshot, marshal
-        // to JSON, and emit a [observe_log] line on stderr. Observe-type
-        // operators must not mutate frame; output is read-only. R3-L8.
+    void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
         JsonValue::object_t snapshot;
         if (!common_input_.empty()) {
             JsonValue::object_t common;
             for (const auto& k : common_input_) {
-                common[k] = frame.common(k);
+                common[k] = input.common(k);
             }
             snapshot["common"] = JsonValue(std::move(common));
         }
-        if (!item_input_.empty() && frame.item_count() > 0) {
+        if (!item_input_.empty() && input.item_count() > 0) {
             JsonValue::array_t items;
-            items.reserve(frame.item_count());
-            for (std::size_t i = 0; i < frame.item_count(); ++i) {
+            items.reserve(input.item_count());
+            for (std::size_t i = 0; i < input.item_count(); ++i) {
                 JsonValue::object_t row;
                 for (const auto& k : item_input_) {
-                    row[k] = frame.item(i, k);
+                    row[k] = input.item(i, k);
                 }
                 items.push_back(JsonValue(std::move(row)));
             }
             snapshot["items"] = JsonValue(std::move(items));
         }
 
-        // R13-1: compact one-line JSON for log-friendly output.
-        // dump_json(value, 0) suppresses all newlines/indent — observe_log
-        // entries stay single-line so grep / journalctl -g / Loki pattern
-        // matchers can filter on them. Matches pine-go observe/log.go which
-        // uses json.Marshal (compact by default).
         std::string data = dump_json(JsonValue(snapshot), 0);
-        // dump_json appends a trailing newline; strip it so the
-        // [observe_log] line is single-line on stderr like Go's
-        // log.Printf output.
         while (!data.empty() && data.back() == '\n') data.pop_back();
 
         if (!prefix_.empty()) {

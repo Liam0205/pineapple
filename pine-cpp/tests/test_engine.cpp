@@ -2,6 +2,7 @@
 
 #include "pine/pine.hpp"
 #include "pine/operator.hpp"
+#include "pine/operator_input.hpp"
 
 using namespace pine;
 
@@ -133,7 +134,7 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon (R3-H1)") {
     // forbids SetCommon, SetItem, RemoveItem, SetItemOrder.
     struct BadRecall : public pine::Operator {
         void init(const pine::OperatorConfig&) override {}
-        void execute(const pine::Frame&, pine::OperatorOutput& out) override {
+        void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
             out.set_common("region", pine::JsonValue(std::string("us")));
         }
     };
@@ -229,7 +230,7 @@ TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)"
     // the same binary) the existing schema is reused.
     struct SlowOp : public pine::Operator {
         void init(const pine::OperatorConfig&) override {}
-        void execute(const pine::Frame&, pine::OperatorOutput&) override {
+        void execute(const pine::OperatorInput&, pine::OperatorOutput&) override {
             // Long enough that the watcher thread can deliver the cancel.
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }

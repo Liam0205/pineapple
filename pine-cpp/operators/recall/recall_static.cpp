@@ -15,7 +15,7 @@ public:
             items_.push_back(std::move(row));
         }
     }
-    void execute(const Frame& /*frame*/, OperatorOutput& out) override {
+    void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
         for (const auto& row : items_) {
             out.add_item(row);
         }

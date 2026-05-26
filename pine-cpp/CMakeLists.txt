@@ -67,6 +67,7 @@ add_library(pine_cpp_core OBJECT
     src/dataframe/column_store.cpp
     src/dataframe/column_frame.cpp
     src/dataframe/row_frame.cpp
+    src/dataframe/operator_input.cpp
     src/runtime/engine.cpp
     src/runtime/errors.cpp
     src/runtime/metrics_nop.cpp

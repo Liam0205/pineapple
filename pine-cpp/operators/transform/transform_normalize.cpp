@@ -9,16 +9,8 @@ class TransformNormalizeOp : public Operator {
 public:
     void init(const OperatorConfig& cfg) override {
         op_name_ = cfg.name;
-        // R3 follow-up: read item_input / item_output lazily so an
-        // operator that's permanently skipped doesn't crash at init.
-        // pine-go normalize.go reads in Execute (lines 59-60), so when
-        // a skip branch is active the OOB never fires. We mirror that.
         item_input_ = cfg.metadata.item_input;
         item_output_ = cfg.metadata.item_output;
-        item_defaults_ = cfg.item_defaults;
-        // method param: only "min_max" is implemented. Mirrors pine-go
-        // normalize.go:47 — unsupported values are rejected at init
-        // (RegistryError) rather than silently behaving as min_max. R3-M5.
         std::string method = "min_max";
         const auto& params = cfg.params.as_object();
         auto it = params.find("method");
@@ -29,8 +21,8 @@ public:
             throw RegistryError(op_name_, "unsupported method \"" + method + "\"");
         }
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        if (frame.item_count() == 0) return;
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        if (input.item_count() == 0) return;
         if (item_input_.empty()) {
             throw ExecutionError(op_name_, "transform_normalize: item_input is empty");
         }
@@ -40,14 +32,12 @@ public:
         const std::string& field_ = item_input_[0];
         const std::string& out_field_ = item_output_[0];
         std::vector<double> vals;
-        vals.reserve(frame.item_count());
-        for (std::size_t i = 0; i < frame.item_count(); ++i) {
+        vals.reserve(input.item_count());
+        for (std::size_t i = 0; i < input.item_count(); ++i) {
             try {
-                JsonValue v = frame.item(i, field_);
+                JsonValue v = input.item(i, field_);
                 if (v.is_null()) {
-                    auto def = item_defaults_.find(field_);
-                    if (def != item_defaults_.end()) v = def->second;
-                    else throw operators::OperatorError("required field \"" + field_ + "\" is nil on item[" + std::to_string(i) + "]");
+                    throw operators::OperatorError("required field \"" + field_ + "\" is nil on item[" + std::to_string(i) + "]");
                 }
                 vals.push_back(operators::to_double(v));
             } catch (const operators::OperatorError& err) {
@@ -66,7 +56,6 @@ private:
     std::string op_name_;
     std::vector<std::string> item_input_;
     std::vector<std::string> item_output_;
-    std::map<std::string, JsonValue> item_defaults_;
 };
 
 static const OperatorSchema k_transform_normalize_schema{
