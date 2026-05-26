@@ -1,0 +1,111 @@
+{
+  "name": "Parallel recalls without trailing sort: items compared as set",
+  "description": "Two recall_static operators are DAG-parallel (both feed into truncate, no edge between them). Item insertion order depends on thread scheduling → non-deterministic. This fixture uses strict_order=false so cross-validate compares items as a set (order-insensitive). Fuzz-discovered gap: cross-validate Section 3 previously had no fixture exercising this topology.",
+  "strict_order": false,
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_a": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {
+              "id": "a1",
+              "group": "A"
+            },
+            {
+              "id": "a2",
+              "group": "A"
+            }
+          ],
+          "$metadata": {
+            "item_output": [
+              "id",
+              "group"
+            ]
+          }
+        },
+        "recall_b": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {
+              "id": "b1",
+              "group": "B"
+            },
+            {
+              "id": "b2",
+              "group": "B"
+            }
+          ],
+          "$metadata": {
+            "item_output": [
+              "id",
+              "group"
+            ]
+          }
+        },
+        "truncate": {
+          "type_name": "filter_truncate",
+          "top_n": 10,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [
+              "id"
+            ],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "recall_a",
+          "recall_b",
+          "truncate"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "group"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "4 items from 2 parallel recalls (order may vary)",
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {
+            "id": "a1",
+            "group": "A"
+          },
+          {
+            "id": "a2",
+            "group": "A"
+          },
+          {
+            "id": "b1",
+            "group": "B"
+          },
+          {
+            "id": "b2",
+            "group": "B"
+          }
+        ]
+      }
+    }
+  ]
+}

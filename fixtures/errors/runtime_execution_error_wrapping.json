@@ -1,0 +1,33 @@
+{
+  "name": "Runtime ExecutionError wrapping format byte-exact across engines",
+  "description": "Locks the exact wrapping prefix `pine: execution error in operator \"X\":` that all engines must emit for runtime execution errors. Reference audit `.llmdoc-tmp/cpp-runtime-parity-audit/03-runtime.md` — Go/Java already match; C++ aligned via P0-1; Python parity tracked separately.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "norm": {
+          "type_name": "transform_normalize",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["x_norm"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["norm"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["x", "x_norm"]
+    }
+  },
+  "request": {"common": {}, "items": [{"x": "abc"}]},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "transform_normalize",
+    "wrapping_exact": "pine: execution error in operator \"norm\":",
+    "wrapping_exact_engines": ["go", "java", "cpp"]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "noop": {
+          "type_name": "transform_copy",
+          "direction": "common_to_common",
+          "$metadata": {
+            "common_input": ["a"],
+            "common_output": ["b"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["noop"]}},
+    "flow_contract": {
+      "common_input": ["a"],
+      "item_input": [],
+      "common_output": ["b"],
+      "item_output": []
+    }
+  },
+  "request": {
+    "common": {"a": "hello"},
+    "items": []
+  }
+}

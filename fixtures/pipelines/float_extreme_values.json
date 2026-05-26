@@ -1,0 +1,142 @@
+{
+  "name": "extreme floating-point value serialization parity",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "recall_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {
+              "item_id": "x1"
+            }
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "item_id"
+            ]
+          }
+        },
+        "dispatch_value": {
+          "type_name": "transform_dispatch",
+          "$metadata": {
+            "common_input": [
+              "value"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "dispatched"
+            ]
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "recall_items",
+          "dispatch_value"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "value"
+      ],
+      "item_input": [],
+      "common_output": [
+        "value"
+      ],
+      "item_output": [
+        "item_id",
+        "dispatched"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "negative zero",
+      "request": {
+        "common": {
+          "value": -0.0
+        },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "value": 0
+        },
+        "items": [
+          {
+            "dispatched": 0,
+            "item_id": "x1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "subnormal (smallest positive double)",
+      "request": {
+        "common": {
+          "value": 5e-324
+        },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "value": 5e-324
+        },
+        "items": [
+          {
+            "dispatched": 5e-324,
+            "item_id": "x1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "max float64",
+      "request": {
+        "common": {
+          "value": 1.7976931348623157e+308
+        },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "value": 1.7976931348623157e+308
+        },
+        "items": [
+          {
+            "dispatched": 1.7976931348623157e+308,
+            "item_id": "x1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "min normal positive",
+      "request": {
+        "common": {
+          "value": 2.2250738585072014e-308
+        },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "value": 2.2250738585072014e-308
+        },
+        "items": [
+          {
+            "dispatched": 2.2250738585072014e-308,
+            "item_id": "x1"
+          }
+        ]
+      }
+    }
+  ]
+}
