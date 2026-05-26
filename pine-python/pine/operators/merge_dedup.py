@@ -35,4 +35,23 @@ class MergeDedup(AbstractOperator, ConsumesRowSet, MutatesRowSet):
 
 
 def _normalize_key(v):
-    return v
+    # V-12: all types must produce distinct, hashable keys.
+    # Python's set treats False==0==0.0 and True==1 as equal (PEP 285),
+    # so we must stringify with type prefix to avoid cross-type collision.
+    # Matches Go fmt.Sprintf("%T:%v") and C++ dedup_key "B:"/"F:"/"S:"/"N:" prefixes.
+    if v is None:
+        return "N:"
+    if isinstance(v, bool):
+        return "B:1" if v else "B:0"
+    if isinstance(v, (int, float)):
+        d = float(v)
+        if d == 0.0:
+            d = 0.0  # canonicalize -0.0
+        from pine.go_format import format_g
+        return "F:" + format_g(d)
+    if isinstance(v, str):
+        return "S:" + v
+    if isinstance(v, (dict, list)):
+        import json
+        return "O:" + json.dumps(v, sort_keys=True, ensure_ascii=False)
+    return "O:" + str(v)
