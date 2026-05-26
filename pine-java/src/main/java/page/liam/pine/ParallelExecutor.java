@@ -78,12 +78,22 @@ public class ParallelExecutor {
             try {
                 OperatorOutput out = futures.get(i).get();
                 if (out == null) continue;
+                if (!out.getAddedItems().isEmpty() || out.getItemOrder() != null ||
+                        !out.getCommonWrites().isEmpty()) {
+                    throw new PineErrors.PanicError(operatorName,
+                        new RuntimeException(
+                            "data_parallel shard emitted added_items, item_order, or common writes; " +
+                            "only item_writes / removed_items / warnings are allowed"));
+                }
                 int offset = offsets[i];
                 for (Map.Entry<Integer, Map<String, Object>> entry : out.getItemWrites().entrySet()) {
                     int absIdx = entry.getKey() + offset;
                     for (Map.Entry<String, Object> field : entry.getValue().entrySet()) {
                         merged.setItem(absIdx, field.getKey(), field.getValue());
                     }
+                }
+                for (Integer localIdx : out.getRemovedItems()) {
+                    merged.removeItem(localIdx + offset);
                 }
                 if (out.getWarning() != null) {
                     merged.setWarning(out.getWarning());

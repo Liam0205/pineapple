@@ -129,7 +129,10 @@ public class ColumnFrame implements Frame {
         try {
             // 1. Common writes
             for (Map.Entry<String, Object> entry : out.getCommonWrites().entrySet()) {
-                validateValue(entry.getKey(), entry.getValue());
+                String v = checkValue(entry.getKey(), entry.getValue());
+                if (v != null) {
+                    throw new PineErrors.ExecutionError(opName, "common write: " + v);
+                }
                 common.put(entry.getKey(), entry.getValue());
             }
 
@@ -142,7 +145,10 @@ public class ColumnFrame implements Frame {
                 for (Map.Entry<String, Object> fe : entry.getValue().entrySet()) {
                     String field = fe.getKey();
                     Object value = fe.getValue();
-                    validateValue(field, value);
+                    String v = checkValue(field, value);
+                    if (v != null) {
+                        throw new PineErrors.ExecutionError(opName, "item[" + idx + "] write: " + v);
+                    }
                     Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
                     if (col.length < rowCount) {
                         col = Arrays.copyOf(col, rowCount);
@@ -176,14 +182,30 @@ public class ColumnFrame implements Frame {
             List<Integer> order = out.getItemOrder();
             if (order != null) {
                 if (order.size() != rowCount) {
-                    throw new IllegalArgumentException("SetItemOrder length " + order.size() + " does not match item count " + rowCount);
+                    // SetItemOrder errors use ExecutionError uniformly across
+                    // the four runtimes (pine-cpp / pine-python use the same
+                    // class; pine-go wraps via the engine layer). The earlier
+                    // IllegalArgumentException / IndexOutOfBoundsException
+                    // diverged with no upside — runtime error parity treats
+                    // exception types as part of the contract. (P2-26)
+                    throw new PineErrors.ExecutionError(opName,
+                        "SetItemOrder length " + order.size() + " does not match item count " + rowCount);
                 }
+                // Permutation check — without this, setItemOrder([0,0,0])
+                // silently duplicates item 0 across the frame.
+                boolean[] seen = new boolean[rowCount];
                 int[] mapping = new int[rowCount];
                 for (int i = 0; i < rowCount; i++) {
                     int origIdx = order.get(i);
                     if (origIdx < 0 || origIdx >= rowCount) {
-                        throw new IndexOutOfBoundsException("SetItemOrder index " + origIdx + " out of range [0, " + rowCount + ")");
+                        throw new PineErrors.ExecutionError(opName,
+                            "SetItemOrder index " + origIdx + " out of range [0, " + rowCount + ")");
                     }
+                    if (seen[origIdx]) {
+                        throw new PineErrors.ExecutionError(opName,
+                            "SetItemOrder duplicate index " + origIdx + " (order must be a permutation)");
+                    }
+                    seen[origIdx] = true;
                     mapping[i] = origIdx;
                 }
                 compactColumns(mapping, rowCount);
@@ -206,7 +228,10 @@ public class ColumnFrame implements Frame {
                         row.put("_source", opName);
                     }
                     for (Map.Entry<String, Object> fe : row.entrySet()) {
-                        validateValue(fe.getKey(), fe.getValue());
+                        String v = checkValue(fe.getKey(), fe.getValue());
+                        if (v != null) {
+                            throw new PineErrors.ExecutionError(opName, "added item write: " + v);
+                        }
                         String field = fe.getKey();
                         Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
                         if (col.length < rowCount) {
@@ -283,26 +308,26 @@ public class ColumnFrame implements Frame {
         }
     }
 
-    private static void validateValue(String field, Object v) {
-        if (v == null) return;
-        if (v instanceof String) return;
+    private static String checkValue(String field, Object v) {
+        if (v == null) return null;
+        if (v instanceof String) return null;
         if (v instanceof Number) {
             if (v instanceof Double) {
                 double d = (Double) v;
                 if (Double.isNaN(d) || Double.isInfinite(d)) {
-                    throw new IllegalArgumentException("field \"" + field + "\": NaN/Inf is not a valid JSON value");
+                    return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
                 }
             } else if (v instanceof Float) {
                 float f = (Float) v;
                 if (Float.isNaN(f) || Float.isInfinite(f)) {
-                    throw new IllegalArgumentException("field \"" + field + "\": NaN/Inf is not a valid JSON value");
+                    return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
                 }
             }
-            return;
+            return null;
         }
-        if (v instanceof Boolean) return;
-        if (v instanceof Map) return;
-        if (v instanceof List) return;
-        throw new IllegalArgumentException("field \"" + field + "\": unsupported value type: " + v.getClass().getName());
+        if (v instanceof Boolean) return null;
+        if (v instanceof Map) return null;
+        if (v instanceof List) return null;
+        return "field \"" + field + "\": unsupported value type: " + v.getClass().getName();
     }
 }

@@ -64,6 +64,15 @@ public final class PineErrors {
             this.operator = operator;
         }
 
+        // String-cause convenience constructor: lets call sites raise with
+        // a bare message and keeps PanicError chain semantics consistent
+        // with pine-cpp's two-arg ExecutionError(op_name, value). The
+        // underlying RuntimeException is a private detail used only for
+        // getCause().getMessage() chaining. (P2-26)
+        public ExecutionError(String operator, String message) {
+            this(operator, new RuntimeException(message));
+        }
+
         public String getOperator() { return operator; }
 
         @Override
