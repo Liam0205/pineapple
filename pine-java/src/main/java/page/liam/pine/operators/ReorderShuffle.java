@@ -47,7 +47,9 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
         Arrays.sort(indices, (a, b) -> {
             int cmp = Double.compare(ranks[a], ranks[b]);
             if (cmp != 0) return cmp;
-            return Long.compareUnsigned(ids[a], ids[b]);
+            int idCmp = Long.compareUnsigned(ids[a], ids[b]);
+            if (idCmp != 0) return idCmp;
+            return Integer.compare(a, b);
         });
 
         List<Integer> order = new ArrayList<>(n);
