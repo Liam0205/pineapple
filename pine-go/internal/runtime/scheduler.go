@@ -132,7 +132,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 
 			// Capture input snapshot for debug operators
 			var inputSnapshot map[string]any
-			if cop.Config.Debug {
+			if cop.Config.Debug != nil && *cop.Config.Debug {
 				inputSnapshot = snapshotInput(input)
 			}
 
@@ -216,7 +216,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 
 			// Capture output snapshot for debug operators
 			var outputSnapshot map[string]any
-			if cop.Config.Debug {
+			if cop.Config.Debug != nil && *cop.Config.Debug {
 				outputSnapshot = snapshotOutput(output)
 				inputSize := input.ItemCount()
 				outputSize := inputSize + len(output.GetAddedItems()) - len(output.GetRemovedItems())

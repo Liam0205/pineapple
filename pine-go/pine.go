@@ -111,9 +111,12 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	compiledOps := make([]*runtime.CompiledOperator, len(sequence))
 	for i, name := range sequence {
 		opCfg := cfg.PipelineConfig.Operators[name]
-		if globalDebug {
-			opCfg.Debug = true
+		// Tri-state debug: op.Debug overrides global when explicitly set
+		effectiveDebug := globalDebug
+		if opCfg.Debug != nil {
+			effectiveDebug = *opCfg.Debug
 		}
+		opCfg.Debug = &effectiveDebug
 		op, schema, err := registry.BuildOperator(opCfg.TypeName, opCfg.RawParams)
 		if err != nil {
 			return nil, err
@@ -164,7 +167,7 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		}
 		// If the operator wants debug info, provide it
 		if da, ok := op.(types.DebugAware); ok {
-			da.SetDebugInfo(name, opCfg.Debug)
+			da.SetDebugInfo(name, effectiveDebug)
 		}
 		// If the operator records external metrics, inject the provider
 		if ma, ok := op.(types.MetricsAware); ok {
