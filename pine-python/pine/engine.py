@@ -17,6 +17,7 @@ from typing import Any, Self
 from pine.cancellation import CancellationToken
 from pine.config import Config, InputFieldSpec, OperatorConfig
 from pine.dag import DAG
+from pine.engine_metrics import EngineMetrics
 from pine.errors import (
     ConfigError,
     ExecutionError,
@@ -26,6 +27,7 @@ from pine.errors import (
     ValidationError,
 )
 from pine.frame import Frame
+from pine.metrics import Nop as _metrics_nop
 from pine.operator import (
     AdditiveWritesRowSet,
     ConcurrentSafe,
@@ -89,6 +91,7 @@ class Engine:
         metrics_provider: Any | None,
         storage_mode: str,
         stats: _Stats,
+        engine_metrics: EngineMetrics | None = None,
     ):
         self._operators = compiled_operators
         self._dag = dag
@@ -97,6 +100,7 @@ class Engine:
         self._metrics_provider = metrics_provider
         self._storage_mode = storage_mode
         self._stats = stats
+        self._engine_metrics = engine_metrics
         self._pool_size = max((os.cpu_count() or 1) * 2, 4)
 
     # ------------------------------------------------------------------
@@ -269,6 +273,11 @@ class Engine:
         engine_stats = _Stats()
         engine_stats.pre_init_operators([cop.name for cop in compiled_ops])
 
+        # Create engine metrics from the provider (NopProvider if none supplied).
+        provider = metrics_provider if metrics_provider is not None else _metrics_nop()
+        em = EngineMetrics(provider)
+        em.pre_init_operators([cop.name for cop in compiled_ops])
+
         return cls(
             compiled_operators=compiled_ops,
             dag=dag,
@@ -277,6 +286,7 @@ class Engine:
             metrics_provider=metrics_provider,
             storage_mode=cfg.storage_mode,
             stats=engine_stats,
+            engine_metrics=em,
         )
 
     # ------------------------------------------------------------------
@@ -321,7 +331,11 @@ class Engine:
         frame = Frame.create(self._storage_mode, common, items)
         n = len(self._operators)
 
+        dag_start = time.perf_counter()
         self._stats.record_run()
+        em = self._engine_metrics
+        if em is not None:
+            em.scheduler_runs.inc()
 
         # Per-operator futures for DAG-based scheduling
         futures: list[Future[None]] = [Future() for _ in range(n)]
@@ -415,6 +429,8 @@ class Engine:
                     skipped=True,
                 )
                 self._stats.record_skip(cop.name)
+                if em is not None:
+                    em.op_skip_total.with_(cop.name).inc()
                 return
 
             # Build input (uses precomputed InputFieldSpec)
@@ -434,6 +450,8 @@ class Engine:
                 active[0] += 1
                 current = active[0]
             self._stats.record_concurrency(current)
+            if em is not None:
+                em.active_ops.add(1)
 
             # Execute
             output: OperatorOutput | None = None
@@ -454,6 +472,8 @@ class Engine:
             # Decrement active
             with active_lk:
                 active[0] -= 1
+            if em is not None:
+                em.active_ops.add(-1)
 
             # Validate output type constraints
             if exec_err is None and output is not None:
@@ -473,6 +493,9 @@ class Engine:
                     input_snapshot=input_snapshot,
                 )
                 self._stats.record_error(cop.name, duration_ns)
+                if em is not None:
+                    em.op_error_total.with_(cop.name).inc()
+                    em.op_exec_duration.with_(cop.name).observe(duration_ns / 1e9)
                 # Classify error. Preserve the original exception object as
                 # __cause__ so downstream code can walk the chain via
                 # ``err.__cause__`` (mirrors Go errors.As / pine-cpp
@@ -530,6 +553,9 @@ class Engine:
                     output_snapshot=output_snapshot,
                 )
                 self._stats.record_error(cop.name, duration_ns)
+                if em is not None:
+                    em.op_error_total.with_(cop.name).inc()
+                    em.op_exec_duration.with_(cop.name).observe(duration_ns / 1e9)
                 # ExecutionError thrown from apply_output (NaN/Inf validation,
                 # SetItemOrder permutation check) already carries the operator
                 # name and a structured `operator "X": <segment>: <msg>` body
@@ -570,6 +596,9 @@ class Engine:
                 output_snapshot=output_snapshot,
             )
             self._stats.record_exec(cop.name, duration_ns)
+            if em is not None:
+                em.op_exec_total.with_(cop.name).inc()
+                em.op_exec_duration.with_(cop.name).observe(duration_ns / 1e9)
 
         # Submit all operators to thread pool
         with ThreadPoolExecutor(max_workers=self._pool_size) as pool:
@@ -583,6 +612,17 @@ class Engine:
 
         # Collect non-null traces
         trace_list = [t for t in traces if t is not None]
+
+        # Record DAG-level metrics
+        if em is not None:
+            dag_duration = time.perf_counter() - dag_start
+            em.dag_exec_duration.observe(dag_duration)
+            if fatal_error[0] is not None:
+                em.dag_exec_total.with_("error").inc()
+            else:
+                em.dag_exec_total.with_("success").inc()
+            executed = sum(1 for t in trace_list if not t.skipped)
+            em.dag_ops_executed.observe(float(executed))
 
         # Project result
         result_common = frame.to_result_common(self._contract.common_output)
