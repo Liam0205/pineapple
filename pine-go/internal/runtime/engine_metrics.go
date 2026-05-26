@@ -81,7 +81,7 @@ func NewEngineMetrics(p metrics.Provider) *EngineMetrics {
 				Name: "pine_dag_operators_executed",
 				Help: "Number of operators executed (not skipped or cancelled) per DAG run.",
 			},
-			Buckets: []float64{1, 5, 10, 20, 50, 100, 200},
+			Buckets: []float64{1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 450},
 		}),
 	}
 }
