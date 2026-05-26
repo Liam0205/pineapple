@@ -109,7 +109,7 @@ func TestStatsIntegrationWithRun(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "rw",
 			Meta:      config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil, nil, nil),
 		},
 	}
 

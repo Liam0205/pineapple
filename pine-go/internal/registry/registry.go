@@ -21,6 +21,8 @@ var reservedKeys = map[string]struct{}{
 	"additive_writes_row_set": {},
 	"common_defaults":        {},
 	"item_defaults":          {},
+	"nullable_common":        {},
+	"nullable_item":          {},
 	"for_branch_control":     {},
 	"data_parallel":          {},
 }

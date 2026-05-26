@@ -194,7 +194,7 @@ func TestRunSimpleChain(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "rw",
 			Meta:      config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil, nil, nil),
 		},
 	}
 
@@ -289,7 +289,7 @@ func TestRunSkipTrue(t *testing.T) {
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
 			Skip:      []string{"_if_1"},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1"}),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}}, nil, nil, nil, nil, []string{"_if_1"}),
 		},
 	}
 
@@ -338,7 +338,7 @@ func TestRunSkipFalse(t *testing.T) {
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}},
 			Skip:      []string{"_if_1"},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1"}),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"executed"}}, nil, nil, nil, nil, []string{"_if_1"}),
 		},
 	}
 
@@ -372,7 +372,7 @@ func TestRunSkipMultiple(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, nil, nil, nil),
 		},
 	}
 	branch := &CompiledOperator{
@@ -382,7 +382,7 @@ func TestRunSkipMultiple(t *testing.T) {
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
 			Skip:      []string{"_if_1", "_if_2"},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1", "_if_2"}),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}}, nil, nil, nil, nil, []string{"_if_1", "_if_2"}),
 		},
 	}
 
@@ -428,7 +428,7 @@ func TestRunFatalError(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}, nil, nil, nil, nil, nil),
 		},
 	}
 
@@ -470,7 +470,7 @@ func TestRunApplyOutputErrorRecordsErrorStats(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "filter",
 			Meta:      config.Metadata{ItemInput: []string{"remove"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"remove"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"remove"}}, nil, nil, nil, nil, nil),
 		},
 	}
 	plan := buildPlan(t, []string{"bad_apply"}, map[string]*CompiledOperator{
@@ -513,7 +513,7 @@ func TestRunSkipFieldFilteredFromInput(t *testing.T) {
 			TypeName:  "capture",
 			Skip:      []string{"_if_1"},
 			Meta:      config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}}, nil, nil, []string{"_if_1"}),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "user_id"}, CommonOutput: []string{"captured"}}, nil, nil, nil, nil, []string{"_if_1"}),
 		},
 	}
 
@@ -570,7 +570,7 @@ func TestRunSkipMultipleAllFalse(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, nil, nil, nil),
 		},
 	}
 	branch := &CompiledOperator{
@@ -580,7 +580,7 @@ func TestRunSkipMultipleAllFalse(t *testing.T) {
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}},
 			Skip:      []string{"_if_1", "_if_2"},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}}, nil, nil, []string{"_if_1", "_if_2"}),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2"}, CommonOutput: []string{"executed"}}, nil, nil, nil, nil, []string{"_if_1", "_if_2"}),
 		},
 	}
 
@@ -630,7 +630,7 @@ func TestRunSkipMultipleFieldsFilteredFromInput(t *testing.T) {
 			ForBranchControl: true,
 			Meta:             config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}},
 			Skip:             []string{"_if_1"},
-			InputSpec:        config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, []string{"_if_1"}),
+			InputSpec:        config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1"}, CommonOutput: []string{"_if_2"}}, nil, nil, nil, nil, []string{"_if_1"}),
 		},
 	}
 	capture := &captureKeysOp{}
@@ -641,7 +641,7 @@ func TestRunSkipMultipleFieldsFilteredFromInput(t *testing.T) {
 			TypeName:  "capture",
 			Skip:      []string{"_if_1", "_if_2"},
 			Meta:      config.Metadata{CommonInput: []string{"_if_1", "_if_2", "user_id"}, CommonOutput: []string{"captured"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2", "user_id"}, CommonOutput: []string{"captured"}}, nil, nil, []string{"_if_1", "_if_2"}),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"_if_1", "_if_2", "user_id"}, CommonOutput: []string{"captured"}}, nil, nil, nil, nil, []string{"_if_1", "_if_2"}),
 		},
 	}
 
@@ -716,7 +716,7 @@ func TestRunWarningContinues(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "set",
 			Meta:      config.Metadata{CommonInput: []string{"fallback"}, CommonOutput: []string{"after_warning"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"fallback"}, CommonOutput: []string{"after_warning"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"fallback"}, CommonOutput: []string{"after_warning"}}, nil, nil, nil, nil, nil),
 		},
 	}
 
@@ -783,7 +783,7 @@ func TestRunFilterRemovesItems(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "filter",
 			Meta:      config.Metadata{ItemInput: []string{"id", "remove"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"id", "remove"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"id", "remove"}}, nil, nil, nil, nil, nil),
 		},
 	}
 
@@ -813,7 +813,7 @@ func TestRunReorderReverses(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:  "reorder",
 			Meta:      config.Metadata{ItemInput: []string{"id"}},
-			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"id"}}, nil, nil, nil),
+			InputSpec: config.ComputeInputFieldSpec(config.Metadata{ItemInput: []string{"id"}}, nil, nil, nil, nil, nil),
 		},
 	}
 

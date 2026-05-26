@@ -187,7 +187,7 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 				}
 			}
 		}
-		opCfg.InputSpec = config.ComputeInputFieldSpec(opCfg.Meta, opCfg.CommonDefaults, opCfg.ItemDefaults, opCfg.Skip)
+		opCfg.InputSpec = config.ComputeInputFieldSpec(opCfg.Meta, opCfg.CommonDefaults, opCfg.ItemDefaults, opCfg.NullableCommon, opCfg.NullableItem, opCfg.Skip)
 		compiledOps[i] = &runtime.CompiledOperator{
 			Name:     name,
 			Instance: op,

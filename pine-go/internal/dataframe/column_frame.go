@@ -86,7 +86,7 @@ func (f *ColumnFrame) BuildInput(
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	totalCommon := len(spec.StrictCommon) + len(spec.DefaultedCommon)
+	totalCommon := len(spec.StrictCommon) + len(spec.DefaultedCommon) + len(spec.NullableCommon)
 	cs := make(map[string]any, totalCommon)
 
 	// Strict common fields: must exist and be non-nil
@@ -106,8 +106,16 @@ func (f *ColumnFrame) BuildInput(
 			cs[df.Name] = v
 		}
 	}
+	// Nullable common fields: missing → error, nil → pass through
+	for _, field := range spec.NullableCommon {
+		v, exists := f.common[field]
+		if !exists {
+			return nil, fmt.Errorf("operator %q: required field %q is missing in common", opName, field)
+		}
+		cs[field] = v
+	}
 
-	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem)
+	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem) + len(spec.NullableItem)
 	its := make([]map[string]any, f.rowCount)
 	for i := 0; i < f.rowCount; i++ {
 		row := make(map[string]any, totalItem)
@@ -128,6 +136,14 @@ func (f *ColumnFrame) BuildInput(
 			} else {
 				row[df.Name] = df.Default
 			}
+		}
+		// Nullable item fields: missing → error, nil → pass through
+		for _, field := range spec.NullableItem {
+			col, colExists := f.columns[field]
+			if !colExists || !f.present[field][i] {
+				return nil, fmt.Errorf("operator %q: required field %q is missing on item[%d]", opName, field, i)
+			}
+			row[field] = col[i]
 		}
 
 		its[i] = row
