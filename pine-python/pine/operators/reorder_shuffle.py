@@ -73,12 +73,15 @@ def _fnv64a(s: str) -> int:
 def _any_to_string(v) -> str:
     if v is None:
         return ""
+    if isinstance(v, bool):
+        return "true" if v else "false"
     if isinstance(v, str):
         return v
-    if isinstance(v, int):
-        return str(v)
-    if isinstance(v, float):
-        return format_g(v)
+    if isinstance(v, (int, float)):
+        return format_g(float(v))
+    if isinstance(v, (dict, list)):
+        import json
+        return json.dumps(v, sort_keys=True, ensure_ascii=False)
     return str(v)
 
 
