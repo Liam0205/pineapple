@@ -47,7 +47,9 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
         Arrays.sort(indices, (a, b) -> {
             int cmp = Double.compare(ranks[a], ranks[b]);
             if (cmp != 0) return cmp;
-            return Long.compareUnsigned(ids[a], ids[b]);
+            int idCmp = Long.compareUnsigned(ids[a], ids[b]);
+            if (idCmp != 0) return idCmp;
+            return Integer.compare(a, b);
         });
 
         List<Integer> order = new ArrayList<>(n);
@@ -76,9 +78,17 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
     private static String anyToString(Object v) {
         if (v == null) return "";
         if (v instanceof String) return (String) v;
-        if (v instanceof Integer || v instanceof Long) return Long.toString(((Number) v).longValue());
+        if (v instanceof Boolean) return ((Boolean) v) ? "true" : "false";
         if (v instanceof Number) {
             return GoFormat.formatG(((Number) v).doubleValue());
+        }
+        if (v instanceof List || v instanceof Map) {
+            try {
+                return new com.fasterxml.jackson.databind.ObjectMapper()
+                        .writeValueAsString(v);
+            } catch (Exception e) {
+                return v.toString();
+            }
         }
         return v.toString();
     }
