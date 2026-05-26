@@ -222,3 +222,71 @@ TEST_CASE("Engine::execute honors external stop_token (R3-H3)") {
     // both outcomes are valid; the API contract is "no deadlock, no UB".
     CHECK(true);
 }
+
+TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)") {
+    // Register a slow operator that sleeps N ms in execute. Registers once
+    // per process; if already registered (e.g. previous test invocation in
+    // the same binary) the existing schema is reused.
+    struct SlowOp : public pine::Operator {
+        void init(const pine::OperatorConfig&) override {}
+        void execute(const pine::Frame&, pine::OperatorOutput&) override {
+            // Long enough that the watcher thread can deliver the cancel.
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    };
+    static const pine::OperatorSchema s{
+        "r10_slow_op", pine::OpType::Transform,
+        "test operator: sleeps 500 ms to validate mid-flight cancel",
+        {}};
+    static bool registered = false;
+    if (!registered) {
+        pine::register_operator_typed<SlowOp>(s);
+        registered = true;
+    }
+
+    // 3-node linear DAG (Transform only — Transform allows zero writes,
+    // so SlowOp's empty OperatorOutput passes ValidateOutput).
+    static const char* kCfg = R"({
+      "_PINEAPPLE_VERSION": "0.8.0",
+      "pipeline_config": {
+        "operators": {
+          "s1": {"type_name": "r10_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}},
+          "s2": {"type_name": "r10_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}},
+          "s3": {"type_name": "r10_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}}
+        },
+        "pipeline_map": {"stage": {"pipeline": ["s1", "s2", "s3"]}}
+      },
+      "pipeline_group": {"main": {"pipeline": ["stage"]}}
+    })";
+    Engine engine(load_config_from_json(kCfg));
+    Request req;
+    static const std::map<std::string, JsonValue> empty_res;
+
+    std::stop_source src;
+    auto cancel_token = src.get_token();
+
+    // Fire the cancel 200 ms in — well inside s1's sleep but before s1/s2/s3 finish.
+    std::thread canceller([&src]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        src.request_stop();
+    });
+
+    auto t0 = std::chrono::steady_clock::now();
+    // execute should observe cancel and return before the full 3 × 500 ms.
+    // It may or may not throw — the contract is "no deadlock, return soon".
+    try {
+        engine.execute(req, empty_res, cancel_token);
+    } catch (const Error&) {
+        // ok — engine can rethrow a cancel-shaped error
+    }
+    auto elapsed = std::chrono::steady_clock::now() - t0;
+    canceller.join();
+
+    // Without cancel, this would take ~1500 ms (3 × 500 ms). With cancel
+    // mid-s1, total time should be at most ~750 ms (current s1 finishes
+    // + a few ms cleanup). Use 1.2 s as a generous bound to keep CI
+    // noise-tolerant while still proving cancel took effect.
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+    INFO("elapsed=" << ms << "ms");
+    CHECK(ms < 1200);
+}

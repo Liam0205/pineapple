@@ -163,7 +163,8 @@ private:
     void handle_not_found(int client_fd);
 
     // Execute with stats tracking and tracing.
-    ExecuteResult execute_with_trace(const Request& request, bool return_trace);
+    ExecuteResult execute_with_trace(const Request& request, bool return_trace,
+                                      int client_fd = -1);
 
     // Config file watcher thread (polls mtime every 2s).
     void watch_config();

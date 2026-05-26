@@ -208,11 +208,26 @@ Config load_config_from_json(const std::string& text) {
             config.resource_config[name] = std::move(re);
         }
     }
-    const auto& flow = require_obj(root, "flow_contract");
-    config.flow_contract.common_input = as_string_list(flow, "common_input");
-    config.flow_contract.item_input = as_string_list(flow, "item_input");
-    config.flow_contract.common_output = as_string_list(flow, "common_output");
-    config.flow_contract.item_output = as_string_list(flow, "item_output");
+    // R3 follow-up: flow_contract is optional in pine-go (struct field
+    // with omitempty semantics defaults to empty FlowContract{}). Match
+    // that — only parse the four input/output lists when the field is
+    // present. Caught by R3-X4 differential fuzz: 17/50 smoke
+    // divergences all hit this strictness.
+    if (auto fit = root.find("flow_contract"); fit != root.end() && fit->second.is_object()) {
+        const auto& flow = fit->second.as_object();
+        if (auto k = flow.find("common_input"); k != flow.end()) {
+            config.flow_contract.common_input = as_string_list(flow, "common_input");
+        }
+        if (auto k = flow.find("item_input"); k != flow.end()) {
+            config.flow_contract.item_input = as_string_list(flow, "item_input");
+        }
+        if (auto k = flow.find("common_output"); k != flow.end()) {
+            config.flow_contract.common_output = as_string_list(flow, "common_output");
+        }
+        if (auto k = flow.find("item_output"); k != flow.end()) {
+            config.flow_contract.item_output = as_string_list(flow, "item_output");
+        }
+    }
 
     const auto& group = require_obj(root, "pipeline_group");
     for (const auto& [name, value] : group) config.pipeline_group[name] = as_string_list(value.as_object(), "pipeline");
