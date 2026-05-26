@@ -168,9 +168,17 @@ std::string any_to_string(const JsonValue& v) {
 std::string dedup_key(const JsonValue& v) {
     if (v.is_null()) return "N:";
     if (v.is_bool()) return v.as_bool() ? "B:1" : "B:0";
-    if (v.is_number()) return "F:" + go_format_g(v.as_number());
+    if (v.is_number()) {
+        double d = v.as_number();
+        // DF-B4: canonicalize -0.0 to +0.0 (IEEE 754: -0 == +0).
+        if (d == 0.0) d = 0.0;
+        return "F:" + go_format_g(d);
+    }
     if (v.is_string()) return "S:" + v.as_string();
-    return "O:" + sprint_value(v);
+    // V-12: composite types (array/object) must produce distinct keys.
+    // Previously returned "O:<complex>" for both → all composites collided.
+    // Use compact JSON serialization (deterministic, distinguishes types).
+    return "O:" + dump_json(v, 0);
 }
 
 std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields) {
