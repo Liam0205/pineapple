@@ -605,7 +605,33 @@ void Server::handle_stats(int client_fd, const std::string& method) {
 
     std::string body = "{\"operators\":" + ops_json +
                        ",\"scheduler\":" + sched_json +
-                       ",\"server\":" + server_json + "}\n";
+                       ",\"server\":" + server_json;
+
+    {
+        std::shared_lock<std::shared_mutex> lock(engine_mu_);
+        if (engine_) {
+            auto custom_stats = engine_->operator_custom_stats();
+            if (!custom_stats.empty()) {
+                body += ",\"operator_detail\":{";
+                bool first_op = true;
+                for (const auto& [op_name, stats] : custom_stats) {
+                    if (!first_op) body += ",";
+                    first_op = false;
+                    body += "\"" + json_escape(op_name) + "\":{";
+                    bool first_stat = true;
+                    for (const auto& [stat_key, stat_val] : stats) {
+                        if (!first_stat) body += ",";
+                        first_stat = false;
+                        body += "\"" + json_escape(stat_key) + "\":" + std::to_string(stat_val);
+                    }
+                    body += "}";
+                }
+                body += "}";
+            }
+        }
+    }
+
+    body += "}\n";
 
     send_json(client_fd, 200, body);
 }

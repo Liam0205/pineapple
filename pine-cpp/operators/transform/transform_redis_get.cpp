@@ -1,5 +1,6 @@
 #include "operators/_helpers.hpp"
 #include "pine/operator.hpp"
+#include "redis/connection_pool.hpp"
 #include "redis/redis_client.hpp"
 
 #include <memory>
@@ -23,27 +24,31 @@ public:
 
         std::string key = rp_.key_prefix + operators::build_key_suffix(frame, common_input_);
 
-        std::unique_ptr<redis::Client> client;
+        // Borrow a connection from the shared pool to avoid the full
+        // getaddrinfo + connect + AUTH + SELECT round-trip on every
+        // dispatch. P1-P4.
+        redis::ConnectionPool::ScopedClient client;
         try {
-            client = std::make_unique<redis::Client>(rp_.host, rp_.port, rp_.password, rp_.db);
+            client = redis::shared_pool().acquire_scoped(rp_.host, rp_.port, rp_.password, rp_.db);
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_get: " + std::string(e.what()));
+                throw ExecutionError("transform_redis_get: " + std::string(e.what()));
             out.set_warning("transform_redis_get: Get(" + key + "): " + std::string(e.what()));
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
         }
-        if (!client->connected()) {
+        if (!client || !client->connected()) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_get: connection failed");
+                throw ExecutionError("transform_redis_get: connection failed");
             out.set_warning("transform_redis_get: Get(" + key + "): connection failed");
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
         }
+        redis::Client* cli = client.get();
 
         try {
             if (rp_.data_type == "string") {
-                auto val = client->get(key);
+                auto val = cli->get(key);
                 if (val && !val->empty()) {
                     out.set_common(result_field_, JsonValue(*val));
                     out.set_common(cache_hit_field_, JsonValue(true));
@@ -51,7 +56,7 @@ public:
                     out.set_common(cache_hit_field_, JsonValue(false));
                 }
             } else if (rp_.data_type == "set") {
-                auto members = client->smembers(key);
+                auto members = cli->smembers(key);
                 if (!members.empty()) {
                     JsonValue::array_t arr;
                     for (auto& m : members) arr.push_back(JsonValue(std::move(m)));
@@ -61,7 +66,7 @@ public:
                     out.set_common(cache_hit_field_, JsonValue(false));
                 }
             } else if (rp_.data_type == "list") {
-                auto vals = client->lrange(key, 0, -1);
+                auto vals = cli->lrange(key, 0, -1);
                 if (!vals.empty()) {
                     JsonValue::array_t arr;
                     for (auto& v : vals) arr.push_back(JsonValue(std::move(v)));
@@ -71,13 +76,13 @@ public:
                     out.set_common(cache_hit_field_, JsonValue(false));
                 }
             } else {
-                throw ExecutionError(op_name_, "transform_redis_get: unsupported data_type \"" + rp_.data_type + "\"");
+                throw ExecutionError("transform_redis_get: unsupported data_type \"" + rp_.data_type + "\"");
             }
         } catch (const ExecutionError&) {
             throw;
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_get: " + std::string(e.what()));
+                throw ExecutionError("transform_redis_get: " + std::string(e.what()));
             std::string cmd_name = (rp_.data_type == "set") ? "SMembers" : (rp_.data_type == "list") ? "LRange" : "Get";
             out.set_warning("transform_redis_get: " + cmd_name + "(" + key + "): " + std::string(e.what()));
             out.set_common(cache_hit_field_, JsonValue(false));
@@ -110,7 +115,6 @@ static const OperatorSchema k_transform_redis_get_schema{
                             .description = "Redis password."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_redis_get_schema,
-    ([] { return std::make_unique<TransformRedisGetOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformRedisGetOp, k_transform_redis_get_schema)
 
 }  // namespace pine

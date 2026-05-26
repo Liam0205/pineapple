@@ -1,6 +1,7 @@
 #pragma once
 #include "pine/pine.hpp"
 #include "pine/column_frame.hpp"
+#include "pine/metrics.hpp"
 #include <functional>
 #include <map>
 #include <memory>
@@ -21,6 +22,25 @@ struct ConsumesRowSet {};
 struct MutatesRowSet {};
 struct AdditiveWritesRowSet {};
 struct ConcurrentSafe {};
+
+// MetricsAware mirrors pine-go's types.MetricsAware optional interface.
+// Operators that record metrics to an external provider implement this;
+// Engine injects the configured metrics::Provider after init() but before
+// the first execute() call (matches pine-go pine.go:170 ordering).
+class MetricsAware {
+public:
+    virtual ~MetricsAware() = default;
+    virtual void set_metrics_provider(metrics::Provider* provider) = 0;
+};
+
+// StatsProvider mirrors pine-go's types.StatsProvider optional interface.
+// Operators that expose internal counters/gauges for the /stats endpoint
+// implement this. The Engine polls OperatorStats() during stats collection.
+class StatsProvider {
+public:
+    virtual ~StatsProvider() = default;
+    virtual std::map<std::string, int64_t> operator_stats() const = 0;
+};
 
 // Note: Operator base class is declared in pine/pine.hpp (as class Operator)
 // with execute(const ColumnFrame&, OperatorOutput&). Frame = ColumnFrame, so

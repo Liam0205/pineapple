@@ -1,10 +1,11 @@
 #include "operators/_helpers.hpp"
 #include "pine/operator.hpp"
 #include "lua/lua_bridge.hpp"
+#include "lua/lua_pool.hpp"
 
 namespace pine {
 
-class TransformByLuaOp : public Operator, public ConcurrentSafe {
+class TransformByLuaOp : public Operator, public ConcurrentSafe, public StatsProvider, public MetricsAware {
 public:
     void init(const OperatorConfig& cfg) override {
         op_name_ = cfg.name;
@@ -30,7 +31,19 @@ public:
         common_output_ = cfg.metadata.common_output;
         common_defaults_ = cfg.common_defaults;
         item_defaults_ = cfg.item_defaults;
+
+        pool_ = std::make_unique<lua::StatePool>(lua_script_, op_name_);
     }
+
+    void set_metrics_provider(metrics::Provider* provider) override {
+        if (pool_) pool_->set_metrics(provider, op_name_);
+    }
+
+    std::map<std::string, int64_t> operator_stats() const override {
+        if (pool_) return pool_->stats_snapshot();
+        return {};
+    }
+
     void execute(const Frame& frame, OperatorOutput& out) override {
         auto resolve_common = [&](const std::string& field) -> JsonValue {
             JsonValue v = frame.common(field);
@@ -47,8 +60,8 @@ public:
             return JsonValue();
         };
 
-        lua::LuaVM vm;
-        vm.load_script(lua_script_, op_name_);
+        auto borrowed = pool_->borrow();
+        lua::LuaVM& vm = *borrowed;
 
         if (!func_for_item_.empty()) {
             int nret = static_cast<int>(item_output_.size());
@@ -88,6 +101,7 @@ private:
     std::vector<std::string> common_output_;
     std::map<std::string, JsonValue> common_defaults_;
     std::map<std::string, JsonValue> item_defaults_;
+    std::unique_ptr<lua::StatePool> pool_;
 };
 
 static const OperatorSchema k_transform_by_lua_schema{
