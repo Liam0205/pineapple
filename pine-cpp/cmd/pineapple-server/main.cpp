@@ -14,11 +14,18 @@ namespace {
 // subset used by pineapple-server flags. We do NOT support sub-second units
 // (ms/us/ns) because the C++ server cannot apply timeouts more granular than
 // SO_RCVTIMEO seconds in a meaningful way.
+//
+// P2-15: units must appear in strictly *descending* magnitude order
+// (h, m, s) to match Go time.ParseDuration ordering. "1h30m" is valid;
+// "30m1h" is rejected. The previous implementation accepted any order
+// and produced silently-different totals from Go for shuffled inputs.
 int parse_duration_seconds(std::string_view s) {
     if (s.empty()) return -1;
     int total = 0;
     int cur = 0;
     bool has_digit = false;
+    // Encode unit priority: h > m > s; -1 = none seen yet.
+    int last_unit_priority = 4;  // higher than any actual unit
     for (std::size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
         if (c >= '0' && c <= '9') {
@@ -27,15 +34,16 @@ int parse_duration_seconds(std::string_view s) {
             continue;
         }
         if (!has_digit) return -1;
-        if (c == 'h') {
-            total += cur * 3600;
-        } else if (c == 'm' && (i + 1 >= s.size() || s[i + 1] != 's')) {
-            total += cur * 60;
-        } else if (c == 's') {
-            total += cur;
-        } else {
-            return -1;
-        }
+        int priority;
+        int multiplier;
+        if (c == 'h') { priority = 3; multiplier = 3600; }
+        else if (c == 'm' && (i + 1 >= s.size() || s[i + 1] != 's')) {
+            priority = 2; multiplier = 60;
+        } else if (c == 's') { priority = 1; multiplier = 1; }
+        else return -1;
+        if (priority >= last_unit_priority) return -1;  // out-of-order unit
+        last_unit_priority = priority;
+        total += cur * multiplier;
         cur = 0;
         has_digit = false;
     }
@@ -80,16 +88,27 @@ int main(int argc, char** argv) {
         } else if (arg == "-idle-timeout") {
             cfg.idle_timeout_seconds = take_seconds(i, "-idle-timeout");
         } else if (arg == "-max-body-size") {
+            // P2-13: strict parse — strtoll returns 0 on garbage which
+            // would silently 413 every POST. Require the suffix to be
+            // fully consumed and the value to be positive.
             const char* raw = take_value(i, "-max-body-size");
-            cfg.max_request_body_size = std::strtoll(raw, nullptr, 10);
+            char* endp = nullptr;
+            long long v = std::strtoll(raw, &endp, 10);
+            if (endp == raw || *endp != '\0' || v <= 0) {
+                fprintf(stderr, "invalid -max-body-size value: %s\n", raw);
+                std::exit(2);
+            }
+            cfg.max_request_body_size = static_cast<int64_t>(v);
         }
     }
 
     if (cfg.config_path.empty()) {
         fprintf(stderr,
                 "usage: pineapple-server -config <path-to-config.json> "
-                "[-addr :8080] [-read-header-timeout 10s] [-read-timeout 30s] "
-                "[-write-timeout 60s] [-idle-timeout 120s] [-max-body-size 10485760]\n");
+                "[-addr :8080] [-read-timeout 30s] [-write-timeout 60s] "
+                "[-max-body-size 10485760]\n"
+                "       (-read-header-timeout / -idle-timeout are accepted "
+                "but currently inert in C++; see P2-14.)\n");
         return 1;
     }
 

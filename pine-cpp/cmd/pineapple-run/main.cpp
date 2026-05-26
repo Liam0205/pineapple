@@ -1,4 +1,5 @@
 #include "pine/pine.hpp"
+#include "pine/resource.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -48,8 +49,14 @@ int main(int argc, char** argv) {
     }
 
     std::unique_ptr<pine::Engine> engine;
+    std::unique_ptr<pine::resource::Manager> resource_manager;
     try {
-        engine = std::make_unique<pine::Engine>(pine::load_config_from_json(config_data));
+        auto config = pine::load_config_from_json(config_data);
+        engine = std::make_unique<pine::Engine>(config);
+
+        resource_manager = std::make_unique<pine::resource::Manager>();
+        resource_manager->load_from_config(config);
+        resource_manager->start();
     } catch (const std::exception& err) {
         std::cerr << "error creating engine: " << err.what() << "\n";
         return 1;
@@ -74,10 +81,15 @@ int main(int argc, char** argv) {
     }
 
     std::map<std::string, pine::JsonValue> resources;
+    if (resource_manager) {
+        resources = resource_manager->snapshot();
+    }
+
     if (!resources_path.empty()) {
         std::string res_data;
         if (!read_file_to_string(resources_path, res_data)) {
             std::cerr << "error reading static resources: " << resources_path << "\n";
+            if (resource_manager) resource_manager->stop();
             return 1;
         }
         try {
@@ -85,15 +97,18 @@ int main(int argc, char** argv) {
             for (const auto& [key, value] : resources_json.as_object()) resources[key] = value;
         } catch (const std::exception& err) {
             std::cerr << "error parsing static resources: " << err.what() << "\n";
+            if (resource_manager) resource_manager->stop();
             return 1;
         }
     }
 
     try {
         std::cout << pine::result_to_json(engine->execute(request, resources));
+        if (resource_manager) resource_manager->stop();
         return 0;
     } catch (const std::exception& err) {
         std::cerr << "execution error: " << err.what() << "\n";
+        if (resource_manager) resource_manager->stop();
         return 1;
     }
 }

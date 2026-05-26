@@ -94,6 +94,46 @@ void register_operator(OperatorSchema schema, OperatorFactory factory) {
     reg.emplace(name, std::move(entry));
 }
 
+void register_operator_with_traits(OperatorSchema schema,
+                                   OperatorFactory factory,
+                                   bool consumes_row_set,
+                                   bool mutates_row_set,
+                                   bool additive_writes_row_set,
+                                   bool concurrent_safe) {
+    if (schema.name.empty()) {
+        throw RegistryError("pine: register_operator called with empty name");
+    }
+    if (schema.description.empty()) {
+        throw RegistryError("pine: operator \"" + schema.name + "\": description is required");
+    }
+    for (const auto& [pname, pschema] : schema.params) {
+        if (pschema.description.empty()) {
+            throw RegistryError("pine: operator \"" + schema.name + "\" param \"" + pname +
+                                "\": description is required");
+        }
+    }
+    if (!factory) {
+        throw RegistryError("pine: operator \"" + schema.name + "\": factory must not be null");
+    }
+
+    OperatorEntry entry;
+    entry.schema = std::move(schema);
+    entry.factory = std::move(factory);
+    entry.consumes_row_set        = consumes_row_set;
+    entry.mutates_row_set         = mutates_row_set;
+    entry.additive_writes_row_set = additive_writes_row_set;
+    entry.concurrent_safe         = concurrent_safe;
+
+    const std::string name = entry.schema.name;
+
+    std::unique_lock<std::shared_mutex> lk(registry_mu());
+    auto& reg = registry_map();
+    if (reg.count(name)) {
+        throw RegistryError("pine: duplicate operator registration: \"" + name + "\"");
+    }
+    reg.emplace(name, std::move(entry));
+}
+
 const OperatorEntry* registry_entry(const std::string& type_name) {
     std::shared_lock<std::shared_mutex> lk(registry_mu());
     const auto& reg = registry_map();

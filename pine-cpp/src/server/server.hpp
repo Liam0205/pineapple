@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pine/pine.hpp"
+#include "pine/resource.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -168,6 +169,7 @@ private:
     // State (engine_ protected by engine_mu_ for hot-reload)
     mutable std::shared_mutex engine_mu_;
     std::unique_ptr<Engine> engine_;
+    std::unique_ptr<resource::Manager> resource_manager_;
     std::unique_ptr<Stats> stats_;
     ServerConfig config_;
     std::atomic<bool> running_{false};

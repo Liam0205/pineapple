@@ -1,6 +1,5 @@
 #include "operators/_helpers.hpp"
 #include "pine/operator.hpp"
-#include "redis/connection_pool.hpp"
 #include "redis/redis_client.hpp"
 
 #include <memory>
@@ -25,29 +24,26 @@ public:
         std::string key = rp_.key_prefix + operators::build_key_suffix(frame, key_fields_);
         JsonValue value = frame.common(value_field_);
 
-        // Borrow from the shared pool (P1-P4). See transform_redis_get for
-        // pool semantics; same RAII guard pattern.
-        redis::ConnectionPool::ScopedClient client;
+        std::unique_ptr<redis::Client> client;
         try {
-            client = redis::shared_pool().acquire_scoped(rp_.host, rp_.port, rp_.password, rp_.db);
+            client = std::make_unique<redis::Client>(rp_.host, rp_.port, rp_.password, rp_.db);
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
                 throw ExecutionError("transform_redis_set: write key " + key + ": " + e.what());
             out.set_warning("transform_redis_set: write key " + key + ": " + std::string(e.what()));
             return;
         }
-        if (!client || !client->connected()) {
+        if (!client->connected()) {
             if (rp_.fail_on_error)
                 throw ExecutionError("transform_redis_set: write key " + key + ": connection failed");
             out.set_warning("transform_redis_set: write key " + key + ": connection failed");
             return;
         }
-        redis::Client* cli = client.get();
 
         try {
             if (rp_.data_type == "string") {
                 if (!value.is_string()) return;
-                cli->set(key, value.as_string(), rp_.ttl);
+                client->set(key, value.as_string(), rp_.ttl);
             } else if (rp_.data_type == "set") {
                 auto members = operators::json_to_string_slice(value);
                 if (members.empty()) return;
@@ -58,7 +54,7 @@ public:
                 if (rp_.ttl > 0) {
                     commands.push_back({"EXPIRE", key, std::to_string(rp_.ttl)});
                 }
-                cli->write_multiexec(commands);
+                client->write_multiexec(commands);
             } else if (rp_.data_type == "list") {
                 auto members = operators::json_to_string_slice(value);
                 if (members.empty()) return;
@@ -69,7 +65,7 @@ public:
                 if (rp_.ttl > 0) {
                     commands.push_back({"EXPIRE", key, std::to_string(rp_.ttl)});
                 }
-                cli->write_multiexec(commands);
+                client->write_multiexec(commands);
             } else {
                 throw ExecutionError("transform_redis_set: unsupported data_type \"" + rp_.data_type + "\"");
             }

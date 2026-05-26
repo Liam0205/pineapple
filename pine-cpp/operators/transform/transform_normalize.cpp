@@ -27,7 +27,7 @@ public:
                 }
                 vals.push_back(operators::to_double(v));
             } catch (const operators::OperatorError& err) {
-                throw ExecutionError(op_name_, "transform_normalize: item[" + std::to_string(i) + "]." + field_ + ": " + err.what());
+                throw ExecutionError("transform_normalize: item[" + std::to_string(i) + "]." + field_ + ": " + err.what());
             }
         }
         double minv = *std::min_element(vals.begin(), vals.end());
@@ -54,7 +54,6 @@ static const OperatorSchema k_transform_normalize_schema{
                     .description = "Normalization method."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_normalize_schema,
-    ([] { return std::make_unique<TransformNormalizeOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformNormalizeOp, k_transform_normalize_schema)
 
 }  // namespace pine

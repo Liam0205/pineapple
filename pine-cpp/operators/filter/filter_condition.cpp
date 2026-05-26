@@ -10,7 +10,7 @@ public:
         const auto& params = cfg.params.as_object();
         auto val_it = params.find("value");
         if (val_it == params.end())
-            throw ExecutionError(cfg.name, "filter_condition: missing required param 'value'");
+            throw ExecutionError("filter_condition: missing required param 'value'");
         target_ = operators::sprint_value(val_it->second);
         field_ = cfg.metadata.item_input.at(0);
     }
@@ -35,7 +35,6 @@ static const OperatorSchema k_filter_condition_schema{
                    .description = "Items where field == value are removed."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_filter_condition_schema,
-    ([] { return std::make_unique<FilterConditionOp>(); }))
+PINE_REGISTER_OPERATOR_T(FilterConditionOp, k_filter_condition_schema)
 
 }  // namespace pine

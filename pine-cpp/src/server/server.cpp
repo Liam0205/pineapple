@@ -1,4 +1,5 @@
 #include "server/server.hpp"
+#include "pine/resource.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -112,12 +113,17 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
     std::string buffer;
     char chunk[4096];
 
-    // Read until we get full headers
+    // Read until we get full headers, hard cap headers size at 1MB to prevent OOM.
+    // P2-18: check the cap *after* append rather than before, so a single
+    // chunk that overflows the limit is reliably caught instead of letting
+    // the buffer grow to `max_header_size + chunk_size` before we notice.
+    const std::size_t max_header_size = 1024 * 1024;
     std::string::size_type header_end = std::string::npos;
     while (header_end == std::string::npos) {
         ssize_t n = recv(fd, chunk, sizeof(chunk), 0);
         if (n <= 0) return false;
         buffer.append(chunk, static_cast<size_t>(n));
+        if (buffer.size() > max_header_size) return false;
         header_end = buffer.find("\r\n\r\n");
     }
 
@@ -696,14 +702,22 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     ExecuteResult exec_result;
     run_count_.fetch_add(1, std::memory_order_relaxed);
 
-    static const std::map<std::string, JsonValue> empty_resources;
-
     try {
         TracedResult traced;
+        std::map<std::string, JsonValue> res_snap;
+        if (resource_manager_) res_snap = resource_manager_->snapshot();
+        std::exception_ptr exec_err = nullptr;
         {
             std::shared_lock<std::shared_mutex> lock(engine_mu_);
-            traced = engine_->execute_traced(request, empty_resources);
+            try {
+                engine_->execute_traced_into(request, res_snap, &traced);
+            } catch (...) {
+                exec_err = std::current_exception();
+            }
         }
+        // Match Go: even on partial execution errors, we capture the Projected
+        // result (items and common containing fields up to failure point) as well
+        // as traces/warnings compiled up to the failure point.
         exec_result.result = std::move(traced.result);
         exec_result.warnings = std::move(traced.warnings);
         exec_result.has_result = true;
@@ -732,6 +746,8 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
                 exec_result.trace.push_back(std::move(te));
             }
         }
+
+        if (exec_err) std::rethrow_exception(exec_err);
 
     } catch (const ValidationError& e) {
         exec_result.has_error = true;
@@ -770,13 +786,20 @@ void Server::stop() {
 
 bool Server::reload_config() {
     try {
-        auto new_engine = std::make_unique<Engine>(Engine::from_file(config_.config_path));
         auto new_config = load_config_from_file(config_.config_path);
+        auto new_engine = std::make_unique<Engine>(new_config);
         auto new_expanded = expand_operator_sequence_with_subflows(new_config);
+
+        auto new_resource_manager = std::make_unique<resource::Manager>();
+        new_resource_manager->load_from_config(new_config);
+        new_resource_manager->validate_resource_deps(new_config);
+        new_resource_manager->start();
 
         {
             std::unique_lock lock(engine_mu_);
             engine_ = std::move(new_engine);
+            if (resource_manager_) resource_manager_->stop();
+            resource_manager_ = std::move(new_resource_manager);
         }
 
         stats_->pre_init(new_expanded.sequence);
@@ -832,11 +855,17 @@ int Server::run(const ServerConfig& cfg) {
         config_.middlewares.push_back(http_metrics_middleware(config_.metrics_provider));
     }
 
-    // Load engine
+    // Load engine and start resource manager if configured
     try {
-        engine_ = std::make_unique<Engine>(Engine::from_file(cfg.config_path));
+        auto config = load_config_from_file(cfg.config_path);
+        engine_ = std::make_unique<Engine>(config);
+
+        resource_manager_ = std::make_unique<resource::Manager>();
+        resource_manager_->load_from_config(config);
+        resource_manager_->validate_resource_deps(config);
+        resource_manager_->start();
     } catch (const std::exception& e) {
-        std::cerr << "failed to load engine: " << e.what() << "\n";
+        std::cerr << "failed to load engine/resources: " << e.what() << "\n";
         return 1;
     }
 
@@ -1017,19 +1046,21 @@ int Server::run(const ServerConfig& cfg) {
         ::close(listen_fd_);
         listen_fd_ = -1;
     }
-    // Graceful drain: wait up to ~5s for in-flight handler threads to finish.
-    // Mirrors pine-go http.Server.Shutdown(ctx) with 5s deadline.
+    // Graceful drain: wait for all in-flight handler threads to finish.
+    // No deadline — abandoning still-running threads is a use-after-free
+    // hazard once Server members (engine_, config_, engine_mu_, stats_)
+    // get torn down by ~Server(). Detached threads hold raw `this` and
+    // raw references into those members; outliving the destructor would
+    // touch freed storage.
+    //
+    // Socket read/write timeouts (config_.read_timeout_seconds etc.) bound
+    // the runtime of each individual request, so this loop terminates as
+    // long as no handler is genuinely stuck. If a future regression makes
+    // a handler unbounded, we will deadlock here — that is louder and
+    // safer than the UAF it replaces. Tracked as P0-2.
     std::cerr << "shutting down...\n";
-    {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (in_flight_.load(std::memory_order_relaxed) > 0 &&
-               std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-        int64_t remaining = in_flight_.load(std::memory_order_relaxed);
-        if (remaining > 0) {
-            std::cerr << "shutdown: " << remaining << " in-flight request(s) abandoned after 5s\n";
-        }
+    while (in_flight_.load(std::memory_order_relaxed) > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     return 0;
 }

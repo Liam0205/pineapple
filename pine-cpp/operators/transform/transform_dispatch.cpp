@@ -16,7 +16,7 @@ public:
         if (v.is_null()) {
             auto def = common_defaults_.find(src_);
             if (def != common_defaults_.end()) v = def->second;
-            else throw ExecutionError(op_name_, "required field \"" + src_ + "\" is nil in common");
+            else throw ExecutionError("required field \"" + src_ + "\" is nil in common");
         }
         for (std::size_t j = 0; j < frame.item_count(); ++j) {
             out.set_item(static_cast<int>(j), dst_, v);
@@ -35,7 +35,6 @@ static const OperatorSchema k_transform_dispatch_schema{
     .description = "Copies a common-side field value to every item as an item-side field.",
     .params = {},
 };
-PINE_REGISTER_OPERATOR(k_transform_dispatch_schema,
-    ([] { return std::make_unique<TransformDispatchOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformDispatchOp, k_transform_dispatch_schema)
 
 }  // namespace pine

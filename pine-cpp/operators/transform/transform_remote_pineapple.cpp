@@ -44,7 +44,7 @@ public:
     void init(const OperatorConfig& cfg) override {
         op_name_ = cfg.name;
         if (!cfg.params.is_object())
-            throw ExecutionError(op_name_, "transform_by_remote_pineapple: params must be an object");
+            throw ExecutionError("transform_by_remote_pineapple: params must be an object");
         const auto& params = cfg.params.as_object();
 
         std::string host;
@@ -95,7 +95,7 @@ public:
         if (!allow_private_) {
             std::string reason;
             if (!http::validate_remote_host(host_, &reason))
-                throw ExecutionError(op_name_, "transform_by_remote_pineapple: " + reason);
+                throw ExecutionError("transform_by_remote_pineapple: " + reason);
         }
     }
 
@@ -201,7 +201,7 @@ public:
 private:
     void handle_error(OperatorOutput& out, const std::string& msg) {
         if (fail_on_error_)
-            throw ExecutionError(op_name_, msg);
+            throw ExecutionError(msg);
         out.set_warning(msg);
     }
 
@@ -264,7 +264,6 @@ static const OperatorSchema k_transform_by_remote_pineapple_schema{
                            .description = "Downstream item response field names, positionally mapped to item_output."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_by_remote_pineapple_schema,
-    ([] { return std::make_unique<TransformByRemotePineappleOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformByRemotePineappleOp, k_transform_by_remote_pineapple_schema)
 
 }  // namespace pine

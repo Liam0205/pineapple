@@ -10,7 +10,7 @@ public:
     void init(const OperatorConfig& cfg) override {
         op_name_ = cfg.name;
         if (cfg.metadata.item_input.empty())
-            throw ExecutionError(cfg.name, "reorder_sort requires item_input field");
+            throw ExecutionError("reorder_sort requires item_input field");
         field_ = cfg.metadata.item_input.front();
         item_defaults_ = cfg.item_defaults;
         const auto& obj = cfg.params.as_object();
@@ -32,7 +32,7 @@ public:
                 }
                 keyed.push_back({operators::to_double(v), i});
             } catch (const operators::OperatorError& err) {
-                throw ExecutionError(op_name_, "reorder_sort: item[" + std::to_string(i) + "]." + field_ + ": " + err.what());
+                throw ExecutionError("reorder_sort: item[" + std::to_string(i) + "]." + field_ + ": " + err.what());
             }
         }
         if (order_ == "asc") {
@@ -40,7 +40,7 @@ public:
         } else if (order_ == "desc") {
             std::stable_sort(keyed.begin(), keyed.end(), [](const Keyed& a, const Keyed& b) { return a.v > b.v; });
         } else {
-            throw ExecutionError(op_name_, "reorder_sort: unsupported order \"" + order_ + "\"");
+            throw ExecutionError("reorder_sort: unsupported order \"" + order_ + "\"");
         }
         std::vector<int> order_vec;
         order_vec.reserve(keyed.size());
@@ -63,7 +63,6 @@ static const OperatorSchema k_reorder_sort_schema{
                    .description = "Sort direction \xe2\x80\x94 \"asc\" or \"desc\"."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_reorder_sort_schema,
-    ([] { return std::make_unique<ReorderSortOp>(); }))
+PINE_REGISTER_OPERATOR_T(ReorderSortOp, k_reorder_sort_schema)
 
 }  // namespace pine
