@@ -18,7 +18,7 @@ echo "    Compiling Java + resolving classpath..."
 export JAVA_CP="$REPO_ROOT/pine-java/target/classes:$(cd "$REPO_ROOT/pine-java" && mvn dependency:build-classpath -B -q -Dmdep.outputFile=/dev/stdout 2>/dev/null | tail -1)"
 
 echo "    Building C++ CLIs..."
-# P1-D2: surface failures instead of silently skipping the C++ binaries.
+# Surface failures instead of silently skipping the C++ binaries.
 # Previously this block redirected cmake/make output to /dev/null and
 # fell back to printing "C++ build skipped or failed" without setting a
 # non-zero exit. That meant CI ran cross-validation with the four CPP_*

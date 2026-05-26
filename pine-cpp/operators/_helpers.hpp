@@ -22,7 +22,7 @@ double to_double(const JsonValue& value);
 
 // json_type_name returns the Go-reflect-style type name for a JsonValue.
 // Used in operator error messages to mirror Go's `%T` output (e.g.
-// `[]interface {}` and `map[string]interface {}`). P2-19 consolidation —
+// `[]interface {}` and `map[string]interface {}`). Consolidation —
 // previously each operator that needed this had a private copy that
 // returned the C++-native form (`array` / `object`), creating two
 // inconsistent vocabularies in the same codebase.
@@ -35,7 +35,7 @@ JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t
 // that cached `op_name_` / `common_defaults_` / `item_defaults_` on `init`
 // (transform_copy, transform_normalize, reorder_sort, ...) used to keep a
 // per-class copy of these helpers; consolidated to one place so future
-// error-message tweaks land once. P2-12.
+// error-message tweaks land once.
 JsonValue require_common_by_name(const Frame& frame,
                                   const std::map<std::string, JsonValue>& defaults,
                                   const std::string& field);
@@ -48,7 +48,7 @@ std::string go_format_g(double d);
 // integer-valued floats serialize with FormatInt (no decimal point) and
 // non-integer floats with FormatFloat(v, 'f', -1, 64) — never scientific.
 // transform_resource_lookup uses this for table keys so `1e-5` (lookup
-// value) matches the `0.00001` key form pine-go produces. R3-H4.
+// value) matches the `0.00001` key form pine-go produces.
 std::string go_format_lookup_key(double d);
 std::string sprint_value(const JsonValue& v);
 std::string any_to_string(const JsonValue& v);

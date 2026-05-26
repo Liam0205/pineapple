@@ -48,7 +48,6 @@ parse_sections() {
 # section script count, not a hard-coded constant. Avoids the recurring
 # "bump TOTAL_SECTIONS in two files" anti-pattern flagged across multiple
 # llmdoc reflections (p2-refactor-cross-validate-scripts, v072-074-llmdoc).
-# P2-21.
 TOTAL_SECTIONS=$(ls "$CV_DIR"/[0-9][0-9]-*.sh 2>/dev/null | wc -l)
 export TOTAL_SECTIONS
 

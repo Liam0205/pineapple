@@ -562,7 +562,7 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
         # Randomly attach skip to some ops — but only if the operator has
         # at least one non-skip common_input field. Otherwise skip filtering
         # would empty CommonInput, causing operators that read CommonInput[0]
-        # (dispatch, paginate) to panic on empty access. V-10.
+        # (dispatch, paginate) to panic on empty access.
         if use_skip and skip_field and rng.random() < 0.3:
             existing_common = op_config["$metadata"]["common_input"]
             non_skip_common = [f for f in existing_common if f != skip_field]
@@ -579,20 +579,53 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
         operators[op_name] = op_config
         pipeline.append(op_name)
 
-    # DF-G1: when ≥2 recall-type ops exist AND filter_paginate is downstream,
-    # the parallel recalls produce non-deterministic item ordering → paginate
-    # cuts a position-dependent window → different item SETS each run (not
-    # just different order). Insert a stabilizing sort on _fuzz_distinctive_score
-    # just before the first paginate so its input is deterministic.
-    recall_count = sum(1 for v in operators.values()
-                       if v.get("type_name") in ("recall_static", "recall_resource")
-                       or v.get("recall"))
-    if recall_count >= 2 and "_fuzz_distinctive_score" in item_outputs:
-        paginate_indices = [i for i, name in enumerate(pipeline)
-                           if operators.get(name, {}).get("type_name") == "filter_paginate"]
-        if paginate_indices:
-            insert_at = paginate_indices[0]
-            stab_name = "_stabilize_sort"
+    # Row-set mutators/consumers split the pipeline into sections.
+    # Within a section, multiple recall ops can run in parallel, producing
+    # non-deterministic item ordering. For each section that contains ≥2
+    # recalls, insert a stabilizing sort just before the section's ending
+    # boundary (the next row-set mutator/consumer).
+    #
+    # Boundary = ConsumesRowSet or MutatesRowSet marker (from Go operator
+    # definitions in pine-go/operators/). OR implicit consumer: any op with
+    # item_input or item_output (the DAG auto-injects _row_set_ read).
+    # The explicit set must be updated when new operators are added.
+    recall_types = ("recall_static", "recall_resource")
+    # ConsumesRowSet and/or MutatesRowSet — from pine-go operator markers
+    _row_set_boundary_types = frozenset({
+        # ConsumesRowSet + MutatesRowSet
+        "filter_truncate", "filter_paginate", "filter_condition",
+        "reorder_sort", "reorder_shuffle_by_salt",
+        "merge_dedup",
+        # ConsumesRowSet only
+        "transform_size",
+        "transform_by_remote_pineapple",
+    })
+
+    def _is_row_set_boundary(op_config: dict) -> bool:
+        tn = op_config.get("type_name", "")
+        if tn in _row_set_boundary_types:
+            return True
+        meta = op_config.get("$metadata", {})
+        if meta.get("item_input") or meta.get("item_output"):
+            return True
+        return False
+
+    if "_fuzz_distinctive_score" in item_outputs:
+        section_recalls = 0
+        insert_positions: list[int] = []
+        for i, name in enumerate(pipeline):
+            op = operators.get(name, {})
+            tn = op.get("type_name", "")
+            is_recall = tn in recall_types or op.get("recall")
+            if is_recall:
+                section_recalls += 1
+            elif _is_row_set_boundary(op):
+                if section_recalls >= 2:
+                    insert_positions.append(i)
+                section_recalls = 0
+        # Insert in reverse order to preserve indices
+        for pos in reversed(insert_positions):
+            stab_name = f"_stabilize_sort_{pos}"
             operators[stab_name] = {
                 "type_name": "reorder_sort",
                 "order": "asc",
@@ -603,7 +636,7 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
                     "item_output": [],
                 },
             }
-            pipeline.insert(insert_at, stab_name)
+            pipeline.insert(pos, stab_name)
 
     # ~40% chance: append a trailing sort on _fuzz_distinctive_score (enables strict order check)
     strict_order = False
@@ -672,11 +705,11 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
         group_pipeline = pipeline
 
     # Randomly inject storage_mode
-    # R3-X5: 50/50 storage_mode split. The prior 75% row / 25% column bias
+    # 50/50 storage_mode split. The prior 75% row / 25% column bias
     # was inherited from when pine-python and pine-cpp lacked RowFrame
     # impls — the row mode silently downgraded to column on those engines,
     # so 75% bias was a way to over-sample what was effectively column.
-    # With R3-L3 (cpp) + R3-X1 (python) both impls real on every engine,
+    # With both impls real on every engine,
     # equal weighting exercises each path equally and surfaces row-vs-
     # column drift faster.
     storage_mode = rng.choice(["row", "column"])
@@ -930,7 +963,7 @@ class JavaEngine(Engine):
 
 
 class CppEngine(Engine):
-    """Pine-cpp backend (R3-X4). Invokes the same pineapple-run binary
+    """Pine-cpp backend. Invokes the same pineapple-run binary
     shape as GoEngine; built via CMake into pine-cpp/build/pineapple-run.
     """
     name = "cpp"
@@ -1121,7 +1154,7 @@ def main():
                         help="Comma-separated engines to compare (go,python,java,cpp)")
     parser.add_argument("--go-bin", type=str, default="")
     parser.add_argument("--cpp-bin", type=str, default="",
-                        help="Path to pine-cpp pineapple-run binary (R3-X4)")
+                        help="Path to pine-cpp pineapple-run binary")
     parser.add_argument("--save-dir", type=str, default="")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--stability-runs", type=int, default=0,
@@ -1181,7 +1214,7 @@ def main():
     unstable = 0
     stats = {"flat": 0, "subflow": 0, "nested": 0, "deep_nested": 0, "column": 0, "skip": 0,
              "data_parallel": 0, "strict_order": 0, "error_path": 0,
-             # R3-X5: row mode count + per-storage-mode pass/fail buckets so
+             # Row mode count + per-storage-mode pass/fail buckets so
              # the summary surfaces stratification across the two impls.
              "row": 0, "pass_row": 0, "pass_column": 0, "fail_row": 0, "fail_column": 0,
              # New dimensions
@@ -1331,7 +1364,7 @@ def main():
 
                 if all_match:
                     passed += 1
-                    # R3-X5: stratify pass/fail by storage_mode so the summary
+                    # Stratify pass/fail by storage_mode so the summary
                     # exposes row-vs-column divergence rates.
                     if config.get("storage_mode") == "column":
                         stats["pass_column"] += 1
@@ -1391,7 +1424,7 @@ def main():
     print(f"            sources={stats['sources']} defaults={stats['defaults']}")
     print(f"            merge_dedup={stats['merge_dedup']} shuffle_by_salt={stats['shuffle_by_salt']} paginate={stats['paginate']}")
     print(f"            resource_lookup={stats['resource_lookup']} recall_resource={stats['recall_resource']}")
-    # R3-X5 stratified summary:
+    # Stratified summary:
     print(f"  Storage stratified pass/fail:  row={stats['pass_row']}/{stats['fail_row']}  column={stats['pass_column']}/{stats['fail_column']}")
     if failed > 0:
         print(f"  Divergences: {save_dir}")

@@ -49,8 +49,7 @@ func splitInput(input *types.OperatorInput, n int) ([]*types.OperatorInput, []in
 // to Transform without common_output (enforced by config validation), so
 // shards may only emit item_writes, removed_items, and warnings. If any
 // shard emits added_items, item_order, or common writes, we panic rather
-// than silently drop — that path used to be a silent corruption surface
-// (inc1 #4).
+// than silently drop — that path used to be a silent corruption surface.
 func mergeOutputs(opName string, outputs []*types.OperatorOutput, offsets []int) *types.OperatorOutput {
 	merged := types.NewOperatorOutput()
 

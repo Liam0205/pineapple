@@ -30,7 +30,6 @@ namespace http {
 // there even if init-time host_is_private misses them. The dial-time
 // guard is therefore the load-bearing defense; host_is_private is a
 // fast-fail layer for the shapes we can catch syntactically.
-// (P2-25 — inc-6 follow-up)
 //
 // `error_out` (when non-null) receives a human-readable reason on rejection.
 bool host_is_private(const std::string& host, std::string* error_out = nullptr);

@@ -12,7 +12,7 @@ echo "      Java   outer.getCause() instanceof Inner"
 echo "      Python isinstance(outer.__cause__, Inner)"
 echo "      C++    pine::error_as<Inner>(outer)"
 
-# P2-24: read the expected probe output from the fixture so the
+# Read the expected probe output from the fixture so the
 # canonical string lives in one place (the fixture documents the
 # scenario; the script enforces it). Falls back to the hard-coded
 # value if the fixture is missing, to keep the smoke path resilient.

@@ -289,8 +289,8 @@ std::string go_format_json_number(double d) {
     return std::string(buf, ptr);
 }
 
-// dump_impl writes the JSON serialization of `value` into `out`. P2-01:
-// the earlier signature returned a fresh std::string per call and used
+// dump_impl writes the JSON serialization of `value` into `out`.
+// The earlier signature returned a fresh std::string per call and used
 // std::ostringstream for every array / object, allocating O(depth) extra
 // buffers on deeply nested values. Threading the output `std::string&`
 // through the recursion eliminates those temporaries — each character is

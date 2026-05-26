@@ -16,7 +16,7 @@ namespace redis {
 // ConnectionPool caches Redis connections keyed by (host, port, db, password)
 // so that hot operators (transform_redis_get / transform_redis_set) avoid
 // the full getaddrinfo + socket + connect + AUTH + SELECT round-trip on
-// every dispatch. P1-P4.
+// every dispatch.
 //
 // Acquire returns a connection (creating a new one if the idle queue for
 // the key is empty); release returns it to the queue. Both calls are
@@ -29,7 +29,7 @@ namespace redis {
 // connections are destroyed rather than pooled, bounding memory when a
 // spike subsides. Health-pinging on reuse (PING before each acquire) is
 // still a follow-up; the timestamp + connected() check covers most
-// silent-broker-close cases. (P2-28)
+// silent-broker-close cases.
 class ConnectionPool {
 public:
     static constexpr std::size_t kMaxIdlePerKey = 16;
@@ -55,7 +55,7 @@ public:
     // ScopedClient is the RAII handle returned by acquire_scoped. It owns
     // the Client and bundles the pool + key so the destructor can release
     // back without the caller wiring up a per-operator guard. Moved-from
-    // instances are inert. (P2-29)
+    // instances are inert.
     class ScopedClient {
     public:
         ScopedClient() = default;

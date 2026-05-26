@@ -7,7 +7,7 @@ land here. Format loosely follows [Keep a Changelog](https://keepachangelog.com)
 
 ### Changed
 
-- **`ExecutionError.__init__` signature evolution (issue #34, P1-E5 in code
+- **`ExecutionError.__init__` signature evolution (issue #34, in code
   review).** The modern canonical form is `ExecutionError(operator, cause)`;
   when `cause` is a `BaseException` it is stored on `__cause__` so downstream
   code can do `isinstance(err.__cause__, RedisError)` (parity with Go

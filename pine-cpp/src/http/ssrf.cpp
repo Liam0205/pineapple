@@ -183,7 +183,7 @@ bool host_is_private(const std::string& host, std::string* error_out) {
         if (error_out) *error_out = "host \"" + host + "\" is not allowed (private/loopback)";
         return true;
     }
-    // P2-17: reject any character outside the RFC 1123 hostname charset
+    // Reject any character outside the RFC 1123 hostname charset
     // (letters, digits, dot, hyphen) or IPv6 literal charset (hex, colon).
     // Stops URL-smuggling shapes like `trusted.com/@127.0.0.1` where the
     // libcurl parser would interpret the `/@127.0.0.1` tail as userinfo /

@@ -123,7 +123,7 @@ void Client::read_into(char* dst, std::size_t n) {
             // Drain directly into the caller buffer — no per-syscall 4 KB
             // staging copy. The previous variant read into a stack chunk
             // and memcpy'd out, paying 2× memory traffic on every large
-            // bulk read. (P2-31)
+            // bulk read.
             ssize_t got = read(fd_, dst, n);
             if (got <= 0) throw std::runtime_error("redis read failed");
             dst += got;

@@ -45,7 +45,7 @@ func (o *PaginateOp) Execute(_ context.Context, in *pine.OperatorInput, out *pin
 	if n == 0 {
 		return nil
 	}
-	// V-10: guard against empty CommonInput (skip may filter all fields).
+	// Guard against empty CommonInput (skip may filter all fields).
 	if len(o.CommonInput) < 2 {
 		return nil
 	}

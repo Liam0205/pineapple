@@ -12,7 +12,7 @@ namespace {
 // Capture the constructing thread's call stack as text. Returns empty
 // when the toolchain lacks std::stacktrace linkage (CMake probe sets
 // PINE_HAS_STACKTRACE). Mirrors pine-go's runtime.Stack() snapshot taken
-// inside the recovery deferred function. R3-L1.
+// inside the recovery deferred function.
 std::string capture_stack() {
 #if defined(PINE_HAS_STACKTRACE)
     try {

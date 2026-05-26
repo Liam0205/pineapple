@@ -26,7 +26,7 @@ public:
 
         // Borrow a connection from the shared pool to avoid the full
         // getaddrinfo + connect + AUTH + SELECT round-trip on every
-        // dispatch. P1-P4.
+        // dispatch.
         redis::ConnectionPool::ScopedClient client;
         try {
             client = redis::shared_pool().acquire_scoped(rp_.host, rp_.port, rp_.password, rp_.db);

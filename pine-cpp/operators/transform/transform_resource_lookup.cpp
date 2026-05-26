@@ -50,7 +50,7 @@ public:
             if (field_val.is_string()) {
                 key = field_val.as_string();
             } else if (field_val.is_number()) {
-                // R3-H4: lookup keys must use FormatInt / FormatFloat('f')
+                // Lookup keys must use FormatInt / FormatFloat('f')
                 // — never scientific — to match pine-go resource_lookup.go.
                 key = operators::go_format_lookup_key(field_val.as_number());
             } else {

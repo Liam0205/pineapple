@@ -115,7 +115,7 @@ public class RunCli {
             return;
         }
 
-        // R3-X4 follow-up: avoid mapper.convertValue here. The GoFormat
+        // Follow-up: avoid mapper.convertValue here. The GoFormat
         // ObjectMapper installs a Double serializer that writes -0.0 as
         // `gen.writeRawValue("-0")` for byte-exact parity with Go's
         // json.Marshal. convertValue routes the value through a Jackson

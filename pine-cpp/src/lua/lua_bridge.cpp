@@ -66,7 +66,7 @@ void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, in
         lua_setglobal(L, key.c_str());
     }
 
-    // P1-E3: Re-open the safe built-in libraries so any sub-table mutation
+    // Re-open the safe built-in libraries so any sub-table mutation
     // done by the script (`math.huge = 0`, `string.format = nil`, ...) is
     // wiped before the next borrow. This is the effective equivalent of
     // deep-cloning the baseline tables — luaopen_* allocates fresh table
@@ -97,7 +97,7 @@ void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, in
     //
     // Stored as a sorted constexpr array of string_view + std::binary_search:
     // every release_vm hits this list, and the prior std::set required heap
-    // allocations of every entry the first time the function ran. (P2-32)
+    // allocations of every entry the first time the function ran.
     static constexpr std::string_view kSkipBuiltins[] = {
         // sorted lexicographically — binary_search relies on this
         "_G", "_VERSION",

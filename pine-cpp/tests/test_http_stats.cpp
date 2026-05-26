@@ -38,7 +38,7 @@ TEST_CASE("HttpStats records and sorts entries") {
     CHECK(durs["GET _other"].sum_ns == 100);
 }
 
-TEST_CASE("HttpStats key contains METHOD path bucket but path normalized to whitelist (P1-D7)") {
+TEST_CASE("HttpStats key contains METHOD path bucket but path normalized to whitelist") {
     // Defensive check: the request_total key is `<METHOD> <path> <bucket>`
     // space-separated. If a future path contained a space, the key would
     // ambiguous. The Section 13 +9 schema check on /stats.http already

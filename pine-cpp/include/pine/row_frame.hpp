@@ -21,7 +21,7 @@ namespace pine {
 // Internally thread-safe via shared_mutex (same locking discipline as
 // ColumnFrame).
 //
-// R3-L3: added when pine-cpp grew dual physical representation to match
+// Added when pine-cpp grew dual physical representation to match
 // pine-go's Frame interface. Selected via Config.storage_mode = "row".
 class RowFrame : public Frame {
 public:

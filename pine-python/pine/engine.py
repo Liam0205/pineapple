@@ -514,7 +514,7 @@ class Engine:
                 # name and a structured `operator "X": <segment>: <msg>` body
                 # — wrap it once with the standard execution-error prefix to
                 # match Go/Java/C++ byte-for-byte. Other exceptions get the
-                # original `apply output: ` segment for legacy reasons. R3-H2.
+                # original `apply output: ` segment for legacy reasons.
                 if isinstance(apply_err, ExecutionError):
                     # str(ExecutionError) already starts with `operator "X": `;
                     # strip the redundant `operator "X": ` so the final wrap

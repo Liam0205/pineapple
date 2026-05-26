@@ -23,7 +23,7 @@ std::unique_ptr<RowFrame> make_row_frame() {
 
 }  // namespace
 
-TEST_CASE("RowFrame: construction + reads (R3-L3)") {
+TEST_CASE("RowFrame: construction + reads") {
     auto frame = make_row_frame();
     CHECK(frame->item_count() == 3);
     CHECK(frame->common("region").as_string() == "us");
@@ -33,7 +33,7 @@ TEST_CASE("RowFrame: construction + reads (R3-L3)") {
     CHECK_FALSE(frame->item_has(0, "missing"));
 }
 
-TEST_CASE("RowFrame: apply_output runs 5 stages (R3-L3)") {
+TEST_CASE("RowFrame: apply_output runs 5 stages") {
     auto frame = make_row_frame();
     OperatorOutput out;
     out.set_common("region", JsonValue(std::string("eu")));
@@ -46,14 +46,14 @@ TEST_CASE("RowFrame: apply_output runs 5 stages (R3-L3)") {
     CHECK(frame->item(3, "id").as_number() == 4.0);
 }
 
-TEST_CASE("RowFrame: apply_output rejects NaN/Inf (R3-L3)") {
+TEST_CASE("RowFrame: apply_output rejects NaN/Inf") {
     auto frame = make_row_frame();
     OperatorOutput out;
     out.set_common("ratio", JsonValue(std::numeric_limits<double>::quiet_NaN()));
     CHECK_THROWS_AS(frame->apply_output(out, "op", false), ExecutionError);
 }
 
-TEST_CASE("RowFrame: window view + bounds check (R3-L3)") {
+TEST_CASE("RowFrame: window view + bounds check") {
     auto frame = make_row_frame();
     CHECK_THROWS_AS(frame->make_window_view(0, 4), Error);
     auto view = frame->make_window_view(1, 2);
@@ -68,7 +68,7 @@ TEST_CASE("RowFrame: window view + bounds check (R3-L3)") {
     CHECK_THROWS_AS(view->to_result({"region"}, {"id"}), Error);
 }
 
-TEST_CASE("make_frame factory selects implementation by storage_mode (R3-L3)") {
+TEST_CASE("make_frame factory selects implementation by storage_mode") {
     std::map<std::string, JsonValue> common{{"r", JsonValue(std::string("v"))}};
     std::vector<std::map<std::string, JsonValue>> items{{{"id", JsonValue(1.0)}}};
     auto col = make_frame("column", common, items);
