@@ -14,6 +14,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <functional>
 #include <set>
 #include <shared_mutex>
 #include <sstream>
@@ -27,7 +29,7 @@ void OperatorOutput::set_common(const std::string& field, JsonValue value) {
 }
 
 void OperatorOutput::set_item(int index, const std::string& field, JsonValue value) {
-    item_writes_[index][field] = std::move(value);
+    item_writes_.push_back(ItemWrite{index, field, std::move(value)});
 }
 
 void OperatorOutput::add_item(std::map<std::string, JsonValue> fields) {
@@ -52,7 +54,9 @@ void OperatorOutput::set_warning(std::string msg) {
 
 namespace {
 
-using Frame = ColumnFrame;
+// Frame is the polymorphic base now (R3-L3); helpers in this TU still
+// use unqualified `Frame` for brevity, which resolves to ::pine::Frame.
+using Frame = ::pine::Frame;
 
 bool should_skip(const Frame& frame, const OperatorConfig& op) {
     for (const auto& field : op.skip) {
@@ -82,6 +86,11 @@ void validate_request(const Request& request, const FlowContract& contract) {
 // OpTrace.InputSnapshot when debug=true. Includes only declared input fields
 // (filtered by skip), with defaults substituted for missing/null values.
 // Items section omitted entirely when no item input field has any value.
+//
+// R3-L4: pine-go derives this from the projected OperatorInput so fields
+// that are unset and have no default never appear in the snapshot. The
+// earlier C++ version inserted JsonValue() (null) placeholders for those
+// fields, polluting trace output relative to Go.
 JsonValue snapshot_input(const Frame& frame, const OperatorConfig& op) {
     JsonValue::object_t snap;
     std::set<std::string> skip_set(op.skip.begin(), op.skip.end());
@@ -94,9 +103,8 @@ JsonValue snapshot_input(const Frame& frame, const OperatorConfig& op) {
             common[field] = v;
         } else if (auto def = op.common_defaults.find(field); def != op.common_defaults.end()) {
             common[field] = def->second;
-        } else {
-            common[field] = JsonValue();
         }
+        // else: omit — matches Go BuildInput projection semantics.
     }
     if (!common.empty()) snap["common"] = JsonValue(std::move(common));
 
@@ -112,9 +120,8 @@ JsonValue snapshot_input(const Frame& frame, const OperatorConfig& op) {
                     row[field] = v;
                 } else if (auto def = op.item_defaults.find(field); def != op.item_defaults.end()) {
                     row[field] = def->second;
-                } else {
-                    row[field] = JsonValue();
                 }
+                // else: omit — matches Go BuildInput projection semantics.
             }
             if (!row.empty()) has_data = true;
             items.push_back(JsonValue(std::move(row)));
@@ -137,8 +144,16 @@ JsonValue snapshot_output(const OperatorOutput& out) {
     }
 
     if (!out.item_writes().empty()) {
+        // The vector log can hold multiple writes for the same (idx, field);
+        // group by idx and let later writes overwrite earlier ones to
+        // preserve the snapshot's "final state" semantics. apply_output
+        // also replays the vector in order so the on-frame state matches.
+        std::map<int, std::map<std::string, JsonValue>> grouped;
+        for (const auto& w : out.item_writes()) {
+            grouped[w.index][w.field] = w.value;
+        }
         JsonValue::object_t iw;
-        for (const auto& [idx, fields] : out.item_writes()) {
+        for (const auto& [idx, fields] : grouped) {
             JsonValue::object_t row;
             for (const auto& [field, value] : fields) row[field] = value;
             iw[std::to_string(idx)] = JsonValue(std::move(row));
@@ -257,18 +272,11 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     graph_ = build_dag(config_, expanded_);
     engine_metrics_ = build_engine_metrics(metrics_provider_, expanded_.sequence);
 
-    // Validate sources order matching pine-go validateSourcesOrder.
-    // Sources references must exist and be declared before the current operator.
-    std::set<std::string> seen_ops;
-    for (const auto& op_name : expanded_.sequence) {
-        const auto& op_cfg = config_.operators.at(op_name);
-        for (const auto& src : op_cfg.sources) {
-            if (!seen_ops.count(src)) {
-                throw ValidationError("operator \"" + op_name + "\": sources references \"" + src + "\" which is declared after the current operator (forward reference)");
-            }
-        }
-        seen_ops.insert(op_name);
-    }
+    // Forward-reference validation runs inside build_dag() above
+    // (dag.cpp:155 raises ConfigError("operator \"X\": sources contains
+    // forward reference to \"Y\"")), so by the time we reach this point
+    // every operator's sources are guaranteed to refer to nodes already
+    // visited. A second native-side check would be dead code (P1-D4).
 
     // Instantiate and init one Operator per config operator.
     for (auto& [op_name, op_cfg] : config_.operators) {
@@ -305,6 +313,20 @@ void dispatch_operator(const Frame& frame, const OperatorConfig& op,
 }
 
 void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
+    // Strict common-field nil check — mirrors pine-go column_frame.go:93-97
+    // BuildInput. Strict fields are those listed in $metadata.common_input
+    // without a corresponding default in common_defaults. Common-side
+    // validation runs once per operator (not per item) and produces the
+    // canonical "required field "X" is nil in common" message. R3-M2.
+    for (const auto& field : op.metadata.common_input) {
+        if (op.common_defaults.count(field)) continue;
+        if (!frame.has_common(field)) {
+            throw ExecutionError(op.name, "required field \"" + field + "\" is nil in common");
+        }
+        if (frame.common(field).is_null()) {
+            throw ExecutionError(op.name, "required field \"" + field + "\" is nil in common");
+        }
+    }
     for (std::size_t i = 0; i < frame.item_count(); ++i) {
         for (const auto& field : op.metadata.item_input) {
             if (op.item_defaults.count(field)) continue;
@@ -314,6 +336,83 @@ void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
             }
         }
     }
+}
+
+// validate_output_against_type mirrors pine-go types.OperatorType.ValidateOutput
+// (operator.go:57-150). After an operator runs, the engine checks that its
+// OperatorOutput only used the methods allowed for its declared OperatorType
+// — e.g. a Recall must not SetCommon/SetItem/RemoveItem/SetItemOrder.
+// Violations throw a two-arg ExecutionError(op_name, "type violation: ..."),
+// matching Go scheduler.go:172 which wraps the bare violation with
+// `fmt.Errorf("type violation: %w", vErr)` before the standard
+// `pine: execution error in operator "X": ...` prefix layer.
+//
+// Error format (Go-compatible byte-exact): `type violation: operator type X
+// must not call [Method1 Method2]`. The bracketed list mimics Go's `%v`
+// formatting of a []string (single space separator, no quotes).
+void validate_output_against_type(const std::string& op_name,
+                                  const std::string& op_type,
+                                  const OperatorOutput& out) {
+    const bool has_cw = !out.common_writes().empty();
+    const bool has_iw = !out.item_writes().empty();
+    const bool has_ai = !out.added_items().empty();
+    const bool has_ri = !out.removed_items().empty();
+    const bool has_io = out.has_item_order();
+
+    std::vector<std::string> violations;
+    // Note: op_type comes from OperatorConfig::operator_type which is the
+    // lowercase form ("recall" / "transform" / ...). pine-go's OperatorType
+    // is PascalCase ("Recall") and gets formatted into the error verbatim,
+    // so we need the PascalCase form here for byte-exact parity.
+    std::string display_type;
+    if (op_type == "recall") {
+        display_type = "Recall";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ri) violations.push_back("RemoveItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "transform") {
+        display_type = "Transform";
+        if (has_ai) violations.push_back("AddItem");
+        if (has_ri) violations.push_back("RemoveItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "filter") {
+        display_type = "Filter";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "merge") {
+        display_type = "Merge";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else if (op_type == "reorder") {
+        display_type = "Reorder";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_ri) violations.push_back("RemoveItem");
+    } else if (op_type == "observe") {
+        display_type = "Observe";
+        if (has_cw) violations.push_back("SetCommon");
+        if (has_iw) violations.push_back("SetItem");
+        if (has_ai) violations.push_back("AddItem");
+        if (has_ri) violations.push_back("RemoveItem");
+        if (has_io) violations.push_back("SetItemOrder");
+    } else {
+        return;  // unknown type — earlier validation should already have failed
+    }
+
+    if (violations.empty()) return;
+    std::string list = "[";
+    for (std::size_t i = 0; i < violations.size(); ++i) {
+        if (i > 0) list += " ";
+        list += violations[i];
+    }
+    list += "]";
+    throw ExecutionError(op_name, "type violation: operator type " + display_type +
+                                  " must not call " + list);
 }
 
 // dispatch_with_recovery runs dispatch_operator and converts any non-pine::Error
@@ -343,7 +442,11 @@ void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
     } catch (const std::exception& e) {
         std::throw_with_nested(PanicError(op.name, e.what()));
     } catch (...) {
-        throw PanicError(op.name, "unknown exception");
+        // Non-std::exception payloads (`throw 42;`, `throw "literal";`) are
+        // rare but legal. throw_with_nested still captures them so
+        // pine::error_as<T>() can at least walk the chain even if no frame
+        // dynamic_casts to a useful type. P2-23.
+        std::throw_with_nested(PanicError(op.name, "unknown exception"));
     }
 }
 
@@ -360,15 +463,16 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
                         int offset, const std::string& op_name) {
     if (!src.added_items().empty() || src.has_item_order() ||
         !src.common_writes().empty()) {
+        // Message body must match pine-go/parallel.go:65, pine-java
+        // ParallelExecutor.java:85, and pine-python parallel.py:86-88
+        // byte-for-byte — PanicError values are part of the cross-runtime
+        // contract (memory: "运行时错误对等需字节级一致"). (P2-27)
         throw PanicError(op_name,
             "data_parallel shard emitted added_items, item_order, or common "
-            "writes; only item_writes / removed_items / warnings are allowed "
-            "(see parallel_execute preconditions)");
+            "writes; only item_writes / removed_items / warnings are allowed");
     }
-    for (const auto& [idx, fields] : src.item_writes()) {
-        for (const auto& [field, value] : fields) {
-            dst.set_item(idx + offset, field, value);
-        }
+    for (const auto& [idx, field, value] : src.item_writes()) {
+        dst.set_item(idx + offset, field, value);
     }
     for (int idx : src.removed_items()) {
         dst.remove_item(idx + offset);
@@ -408,13 +512,13 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     int base = total / n;
     int rem = total % n;
 
-    // Materialize the source frame's common into a plain map for shard
-    // construction. The original ColumnFrame's resources pointer is shared.
-    std::map<std::string, JsonValue> common_snapshot;
-    for (const auto& f : frame.common_fields()) {
-        common_snapshot[f] = frame.common(f);
-    }
-
+    // Build shards as zero-copy window views into the parent frame's
+    // ColumnStore (P2-05). Previously each shard materialised its rows
+    // into a fresh row-major list and then back into a per-shard
+    // ColumnStore — costing 2 × column-cell touches per request just to
+    // set up parallelism. The window view shares parent storage with an
+    // (offset, count) translation; the parent is read-only during the
+    // shard window (no apply_output until merge_shard_output below).
     std::vector<std::unique_ptr<Frame>> shards;
     shards.reserve(static_cast<std::size_t>(n));
     std::vector<OperatorOutput> shard_outs(static_cast<std::size_t>(n));
@@ -422,14 +526,8 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     int cursor = 0;
     for (int i = 0; i < n; ++i) {
         int size = base + (i < rem ? 1 : 0);
-        std::vector<std::map<std::string, JsonValue>> shard_items;
-        shard_items.reserve(static_cast<std::size_t>(size));
-        for (int j = 0; j < size; ++j) {
-            auto obj = frame.item_object(static_cast<std::size_t>(cursor + j));
-            shard_items.emplace_back(obj.begin(), obj.end());
-        }
-        auto shard = std::make_unique<Frame>(common_snapshot, std::move(shard_items));
-        shard->set_resources(frame.resources());
+        auto shard = frame.make_window_view(static_cast<std::size_t>(cursor),
+                                              static_cast<std::size_t>(size));
         shards.push_back(std::move(shard));
         offsets[static_cast<std::size_t>(i)] = cursor;
         cursor += size;
@@ -437,14 +535,26 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
 
     std::mutex err_mu;
     std::exception_ptr first_err;
+    // shard-level cancellation: first shard to fail flips this flag so
+    // un-started shards bail out before invoking dispatch_with_recovery.
+    // Mirrors pine-go parallel.go:118 — `cancel()` after errOnce.Do.
+    // Shards already running cannot be interrupted mid-execute (operators
+    // are not designed to be re-entrant against cancel during their own
+    // execute body), so the saving is for shards still queued in the
+    // ThreadPool / awaiting their thread slot. R3-M3.
+    std::atomic<bool> shard_cancel{false};
 
     auto shard_body = [&](int i) {
+        if (shard_cancel.load(std::memory_order_acquire)) return;
         try {
             dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op, operators,
                                    shard_outs[static_cast<std::size_t>(i)]);
         } catch (...) {
             std::lock_guard<std::mutex> lk(err_mu);
-            if (!first_err) first_err = std::current_exception();
+            if (!first_err) {
+                first_err = std::current_exception();
+                shard_cancel.store(true, std::memory_order_release);
+            }
         }
     };
 
@@ -486,7 +596,8 @@ std::vector<OpTrace> run_dag(const Config& config,
                              bool collect_traces,
                              std::atomic<int64_t>* peak_concurrency = nullptr,
                              Engine::EngineMetrics* em = nullptr,
-                             runtime::ThreadPool* shard_pool = nullptr) {
+                             runtime::ThreadPool* shard_pool = nullptr,
+                             std::stop_token external_cancel = std::stop_token{}) {
     const std::size_t n = graph.nodes.size();
 
     if (em && em->scheduler_runs) em->scheduler_runs->inc();
@@ -530,6 +641,23 @@ std::vector<OpTrace> run_dag(const Config& config,
     // sleep_for. P1-P2.
     std::stop_source cancel_source;
     auto stop_token = cancel_source.get_token();
+
+    // Bridge the caller-supplied external cancel token (e.g. client disconnect
+    // signal from server.cpp) into the engine-internal cancel_source. The
+    // callback fires once when external_cancel.request_stop() is called and
+    // forwards it to cancel_source so every cv.wait(lock, stop_token, pred)
+    // currently parked in this DAG returns immediately. Mirrors pine-go's
+    // Execute(ctx, req) flow where the scheduler watches ctx.Done() at
+    // every wait. R3-H3.
+    //
+    // RAII ordering: declared after cancel_source so it destructs first —
+    // the callback is unregistered before cancel_source's stop_state is
+    // destroyed, avoiding any use-after-free across threads.
+    std::optional<std::stop_callback<std::function<void()>>> external_link;
+    if (external_cancel.stop_possible()) {
+        external_link.emplace(external_cancel,
+            std::function<void()>([&cancel_source] { cancel_source.request_stop(); }));
+    }
 
     auto fail = [&](std::exception_ptr e) {
         std::lock_guard<std::mutex> lk(fatal_mu);
@@ -612,6 +740,10 @@ std::vector<OpTrace> run_dag(const Config& config,
             }
             auto start = std::chrono::steady_clock::now();
 
+            // Hoisted so the catch block below can salvage the operator's
+            // pre-failure warning (P2-10).
+            OperatorOutput out;
+
             try {
                 bool skip = should_skip(frame, op);
                 if (skip) {
@@ -625,7 +757,6 @@ std::vector<OpTrace> run_dag(const Config& config,
                     return;
                 }
 
-                OperatorOutput out;
                 validate_item_inputs(frame, op);
                 if (collect_traces && op.debug) {
                     trace.input_snapshot = snapshot_input(frame, op);
@@ -635,6 +766,46 @@ std::vector<OpTrace> run_dag(const Config& config,
                 if (collect_traces && op.debug) {
                     trace.output_snapshot = snapshot_output(out);
                     trace.has_output_snapshot = true;
+                }
+                // Type-constraint check (pine-go scheduler.go:171). Run before
+                // apply_output so a violation aborts the operator without
+                // mutating the master frame. The bare-message ExecutionError
+                // here gets the standard `pine: execution error in operator
+                // "X": ...` prefix added by the outer run_dag catch block.
+                // R3-H1.
+                validate_output_against_type(op.name, op.operator_type, out);
+
+                // [pine-debug] log line for op.debug operators. Mirrors
+                // pine-go scheduler.go:231 and pine-java Engine.java:448.
+                // Emit on stderr, with Java-style duration formatting
+                // (µs below 1ms, ms above). Done before apply_output so
+                // the snapshot reflects the inputs that produced this
+                // output. R3-L6.
+                if (op.debug) {
+                    auto dur = std::chrono::steady_clock::now() - start;
+                    auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
+                    std::string dur_str;
+                    if (nanos < 1'000'000) {
+                        dur_str = std::to_string(nanos / 1000.0) + "µs";
+                    } else {
+                        dur_str = std::to_string(nanos / 1'000'000.0) + "ms";
+                    }
+                    std::size_t input_size = frame.item_count();
+                    std::size_t output_size = input_size + out.added_items().size() - out.removed_items().size();
+                    std::string in_json = trace.has_input_snapshot
+                        ? dump_json(trace.input_snapshot) : std::string("{}");
+                    std::string out_json = trace.has_output_snapshot
+                        ? dump_json(trace.output_snapshot) : std::string("{}");
+                    // dump_json appends a trailing '\n' for top-level
+                    // values; strip it so the log line stays on one line.
+                    while (!in_json.empty() && in_json.back() == '\n') in_json.pop_back();
+                    while (!out_json.empty() && out_json.back() == '\n') out_json.pop_back();
+                    std::cerr << "[pine-debug] operator=\"" << op.name
+                              << "\" duration=" << dur_str
+                              << " input_size=" << input_size
+                              << " output_size=" << output_size
+                              << " input=" << in_json
+                              << " output=" << out_json << "\n";
                 }
                 frame.apply_output(out, op.name, op.operator_type == "recall");
                 auto end = std::chrono::steady_clock::now();
@@ -650,6 +821,19 @@ std::vector<OpTrace> run_dag(const Config& config,
                 }
             } catch (...) {
                 if (em && em->op_error_total) em->op_error_total->with({op.name})->inc();
+                // P2-10: if the operator managed to attach a warning to its
+                // OperatorOutput before throwing (e.g. "Redis unreachable,
+                // falling back to cache-miss"), surface it via the frame so
+                // the diagnostic survives the failure path. The frame
+                // serializes warnings into the response /execute envelope
+                // even when the request ultimately errors.
+                if (out.has_warning()) {
+                    try {
+                        frame.push_warning(std::string("operator \"") + op.name + "\": " + out.warning());
+                    } catch (...) {
+                        // Ignore — fail() below carries the original error.
+                    }
+                }
                 fail(std::current_exception());
             }
         });
@@ -673,23 +857,40 @@ std::vector<OpTrace> run_dag(const Config& config,
 
     if (fatal_err) std::rethrow_exception(fatal_err);
 
-    return traces;
+    // Filter out pre-allocated trace slots that never got populated — Go
+    // does the same at scheduler.go:285. Empty .name means the node was
+    // never reached (DAG aborted before reaching this slot). R3-L5.
+    std::vector<OpTrace> filtered;
+    filtered.reserve(traces.size());
+    for (auto& t : traces) {
+        if (!t.name.empty()) filtered.push_back(std::move(t));
+    }
+    return filtered;
 }
 
 }  // namespace
 
 Result Engine::execute(const Request& request) const {
     static const std::map<std::string, JsonValue> empty_resources;
-    return execute(request, empty_resources);
+    return execute(request, empty_resources, std::stop_token{});
 }
 
 Result Engine::execute(const Request& request, const std::map<std::string, JsonValue>& resources) const {
-    validate_request(request, config_.flow_contract);
-    Frame frame(request.common, request.items);
-    frame.set_resources(&resources);
-    run_dag(config_, graph_, operators_, frame, /*collect_traces=*/false, peak_concurrency_.get(), engine_metrics_.get(),
-            shard_pool_ ? &shard_pool_->pool : nullptr);
-    return project_result(frame, config_.flow_contract);
+    return execute(request, resources, std::stop_token{});
+}
+
+Result Engine::execute(const Request& request,
+                       const std::map<std::string, JsonValue>& resources,
+                       std::stop_token external_cancel) const {
+    // Route through the traced path so partial-result salvage runs even
+    // for callers using the no-trace API. Mirrors pine-go's Execute()
+    // contract: `(*Result, error)` — partial Result survives errors. On
+    // exception the caller still loses access to the partial Result via
+    // this overload (no out-parameter in the signature); to access the
+    // partial Result and warnings, use execute_traced_into. R3-M4.
+    TracedResult traced;
+    execute_traced_into(request, resources, &traced, external_cancel);
+    return std::move(traced.result);
 }
 
 TracedResult Engine::execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const {
@@ -701,13 +902,24 @@ TracedResult Engine::execute_traced(const Request& request, const std::map<std::
 void Engine::execute_traced_into(const Request& request,
                                   const std::map<std::string, JsonValue>& resources,
                                   TracedResult* out) const {
+    execute_traced_into(request, resources, out, std::stop_token{});
+}
+
+void Engine::execute_traced_into(const Request& request,
+                                  const std::map<std::string, JsonValue>& resources,
+                                  TracedResult* out,
+                                  std::stop_token external_cancel) const {
     validate_request(request, config_.flow_contract);
-    Frame frame(request.common, request.items);
+    // R3-L3: Frame is now the polymorphic base; pick the implementation
+    // requested by storage_mode ("column" / "row"), default "column".
+    std::unique_ptr<Frame> frame_ptr = make_frame(
+        config_.storage_mode, request.common, request.items);
+    Frame& frame = *frame_ptr;
     frame.set_resources(&resources);
     std::exception_ptr run_err = nullptr;
     try {
         out->trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
-                             shard_pool_ ? &shard_pool_->pool : nullptr);
+                             shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel);
     } catch (...) {
         run_err = std::current_exception();
     }

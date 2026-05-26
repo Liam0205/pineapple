@@ -96,6 +96,21 @@ using DoubleColumn = TypedColumn<double>;
 using StringColumn = TypedColumn<std::string>;
 using BoolColumn = TypedColumn<bool>;
 
+// int64_lossy_as_double returns true if the given int64 cannot be losslessly
+// represented as IEEE 754 binary64 (i.e. |v| > 2^53). Int64Column stores
+// values precisely, but get() returns JsonValue which only carries double —
+// callers that care about user-supplied identifiers (user_id, order_id) at
+// magnitudes above 9.0e15 should detect this case and either route through
+// a typed path or surface a debug warning.
+//
+// Note: pine-go / pine-java / pine-python store numeric columns as double
+// natively, so the precision loss is symmetric across runtimes; this helper
+// is the pine-cpp-only seam for diagnosing the boundary. Tracked as P1-S5.
+constexpr bool int64_lossy_as_double(int64_t v) {
+    constexpr int64_t k = static_cast<int64_t>(1) << 53;
+    return v > k || v < -k;
+}
+
 // JsonColumn is the heterogeneous fallback: data stored as JsonValue.
 // All set/append operations succeed regardless of value type.
 class JsonColumn final : public Column {

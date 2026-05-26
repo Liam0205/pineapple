@@ -3,6 +3,8 @@
 #include "pine/column_frame.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 using namespace pine;
 
@@ -207,4 +209,45 @@ TEST_CASE("ColumnFrame: window view reads parent common via view_common_ (R8-1)"
     CHECK(view->item_count() == 2);
     CHECK(view->item(0, "score").as_number() == 10.0);
     CHECK_THROWS_AS(view->to_result({"region"}, {"id"}), Error);
+}
+
+TEST_CASE("ColumnFrame: apply_output rejects NaN/Inf in common writes (R3-H2)") {
+    auto frame = make_frame();
+    OperatorOutput out;
+    out.set_common("ratio", JsonValue(std::numeric_limits<double>::quiet_NaN()));
+    try {
+        frame.apply_output(out, "op", false);
+        FAIL("expected NaN rejection");
+    } catch (const ExecutionError& e) {
+        std::string msg = e.what();
+        CHECK(msg.find("common write: field \"ratio\": NaN/Inf is not a valid JSON value") != std::string::npos);
+    }
+}
+
+TEST_CASE("ColumnFrame: apply_output rejects Inf in item writes (R3-H2)") {
+    auto frame = make_frame();
+    OperatorOutput out;
+    out.set_item(0, "x", JsonValue(std::numeric_limits<double>::infinity()));
+    try {
+        frame.apply_output(out, "op", false);
+        FAIL("expected Inf rejection");
+    } catch (const ExecutionError& e) {
+        std::string msg = e.what();
+        CHECK(msg.find("item[0] write: field \"x\": NaN/Inf is not a valid JSON value") != std::string::npos);
+    }
+}
+
+TEST_CASE("ColumnFrame: apply_output rejects NaN in additions (R3-H2)") {
+    auto frame = make_frame();
+    OperatorOutput out;
+    std::map<std::string, JsonValue> row;
+    row["bad"] = JsonValue(std::numeric_limits<double>::quiet_NaN());
+    out.add_item(row);
+    try {
+        frame.apply_output(out, "op", true);
+        FAIL("expected NaN rejection in addition");
+    } catch (const ExecutionError& e) {
+        std::string msg = e.what();
+        CHECK(msg.find("added item write: field \"bad\": NaN/Inf is not a valid JSON value") != std::string::npos);
+    }
 }

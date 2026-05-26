@@ -157,3 +157,17 @@ TEST_CASE("TypedColumnStore::remove_rows rejects OOB indices") {
     CHECK(store.row_count() == 2);
     CHECK(store.column("x")->size() == 2);
 }
+
+TEST_CASE("Int64Column precision boundary detection (P1-S5)") {
+    using pine::int64_lossy_as_double;
+    // Within IEEE 754 binary64 precise range: 0..2^53
+    CHECK_FALSE(int64_lossy_as_double(0));
+    CHECK_FALSE(int64_lossy_as_double(1LL << 53));
+    CHECK_FALSE(int64_lossy_as_double(-(1LL << 53)));
+    CHECK_FALSE(int64_lossy_as_double(9007199254740992LL));   // 2^53 exactly
+    // Beyond: precision loss in double round-trip
+    CHECK(int64_lossy_as_double(9007199254740993LL));         // 2^53 + 1
+    CHECK(int64_lossy_as_double(-9007199254740993LL));
+    CHECK(int64_lossy_as_double(INT64_MAX));
+    CHECK(int64_lossy_as_double(INT64_MIN));
+}

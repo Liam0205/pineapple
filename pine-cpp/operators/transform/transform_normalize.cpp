@@ -12,6 +12,18 @@ public:
         field_ = cfg.metadata.item_input.at(0);
         out_field_ = cfg.metadata.item_output.at(0);
         item_defaults_ = cfg.item_defaults;
+        // method param: only "min_max" is implemented. Mirrors pine-go
+        // normalize.go:47 — unsupported values are rejected at init
+        // (RegistryError) rather than silently behaving as min_max. R3-M5.
+        std::string method = "min_max";
+        const auto& params = cfg.params.as_object();
+        auto it = params.find("method");
+        if (it != params.end() && !it->second.is_null()) {
+            method = it->second.as_string();
+        }
+        if (method != "min_max") {
+            throw RegistryError(op_name_, "unsupported method \"" + method + "\"");
+        }
     }
     void execute(const Frame& frame, OperatorOutput& out) override {
         if (frame.item_count() == 0) return;

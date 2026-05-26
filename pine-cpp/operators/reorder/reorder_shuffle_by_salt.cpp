@@ -50,7 +50,12 @@ public:
             double r = static_cast<double>(h) / (static_cast<double>(UINT64_MAX) + 1.0);
             ranked.push_back({i, r, parse_uint64(item_val)});
         }
-        std::stable_sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
+        // pine-go shuffle.go:81 uses sort.Slice (non-stable). The (r, id)
+        // composite key is unique in practice (FNV-64a collisions are
+        // astronomically rare and the id tiebreak resolves them), so the
+        // outputs match — but using std::sort keeps the algorithmic
+        // contract aligned with Go for any future divergence. R3-L7.
+        std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
             if (a.r != b.r) return a.r < b.r;
             return a.id < b.id;
         });

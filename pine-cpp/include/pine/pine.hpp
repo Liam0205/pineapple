@@ -9,12 +9,19 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace pine {
+
+// Pineapple engine version. Single source of truth for all C++ code —
+// mirrors pine-go's `const Version` in pine-go/version.go. Keep in sync
+// with pine-go and the _PINEAPPLE_VERSION field embedded in compiled
+// configs. R3-L2.
+inline constexpr const char* kVersion = "0.8.0";
 
 class Error : public std::runtime_error {
 public:
@@ -79,20 +86,26 @@ private:
 // operator. Mirrors pine-go's types.PanicError. Inherits std::nested_exception
 // so the recovered std::exception is preserved as a nested cause when thrown
 // via std::throw_with_nested.
+//
+// R3-L1: detailed_error() returns the message plus a stack trace captured
+// at construction time, mirroring pine-go's PanicError.DetailedError().
+// stack() exposes the raw frames as a string. The capture is best-effort —
+// C++ has no goroutine concept, so the trace is the constructing thread's
+// frames only (use std::stacktrace::current via std::stacktrace_entry).
 class PanicError : public Error, public std::nested_exception {
 public:
-    PanicError(std::string operator_name, std::string value)
-        : Error(format_msg(operator_name, value)),
-          operator_(std::move(operator_name)),
-          value_(std::move(value)) {}
+    PanicError(std::string operator_name, std::string value);
     const std::string& operator_name() const { return operator_; }
     const std::string& value() const { return value_; }
+    const std::string& stack() const { return stack_; }
+    std::string detailed_error() const;
 private:
     static std::string format_msg(const std::string& op, const std::string& v) {
         return "pine: panic in operator \"" + op + "\": " + v;
     }
     std::string operator_;
     std::string value_;
+    std::string stack_;  // empty when std::stacktrace unavailable at link time
 };
 
 class JsonValue {
@@ -319,6 +332,9 @@ struct EngineOptions {
 // Operator::execute takes Frame (= ColumnFrame) by const ref.
 class ColumnFrame;
 
+// Forward declaration: Frame is defined in frame.hpp / column_frame.hpp.
+class Frame;
+
 // Operator base class (mirrors pine-go's Operator interface).
 // Concrete operators subclass this. Placed here so that Engine's
 // unique_ptr<Operator> member has a complete type in all TUs that
@@ -327,7 +343,7 @@ class Operator {
 public:
     virtual ~Operator() = default;
     virtual void init(const OperatorConfig& config) { (void)config; }
-    virtual void execute(const ColumnFrame& frame, OperatorOutput& out) = 0;
+    virtual void execute(const Frame& frame, OperatorOutput& out) = 0;
 };
 
 class Engine {
@@ -344,6 +360,13 @@ public:
 
     Result execute(const Request& request) const;
     Result execute(const Request& request, const std::map<std::string, JsonValue>& resources) const;
+    // Cancellable variant: external_cancel.request_stop() (typically called
+    // from a different thread when the client disconnects) interrupts any
+    // cv.wait inside the DAG scheduler and aborts the run. Mirrors pine-go
+    // Execute(ctx, req) where ctx.Done() is watched at every wait. R3-H3.
+    Result execute(const Request& request,
+                   const std::map<std::string, JsonValue>& resources,
+                   std::stop_token external_cancel) const;
     TracedResult execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const;
     // Variant of execute_traced that writes the partial result/trace/warnings
     // into *out before re-throwing any execution error. Mirrors pine-go's
@@ -351,6 +374,10 @@ public:
     void execute_traced_into(const Request& request,
                               const std::map<std::string, JsonValue>& resources,
                               TracedResult* out) const;
+    void execute_traced_into(const Request& request,
+                              const std::map<std::string, JsonValue>& resources,
+                              TracedResult* out,
+                              std::stop_token external_cancel) const;
     std::string render_dag(const std::string& format, int collapse = 0) const;
 
     const ExpandedSequence& expanded() const { return expanded_; }

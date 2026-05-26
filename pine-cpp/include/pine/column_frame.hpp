@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pine/column_store.hpp"
+#include "pine/frame.hpp"
 #include "pine/pine.hpp"
 
 #include <map>
@@ -22,20 +23,19 @@ namespace pine {
 // Internally thread-safe via shared_mutex (shared for reads, unique for
 // writes). The engine's per-operator scheduling lock can be relaxed to
 // rely on this.
-class ColumnFrame {
+//
+// Implements the Frame interface (R3-L3) — Engine selects ColumnFrame or
+// RowFrame based on Config.storage_mode.
+class ColumnFrame : public Frame {
 public:
     ColumnFrame();
     ColumnFrame(std::map<std::string, JsonValue> common,
                 std::vector<std::map<std::string, JsonValue>> items);
 
-    // Construct a non-owning read-only window over a parent frame's items.
-    // common_ and items_ are shared by pointer; (row_offset, row_count)
-    // selects a contiguous slice of the parent's rows.
-    //
-    // All mutating methods (set_common / apply_output / push_warning)
-    // throw PanicError on a window view. Used by parallel_execute (P2-05)
-    // to avoid row-major reification when sharding — operators see the
-    // shard's row range but never copy column data.
+    // Static convenience constructor kept for callers that already know
+    // they want a ColumnFrame window view. parallel_execute uses the
+    // virtual Frame::make_window_view on the parent — this static form
+    // returns a ColumnFrame-typed unique_ptr for tests / legacy code.
     //
     // CONTRACT: the caller must keep `parent` alive AND must not mutate
     // `parent` while any window view exists. parallel_execute satisfies
@@ -46,48 +46,35 @@ public:
         std::size_t row_offset,
         std::size_t row_count);
 
-    // ---- common ----
-    JsonValue common(const std::string& field) const;
-    bool has_common(const std::string& field) const;
-    void set_common(const std::string& field, JsonValue value);
-    std::vector<std::string> common_fields() const;
+    // ---- Frame interface ----
+    JsonValue common(const std::string& field) const override;
+    bool has_common(const std::string& field) const override;
+    void set_common(const std::string& field, JsonValue value) override;
+    std::vector<std::string> common_fields() const override;
 
-    // ---- items ----
-    std::size_t item_count() const;
-    JsonValue item(std::size_t index, const std::string& field) const;
-    bool item_has(std::size_t index, const std::string& field) const;
-    std::vector<std::string> item_fields() const;
+    std::size_t item_count() const override;
+    JsonValue item(std::size_t index, const std::string& field) const override;
+    bool item_has(std::size_t index, const std::string& field) const override;
+    std::vector<std::string> item_fields() const override;
 
-    // ---- resources (read-only injected map) ----
-    void set_resources(const std::map<std::string, JsonValue>* res) { resources_ = res; }
-    const std::map<std::string, JsonValue>* resources() const { return resources_; }
+    void set_resources(const std::map<std::string, JsonValue>* res) override { resources_ = res; }
+    const std::map<std::string, JsonValue>* resources() const override { return resources_; }
 
-    // ---- warnings ----
-    void push_warning(std::string msg);
-    std::vector<std::string> take_warnings();
+    void push_warning(std::string msg) override;
+    std::vector<std::string> take_warnings() override;
     const std::vector<std::string>& warnings_ref() const { return warnings_; }
 
-    // ---- apply OperatorOutput (write log) ----
-    // Runs the canonical five-stage application:
-    //   1. common writes
-    //   2. item writes (auto-creates columns)
-    //   3. removals
-    //   4. reorder
-    //   5. additions  (recall ops stamp _source = op_name on each added row)
-    //   6. warning    (first-wins via push_warning)
     void apply_output(const OperatorOutput& out,
                       const std::string& op_name,
-                      bool is_recall);
+                      bool is_recall) override;
 
-    // Project the frame to a Result using the strict common/item field
-    // lists (skips fields whose validity is false on a given row).
     Result to_result(const std::vector<std::string>& common_out,
-                     const std::vector<std::string>& item_out) const;
+                     const std::vector<std::string>& item_out) const override;
 
-    // ---- snapshots / read-only views ----
-    // Returns the entire item[index] as a JsonObject for fields that
-    // are present. Used by snapshot_input / debug paths.
-    JsonValue::object_t item_object(std::size_t index) const;
+    JsonValue::object_t item_object(std::size_t index) const override;
+
+    std::unique_ptr<Frame> make_window_view(std::size_t row_offset,
+                                             std::size_t row_count) const override;
 
 private:
     void write_item_field_locked(std::size_t idx,

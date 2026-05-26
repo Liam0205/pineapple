@@ -152,7 +152,11 @@ Graph build_dag(const Config& config, const ExpandedSequence& expanded) {
         for (const auto& src : op.sources) {
             if (!graph.name_to_index.count(src)) throw ConfigError("operator \"" + op.name + "\" sources references unknown operator \"" + src + "\"");
             if (graph.name_to_index.at(src) >= static_cast<int>(i)) {
-                throw ConfigError("operator \"" + op.name + "\": sources contains forward reference to \"" + src + "\"");
+                // Forward-reference checks raise a ValidationError to match
+                // pine-go validateSourcesOrder / pine-java Engine.validate /
+                // pine-python engine._validate_sources_order. The error text
+                // is part of the cross-runtime contract. R3-M1.
+                throw ValidationError("operator \"" + op.name + "\": sources references \"" + src + "\" which is declared after the current operator (forward reference)");
             }
             add_edge(graph, graph.name_to_index[src], static_cast<int>(i));
         }
