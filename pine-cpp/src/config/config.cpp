@@ -73,12 +73,15 @@ OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
     if (auto it = obj.find("data_parallel"); it != obj.end() && it->second.is_number()) op.data_parallel = static_cast<int>(it->second.as_number());
     op.common_defaults = as_value_map(obj, "common_defaults");
     op.item_defaults = as_value_map(obj, "item_defaults");
+    op.strict_common = as_string_list(obj, "strict_common");
+    op.strict_item = as_string_list(obj, "strict_item");
     op.sources = as_string_list(obj, "sources");
     JsonValue::object_t params;
     for (const auto& [key, item] : obj) {
         if (key == "type_name" || key == "$metadata" || key == "$code_info" || key == "skip" || key == "recall" ||
             key == "sources" || key == "debug" || key == "consumes_row_set" || key == "mutates_row_set" ||
-            key == "additive_writes_row_set" || key == "common_defaults" || key == "item_defaults" || key == "for_branch_control" ||
+            key == "additive_writes_row_set" || key == "common_defaults" || key == "item_defaults" ||
+            key == "strict_common" || key == "strict_item" || key == "for_branch_control" ||
             key == "data_parallel") {
             continue;
         }
