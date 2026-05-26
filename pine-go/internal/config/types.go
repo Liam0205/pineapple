@@ -61,6 +61,8 @@ type OperatorConfig struct {
 	AdditiveWritesRowSet bool           `json:"additive_writes_row_set,omitempty"`
 	CommonDefaults   map[string]any `json:"common_defaults,omitempty"`
 	ItemDefaults     map[string]any `json:"item_defaults,omitempty"`
+	NullableCommon   []string       `json:"nullable_common,omitempty"`
+	NullableItem     []string       `json:"nullable_item,omitempty"`
 	ForBranchControl bool           `json:"for_branch_control,omitempty"`
 	DataParallel     int            `json:"data_parallel,omitempty"`
 
@@ -88,24 +90,36 @@ type DefaultedField struct {
 type InputFieldSpec struct {
 	StrictCommon    []string
 	DefaultedCommon []DefaultedField
+	NullableCommon  []string
 	StrictItem      []string
 	DefaultedItem   []DefaultedField
+	NullableItem    []string
 }
 
-// ComputeInputFieldSpec creates the InputFieldSpec from metadata, defaults, and skip fields.
-func ComputeInputFieldSpec(meta Metadata, commonDefaults, itemDefaults map[string]any, skip []string) *InputFieldSpec {
+// ComputeInputFieldSpec creates the InputFieldSpec from metadata, defaults, nullable, and skip fields.
+func ComputeInputFieldSpec(meta Metadata, commonDefaults, itemDefaults map[string]any, nullableCommon, nullableItem, skip []string) *InputFieldSpec {
 	spec := &InputFieldSpec{}
 
 	skipSet := make(map[string]struct{}, len(skip))
 	for _, s := range skip {
 		skipSet[s] = struct{}{}
 	}
+	nullableCommonSet := make(map[string]struct{}, len(nullableCommon))
+	for _, f := range nullableCommon {
+		nullableCommonSet[f] = struct{}{}
+	}
+	nullableItemSet := make(map[string]struct{}, len(nullableItem))
+	for _, f := range nullableItem {
+		nullableItemSet[f] = struct{}{}
+	}
 
 	for _, field := range meta.CommonInput {
 		if _, skipped := skipSet[field]; skipped {
 			continue
 		}
-		if d, ok := commonDefaults[field]; ok {
+		if _, nullable := nullableCommonSet[field]; nullable {
+			spec.NullableCommon = append(spec.NullableCommon, field)
+		} else if d, ok := commonDefaults[field]; ok {
 			spec.DefaultedCommon = append(spec.DefaultedCommon, DefaultedField{Name: field, Default: d})
 		} else {
 			spec.StrictCommon = append(spec.StrictCommon, field)
@@ -113,7 +127,9 @@ func ComputeInputFieldSpec(meta Metadata, commonDefaults, itemDefaults map[strin
 	}
 
 	for _, field := range meta.ItemInput {
-		if d, ok := itemDefaults[field]; ok {
+		if _, nullable := nullableItemSet[field]; nullable {
+			spec.NullableItem = append(spec.NullableItem, field)
+		} else if d, ok := itemDefaults[field]; ok {
 			spec.DefaultedItem = append(spec.DefaultedItem, DefaultedField{Name: field, Default: d})
 		} else {
 			spec.StrictItem = append(spec.StrictItem, field)
