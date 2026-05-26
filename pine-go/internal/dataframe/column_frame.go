@@ -196,10 +196,19 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		if len(order) != f.rowCount {
 			return fmt.Errorf("SetItemOrder length %d does not match item count %d", len(order), f.rowCount)
 		}
+		// Validate every index is in range AND that the order is a true
+		// permutation (each index appears exactly once). Without the
+		// permutation check, set_item_order([0,0,0]) silently makes every
+		// item a copy of item 0 — a data-loss bug with no observable error.
+		seen := make([]bool, f.rowCount)
 		for _, origIdx := range order {
 			if origIdx < 0 || origIdx >= f.rowCount {
 				return fmt.Errorf("SetItemOrder index %d out of range [0, %d)", origIdx, f.rowCount)
 			}
+			if seen[origIdx] {
+				return fmt.Errorf("SetItemOrder duplicate index %d (order must be a permutation)", origIdx)
+			}
+			seen[origIdx] = true
 		}
 		for field, col := range f.columns {
 			newCol := make([]any, len(order))

@@ -83,7 +83,7 @@ func TestHTTPMetricsMiddleware_Integration(t *testing.T) {
 		http.Error(w, "bad", http.StatusBadRequest)
 	})
 
-	handler := httpMetricsMiddleware(mp, mux)
+	handler := httpMetricsMiddleware(mp, NewHttpStats(), mux)
 
 	// GET /health → 200
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -156,7 +156,7 @@ func TestHTTPMetricsMiddleware_NopProvider(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
 
-	handler := httpMetricsMiddleware(mp, mux)
+	handler := httpMetricsMiddleware(mp, NewHttpStats(), mux)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -251,4 +251,96 @@ func (h *recordingHistogramWith) Observe(v float64) {
 	h.parent.mu.Lock()
 	h.parent.observations = append(h.parent.observations, observation{key: h.key, value: v})
 	h.parent.mu.Unlock()
+}
+
+func TestHttpStats_RecordAndSnapshot(t *testing.T) {
+	mp := metrics.Nop()
+	stats := NewHttpStats()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/execute", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad", http.StatusBadRequest)
+	})
+	handler := httpMetricsMiddleware(mp, stats, mux)
+
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/execute", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	req = httptest.NewRequest(http.MethodGet, "/totally-unknown", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	snap := stats.Snapshot()
+
+	reqs := snap["requests_total"].(map[string]int64)
+	if reqs["GET /health 2xx"] != 3 {
+		t.Errorf("GET /health 2xx = %d, want 3", reqs["GET /health 2xx"])
+	}
+	if reqs["POST /execute 4xx"] != 1 {
+		t.Errorf("POST /execute 4xx = %d, want 1", reqs["POST /execute 4xx"])
+	}
+	if reqs["GET _other 4xx"] != 1 {
+		t.Errorf("GET _other 4xx = %d, want 1; got reqs=%v", reqs["GET _other 4xx"], reqs)
+	}
+
+	durs := snap["request_duration_seconds"].(map[string]HttpDurationBucket)
+	if durs["GET /health"].Count != 3 {
+		t.Errorf("GET /health duration count = %d, want 3", durs["GET /health"].Count)
+	}
+	if durs["GET /health"].SumNs <= 0 {
+		t.Errorf("GET /health sum_ns = %d, want > 0", durs["GET /health"].SumNs)
+	}
+	if durs["POST /execute"].Count != 1 {
+		t.Errorf("POST /execute duration count = %d, want 1", durs["POST /execute"].Count)
+	}
+}
+
+func TestHttpStats_NilSafeInMiddleware(t *testing.T) {
+	mp := metrics.Nop()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", handleHealth)
+	handler := httpMetricsMiddleware(mp, nil, mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestHttpStats_SnapshotKeyOrdering(t *testing.T) {
+	stats := NewHttpStats()
+	stats.recordRequest("POST", "/execute", "2xx", 1000)
+	stats.recordRequest("GET", "/health", "2xx", 500)
+	stats.recordRequest("GET", "/stats", "2xx", 200)
+	stats.recordRequest("GET", "/health", "2xx", 300)
+
+	snap := stats.Snapshot()
+	reqs := snap["requests_total"].(map[string]int64)
+	keys := make([]string, 0, len(reqs))
+	for k := range reqs {
+		keys = append(keys, k)
+	}
+	// Map iteration order is not stable in Go, but JSON encoding of the map
+	// will sort keys (encoding/json sorts string-keyed map keys).
+	// We assert the keys produced by recordRequest are the expected set.
+	want := map[string]int64{
+		"POST /execute 2xx": 1,
+		"GET /health 2xx":   2,
+		"GET /stats 2xx":    1,
+	}
+	for k, v := range want {
+		if reqs[k] != v {
+			t.Errorf("requests_total[%q] = %d, want %d", k, reqs[k], v)
+		}
+	}
+	if len(reqs) != len(want) {
+		t.Errorf("requests_total keys = %v, want %v", keys, want)
+	}
 }
