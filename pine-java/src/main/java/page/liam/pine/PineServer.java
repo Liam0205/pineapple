@@ -281,8 +281,11 @@ public class PineServer {
             Engine.Result result = snap.engine.execute(common, items);
 
             Map<String, Object> resp = new LinkedHashMap<>();
-            resp.put("common", result.common);
-            resp.put("items", result.items);
+            // Pre-sort data dict keys to mirror Go encoding/json behavior for
+            // `map[string]any` (which sorts alphabetically), while leaving the
+            // top-level response struct field order alone.
+            resp.put("common", sortMapKeys(result.common));
+            resp.put("items", sortItemKeys(result.items));
 
             if (result.warnings != null && !result.warnings.isEmpty()) {
                 List<String> warnList = new ArrayList<>();
@@ -422,6 +425,49 @@ public class PineServer {
             os.write(responseBytes);
             os.write('\n');
         }
+    }
+
+    /** Recursively sort map keys alphabetically (mirrors Go encoding/json for map[string]any). */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> sortMapKeys(Map<String, Object> m) {
+        if (m == null) return null;
+        java.util.TreeMap<String, Object> sorted = new java.util.TreeMap<>();
+        for (Map.Entry<String, Object> e : m.entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Map) {
+                v = sortMapKeys((Map<String, Object>) v);
+            } else if (v instanceof List) {
+                v = sortListElements((List<Object>) v);
+            }
+            sorted.put(e.getKey(), v);
+        }
+        return sorted;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> sortListElements(List<Object> list) {
+        if (list == null) return null;
+        List<Object> out = new java.util.ArrayList<>(list.size());
+        for (Object v : list) {
+            if (v instanceof Map) {
+                out.add(sortMapKeys((Map<String, Object>) v));
+            } else if (v instanceof List) {
+                out.add(sortListElements((List<Object>) v));
+            } else {
+                out.add(v);
+            }
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> sortItemKeys(List<Map<String, Object>> items) {
+        if (items == null) return null;
+        List<Map<String, Object>> out = new java.util.ArrayList<>(items.size());
+        for (Map<String, Object> it : items) {
+            out.add(sortMapKeys(it));
+        }
+        return out;
     }
 
     private static byte[] readLimitedBody(java.io.InputStream in, long limit) throws IOException {

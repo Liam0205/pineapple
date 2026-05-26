@@ -1,10 +1,15 @@
 package page.liam.pine;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.SerializableString;
 import com.fasterxml.jackson.core.io.CharacterEscapes;
 import com.fasterxml.jackson.core.io.SerializedString;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -237,6 +242,30 @@ public final class GoFormat {
                 }
             }
         });
+        SimpleModule module = new SimpleModule();
+        module.addSerializer(Double.class, new StdSerializer<Double>(Double.class) {
+            @Override
+            public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
+                if (Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0.0)) {
+                    // Go encoding/json preserves the sign bit on negative zero:
+                    // json.Marshal(math.Copysign(0, -1)) emits "-0".
+                    // Jackson's writeNumber(-0.0) emits "-0.0", so we have to
+                    // write the raw literal to match Go byte-for-byte.
+                    gen.writeRawValue("-0");
+                } else if (!Double.isNaN(value) && !Double.isInfinite(value)
+                        && value == Math.floor(value)
+                        && value >= -9.007199254740992e15
+                        && value <= 9.007199254740992e15) {
+                    // Go json.Encoder omits the trailing ".0" for integer-valued
+                    // doubles (e.g. 1.0 → "1") since it serializes via %g/strconv.
+                    // Match that exactly.
+                    gen.writeNumber((long) value.doubleValue());
+                } else {
+                    gen.writeNumber(value.doubleValue());
+                }
+            }
+        });
+        m.registerModule(module);
         return m;
     }
 }

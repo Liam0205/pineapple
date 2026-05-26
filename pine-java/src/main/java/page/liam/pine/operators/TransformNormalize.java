@@ -60,6 +60,20 @@ public class TransformNormalize extends AbstractOperator {
         if (v instanceof Number) {
             return ((Number) v).doubleValue();
         }
-        throw new PineErrors.OperatorException("cannot convert " + (v == null ? "null" : v.getClass().getName()) + " to double");
+        // Render Java types using Go reflection terminology so error messages
+        // remain byte-identical with pine-{go,cpp,python}.
+        throw new PineErrors.OperatorException(
+            "cannot convert " + goTypeName(v) + " to float64");
+    }
+
+    private static String goTypeName(Object v) {
+        if (v == null) return "<nil>";
+        if (v instanceof Boolean) return "bool";
+        if (v instanceof String) return "string";
+        if (v instanceof Integer || v instanceof Long) return "int";
+        if (v instanceof Float || v instanceof Double) return "float64";
+        if (v instanceof java.util.List) return "[]interface {}";
+        if (v instanceof java.util.Map) return "map[string]interface {}";
+        return v.getClass().getSimpleName();
     }
 }
