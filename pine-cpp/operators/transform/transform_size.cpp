@@ -1,0 +1,29 @@
+#include "operators/_helpers.hpp"
+#include "pine/operator.hpp"
+
+namespace pine {
+
+class TransformSizeOp : public Operator, public ConsumesRowSet, public ConcurrentSafe {
+public:
+    void init(const OperatorConfig& cfg) override {
+        op_name_ = cfg.name;
+        out_field_ = cfg.metadata.common_output.at(0);
+    }
+    void execute(const Frame& frame, OperatorOutput& out) override {
+        out.set_common(out_field_, JsonValue(static_cast<double>(frame.item_count())));
+    }
+private:
+    std::string op_name_;
+    std::string out_field_;
+};
+
+static const OperatorSchema k_transform_size_schema{
+    .name = "transform_size",
+    .type = OpType::Transform,
+    .description = "Outputs the current item count to a common field.",
+    .params = {},
+};
+PINE_REGISTER_OPERATOR(k_transform_size_schema,
+    ([] { return std::make_unique<TransformSizeOp>(); }))
+
+}  // namespace pine
