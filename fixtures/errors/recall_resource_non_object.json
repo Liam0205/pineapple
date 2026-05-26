@@ -9,7 +9,10 @@
             "common_input": [],
             "common_output": [],
             "item_input": [],
-            "item_output": ["id", "val"]
+            "item_output": [
+              "id",
+              "val"
+            ]
           }
         }
       }
@@ -25,15 +28,24 @@
       "common_input": [],
       "item_input": [],
       "common_output": [],
-      "item_output": ["id", "val"]
+      "item_output": [
+        "id",
+        "val"
+      ]
     },
     "resource_config": {
       "bad_res": {
         "type": "static",
         "params": {
           "value": [
-            {"id": "a", "val": 100},
-            {"id": "b", "val": 200},
+            {
+              "id": "a",
+              "val": 100
+            },
+            {
+              "id": "b",
+              "val": 200
+            },
             "i_am_not_an_object"
           ]
         }
@@ -45,9 +57,12 @@
     "items": []
   },
   "expected_error": {
-    "type": "execution",
-    "message_contains": "recall_resource: items.*is string, want map",
+    "type": "ExecutionError",
+    "message_contains": "recall_resource: items[2] is string",
     "wrapping_exact": "items[2] is string",
-    "wrapping_exact_engines": ["go", "cpp"]
+    "wrapping_exact_engines": [
+      "go",
+      "cpp"
+    ]
   }
 }

@@ -265,8 +265,16 @@ class TestErrorFixtures:
         config_bytes = json.dumps(config).encode()
         request = data.get("request")
 
+        # Build resource provider from resource_config if present
+        rp = None
+        rc = config.get("resource_config")
+        if rc:
+            from pine.engine import StaticResourceProvider
+            sr = {k: v.get("params", {}).get("value") for k, v in rc.items()}
+            rp = StaticResourceProvider(sr)
+
         if error_type == "ExecutionError":
-            engine = Engine.create(config_bytes)
+            engine = Engine.create(config_bytes, resource_provider=rp)
             req_common = request.get("common", {}) if request else {}
             req_items = request.get("items", []) if request else []
             result = engine.execute(req_common, req_items)
@@ -279,7 +287,7 @@ class TestErrorFixtures:
                 f"  expected to contain: {message_contains}"
             )
         elif request is not None and error_type not in ("ConfigError", "RegistryError"):
-            engine = Engine.create(config_bytes)
+            engine = Engine.create(config_bytes, resource_provider=rp)
             req_common = request.get("common", {}) if request else {}
             req_items = request.get("items", []) if request else []
             with pytest.raises(error_class) as exc_info:
@@ -291,7 +299,7 @@ class TestErrorFixtures:
             )
         else:
             with pytest.raises(error_class) as exc_info:
-                Engine.create(config_bytes)
+                Engine.create(config_bytes, resource_provider=rp)
 
             assert message_contains in str(exc_info.value), (
                 f"{fixture_path.stem}: error message mismatch\n"

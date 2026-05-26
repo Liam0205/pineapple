@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import threading
 import math
+import threading
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -189,7 +189,8 @@ class ColumnFrame(Frame):
                 if len(order) != self._row_count:
                     raise ExecutionError(
                         op_name,
-                        f"SetItemOrder length {len(order)} does not match item count {self._row_count}",
+                        f"SetItemOrder length {len(order)} does not match"
+                        f" item count {self._row_count}",
                     )
                 # Length + OOB + permutation: without the permutation check,
                 # set_item_order([0,0,0]) would silently duplicate item 0.
@@ -397,7 +398,8 @@ class RowFrame(Frame):
                 if len(order) != len(self._items):
                     raise ExecutionError(
                         op_name,
-                        f"SetItemOrder length {len(order)} does not match item count {len(self._items)}",
+                        f"SetItemOrder length {len(order)} does not match"
+                        f" item count {len(self._items)}",
                     )
                 seen = [False] * len(self._items)
                 for idx in order:

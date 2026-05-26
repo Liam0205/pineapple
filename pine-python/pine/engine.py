@@ -245,6 +245,27 @@ class Engine:
             ))
 
         dag = DAG.build(sequence, cfg.pipeline_config.operators, op_to_sub_flow)
+
+        # Validate resource dependencies: every resource_name referenced
+        # by an operator must be available from the resource provider.
+        # Mirrors pine-go pkg/resource/validate.go.
+        for cop in compiled_ops:
+            raw_params = cfg.pipeline_config.operators[cop.name].raw_params
+            res_name = raw_params.get("resource_name")
+            if isinstance(res_name, str) and res_name:
+                if resource_provider is None:
+                    tn = cfg.pipeline_config.operators[cop.name].type_name
+                    raise ConfigError(
+                        f"resource: missing resource definitions:"
+                        f" {res_name} (operator {tn}/{cop.name})"
+                    )
+                if resource_provider.get(res_name) is None:
+                    tn = cfg.pipeline_config.operators[cop.name].type_name
+                    raise ConfigError(
+                        f"resource: missing resource definitions:"
+                        f" {res_name} (operator {tn}/{cop.name})"
+                    )
+
         engine_stats = _Stats()
         engine_stats.pre_init_operators([cop.name for cop in compiled_ops])
 
@@ -529,8 +550,12 @@ class Engine:
                         cause=apply_err,
                     )
                 else:
+                    msg = (
+                        f'pine: execution error in operator "{cop.name}"'
+                        f": apply output: {apply_err}"
+                    )
                     wrapped = PanicError(
-                        f'pine: execution error in operator "{cop.name}": apply output: {apply_err}',
+                        msg,
                         detail=traceback.format_exc(),
                         cause=apply_err,
                     )

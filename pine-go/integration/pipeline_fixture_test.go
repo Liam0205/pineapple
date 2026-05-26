@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -56,6 +57,7 @@ func toFloat64(v any) (float64, bool) {
 type pipelineFixture struct {
 	Name            string                    `json:"name"`
 	Requires        []string                  `json:"requires"`
+	StrictOrder     *bool                     `json:"strict_order"`
 	Config          json.RawMessage           `json:"config"`
 	StaticResources map[string]any            `json:"static_resources"`
 	Cases           []pipelineCase            `json:"cases"`
@@ -151,12 +153,18 @@ func TestPipelineFixtures(t *testing.T) {
 					}
 
 					// Compare items
-					if len(tc.Expected.Items) != len(result.Items) {
-						t.Fatalf("items: got %d, expected %d", len(result.Items), len(tc.Expected.Items))
+					expectedItems := tc.Expected.Items
+					actualItems := result.Items
+					if pf.StrictOrder != nil && !*pf.StrictOrder {
+						expectedItems = sortItemsByJSON(expectedItems)
+						actualItems = sortItemsByJSON(actualItems)
 					}
-					for i, expectedItem := range tc.Expected.Items {
+					if len(expectedItems) != len(actualItems) {
+						t.Fatalf("items: got %d, expected %d", len(actualItems), len(expectedItems))
+					}
+					for i, expectedItem := range expectedItems {
 						for key, expectedVal := range expectedItem {
-							got, ok := result.Items[i][key]
+							got, ok := actualItems[i][key]
 							if !ok {
 								t.Errorf("items[%d] missing key %q", i, key)
 								continue
@@ -170,4 +178,17 @@ func TestPipelineFixtures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// sortItemsByJSON returns a copy of items sorted by their JSON serialization.
+// Used for order-insensitive comparison when strict_order is false.
+func sortItemsByJSON(items []map[string]any) []map[string]any {
+	cp := make([]map[string]any, len(items))
+	copy(cp, items)
+	sort.Slice(cp, func(i, j int) bool {
+		bi, _ := json.Marshal(cp[i])
+		bj, _ := json.Marshal(cp[j])
+		return string(bi) < string(bj)
+	})
+	return cp
 }
