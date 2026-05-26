@@ -10,15 +10,15 @@ public:
         page_field_ = cfg.metadata.common_input.at(0);
         size_field_ = cfg.metadata.common_input.at(1);
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        int n = static_cast<int>(frame.item_count());
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        int n = static_cast<int>(input.item_count());
         if (n == 0) return;
         auto to_int = [](const JsonValue& v) -> int {
             if (v.is_number()) return static_cast<int>(v.as_number());
             return 0;
         };
-        int page = to_int(frame.common(page_field_));
-        int size = to_int(frame.common(size_field_));
+        int page = to_int(input.common(page_field_));
+        int size = to_int(input.common(size_field_));
         if (size <= 0) size = 10;
         if (page < 0) page = 0;
         int start = page * size;

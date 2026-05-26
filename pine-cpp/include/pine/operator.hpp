@@ -46,8 +46,8 @@ public:
 };
 
 // Note: Operator base class is declared in pine/pine.hpp (as class Operator)
-// with execute(const ColumnFrame&, OperatorOutput&). Frame = ColumnFrame, so
-// overrides here use Frame directly for readability.
+// with execute(const OperatorInput&, OperatorOutput&). Operators receive a
+// pre-projected OperatorInput snapshot with defaults applied.
 
 // --- OperatorSchema ---
 struct OperatorSchema {

@@ -11,8 +11,8 @@ public:
         if (top_n_ < 0)
             throw ExecutionError("filter_truncate: top_n must be non-negative, got " + std::to_string(top_n_));
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        int n = static_cast<int>(frame.item_count());
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        int n = static_cast<int>(input.item_count());
         for (int i = top_n_; i < n; ++i) out.remove_item(i);
     }
 private:

@@ -19,11 +19,11 @@ public:
         key_fields_ = std::vector<std::string>(cfg.metadata.common_input.begin(), cfg.metadata.common_input.begin() + (n - 1));
         value_field_ = cfg.metadata.common_input.back();
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
         if (rp_.host.empty()) return;
 
-        std::string key = rp_.key_prefix + operators::build_key_suffix(frame, key_fields_);
-        JsonValue value = frame.common(value_field_);
+        std::string key = rp_.key_prefix + operators::build_key_suffix(input, key_fields_);
+        JsonValue value = input.common(value_field_);
 
         // Borrow from the shared pool (P1-P4). See transform_redis_get for
         // pool semantics; same RAII guard pattern.

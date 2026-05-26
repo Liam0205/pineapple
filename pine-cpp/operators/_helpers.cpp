@@ -1,4 +1,5 @@
 #include "operators/_helpers.hpp"
+#include "pine/operator_input.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -187,6 +188,16 @@ std::string build_key_suffix(const Frame& frame, const std::vector<std::string>&
     for (std::size_t i = 0; i < fields.size(); ++i) {
         if (i > 0) result += ':';
         result += sprint_value(frame.common(fields[i]));
+    }
+    return result;
+}
+
+std::string build_key_suffix(const OperatorInput& input, const std::vector<std::string>& fields) {
+    if (fields.empty()) return "";
+    std::string result;
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        if (i > 0) result += ':';
+        result += sprint_value(input.common(fields[i]));
     }
     return result;
 }

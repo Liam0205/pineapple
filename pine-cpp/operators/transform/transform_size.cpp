@@ -9,8 +9,8 @@ public:
         op_name_ = cfg.name;
         out_field_ = cfg.metadata.common_output.at(0);
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        out.set_common(out_field_, JsonValue(static_cast<double>(frame.item_count())));
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        out.set_common(out_field_, JsonValue(static_cast<double>(input.item_count())));
     }
 private:
     std::string op_name_;

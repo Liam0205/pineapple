@@ -1,5 +1,6 @@
 #include "pine/pine.hpp"
 #include "pine/operator.hpp"
+#include "pine/operator_input.hpp"
 
 #include <doctest/doctest.h>
 
@@ -21,7 +22,7 @@ public:
     std::map<std::string, int64_t> stats;
     StatsMockOp() { g_mock_op = this; }
     ~StatsMockOp() { if (g_mock_op == this) g_mock_op = nullptr; }
-    void execute(const Frame&, OperatorOutput&) override {}
+    void execute(const OperatorInput&, OperatorOutput&) override {}
     std::map<std::string, int64_t> operator_stats() const override {
         return stats;
     }
@@ -29,7 +30,7 @@ public:
 
 class EmptyStatsMockOp : public Operator, public StatsProvider {
 public:
-    void execute(const Frame&, OperatorOutput&) override {}
+    void execute(const OperatorInput&, OperatorOutput&) override {}
     std::map<std::string, int64_t> operator_stats() const override {
         return {}; // Exposes StatsProvider but returns empty map
     }

@@ -16,13 +16,13 @@ public:
         cache_hit_field_ = cfg.metadata.common_output.at(1);
         common_input_ = cfg.metadata.common_input;
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
         if (rp_.host.empty()) {
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
         }
 
-        std::string key = rp_.key_prefix + operators::build_key_suffix(frame, common_input_);
+        std::string key = rp_.key_prefix + operators::build_key_suffix(input, common_input_);
 
         // Borrow a connection from the shared pool to avoid the full
         // getaddrinfo + connect + AUTH + SELECT round-trip on every

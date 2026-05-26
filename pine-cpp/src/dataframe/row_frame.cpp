@@ -292,6 +292,25 @@ std::unique_ptr<Frame> RowFrame::make_window_view(std::size_t row_offset,
     return std::unique_ptr<Frame>(std::move(v));
 }
 
+std::pair<std::string, int> RowFrame::validate_strict_items(
+    const std::vector<std::string>& fields) const {
+    std::shared_lock<std::shared_mutex> lk(mu_);
+    const auto& rows = view_items_ ? *view_items_ : items_;
+    std::size_t offset = view_items_ ? view_offset_ : 0;
+    std::size_t count = view_items_ ? view_count_ : rows.size();
+
+    for (const auto& field : fields) {
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto& row = rows[offset + i];
+            auto it = row.find(field);
+            if (it == row.end() || it->second.is_null()) {
+                return {field, static_cast<int>(i)};
+            }
+        }
+    }
+    return {"", -1};
+}
+
 // Factory selecting Frame implementation by storage_mode. Unknown
 // values fall back to "column" — mirrors pine-go NewFrame behavior.
 std::unique_ptr<Frame> make_frame(const std::string& storage_mode,

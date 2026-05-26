@@ -29,19 +29,19 @@ public:
         has_default_ = (dv_it != params.end());
         if (has_default_) default_value_ = dv_it->second;
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        if (!frame.resources())
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        if (!input.resources())
             throw ExecutionError("transform_resource_lookup: no resource provider in context");
-        auto res_it = frame.resources()->find(resource_name_);
-        if (res_it == frame.resources()->end())
+        auto res_it = input.resources()->find(resource_name_);
+        if (res_it == input.resources()->end())
             throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" not found");
         const auto& resource = res_it->second;
         if (!resource.is_object())
             throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" is " + pine::operators::json_type_name(resource) + ", want map[string]any");
         const auto& table = resource.as_object();
 
-        for (std::size_t i = 0; i < frame.item_count(); ++i) {
-            JsonValue field_val = frame.item(i, lookup_key_);
+        for (std::size_t i = 0; i < input.item_count(); ++i) {
+            JsonValue field_val = input.item(i, lookup_key_);
             if (field_val.is_null()) {
                 if (has_default_) out.set_item(static_cast<int>(i), output_field_, default_value_);
                 continue;

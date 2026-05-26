@@ -378,4 +378,25 @@ JsonValue::object_t ColumnFrame::item_object(std::size_t index) const {
     return out;
 }
 
+std::pair<std::string, int> ColumnFrame::validate_strict_items(
+    const std::vector<std::string>& fields) const {
+    std::shared_lock<std::shared_mutex> lk(mu_);
+    const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+    std::size_t offset = view_items_ ? view_offset_ : 0;
+    std::size_t count = view_items_ ? view_count_ : store->row_count();
+
+    for (const auto& field : fields) {
+        const Column* col = store->column(field);
+        if (!col) {
+            return {field, 0};
+        }
+        for (std::size_t i = 0; i < count; ++i) {
+            if (col->is_null(offset + i)) {
+                return {field, static_cast<int>(i)};
+            }
+        }
+    }
+    return {"", -1};
+}
+
 }  // namespace pine

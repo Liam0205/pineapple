@@ -1,4 +1,5 @@
 #include "pine/operator.hpp"
+#include "pine/operator_input.hpp"
 #include "pine/column_frame.hpp"
 #include "pine/pine.hpp"
 #include "http/ssrf.hpp"
@@ -138,6 +139,12 @@ pine::ColumnFrame build_frame() {
     return pine::ColumnFrame(std::move(common), std::move(items));
 }
 
+// Build an OperatorInput from a frame using the standard remote config metadata.
+pine::OperatorInput build_input_from_frame(pine::ColumnFrame& frame, const pine::OperatorConfig& cfg) {
+    auto spec = pine::compute_input_field_spec(cfg);
+    return pine::build_operator_input(frame, cfg.name, spec);
+}
+
 }  // namespace
 
 TEST_CASE("remote_pineapple: ssrf rejects localhost / loopback") {
@@ -264,7 +271,8 @@ TEST_CASE("remote_pineapple: happy path maps response fields") {
 
     auto frame = build_frame();
     pine::OperatorOutput out;
-    op->execute(frame, out);
+    auto input = build_input_from_frame(frame, cfg);
+    op->execute(input, out);
 
     const auto& cw = out.common_writes();
     REQUIRE(cw.count("b") == 1);
@@ -295,7 +303,8 @@ TEST_CASE("remote_pineapple: HTTP 500 throws when fail_on_error=true") {
     op->init(cfg);
     auto frame = build_frame();
     pine::OperatorOutput out;
-    CHECK_THROWS_AS(op->execute(frame, out), pine::ExecutionError);
+    auto input = build_input_from_frame(frame, cfg);
+    CHECK_THROWS_AS(op->execute(input, out), pine::ExecutionError);
 }
 
 TEST_CASE("remote_pineapple: HTTP 500 emits warning when fail_on_error=false") {
@@ -305,7 +314,8 @@ TEST_CASE("remote_pineapple: HTTP 500 emits warning when fail_on_error=false") {
     op->init(cfg);
     auto frame = build_frame();
     pine::OperatorOutput out;
-    op->execute(frame, out);
+    auto input = build_input_from_frame(frame, cfg);
+    op->execute(input, out);
     CHECK(out.warning().find("HTTP 500") != std::string::npos);
 }
 
@@ -316,7 +326,8 @@ TEST_CASE("remote_pineapple: downstream error field surfaces as warning") {
     op->init(cfg);
     auto frame = build_frame();
     pine::OperatorOutput out;
-    op->execute(frame, out);
+    auto input = build_input_from_frame(frame, cfg);
+    op->execute(input, out);
     CHECK(out.warning().find("downstream error: downstream broke") != std::string::npos);
 }
 
@@ -328,6 +339,7 @@ TEST_CASE("remote_pineapple: timeout produces request-failed warning") {
     op->init(cfg);
     auto frame = build_frame();
     pine::OperatorOutput out;
-    op->execute(frame, out);
+    auto input = build_input_from_frame(frame, cfg);
+    op->execute(input, out);
     CHECK(out.warning().find("request failed") != std::string::npos);
 }

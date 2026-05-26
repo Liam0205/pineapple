@@ -12,23 +12,20 @@ public:
         if (cfg.metadata.item_input.empty())
             throw ExecutionError("reorder_sort requires item_input field");
         field_ = cfg.metadata.item_input.front();
-        item_defaults_ = cfg.item_defaults;
         const auto& obj = cfg.params.as_object();
         auto it = obj.find("order");
         order_ = (it == obj.end()) ? std::string("desc") : it->second.as_string();
     }
-    void execute(const Frame& frame, OperatorOutput& out) override {
-        if (frame.item_count() == 0) return;
+    void execute(const OperatorInput& input, OperatorOutput& out) override {
+        if (input.item_count() == 0) return;
         struct Keyed { double v; std::size_t idx; };
         std::vector<Keyed> keyed;
-        keyed.reserve(frame.item_count());
-        for (std::size_t i = 0; i < frame.item_count(); ++i) {
+        keyed.reserve(input.item_count());
+        for (std::size_t i = 0; i < input.item_count(); ++i) {
             try {
-                JsonValue v = frame.item(i, field_);
+                JsonValue v = input.item(i, field_);
                 if (v.is_null()) {
-                    auto def = item_defaults_.find(field_);
-                    if (def != item_defaults_.end()) v = def->second;
-                    else throw operators::OperatorError("required field \"" + field_ + "\" is nil on item[" + std::to_string(i) + "]");
+                    throw operators::OperatorError("required field \"" + field_ + "\" is nil on item[" + std::to_string(i) + "]");
                 }
                 keyed.push_back({operators::to_double(v), i});
             } catch (const operators::OperatorError& err) {
@@ -51,7 +48,6 @@ private:
     std::string op_name_;
     std::string field_;
     std::string order_;
-    std::map<std::string, JsonValue> item_defaults_;
 };
 
 static const OperatorSchema k_reorder_sort_schema{
