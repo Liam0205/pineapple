@@ -1,0 +1,81 @@
+{
+  "name": "control operator nil field does not crash — branch skipped",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.8.0",
+    "pipeline_config": {
+      "operators": {
+        "ctrl_if": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function evaluate() if ((event or '') == 'expose' and (expose_duration or 0) > 300) then return false else return true end end",
+          "function_for_common": "evaluate",
+          "function_for_item": "",
+          "for_branch_control": true,
+          "$metadata": {
+            "common_input": ["event", "expose_duration"],
+            "common_output": ["_if_1"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "branch_a": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function tag() return 'exposed' end",
+          "function_for_common": "tag",
+          "function_for_item": "",
+          "skip": ["_if_1"],
+          "$metadata": {
+            "common_input": ["_if_1"],
+            "common_output": ["tag"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "size": {
+          "type_name": "transform_size",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["size"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {}
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["ctrl_if", "branch_a", "size"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["event", "expose_duration"],
+      "common_output": ["size", "tag"],
+      "item_input": [],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "expose_duration is nil — branch skipped, no error",
+      "request": {
+        "common": {"event": "expose", "expose_duration": null},
+        "items": [{"id": "a"}, {"id": "b"}]
+      },
+      "expected": {
+        "common": {"size": 2},
+        "items": [{}, {}]
+      }
+    },
+    {
+      "name": "expose_duration > 300 — branch taken",
+      "request": {
+        "common": {"event": "expose", "expose_duration": 500},
+        "items": [{"id": "a"}]
+      },
+      "expected": {
+        "common": {"size": 1, "tag": "exposed"},
+        "items": [{}]
+      }
+    }
+  ]
+}
