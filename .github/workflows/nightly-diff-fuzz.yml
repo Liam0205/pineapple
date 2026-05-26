@@ -81,7 +81,7 @@ jobs:
             --engines go,python,java,cpp \
             --save-dir /tmp/diff-fuzz-nightly \
             $EXTRA_FLAGS \
-            2>&1 | tee diff-fuzz-output.log || true
+            2>&1 | tee diff-fuzz-output.log; echo $? > /tmp/fuzz-exit-code
 
       - name: Evaluate results
         if: always()
@@ -95,8 +95,13 @@ jobs:
 
           FAIL_COUNT=$(grep -oP 'FAIL: \K[0-9]+' diff-fuzz-output.log | tail -1 || echo "0")
           UNSTABLE_COUNT=$(grep -oP 'UNSTABLE: \K[0-9]+' diff-fuzz-output.log | tail -1 || echo "0")
+          FUZZ_EXIT=$(cat /tmp/fuzz-exit-code 2>/dev/null || echo "1")
 
-          if [[ "$FAIL_COUNT" -gt 0 || "$UNSTABLE_COUNT" -gt 0 ]]; then
+          if [[ "$FUZZ_EXIT" -ne 0 && "$FAIL_COUNT" -eq 0 && "$UNSTABLE_COUNT" -eq 0 ]]; then
+            echo "⚠️ Fuzz script exited with code $FUZZ_EXIT but no divergences reported — possible infrastructure failure" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [[ "$FAIL_COUNT" -gt 0 || "$UNSTABLE_COUNT" -gt 0 || "$FUZZ_EXIT" -ne 0 ]]; then
             echo "has_divergences=true" >> "$GITHUB_OUTPUT"
             echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
             echo "unstable_count=$UNSTABLE_COUNT" >> "$GITHUB_OUTPUT"
