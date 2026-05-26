@@ -551,6 +551,15 @@ jobs:
       - name: Build Java
         run: mvn package -B -q -DskipTests
         working-directory: pine-java
+      - name: Install LuaJIT and build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libluajit-5.1-dev libcurl4-openssl-dev libhiredis-dev >/dev/null
+      - name: Build C++
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+        working-directory: pine-cpp
       - name: Run differential fuzz
         shell: bash
         run: |
@@ -561,7 +570,7 @@ jobs:
             --stability-runs 2 \
             --seed "$SEED" \
             --engines go,python,java,cpp \
-            --cpp-binary pine-cpp/build/pineapple-run \
+            --cpp-bin pine-cpp/build/pineapple-run \
             --save-dir /tmp/diff-fuzz-ci | tee diff-fuzz-output.txt
       - name: Upload divergences
         uses: actions/upload-artifact@v7

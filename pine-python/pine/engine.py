@@ -248,23 +248,22 @@ class Engine:
 
         # Validate resource dependencies: every resource_name referenced
         # by an operator must be available from the resource provider.
-        # Mirrors pine-go pkg/resource/validate.go.
+        # Mirrors pine-go pkg/resource/validate.go: collect all missing
+        # resources and report them in a single error.
+        missing_res: list[str] = []
         for cop in compiled_ops:
             raw_params = cfg.pipeline_config.operators[cop.name].raw_params
             res_name = raw_params.get("resource_name")
-            if isinstance(res_name, str) and res_name:
-                if resource_provider is None:
-                    tn = cfg.pipeline_config.operators[cop.name].type_name
-                    raise ConfigError(
-                        f"resource: missing resource definitions:"
-                        f" {res_name} (operator {tn}/{cop.name})"
-                    )
-                if resource_provider.get(res_name) is None:
-                    tn = cfg.pipeline_config.operators[cop.name].type_name
-                    raise ConfigError(
-                        f"resource: missing resource definitions:"
-                        f" {res_name} (operator {tn}/{cop.name})"
-                    )
+            if not (isinstance(res_name, str) and res_name):
+                continue
+            if resource_provider is None or resource_provider.get(res_name) is None:
+                tn = cfg.pipeline_config.operators[cop.name].type_name
+                missing_res.append(f"{res_name} (operator {tn}/{cop.name})")
+        if missing_res:
+            raise ConfigError(
+                "resource: missing resource definitions: "
+                + ", ".join(missing_res)
+            )
 
         engine_stats = _Stats()
         engine_stats.pre_init_operators([cop.name for cop in compiled_ops])
