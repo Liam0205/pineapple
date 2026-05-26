@@ -27,7 +27,7 @@ void OperatorOutput::set_common(const std::string& field, JsonValue value) {
 }
 
 void OperatorOutput::set_item(int index, const std::string& field, JsonValue value) {
-    item_writes_.push_back(ItemWrite{index, field, std::move(value)});
+    item_writes_[index][field] = std::move(value);
 }
 
 void OperatorOutput::add_item(std::map<std::string, JsonValue> fields) {
@@ -137,16 +137,8 @@ JsonValue snapshot_output(const OperatorOutput& out) {
     }
 
     if (!out.item_writes().empty()) {
-        // The vector log can hold multiple writes for the same (idx, field);
-        // group by idx and let later writes overwrite earlier ones to
-        // preserve the snapshot's "final state" semantics. apply_output
-        // also replays the vector in order so the on-frame state matches.
-        std::map<int, std::map<std::string, JsonValue>> grouped;
-        for (const auto& w : out.item_writes()) {
-            grouped[w.index][w.field] = w.value;
-        }
         JsonValue::object_t iw;
-        for (const auto& [idx, fields] : grouped) {
+        for (const auto& [idx, fields] : out.item_writes()) {
             JsonValue::object_t row;
             for (const auto& [field, value] : fields) row[field] = value;
             iw[std::to_string(idx)] = JsonValue(std::move(row));
@@ -265,11 +257,18 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     graph_ = build_dag(config_, expanded_);
     engine_metrics_ = build_engine_metrics(metrics_provider_, expanded_.sequence);
 
-    // Forward-reference validation runs inside build_dag() above
-    // (dag.cpp:155 raises ConfigError("operator \"X\": sources contains
-    // forward reference to \"Y\"")), so by the time we reach this point
-    // every operator's sources are guaranteed to refer to nodes already
-    // visited. A second native-side check would be dead code (P1-D4).
+    // Validate sources order matching pine-go validateSourcesOrder.
+    // Sources references must exist and be declared before the current operator.
+    std::set<std::string> seen_ops;
+    for (const auto& op_name : expanded_.sequence) {
+        const auto& op_cfg = config_.operators.at(op_name);
+        for (const auto& src : op_cfg.sources) {
+            if (!seen_ops.count(src)) {
+                throw ValidationError("operator \"" + op_name + "\": sources references \"" + src + "\" which is declared after the current operator (forward reference)");
+            }
+        }
+        seen_ops.insert(op_name);
+    }
 
     // Instantiate and init one Operator per config operator.
     for (auto& [op_name, op_cfg] : config_.operators) {
@@ -344,11 +343,7 @@ void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
     } catch (const std::exception& e) {
         std::throw_with_nested(PanicError(op.name, e.what()));
     } catch (...) {
-        // Non-std::exception payloads (`throw 42;`, `throw "literal";`) are
-        // rare but legal. throw_with_nested still captures them so
-        // pine::error_as<T>() can at least walk the chain even if no frame
-        // dynamic_casts to a useful type. P2-23.
-        std::throw_with_nested(PanicError(op.name, "unknown exception"));
+        throw PanicError(op.name, "unknown exception");
     }
 }
 
@@ -370,8 +365,10 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
             "writes; only item_writes / removed_items / warnings are allowed "
             "(see parallel_execute preconditions)");
     }
-    for (const auto& [idx, field, value] : src.item_writes()) {
-        dst.set_item(idx + offset, field, value);
+    for (const auto& [idx, fields] : src.item_writes()) {
+        for (const auto& [field, value] : fields) {
+            dst.set_item(idx + offset, field, value);
+        }
     }
     for (int idx : src.removed_items()) {
         dst.remove_item(idx + offset);
@@ -411,13 +408,13 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     int base = total / n;
     int rem = total % n;
 
-    // Build shards as zero-copy window views into the parent frame's
-    // ColumnStore (P2-05). Previously each shard materialised its rows
-    // into a fresh row-major list and then back into a per-shard
-    // ColumnStore — costing 2 × column-cell touches per request just to
-    // set up parallelism. The window view shares parent storage with an
-    // (offset, count) translation; the parent is read-only during the
-    // shard window (no apply_output until merge_shard_output below).
+    // Materialize the source frame's common into a plain map for shard
+    // construction. The original ColumnFrame's resources pointer is shared.
+    std::map<std::string, JsonValue> common_snapshot;
+    for (const auto& f : frame.common_fields()) {
+        common_snapshot[f] = frame.common(f);
+    }
+
     std::vector<std::unique_ptr<Frame>> shards;
     shards.reserve(static_cast<std::size_t>(n));
     std::vector<OperatorOutput> shard_outs(static_cast<std::size_t>(n));
@@ -425,9 +422,14 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     int cursor = 0;
     for (int i = 0; i < n; ++i) {
         int size = base + (i < rem ? 1 : 0);
-        auto shard = Frame::make_window_view(frame,
-                                              static_cast<std::size_t>(cursor),
-                                              static_cast<std::size_t>(size));
+        std::vector<std::map<std::string, JsonValue>> shard_items;
+        shard_items.reserve(static_cast<std::size_t>(size));
+        for (int j = 0; j < size; ++j) {
+            auto obj = frame.item_object(static_cast<std::size_t>(cursor + j));
+            shard_items.emplace_back(obj.begin(), obj.end());
+        }
+        auto shard = std::make_unique<Frame>(common_snapshot, std::move(shard_items));
+        shard->set_resources(frame.resources());
         shards.push_back(std::move(shard));
         offsets[static_cast<std::size_t>(i)] = cursor;
         cursor += size;
@@ -610,10 +612,6 @@ std::vector<OpTrace> run_dag(const Config& config,
             }
             auto start = std::chrono::steady_clock::now();
 
-            // Hoisted so the catch block below can salvage the operator's
-            // pre-failure warning (P2-10).
-            OperatorOutput out;
-
             try {
                 bool skip = should_skip(frame, op);
                 if (skip) {
@@ -627,6 +625,7 @@ std::vector<OpTrace> run_dag(const Config& config,
                     return;
                 }
 
+                OperatorOutput out;
                 validate_item_inputs(frame, op);
                 if (collect_traces && op.debug) {
                     trace.input_snapshot = snapshot_input(frame, op);
@@ -651,19 +650,6 @@ std::vector<OpTrace> run_dag(const Config& config,
                 }
             } catch (...) {
                 if (em && em->op_error_total) em->op_error_total->with({op.name})->inc();
-                // P2-10: if the operator managed to attach a warning to its
-                // OperatorOutput before throwing (e.g. "Redis unreachable,
-                // falling back to cache-miss"), surface it via the frame so
-                // the diagnostic survives the failure path. The frame
-                // serializes warnings into the response /execute envelope
-                // even when the request ultimately errors.
-                if (out.has_warning()) {
-                    try {
-                        frame.push_warning(std::string("operator \"") + op.name + "\": " + out.warning());
-                    } catch (...) {
-                        // Ignore — fail() below carries the original error.
-                    }
-                }
                 fail(std::current_exception());
             }
         });

@@ -1003,10 +1003,18 @@ int Server::run(const ServerConfig& cfg) {
         in_flight_.fetch_add(1, std::memory_order_relaxed);
         std::thread([this, client_fd]() {
             // RAII decrement so detached threads always release the counter.
+            // Wakes stop()'s drain loop via drain_cv_ so it does not have
+            // to poll on a 50 ms sleep_for (P1-P5).
             struct InFlightGuard {
                 std::atomic<int64_t>& c;
-                ~InFlightGuard() { c.fetch_sub(1, std::memory_order_relaxed); }
-            } guard{in_flight_};
+                std::mutex& mu;
+                std::condition_variable& cv;
+                ~InFlightGuard() {
+                    c.fetch_sub(1, std::memory_order_relaxed);
+                    std::lock_guard<std::mutex> lk(mu);
+                    cv.notify_all();
+                }
+            } guard{in_flight_, drain_mu_, drain_cv_};
             (void)guard;
 
             HttpRequest req;
@@ -1087,10 +1095,13 @@ int Server::run(const ServerConfig& cfg) {
     // the runtime of each individual request, so this loop terminates as
     // long as no handler is genuinely stuck. If a future regression makes
     // a handler unbounded, we will deadlock here — that is louder and
-    // safer than the UAF it replaces. Tracked as P0-2.
+    // safer than the UAF it replaces. Tracked as P0-2 + P1-P5.
     std::cerr << "shutting down...\n";
-    while (in_flight_.load(std::memory_order_relaxed) > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    {
+        std::unique_lock<std::mutex> lk(drain_mu_);
+        drain_cv_.wait(lk, [this] {
+            return in_flight_.load(std::memory_order_relaxed) == 0;
+        });
     }
     return 0;
 }

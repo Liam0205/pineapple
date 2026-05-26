@@ -27,9 +27,9 @@ public:
         // Borrow a connection from the shared pool to avoid the full
         // getaddrinfo + connect + AUTH + SELECT round-trip on every
         // dispatch. P1-P4.
-        redis::ConnectionPool::ScopedClient client;
+        std::unique_ptr<redis::Client> client;
         try {
-            client = redis::shared_pool().acquire_scoped(rp_.host, rp_.port, rp_.password, rp_.db);
+            client = redis::shared_pool().acquire(rp_.host, rp_.port, rp_.password, rp_.db);
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
                 throw ExecutionError("transform_redis_get: " + std::string(e.what()));
@@ -37,14 +37,29 @@ public:
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
         }
-        if (!client || !client->connected()) {
+        if (!client->connected()) {
             if (rp_.fail_on_error)
                 throw ExecutionError("transform_redis_get: connection failed");
             out.set_warning("transform_redis_get: Get(" + key + "): connection failed");
             out.set_common(cache_hit_field_, JsonValue(false));
             return;
         }
-        redis::Client* cli = client.get();
+        // Return-to-pool RAII guard: takes ownership of `client`, releases
+        // back to the pool on every path. ConnectionPool::release drops
+        // disconnected handles instead of recycling.
+        struct PoolGuard {
+            redis::ConnectionPool& pool;
+            const std::string host;
+            const int port;
+            const std::string password;
+            const int db;
+            std::unique_ptr<redis::Client> c;
+            ~PoolGuard() {
+                if (c) pool.release(host, port, password, db, std::move(c));
+            }
+        };
+        PoolGuard guard{redis::shared_pool(), rp_.host, rp_.port, rp_.password, rp_.db, std::move(client)};
+        redis::Client* cli = guard.c.get();
 
         try {
             if (rp_.data_type == "string") {
@@ -115,6 +130,7 @@ static const OperatorSchema k_transform_redis_get_schema{
                             .description = "Redis password."}},
     },
 };
-PINE_REGISTER_OPERATOR_T(TransformRedisGetOp, k_transform_redis_get_schema)
+PINE_REGISTER_OPERATOR(k_transform_redis_get_schema,
+    ([] { return std::make_unique<TransformRedisGetOp>(); }))
 
 }  // namespace pine
