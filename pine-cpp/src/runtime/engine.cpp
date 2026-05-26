@@ -255,8 +255,11 @@ Engine& Engine::operator=(Engine&&) noexcept = default;
 
 Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)) {
     bool global_debug = options.debug.has_value() ? *options.debug : config_.debug;
-    if (global_debug) {
-        for (auto& [_, op] : config_.operators) op.debug = true;
+    // Tri-state debug: op-level debug overrides global when explicitly set
+    for (auto& [_, op] : config_.operators) {
+        if (!op.debug.has_value()) {
+            op.debug = global_debug;
+        }
     }
     log_prefix_ = options.log_prefix.has_value() ? *options.log_prefix : config_.log_prefix;
     peak_concurrency_ = std::make_unique<std::atomic<int64_t>>(0);
@@ -747,12 +750,12 @@ std::vector<OpTrace> run_dag(const Config& config,
                     return;
                 }
 
-                if (collect_traces && op.debug) {
+                if (collect_traces && op.debug.value_or(false)) {
                     trace.input_snapshot = snapshot_input(frame, op);
                     trace.has_input_snapshot = true;
                 }
                 parallel_execute(frame, op, operators, out, input_specs.at(op.name), shard_pool);
-                if (collect_traces && op.debug) {
+                if (collect_traces && op.debug.value_or(false)) {
                     trace.output_snapshot = snapshot_output(out);
                     trace.has_output_snapshot = true;
                 }
@@ -769,7 +772,7 @@ std::vector<OpTrace> run_dag(const Config& config,
                 // (µs below 1ms, ms above). Done before apply_output so
                 // the snapshot reflects the inputs that produced this
                 // output.
-                if (op.debug) {
+                if (op.debug.value_or(false)) {
                     auto dur = std::chrono::steady_clock::now() - start;
                     auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
                     std::string dur_str;
