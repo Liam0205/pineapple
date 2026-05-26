@@ -167,6 +167,9 @@ def compile_flow(flow: Any) -> dict[str, Any]:
         declared_resources = {r.name for r in flow._resources}
     _validate_resource_refs(named_ops, declared_resources)
 
+    # 9b. Validate SubFlow contracts (if declared)
+    _validate_subflow_contracts(flow, named_ops, declared_resources)
+
     # 10. Build result
     result: dict[str, Any] = {
         "_PINEAPPLE_VERSION": __version__,
@@ -398,6 +401,37 @@ def _validate_resource_refs(
                 f"but no such resource was declared via flow.resource(). "
                 f"Declared resources: {sorted(declared_resources) or '(none)'}"
             )
+
+
+def _validate_subflow_contracts(
+    flow: Any,
+    named_ops: list[tuple[str, Any]],
+    declared_resources: set[str],
+) -> None:
+    """Validate SubFlow-declared required_resources against parent Flow."""
+    visited: set[int] = set()
+    _validate_sf_contracts_recursive(flow, declared_resources, visited)
+
+
+def _validate_sf_contracts_recursive(
+    node: Any,
+    declared_resources: set[str],
+    visited: set[int],
+) -> None:
+    obj_id = id(node)
+    if obj_id in visited:
+        return
+    visited.add(obj_id)
+    for sf in getattr(node, '_sub_flows', []):
+        if getattr(sf, '_required_resources', None):
+            for res in sf._required_resources:
+                if res not in declared_resources:
+                    raise ValidationError(
+                        f"SubFlow {sf._name!r} requires resource {res!r} "
+                        f"but it is not declared. "
+                        f"Declared: {sorted(declared_resources) or '(none)'}"
+                    )
+        _validate_sf_contracts_recursive(sf, declared_resources, visited)
 
 
 def compile_to_json(flow: Any, indent: int = 2) -> str:

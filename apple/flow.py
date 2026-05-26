@@ -270,10 +270,26 @@ class _FlowBase:
 class SubFlow(_FlowBase):
     """A reusable fragment of operator declarations.
 
-    SubFlows don't declare input/output contracts — that's done at the
-    top-level Flow.
+    Optionally declares input/output field contracts and required resources
+    for compile-time validation. All contract parameters are optional —
+    existing SubFlows with only a name argument continue to work unchanged.
     """
-    pass
+
+    def __init__(
+        self,
+        name: str,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        required_resources: list[str] | None = None,
+    ):
+        super().__init__(name)
+        self._common_input = common_input
+        self._common_output = common_output
+        self._item_input = item_input
+        self._item_output = item_output
+        self._required_resources = required_resources
 
 
 class Flow(_FlowBase):
