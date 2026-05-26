@@ -35,6 +35,8 @@ public class PineServer {
     private page.liam.pine.metrics.Counter reloadErrorTotal;
     private page.liam.pine.metrics.Histogram reloadDuration;
 
+    private final HttpStats httpStats = new HttpStats();
+
     private static class Snapshot {
         final Engine engine;
         final ResourceProvider resources;
@@ -51,15 +53,15 @@ public class PineServer {
     public PineServer(String configPath, int port, page.liam.pine.metrics.Provider metricsProvider) {
         this.configPath = configPath;
         this.port = port;
-        this.metricsProvider = metricsProvider;
-        if (metricsProvider != null) {
-            reloadTotal = metricsProvider.newCounter(
-                    new page.liam.pine.metrics.MetricOpts("pine_config_reload_total", "Config reload count"));
-            reloadErrorTotal = metricsProvider.newCounter(
-                    new page.liam.pine.metrics.MetricOpts("pine_config_reload_errors_total", "Config reload error count"));
-            reloadDuration = metricsProvider.newHistogram(
-                    new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration", new double[]{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}));
-        }
+        this.metricsProvider = (metricsProvider != null)
+                ? metricsProvider
+                : page.liam.pine.metrics.NopProvider.getInstance();
+        reloadTotal = this.metricsProvider.newCounter(
+                new page.liam.pine.metrics.MetricOpts("pine_config_reload_total", "Config reload count"));
+        reloadErrorTotal = this.metricsProvider.newCounter(
+                new page.liam.pine.metrics.MetricOpts("pine_config_reload_errors_total", "Config reload error count"));
+        reloadDuration = this.metricsProvider.newHistogram(
+                new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration", new double[]{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}));
     }
 
     public void start() throws Exception {
@@ -140,10 +142,9 @@ public class PineServer {
             };
         }
         com.sun.net.httpserver.HttpHandler wrapped = exactHandler;
-        // HTTP metrics (innermost)
-        if (metricsProvider != null) {
-            wrapped = httpMetricsMiddleware(path, wrapped);
-        }
+        // HTTP metrics (innermost) -- always wrap; metricsProvider is never
+        // null after the constructor (NopProvider tied-off).
+        wrapped = httpMetricsMiddleware(path, wrapped);
         // User middlewares (outer to inner)
         for (int i = middlewares.size() - 1; i >= 0; i--) {
             wrapped = middlewares.get(i).wrap(wrapped);
@@ -166,11 +167,13 @@ public class PineServer {
             try {
                 next.handle(exchange);
             } finally {
-                double duration = (System.nanoTime() - start) / 1_000_000_000.0;
+                long elapsedNs = System.nanoTime() - start;
+                double duration = elapsedNs / 1_000_000_000.0;
                 String method = exchange.getRequestMethod();
                 String status = statusBucket(exchange.getResponseCode());
                 httpRequestsTotal.with(method, path, status).inc();
                 httpRequestDuration.with(method, path).observe(duration);
+                httpStats.recordRequest(method, path, status, elapsedNs);
             }
         };
     }
@@ -217,10 +220,8 @@ public class PineServer {
 
     private void recordReload() {
         reloadCount.incrementAndGet();
-        if (reloadTotal != null) {
-            reloadTotal.inc();
-            reloadDuration.observe(lastReloadDurationNs / 1_000_000_000.0);
-        }
+        reloadTotal.inc();
+        reloadDuration.observe(lastReloadDurationNs / 1_000_000_000.0);
     }
 
     private volatile long lastModified = 0;
@@ -236,7 +237,7 @@ public class PineServer {
             }
         } catch (Exception e) {
             reloadErrorCount.incrementAndGet();
-            if (reloadErrorTotal != null) reloadErrorTotal.inc();
+            reloadErrorTotal.inc();
             System.err.println("[pine-server] reload failed: " + e.getMessage());
         }
     }
@@ -351,11 +352,12 @@ public class PineServer {
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("operators", snap.engine.stats());
         resp.put("scheduler", snap.engine.schedulerStats());
+        resp.put("server", serverStats());
+        resp.put("http", httpStats.snapshot());
         Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
         if (custom != null) {
             resp.put("operator_detail", custom);
         }
-        resp.put("server", serverStats());
         sendResponse(exchange, 200, resp);
     }
 
