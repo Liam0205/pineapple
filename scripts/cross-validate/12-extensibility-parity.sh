@@ -17,10 +17,10 @@ with open('$EXT_CONFIG', 'w') as cf:
     json.dump(cfg, cf)
 "
 
-GO_EXT_PORT=18910
-JAVA_EXT_PORT=18911
-PY_EXT_PORT=18912
-CPP_EXT_PORT=18913
+GO_EXT_PORT=22001
+JAVA_EXT_PORT=22002
+PY_EXT_PORT=22003
+CPP_EXT_PORT=22004
 
 # Start servers
 "$WORK_DIR/pineapple-server" -config "$EXT_CONFIG" -addr ":$GO_EXT_PORT" &

@@ -77,7 +77,7 @@ print(data.get('expected_error', {}).get('message_contains', ''))
 
   # wrapping_exact: byte-exact substring required for the listed engines.
   # Locks the canonical `pine: execution error in operator "X":` prefix so
-  # any engine that diverges (e.g. P0-1's old C++ format) is caught.
+  # any engine that diverges from the canonical format is caught.
   wrapping_exact=$(python3 -c "
 import json
 with open('$fixture_file') as f:

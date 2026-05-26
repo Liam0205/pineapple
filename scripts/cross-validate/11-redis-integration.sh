@@ -14,7 +14,7 @@ cpp_redis_total=0
 if ! which redis-server >/dev/null 2>&1; then
   pass "redis integration (skipped: redis-server not found)"
 else
-  REDIS_PORT=18940
+  REDIS_PORT=21001
 
   redis-server --port $REDIS_PORT --daemonize yes --logfile /dev/null --save "" --appendonly no
 

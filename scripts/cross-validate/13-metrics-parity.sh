@@ -23,10 +23,10 @@ with open('$METRICS_FIXTURE') as f:
 print(json.dumps(data['cases'][0]['request']))
 ")
 
-GO_PORT=18950
-JAVA_PORT=18951
-PY_PORT=18952
-CPP_PORT=18953
+GO_PORT=23001
+JAVA_PORT=23002
+PY_PORT=23003
+CPP_PORT=23004
 
 "$WORK_DIR/pineapple-server" -config "$METRICS_CONFIG" -addr ":$GO_PORT" &
 GO_PID=$!

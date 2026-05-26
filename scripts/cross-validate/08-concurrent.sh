@@ -23,10 +23,10 @@ with open('$SRV_FIXTURE') as f:
 print(json.dumps(data['cases'][0]['request']))
 ")
 
-GO_CONC_PORT=18920
-JAVA_CONC_PORT=18921
-PY_CONC_PORT=18922
-CPP_CONC_PORT=18923
+GO_CONC_PORT=19001
+JAVA_CONC_PORT=19002
+PY_CONC_PORT=19003
+CPP_CONC_PORT=19004
 
 "$WORK_DIR/pineapple-server" -config "$CONC_CONFIG" -addr ":$GO_CONC_PORT" &
 GO_SRV_PID=$!
