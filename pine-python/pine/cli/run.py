@@ -51,6 +51,30 @@ def main():
         sys.exit(1)
 
     resource_provider = None
+    # Load resource_config from the unified pipeline JSON (mirrors pine-{go,cpp,java}).
+    # Built-in "static" fetcher: returns params["value"] verbatim.
+    try:
+        cfg_obj = json.loads(config_data)
+        resource_config = cfg_obj.get("resource_config") or {}
+        if resource_config:
+            from pine.engine import StaticResourceProvider
+            built: dict[str, Any] = {}
+            for name, entry in resource_config.items():
+                rtype = entry.get("type", "")
+                if rtype == "static":
+                    built[name] = entry.get("params", {}).get("value")
+                else:
+                    print(
+                        f'resource: unknown fetcher type "{rtype}" for resource "{name}"',
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+            if built:
+                resource_provider = StaticResourceProvider(built)
+    except (json.JSONDecodeError, AttributeError):
+        # config_data malformed; let downstream engine fail with the canonical error
+        pass
+
     if resources_path:
         try:
             res_data = Path(resources_path).read_bytes()
