@@ -50,9 +50,31 @@ class TransformNormalize(AbstractOperator):
             output.set_item(i, output_field, norm)
 
 
+def _go_type_name(v) -> str:
+    """Render a Python value's type using Go's reflection terminology so error
+    messages stay byte-identical with pine-{go,cpp,java}."""
+    if v is None:
+        return "<nil>"
+    if isinstance(v, bool):
+        return "bool"
+    if isinstance(v, str):
+        return "string"
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, float):
+        return "float64"
+    if isinstance(v, list):
+        return "[]interface {}"
+    if isinstance(v, dict):
+        return "map[string]interface {}"
+    return type(v).__name__
+
+
 def _to_double(v) -> float:
+    if isinstance(v, bool):
+        raise OperatorException("cannot convert bool to float64")
     if isinstance(v, (int, float)):
         return float(v)
     raise OperatorException(
-        f"cannot convert {type(v).__name__ if v is not None else 'null'} to double"
+        f"cannot convert {_go_type_name(v)} to float64"
     )
