@@ -162,7 +162,7 @@ std::string any_to_string(const JsonValue& v) {
     if (v.is_string()) return v.as_string();
     if (v.is_number()) return go_format_g(v.as_number());
     if (v.is_bool()) return v.as_bool() ? "true" : "false";
-    return "";
+    return dump_json(v, 0);
 }
 
 std::string dedup_key(const JsonValue& v) {

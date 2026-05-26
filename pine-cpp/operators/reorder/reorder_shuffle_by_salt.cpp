@@ -57,7 +57,8 @@ public:
         // contract aligned with Go for any future divergence. R3-L7.
         std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
             if (a.r != b.r) return a.r < b.r;
-            return a.id < b.id;
+            if (a.id != b.id) return a.id < b.id;
+            return a.idx < b.idx;
         });
         std::vector<int> order;
         order.reserve(ranked.size());
