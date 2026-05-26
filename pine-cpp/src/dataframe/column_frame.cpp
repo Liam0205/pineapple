@@ -287,12 +287,23 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
                                  " does not match item count " +
                                  std::to_string(items_->row_count()));
         }
+        // Validate every index is in [0, row_count) AND that the order is a
+        // true permutation (each index appears exactly once). Without the
+        // permutation check, `set_item_order([0,0,0])` silently makes every
+        // item a copy of item 0 — a data-loss bug with no observable error.
+        std::vector<bool> seen(items_->row_count(), false);
         for (int idx : order) {
             if (idx < 0 || static_cast<std::size_t>(idx) >= items_->row_count()) {
                 throw ExecutionError(op_name, "SetItemOrder index " +
                                      std::to_string(idx) + " out of range [0, " +
                                      std::to_string(items_->row_count()) + ")");
             }
+            if (seen[idx]) {
+                throw ExecutionError(op_name, "SetItemOrder duplicate index " +
+                                     std::to_string(idx) +
+                                     " (order must be a permutation)");
+            }
+            seen[idx] = true;
         }
         items_->reorder_rows(order);
     }
