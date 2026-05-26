@@ -32,6 +32,9 @@ for i, c in enumerate(cases):
     ee = c.get('expect_error', '')
     with open('$WORK_DIR/col_expect_error_${fname}_' + str(i) + '.txt', 'w') as ef:
         ef.write(ee)
+so = data.get('strict_order', True)
+with open('$WORK_DIR/col_strict_order_${fname}.txt', 'w') as sf:
+    sf.write(str(so).lower())
 sr = data.get('static_resources')
 if sr is not None:
     with open('$WORK_DIR/col_resources_${fname}.json', 'w') as sf:
@@ -140,6 +143,15 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
     go_norm=$(cat "${out_prefix}.go.out" | normalize_json)
     java_norm=$(cat "${out_prefix}.java.out" | normalize_json)
 
+    # Use set comparison when strict_order=false
+    norm_fn=normalize_json
+    if [[ -f "$WORK_DIR/col_strict_order_${fname}.txt" ]]; then
+      so=$(cat "$WORK_DIR/col_strict_order_${fname}.txt")
+      [[ "$so" == "false" ]] && norm_fn=normalize_json_set
+    fi
+    go_norm=$(cat "${out_prefix}.go.out" | $norm_fn)
+    java_norm=$(cat "${out_prefix}.java.out" | $norm_fn)
+
     if [[ "$java_rc" == "0" ]]; then
       if [[ "$go_norm" == "$java_norm" ]]; then
         col_pass=$((col_pass + 1))
@@ -154,7 +166,7 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
       fail "column-store Python failed: $fname case $i"; case_results_p+="✗"; continue
     fi
 
-    py_norm=$(cat "${out_prefix}.py.out" | normalize_json)
+    py_norm=$(cat "${out_prefix}.py.out" | $norm_fn)
 
     if [[ "$go_norm" == "$py_norm" ]]; then
       py_col_pass=$((py_col_pass + 1))
@@ -171,7 +183,7 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
         fail "column-store C++ failed: $fname case $i"
         case_results_c+="✗"
       else
-        cpp_norm=$(cat "${out_prefix}.cpp.out" | normalize_json)
+        cpp_norm=$(cat "${out_prefix}.cpp.out" | $norm_fn)
         if [[ "$go_norm" == "$cpp_norm" ]]; then
           cpp_col_pass=$((cpp_col_pass + 1))
           case_results_c+="✓"

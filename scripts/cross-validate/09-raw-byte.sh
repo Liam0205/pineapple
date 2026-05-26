@@ -43,6 +43,9 @@ for i, c in enumerate(cases):
     ee = c.get('expect_error', '')
     with open('$WORK_DIR/raw_ee_${fname}_' + str(i) + '.txt', 'w') as ef:
         ef.write(ee)
+so = data.get('strict_order', True)
+with open('$WORK_DIR/raw_strict_order_${fname}.txt', 'w') as sf:
+    sf.write(str(so).lower())
 sr = data.get('static_resources')
 if sr is not None:
     with open('$WORK_DIR/raw_resources_${fname}.json', 'w') as sf:
@@ -90,7 +93,23 @@ print(len(cases))
     go_raw=$(cat "${out_prefix}.go.out")
     java_raw=$(cat "${out_prefix}.java.out")
 
-    if [[ "$go_raw" == "$java_raw" ]]; then
+    # For strict_order=false fixtures, skip raw byte comparison (item order is
+    # non-deterministic by design) and use set-normalized comparison instead.
+    norm_fn=normalize_json
+    if [[ -f "$WORK_DIR/raw_strict_order_${fname}.txt" ]]; then
+      so=$(cat "$WORK_DIR/raw_strict_order_${fname}.txt")
+      [[ "$so" == "false" ]] && norm_fn=normalize_json_set
+    fi
+
+    if [[ "$norm_fn" == "normalize_json_set" ]]; then
+      go_norm=$(echo "$go_raw" | normalize_json_set)
+      java_norm=$(echo "$java_raw" | normalize_json_set)
+      if [[ "$go_norm" == "$java_norm" ]]; then
+        raw_pass=$((raw_pass + 1))
+      else
+        fail "raw byte divergence (Go vs Java): $fname case $i (values differ, not just key ordering)"
+      fi
+    elif [[ "$go_raw" == "$java_raw" ]]; then
       raw_pass=$((raw_pass + 1))
     else
       go_norm=$(echo "$go_raw" | normalize_json)
@@ -111,7 +130,15 @@ print(len(cases))
 
     py_raw=$(cat "${out_prefix}.py.out")
 
-    if [[ "$go_raw" == "$py_raw" ]]; then
+    if [[ "$norm_fn" == "normalize_json_set" ]]; then
+      go_norm=${go_norm:-$(echo "$go_raw" | normalize_json_set)}
+      py_norm=$(echo "$py_raw" | normalize_json_set)
+      if [[ "$go_norm" == "$py_norm" ]]; then
+        py_raw_pass=$((py_raw_pass + 1))
+      else
+        fail "raw byte divergence (Go vs Python): $fname case $i (values differ, not just key ordering)"
+      fi
+    elif [[ "$go_raw" == "$py_raw" ]]; then
       py_raw_pass=$((py_raw_pass + 1))
     else
       go_norm=${go_norm:-$(echo "$go_raw" | normalize_json)}
@@ -132,7 +159,15 @@ print(len(cases))
         cpp_raw_total=$((cpp_raw_total - 1))
       else
         cpp_raw=$(cat "${out_prefix}.cpp.out")
-        if [[ "$go_raw" == "$cpp_raw" ]]; then
+        if [[ "$norm_fn" == "normalize_json_set" ]]; then
+          go_norm=${go_norm:-$(echo "$go_raw" | normalize_json_set)}
+          cpp_norm=$(echo "$cpp_raw" | normalize_json_set)
+          if [[ "$go_norm" == "$cpp_norm" ]]; then
+            cpp_raw_pass=$((cpp_raw_pass + 1))
+          else
+            fail "raw byte divergence (Go vs C++): $fname case $i (values differ, not just key ordering)"
+          fi
+        elif [[ "$go_raw" == "$cpp_raw" ]]; then
           cpp_raw_pass=$((cpp_raw_pass + 1))
         else
           go_norm=${go_norm:-$(echo "$go_raw" | normalize_json)}
