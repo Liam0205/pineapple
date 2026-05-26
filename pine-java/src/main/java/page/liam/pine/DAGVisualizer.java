@@ -136,7 +136,16 @@ public class DAGVisualizer {
 
         for (int i = 0; i < cg.groups.size(); i++) {
             CollapsedNode group = cg.groups.get(i);
-            String color = group.isGroup ? "#BBDEFB" : "#E0E0E0";
+            String color = "#E0E0E0";
+            if (group.isGroup) {
+                color = "#BBDEFB";
+            } else if (group.operatorType != null && !group.operatorType.isEmpty()) {
+                OperatorType resolved = resolveType(group.operatorType);
+                String typeColor = DOT_COLORS.get(resolved);
+                if (typeColor != null) {
+                    color = typeColor;
+                }
+            }
             String id = "g" + i;
             b.append("    ")
              .append(quote(id))
@@ -175,7 +184,12 @@ public class DAGVisualizer {
         for (int i = 0; i < cg.groups.size(); i++) {
             CollapsedNode group = cg.groups.get(i);
             String id = "g" + i;
-            String cls = group.isGroup ? "subflow" : "standalone";
+            String cls = "standalone";
+            if (group.isGroup) {
+                cls = "subflow";
+            } else if (group.operatorType != null && !group.operatorType.isEmpty()) {
+                cls = group.operatorType;
+            }
             b.append("    ")
              .append(id)
              .append("[\"").append(group.name).append("\"]")
@@ -194,6 +208,16 @@ public class DAGVisualizer {
         b.append("\n");
         b.append("    classDef subflow fill:#BBDEFB,stroke:#1976D2\n");
         b.append("    classDef standalone fill:#E0E0E0,stroke:#616161\n");
+        for (OperatorType opType : OperatorType.values()) {
+            String[] colors = MERMAID_CLASSES.get(opType);
+            if (colors != null) {
+                String className = opType.name().toLowerCase();
+                b.append("    classDef ").append(className)
+                 .append(" fill:").append(colors[0])
+                 .append(",stroke:").append(colors[1])
+                 .append("\n");
+            }
+        }
 
         return b.toString();
     }
@@ -271,7 +295,8 @@ public class DAGVisualizer {
                 idx = groups.size();
                 boolean isGroup = node.subFlow != null && !node.subFlow.isEmpty();
                 String name = isGroup ? collapseKey(node.subFlow, level) : node.name;
-                groups.add(new CollapsedNode(name, isGroup));
+                String opType = isGroup ? "" : (node.config != null ? node.config.operatorType : "");
+                groups.add(new CollapsedNode(name, isGroup, opType));
                 groupIndex.put(key, idx);
                 nodeToGroup.put(node.index, idx);
             }
@@ -303,10 +328,12 @@ public class DAGVisualizer {
     private static class CollapsedNode {
         final String name;
         final boolean isGroup;
+        final String operatorType; // non-empty for standalone nodes (preserves type coloring)
 
-        CollapsedNode(String name, boolean isGroup) {
+        CollapsedNode(String name, boolean isGroup, String operatorType) {
             this.name = name;
             this.isGroup = isGroup;
+            this.operatorType = operatorType;
         }
     }
 
