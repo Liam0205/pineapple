@@ -69,6 +69,7 @@ OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
     if (auto it = obj.find("mutates_row_set"); it != obj.end() && it->second.is_bool()) op.mutates_row_set = it->second.as_bool();
     if (auto it = obj.find("additive_writes_row_set"); it != obj.end() && it->second.is_bool()) op.additive_writes_row_set = it->second.as_bool();
     if (auto it = obj.find("debug"); it != obj.end() && it->second.is_bool()) op.debug = it->second.as_bool();
+    if (auto it = obj.find("for_branch_control"); it != obj.end() && it->second.is_bool()) op.for_branch_control = it->second.as_bool();
     if (auto it = obj.find("data_parallel"); it != obj.end() && it->second.is_number()) op.data_parallel = static_cast<int>(it->second.as_number());
     op.common_defaults = as_value_map(obj, "common_defaults");
     op.item_defaults = as_value_map(obj, "item_defaults");
