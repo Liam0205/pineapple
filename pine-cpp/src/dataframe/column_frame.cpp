@@ -1,11 +1,36 @@
 #include "pine/column_frame.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <set>
 #include <stdexcept>
 
 namespace pine {
+
+namespace {
+
+// validate_value mirrors pine-go internal/dataframe/row_frame.go:224. It
+// rejects NaN/Inf in any numeric write (those serialize to invalid JSON,
+// silently corrupting downstream consumers) and is called from
+// apply_output's three write phases (common, items, additions). Returns
+// the violation message (without `pine:`/op prefix) or empty when OK.
+// R3-H2.
+std::string validate_value(const std::string& field, const JsonValue& value) {
+    if (value.is_null()) return "";
+    if (value.is_number()) {
+        double d = value.as_number();
+        if (std::isnan(d) || std::isinf(d)) {
+            return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
+        }
+    }
+    // JsonValue only carries the JSON-representable types (null / number /
+    // string / bool / array / object) so the "unsupported type" branch in
+    // Go's validateValue cannot fire here — the type system forbids it.
+    return "";
+}
+
+}  // namespace
 
 ColumnFrame::ColumnFrame() : items_(std::make_unique<TypedColumnStore>(0)) {}
 
@@ -61,6 +86,14 @@ ColumnFrame::ColumnFrame(std::map<std::string, JsonValue> common,
         }
         items_->set_column(field, std::move(col));
     }
+}
+
+std::unique_ptr<Frame> ColumnFrame::make_window_view(std::size_t row_offset,
+                                                       std::size_t row_count) const {
+    // Frame-interface override delegates to the static ColumnFrame factory
+    // and returns a base-class pointer for parallel_execute, which holds
+    // shards as unique_ptr<Frame>. (R3-L3)
+    return std::unique_ptr<Frame>(make_window_view(*this, row_offset, row_count).release());
 }
 
 std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(
@@ -214,6 +247,9 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
 
     // 1. common writes
     for (const auto& [field, value] : out.common_writes()) {
+        if (auto v = validate_value(field, value); !v.empty()) {
+            throw ExecutionError(op_name, "common write: " + v);
+        }
         common_[field] = value;
     }
 
@@ -223,6 +259,9 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
             throw ExecutionError(op_name, "SetItem index " +
                                  std::to_string(idx) + " out of range [0, " +
                                  std::to_string(items_->row_count()) + ")");
+        }
+        if (auto v = validate_value(field, value); !v.empty()) {
+            throw ExecutionError(op_name, "item[" + std::to_string(idx) + "] write: " + v);
         }
         write_item_field_locked(static_cast<std::size_t>(idx), field, value);
     }
@@ -266,6 +305,9 @@ void ColumnFrame::apply_output(const OperatorOutput& out,
         for (std::size_t i = 0; i < out.added_items().size(); ++i) {
             const auto& added = out.added_items()[i];
             for (const auto& [field, value] : added) {
+                if (auto v = validate_value(field, value); !v.empty()) {
+                    throw ExecutionError(op_name, "added item write: " + v);
+                }
                 write_item_field_locked(base + i, field, value);
             }
             if (is_recall) {

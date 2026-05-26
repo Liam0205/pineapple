@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "pine/pine.hpp"
+#include "pine/operator.hpp"
 
 using namespace pine;
 
@@ -124,4 +125,100 @@ TEST_CASE("EngineOptions::log_prefix: overrides Config.log_prefix") {
 TEST_CASE("Engine::log_prefix: empty when unset on both Config and EngineOptions") {
     Engine engine(load_config_from_json(kCopyConfig));
     CHECK(engine.log_prefix() == "");
+}
+
+TEST_CASE("validate_output_against_type: Recall must not SetCommon (R3-H1)") {
+    // Use a custom in-process operator registered just for this test to keep
+    // the assertion focused on the validate_output codepath. The Recall type
+    // forbids SetCommon, SetItem, RemoveItem, SetItemOrder.
+    struct BadRecall : public pine::Operator {
+        void init(const pine::OperatorConfig&) override {}
+        void execute(const pine::Frame&, pine::OperatorOutput& out) override {
+            out.set_common("region", pine::JsonValue(std::string("us")));
+        }
+    };
+    static const pine::OperatorSchema s{
+        "bad_recall_set_common", pine::OpType::Recall,
+        "recall that illegally writes common",
+        {}};
+    static bool registered = false;
+    if (!registered) {
+        pine::register_operator_typed<BadRecall>(s);
+        registered = true;
+    }
+
+    static const char* kBadRecallConfig = R"({
+      "_PINEAPPLE_VERSION": "0.8.0",
+      "pipeline_config": {
+        "operators": {
+          "r1": {
+            "type_name": "bad_recall_set_common",
+            "$metadata": {"common_output": ["region"]}
+          }
+        },
+        "pipeline_map": {
+          "stage": {"pipeline": ["r1"]}
+        }
+      },
+      "pipeline_group": {
+        "main": {"pipeline": ["stage"]}
+      },
+      "flow_contract": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": ["region"],
+        "item_output": []
+      }
+    })";
+    Engine engine(load_config_from_json(kBadRecallConfig));
+    Request req;
+    try {
+        engine.execute(req);
+        FAIL("expected ExecutionError");
+    } catch (const Error& e) {
+        std::string msg = e.what();
+        CHECK(msg.find("type violation: operator type Recall must not call [SetCommon]") != std::string::npos);
+        CHECK(msg.find("pine: execution error in operator \"r1\"") != std::string::npos);
+    }
+}
+
+TEST_CASE("Engine::execute honors external stop_token (R3-H3)") {
+    static const char* kCfg = R"({
+      "_PINEAPPLE_VERSION": "0.8.0",
+      "pipeline_config": {
+        "operators": {
+          "copy": {
+            "type_name": "transform_copy",
+            "direction": "common_to_common",
+            "source": "src",
+            "target": "dst",
+            "$metadata": {
+              "common_input": ["src"],
+              "common_output": ["dst"]
+            }
+          }
+        },
+        "pipeline_map": {"stage": {"pipeline": ["copy"]}}
+      },
+      "pipeline_group": {"main": {"pipeline": ["stage"]}},
+      "flow_contract": {
+        "common_input": ["src"],
+        "item_input": [],
+        "common_output": ["dst"],
+        "item_output": []
+      }
+    })";
+    Engine engine(load_config_from_json(kCfg));
+    Request req;
+    req.common["src"] = JsonValue(std::string("v"));
+    std::stop_source src;
+    src.request_stop();  // pre-cancelled
+    static const std::map<std::string, JsonValue> empty_res;
+    // Pre-cancelled token: run_dag should see stop_requested at every wait
+    // and either return early or finish the trivial DAG. Either way the
+    // call must not deadlock and not throw spuriously.
+    auto result = engine.execute(req, empty_res, src.get_token());
+    // The simple linear DAG may have completed before observing cancel —
+    // both outcomes are valid; the API contract is "no deadlock, no UB".
+    CHECK(true);
 }

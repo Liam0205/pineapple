@@ -105,10 +105,9 @@ int main(int argc, char** argv) {
     if (cfg.config_path.empty()) {
         fprintf(stderr,
                 "usage: pineapple-server -config <path-to-config.json> "
-                "[-addr :8080] [-read-timeout 30s] [-write-timeout 60s] "
-                "[-max-body-size 10485760]\n"
-                "       (-read-header-timeout / -idle-timeout are accepted "
-                "but currently inert in C++; see P2-14.)\n");
+                "[-addr :8080] [-read-timeout 30s] [-read-header-timeout 5s] "
+                "[-write-timeout 60s] [-idle-timeout 120s] "
+                "[-max-body-size 10485760]\n");
         return 1;
     }
 

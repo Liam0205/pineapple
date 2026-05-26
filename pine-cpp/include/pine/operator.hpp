@@ -1,6 +1,7 @@
 #pragma once
 #include "pine/pine.hpp"
 #include "pine/column_frame.hpp"
+#include "pine/frame.hpp"
 #include "pine/metrics.hpp"
 #include <functional>
 #include <map>
@@ -10,8 +11,10 @@
 
 namespace pine {
 
-// Frame is an alias for ColumnFrame, used throughout operator implementations.
-using Frame = ColumnFrame;
+// Frame is the polymorphic DataFrame base. ColumnFrame is the default
+// implementation; RowFrame ships in src/dataframe/row_frame.cpp.
+// (R3-L3 — was previously `using Frame = ColumnFrame;` aliased to the
+// single MVP impl.)
 
 enum class OpType { Recall, Transform, Filter, Merge, Reorder, Observe };
 const char* op_type_to_string(OpType t);         // "recall" / "transform" / ...

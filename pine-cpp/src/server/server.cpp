@@ -107,10 +107,29 @@ struct HttpRequest {
     std::string body;
     int64_t content_length = -1;
     bool connection_close = false;
+    // R3-L9b: track HTTP/1.0 vs HTTP/1.1 to choose default keep-alive policy.
+    // HTTP/1.1 defaults to keep-alive unless `Connection: close`; HTTP/1.0
+    // defaults to close unless `Connection: keep-alive`.
+    std::string http_version = "HTTP/1.1";
+    bool connection_keep_alive = false;  // explicit `Connection: keep-alive` header
 };
 
 // Read all available data from socket until headers are complete, then read body.
-bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
+bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size,
+                       int header_timeout_seconds, int body_timeout_seconds) {
+    // R3-L9a: pine-go's http.Server ReadHeaderTimeout caps the duration
+    // for header reading independently of ReadTimeout. Raw sockets cannot
+    // model two timeouts at once, but we can swap SO_RCVTIMEO at the
+    // header boundary — short window for headers (Slowloris defense),
+    // wider window for body once we know how much to expect. Both default
+    // to 0 (caller passed unset) → leave timeout as caller set.
+    auto apply_rcv_timeout = [fd](int seconds) {
+        if (seconds <= 0) return;
+        struct timeval to{seconds, 0};
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof(to));
+    };
+    apply_rcv_timeout(header_timeout_seconds);
+
     std::string buffer;
     char chunk[4096];
 
@@ -128,6 +147,10 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
         header_end = buffer.find("\r\n\r\n");
     }
 
+    // Header phase complete — relax timeout to the body window before
+    // reading the (possibly large) body.
+    apply_rcv_timeout(body_timeout_seconds);
+
     // Parse request line
     auto first_line_end = buffer.find("\r\n");
     if (first_line_end == std::string::npos) return false;
@@ -141,6 +164,9 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
     auto space2 = request_line.find(' ', space1 + 1);
     if (space2 == std::string::npos) return false;
     std::string uri = request_line.substr(space1 + 1, space2 - space1 - 1);
+    // R3-L9b: capture HTTP version so handle_connection can decide
+    // the default keep-alive policy (1.1 keep-alive by default, 1.0 close).
+    req.http_version = request_line.substr(space2 + 1);
 
     auto q = uri.find('?');
     if (q != std::string::npos) {
@@ -186,6 +212,7 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size) {
             std::string lower_val = val;
             std::transform(lower_val.begin(), lower_val.end(), lower_val.begin(), ::tolower);
             if (lower_val == "close") req.connection_close = true;
+            else if (lower_val == "keep-alive") req.connection_keep_alive = true;
         }
     }
 
@@ -376,10 +403,16 @@ Server::~Server() {
 void Server::send_response(int fd, int status, const std::string& content_type,
                            const std::string& body) {
     if (t_mw_ctx) t_mw_ctx->status = status;
+    // R3-L9b: choose Connection header from the middleware context's
+    // keep_alive flag, set by handle_connection's keep-alive loop. When
+    // the flag is false (HTTP/1.0 by default, or `Connection: close`
+    // header was present, or the keep-alive loop is on its way to close
+    // anyway), emit Connection: close as before.
+    const bool keep_alive = (t_mw_ctx && t_mw_ctx->keep_alive);
     std::string response = "HTTP/1.1 " + std::to_string(status) + " " + status_text(status) + "\r\n";
     response += "Content-Type: " + content_type + "\r\n";
     response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
-    response += "Connection: close\r\n";
+    response += keep_alive ? "Connection: keep-alive\r\n" : "Connection: close\r\n";
     response += "\r\n";
     response += body;
 
@@ -816,7 +849,13 @@ void Server::stop() {
 bool Server::reload_config() {
     try {
         auto new_config = load_config_from_file(config_.config_path);
-        auto new_engine = std::make_unique<Engine>(new_config);
+        // Forward resolved Provider during hot-reload too, so metrics keep
+        // flowing through the same sink after config swap. (R3-H5)
+        metrics::Provider* provider = config_.metrics_provider ? config_.metrics_provider : metrics::nop_provider();
+        EngineOptions engine_opts;
+        engine_opts.metrics_provider = provider;
+        if (!new_config.log_prefix.empty()) engine_opts.log_prefix = new_config.log_prefix;
+        auto new_engine = std::make_unique<Engine>(new_config, std::move(engine_opts));
         auto new_expanded = expand_operator_sequence_with_subflows(new_config);
 
         auto new_resource_manager = std::make_unique<resource::Manager>();
@@ -861,9 +900,15 @@ void Server::watch_config() {
             last_reload_duration_ns_.store(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count(),
                 std::memory_order_relaxed);
+            if (m_reload_total_) m_reload_total_->inc();
+            if (m_reload_duration_) {
+                m_reload_duration_->observe(metrics::duration_seconds(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(dur)));
+            }
             std::cerr << "config reloaded from " << config_.config_path << "\n";
         } else {
             reload_error_count_.fetch_add(1, std::memory_order_relaxed);
+            if (m_reload_errors_) m_reload_errors_->inc();
         }
     }
 }
@@ -885,10 +930,30 @@ int Server::run(const ServerConfig& cfg) {
     http_stats_ = std::make_unique<HttpStats>();
     config_.middlewares.push_back(http_metrics_middleware(provider, http_stats_.get()));
 
+    // Hot-reload Provider metrics. Mirrors pine-go pkg/server/server.go:100-114
+    // — same metric names, help text, and bucket schedule so downstream
+    // Prometheus dashboards work unchanged. NopProvider returns no-op
+    // pointers so the call sites stay branchless. R3-M6.
+    m_reload_total_ = provider->new_counter(
+        {"pine_config_reload_total", "Total successful config reloads.", {}});
+    m_reload_errors_ = provider->new_counter(
+        {"pine_config_reload_errors_total", "Total failed config reloads.", {}});
+    m_reload_duration_ = provider->new_histogram(
+        {{"pine_config_reload_duration_seconds", "Config reload duration in seconds.", {}},
+         {0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}});
+
     // Load engine and start resource manager if configured
     try {
         auto config = load_config_from_file(cfg.config_path);
-        engine_ = std::make_unique<Engine>(config);
+        // Forward the resolved Provider (caller-configured or NopProvider
+        // fallback) into the Engine via EngineOptions so per-operator,
+        // scheduler, and DAG-level metrics reach the same Provider as the
+        // http_metrics middleware. Mirrors pine-go's
+        // `pine.NewEngine(cfg, pine.WithMetrics(mp))`. R3-H5.
+        EngineOptions engine_opts;
+        engine_opts.metrics_provider = provider;
+        if (!config.log_prefix.empty()) engine_opts.log_prefix = config.log_prefix;
+        engine_ = std::make_unique<Engine>(config, std::move(engine_opts));
 
         resource_manager_ = std::make_unique<resource::Manager>();
         resource_manager_->load_from_config(config);
@@ -987,13 +1052,22 @@ int Server::run(const ServerConfig& cfg) {
         }
 
         // Apply per-connection socket timeouts. Mirrors pine-go's
-        // http.Server ReadTimeout / WriteTimeout (raw sockets cannot
-        // separately model ReadHeaderTimeout vs ReadTimeout, so the
-        // wider window is applied via SO_RCVTIMEO). IdleTimeout and
-        // ReadHeaderTimeout are accepted in config for CLI parity but
-        // do not have a direct raw-socket equivalent without keep-alive.
+        // http.Server ReadTimeout / WriteTimeout. ReadHeaderTimeout is
+        // now wired (R3-L9a) — read_http_request swaps SO_RCVTIMEO at
+        // the header boundary, so the short window applies to headers
+        // and the long window applies to body reads. IdleTimeout is
+        // handled by the keep-alive loop (R3-L9b).
         int rcv_secs = config_.read_timeout_seconds > 0 ? config_.read_timeout_seconds : 30;
         int snd_secs = config_.write_timeout_seconds > 0 ? config_.write_timeout_seconds : 60;
+        int header_secs = config_.read_header_timeout_seconds > 0
+                          ? config_.read_header_timeout_seconds
+                          : rcv_secs;  // default: same as read_timeout
+        int idle_secs = config_.idle_timeout_seconds > 0
+                        ? config_.idle_timeout_seconds
+                        : rcv_secs;  // default: same as read_timeout
+        // Initial socket timeout: write side and a wide read fallback;
+        // read_http_request below installs the precise header→body
+        // schedule via SO_RCVTIMEO swap.
         struct timeval rcv_to{rcv_secs, 0};
         struct timeval snd_to{snd_secs, 0};
         setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_to, sizeof(rcv_to));
@@ -1001,7 +1075,7 @@ int Server::run(const ServerConfig& cfg) {
 
         // Handle request in a detached thread for concurrency
         in_flight_.fetch_add(1, std::memory_order_relaxed);
-        std::thread([this, client_fd]() {
+        std::thread([this, client_fd, header_secs, rcv_secs, idle_secs]() {
             // RAII decrement so detached threads always release the counter.
             // Wakes stop()'s drain loop via drain_cv_ so it does not have
             // to poll on a 50 ms sleep_for (P1-P5).
@@ -1017,64 +1091,97 @@ int Server::run(const ServerConfig& cfg) {
             } guard{in_flight_, drain_mu_, drain_cv_};
             (void)guard;
 
-            HttpRequest req;
-            if (!read_http_request(client_fd, req, config_.max_request_body_size)) {
-                ::close(client_fd);
-                return;
-            }
+            // R3-L9b: HTTP/1.1 keep-alive loop. The first request uses
+            // header_secs as the header-phase timeout; subsequent
+            // requests on the same connection use idle_secs as the
+            // header-phase timeout (the idle window between requests).
+            // Body timeouts always use rcv_secs.
+            bool first_request = true;
+            while (true) {
+                int hdr_to = first_request ? header_secs : idle_secs;
+                first_request = false;
 
-            // Check parse status: malformed Content-Length → 400
-            if (req.content_length == -2) {
-                send_error(client_fd, 400, "invalid Content-Length header");
-                ::close(client_fd);
-                return;
-            }
-
-            // Check if content_length exceeded max
-            if (req.content_length > config_.max_request_body_size) {
-                send_error(client_fd, 413, "request body too large");
-                ::close(client_fd);
-                return;
-            }
-
-            // Set up middleware context + dispatch chain.
-            MiddlewareContext mw_ctx;
-            mw_ctx.method = req.method;
-            mw_ctx.path = req.path;
-            mw_ctx.normalized_path = normalize_path(req.path);
-            mw_ctx.request_bytes = req.content_length > 0 ? req.content_length : 0;
-            mw_ctx.status = 200;
-
-            // Innermost handler: actual route dispatch.
-            std::function<void()> dispatch = [&]() {
-                if (req.path == "/health") {
-                    handle_health(client_fd, req.method);
-                } else if (req.path == "/execute") {
-                    handle_execute(client_fd, req.method, req.body, req.content_length);
-                } else if (req.path == "/stats") {
-                    handle_stats(client_fd, req.method);
-                } else if (req.path == "/dag") {
-                    handle_dag(client_fd, req.method, req.query_string);
-                } else {
-                    handle_not_found(client_fd);
+                HttpRequest req;
+                if (!read_http_request(client_fd, req, config_.max_request_body_size,
+                                        hdr_to, rcv_secs)) {
+                    // Either EOF, timeout, or malformed — close the connection.
+                    ::close(client_fd);
+                    return;
                 }
-            };
 
-            // Apply user middlewares outer-to-inner: the first middleware
-            // sees the request first, matching pine-go's loop direction.
-            std::function<void()> chain = dispatch;
-            const auto& mws = config_.middlewares;
-            for (auto it = mws.rbegin(); it != mws.rend(); ++it) {
-                Middleware mw = *it;
-                std::function<void()> next = chain;
-                chain = [&mw_ctx, mw, next]() { mw(mw_ctx, next); };
+                // Check parse status: malformed Content-Length → 400
+                if (req.content_length == -2) {
+                    send_error(client_fd, 400, "invalid Content-Length header");
+                    ::close(client_fd);
+                    return;
+                }
+
+                // Check if content_length exceeded max
+                if (req.content_length > config_.max_request_body_size) {
+                    send_error(client_fd, 413, "request body too large");
+                    ::close(client_fd);
+                    return;
+                }
+
+                // Decide keep-alive policy for this request. HTTP/1.1
+                // defaults to keep-alive unless `Connection: close` is
+                // set; HTTP/1.0 defaults to close unless
+                // `Connection: keep-alive` is set. Matches pine-go's
+                // http.Server semantics.
+                bool keep_alive;
+                if (req.http_version == "HTTP/1.0") {
+                    keep_alive = req.connection_keep_alive && !req.connection_close;
+                } else {
+                    keep_alive = !req.connection_close;
+                }
+
+                // Set up middleware context + dispatch chain.
+                MiddlewareContext mw_ctx;
+                mw_ctx.method = req.method;
+                mw_ctx.path = req.path;
+                mw_ctx.normalized_path = normalize_path(req.path);
+                mw_ctx.request_bytes = req.content_length > 0 ? req.content_length : 0;
+                mw_ctx.status = 200;
+                mw_ctx.keep_alive = keep_alive;
+
+                // Innermost handler: actual route dispatch.
+                std::function<void()> dispatch = [&]() {
+                    if (req.path == "/health") {
+                        handle_health(client_fd, req.method);
+                    } else if (req.path == "/execute") {
+                        handle_execute(client_fd, req.method, req.body, req.content_length);
+                    } else if (req.path == "/stats") {
+                        handle_stats(client_fd, req.method);
+                    } else if (req.path == "/dag") {
+                        handle_dag(client_fd, req.method, req.query_string);
+                    } else {
+                        handle_not_found(client_fd);
+                    }
+                };
+
+                // Apply user middlewares outer-to-inner: the first middleware
+                // sees the request first, matching pine-go's loop direction.
+                std::function<void()> chain = dispatch;
+                const auto& mws = config_.middlewares;
+                for (auto it = mws.rbegin(); it != mws.rend(); ++it) {
+                    Middleware mw = *it;
+                    std::function<void()> next = chain;
+                    chain = [&mw_ctx, mw, next]() { mw(mw_ctx, next); };
+                }
+
+                t_mw_ctx = &mw_ctx;
+                chain();
+                t_mw_ctx = nullptr;
+
+                if (!keep_alive) {
+                    ::close(client_fd);
+                    return;
+                }
+                // Loop back to read the next request — read_http_request
+                // will install idle_secs as the header timeout on the
+                // next iteration so a permanently-idle keep-alive
+                // connection is reaped.
             }
-
-            t_mw_ctx = &mw_ctx;
-            chain();
-            t_mw_ctx = nullptr;
-
-            ::close(client_fd);
         }).detach();
     }
 
