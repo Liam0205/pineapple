@@ -13,7 +13,7 @@ public class Config {
     private static final Set<String> RESERVED_KEYS = new HashSet<>(Arrays.asList(
             "type_name", "$metadata", "$code_info", "skip", "recall", "sources",
             "debug", "consumes_row_set", "mutates_row_set", "additive_writes_row_set",
-            "common_defaults", "item_defaults", "for_branch_control", "data_parallel"
+            "common_defaults", "item_defaults", "strict_common", "strict_item", "for_branch_control", "data_parallel"
     ));
 
     public String pineappleVersion;
@@ -155,6 +155,14 @@ public class Config {
         opCfg.itemDefaults = node.has("item_defaults")
                 ? mapper.convertValue(node.get("item_defaults"), new TypeReference<Map<String, Object>>() {})
                 : Collections.emptyMap();
+
+        // Parse strict_common and strict_item
+        opCfg.strictCommon = node.has("strict_common")
+                ? readStringList(node, "strict_common")
+                : Collections.emptyList();
+        opCfg.strictItem = node.has("strict_item")
+                ? readStringList(node, "strict_item")
+                : Collections.emptyList();
 
         // Extract raw params (non-reserved keys)
         opCfg.rawParams = new LinkedHashMap<>();
@@ -310,6 +318,8 @@ public class Config {
         public int dataParallel = 1;
         public Map<String, Object> commonDefaults = Collections.emptyMap();
         public Map<String, Object> itemDefaults = Collections.emptyMap();
+        public List<String> strictCommon = Collections.emptyList();
+        public List<String> strictItem = Collections.emptyList();
         public Map<String, Object> rawParams;
         public String operatorType; // populated at engine build time
         public InputFieldSpec inputSpec; // pre-computed at engine build time

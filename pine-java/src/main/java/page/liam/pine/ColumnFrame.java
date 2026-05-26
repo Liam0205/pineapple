@@ -88,6 +88,14 @@ public class ColumnFrame implements Frame {
                     cs.put(df.name, v);
                 }
             }
+            // Nullable common fields: missing -> error, nil -> pass through
+            for (String field : spec.nullableCommon) {
+                if (!common.containsKey(field)) {
+                    throw new PineErrors.OperatorException(
+                            "operator \"" + opName + "\": required field \"" + field + "\" is missing in common");
+                }
+                cs.put(field, common.get(field));
+            }
 
             List<Map<String, Object>> its = new ArrayList<>(rowCount);
             for (int i = 0; i < rowCount; i++) {
@@ -112,6 +120,16 @@ public class ColumnFrame implements Frame {
                     } else {
                         row.put(df.name, df.defaultValue);
                     }
+                }
+                // Nullable item fields: missing -> error, nil -> pass through
+                for (String field : spec.nullableItem) {
+                    Object[] col = columns.get(field);
+                    BitSet bits = presenceByField.get(field);
+                    if (col == null || bits == null || !bits.get(i)) {
+                        throw new PineErrors.OperatorException(
+                                "operator \"" + opName + "\": required field \"" + field + "\" is missing on item[" + i + "]");
+                    }
+                    row.put(field, col[i]);
                 }
 
                 its.add(row);
