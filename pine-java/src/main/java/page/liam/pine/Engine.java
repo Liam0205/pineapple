@@ -120,7 +120,7 @@ public class Engine {
         for (String name : sequence) {
             Config.OperatorConfig opCfg = cfg.pipelineConfig.operators.get(name);
 
-            boolean effectiveDebug = globalDebug || opCfg.debug;
+            boolean effectiveDebug = opCfg.debug != null ? opCfg.debug : globalDebug;
 
             Operator op = Registry.global().buildOperator(opCfg.typeName, opCfg.rawParams);
             OperatorType opType = Registry.global().getType(opCfg.typeName)

@@ -106,7 +106,7 @@ public class Config {
         OperatorConfig opCfg = new OperatorConfig();
         opCfg.typeName = node.has("type_name") ? node.get("type_name").asText() : "";
         opCfg.recall = node.has("recall") && node.get("recall").asBoolean();
-        opCfg.debug = node.has("debug") && node.get("debug").asBoolean();
+        opCfg.debug = node.has("debug") ? node.get("debug").asBoolean() : null;
         opCfg.consumesRowSet = node.has("consumes_row_set") && node.get("consumes_row_set").asBoolean();
         opCfg.mutatesRowSet = node.has("mutates_row_set") && node.get("mutates_row_set").asBoolean();
         opCfg.additiveWritesRowSet = node.has("additive_writes_row_set") && node.get("additive_writes_row_set").asBoolean();
@@ -303,8 +303,7 @@ public class Config {
         public List<String> skip;
         public boolean recall;
         public List<String> sources;
-        public boolean debug;
-        public boolean consumesRowSet;
+        public Boolean debug;        public boolean consumesRowSet;
         public boolean mutatesRowSet;
         public boolean additiveWritesRowSet;
         public boolean forBranchControl;
