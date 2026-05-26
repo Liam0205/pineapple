@@ -4,21 +4,22 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL/Go/Java/Python 引擎四方契约、blank-import 注册、版本同步（四处）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 生命周期）、三引擎十三层交叉验证、跨引擎能力等价审计维度。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / Python `__init__.py` / C++ `PINE_REGISTER_OPERATOR`）、版本同步（四处）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述。
 
 ## overview/
 
-- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Python DSL + Go/Java/Python 三运行时拆分的设计决策；其中包括可复用 HTTP server 的职责边界与 middleware 注入位置。
+- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Apple DSL + Go / Java / Python / C++ 四运行时拆分的设计决策；包含各运行时 CLI/HTTP 入口点（含 pine-cpp server timeout / max-body-size flag）。
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、ExecutionError/PanicError 因果链（四运行时 cause chain parity）、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
+- `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时架构：作为完整第四运行时的定位、错误/fixture parity 契约、CLI 与 HTTP 入口（含 HTTP/1.1 keep-alive / read-header-timeout / idle-timeout / max-body-size / middleware / graceful shutdown / 客户端断连取消）、`metrics::Provider` 与 `resource::Manager` 对等、Frame 多态基类 + ColumnFrame/RowFrame 双物理实现（C++23）、Column 类型层级、`PINE_REGISTER_OPERATOR_T` 注册模型、ValidateOutput 类型约束、NaN/Inf 校验、PanicError stacktrace、外部 stop_token 取消、observe_log/pine-debug 日志。
 
 ## guides/
 
 - `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步。
-- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint/test/coverage/fuzz/differential-fuzz/cross-validate/release-gate 架构与接入约定（三引擎十三层）。
+- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint / test / coverage / fuzz / differential-fuzz / cross-validate / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则。
 - `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价）。
 
@@ -26,7 +27,7 @@
 
 - `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）。
 - `llmdoc/reference/apple-control-template-syntax.md` — Apple DSL 控制流条件参考：`if_` / `elseif_` 需要使用 `{{field_name}}` 模板语法显式标记字段引用，编译器据此提取依赖并在发射 Lua 前去掉模板标记。
-- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：`pkg/metrics` Provider 契约、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应、Prometheus 适配边界，以及 server middleware 与 observability 的职责分离。
+- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 子树 schema）、内置 HTTP metrics middleware（四运行时 default-on）、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
 
 ## memory/
@@ -83,3 +84,10 @@
 - `llmdoc/memory/reflections/extensibility-parity-tests-and-java-prefix-fix.md` — 扩展性 parity 测试与 Java 前缀匹配修复复盘，记录 HttpServer 前缀语义二次修复、cross-validate 12 层扩展、深层路径测试发现 bug 的验证价值。
 - `llmdoc/memory/reflections/v072-074-llmdoc-update.md` — v0.7.2-v0.7.4 llmdoc 大面积过时复盘，记录 21 commit 跨度下硬编码层数第四次过时、并发模型描述陈旧、CI 参数重复、新能力缺失的系统性原因与防范策略。
 - `llmdoc/memory/reflections/dag-implicit-row-set-fix-v080.md` — v0.8.0 DAG 隐式行集依赖修复复盘，记录 auto-inject 机制（三标记模型的第四机制）、6 算子 ConsumesRowSet 清理、dag-differential-fuzz 基础设施、文档中"三标记模型"与"可选 ConsumesRowSet"描述过时。
+- `llmdoc/memory/reflections/pine-cpp-mvp-to-full-runtime.md` — pine-cpp 从 MVP 文档化到完整第四运行时的 34 commit 累积期偏差复盘，记录 MVP 措辞时效性、引擎数量第五次失效、累积心理模型与新核心概念发现路径缺失。
+- `llmdoc/memory/reflections/pine-cpp-p1-p2-buildout.md` — pine-cpp P1/P2 全运行时建设阶段（18 commit）复盘，记录"上一轮 reflection 未落地是放大器"、跨运行时观测契约表格缺失、CLI flag 作为用户契约的同步要求。
+- `llmdoc/memory/reflections/pine-cpp-p3-series-buildout.md` — pine-cpp P3-A to P3-D 阶段复盘，涉及 LuaVM StatePool 隔离、StatsProvider/MetricsAware 基建与 remote pineapple SSRF 保护接入。
+- `llmdoc/memory/reflections/cause-chain-and-stats-http.md` — /stats.http 四方对齐与 cause-chain parity 复盘（9 commits），记录跨语言状态辨识盲区、std::rethrow_if_nested footgun、R2 审计反向修正机制、cross-validate 第二种验证模式（probe binary stdout 对比）。
+- `llmdoc/memory/reflections/p2-perf-and-review-driven-fixes.md` — P2 性能优化批次与审查驱动修复周期复盘（22 commits），记录 CRTP 注册宏、OperatorOutput 向量化、zero-copy window view、Redis idle bound、progress.md 遗漏增量发现、数据结构级变更需文档同步的教训。
+- `llmdoc/memory/reflections/r3-audit-and-fuzz-enhancement.md` — R3 parity audit（26+5 项）+ differential fuzz 增强（11 新维度 + 4 引擎接入）复盘（34 commits），记录 Frame 多态化架构变更、C++23 采纳、HTTP/1.1 keep-alive、fuzz 50-round smoke 立即暴露 17 divergence + RawValue 泄漏的 ROI 验证、dual-impl 等价测试覆盖。
+- `llmdoc/memory/reflections/differential-fuzz-discoveries.md` — 30k-round differential fuzz 发现与修复复盘（7 commits），记录 IEEE 754 -0.0 跨语言 hash/equality 差异、C++ item_defaults 投影时机缺陷、并行 recall+paginate 非确定性的生成器规避策略、cross-validate set comparison 防护。

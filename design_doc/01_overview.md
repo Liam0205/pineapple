@@ -50,6 +50,20 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 
 两个引擎对相同输入产生相同输出，由 CI 交叉验证保证一致性。
 
+## Pine-C++ 初始 MVP 切片
+
+仓库现已引入 `pine-cpp/` 目录，作为第四运行时的初始 MVP 落点。该切片当前只覆盖本地可编译、可执行的最小纵向链路：
+
+- 自包含 CMake 工程与公共头文件入口
+- `pineapple-run`：读取 `-config` 与 `-request` 后执行 pipeline 并输出 JSON
+- `pineapple-render-dag`：读取 `-config` 后输出 DOT / Mermaid，并支持 `-collapse`
+- 自带最小 JSON 解析/序列化实现，避免依赖系统安装的 JSON 库
+- MVP 算子仅覆盖 `transform_copy`、`filter_truncate`、`recall_static`、`reorder_sort`
+- 支持 `pipeline_group`/`pipeline_map` 展开、单一非 `main` group fallback、`skip` 归一化、strict/default field accessor，以及基于 metadata 的基础 DAG 构建
+
+该切片的定位是“先打通真实可运行路径”，不是宣布 Pine-C++ 已达到 Go/Java/Python 运行时的完整功能对等。Lua、HTTP server、`/stats`、热加载、resources 与完整算子集仍待后续实现。
+
+
 ## 核心设计要点
 
 1. **算子 (Operator)** 是基本计算单元，由 Go/Java 实现。分为通用算子和自定义算子。

@@ -8,7 +8,7 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * R3-X3: dual-impl Frame equivalence.
+ * Dual-impl Frame equivalence.
  *
  * <p>DataFrame (row-major) and ColumnFrame must produce byte-identical
  * Result for the same (common, items, OperatorOutput) input. Without
