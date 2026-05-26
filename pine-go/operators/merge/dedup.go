@@ -16,6 +16,7 @@ package merge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
@@ -52,9 +53,10 @@ func (o *DedupOp) Init(params map[string]any) error {
 
 func (o *DedupOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	dedupBy := o.ItemInput[0]
-	seen := make(map[any]struct{})
+	seen := make(map[string]struct{})
 	for i := 0; i < in.ItemCount(); i++ {
-		key := in.Item(i, dedupBy)
+		raw := in.Item(i, dedupBy)
+		key := dedupKey(raw)
 		if _, dup := seen[key]; dup {
 			out.RemoveItem(i)
 		} else {
@@ -62,4 +64,34 @@ func (o *DedupOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.O
 		}
 	}
 	return nil
+}
+
+func dedupKey(v any) string {
+	if v == nil {
+		return "N:"
+	}
+	switch x := v.(type) {
+	case bool:
+		if x {
+			return "B:1"
+		}
+		return "B:0"
+	case float64:
+		if x == 0 {
+			x = 0 // canonicalize -0.0 → +0.0 (IEEE 754)
+		}
+		return fmt.Sprintf("F:%v", x)
+	case int64:
+		return fmt.Sprintf("F:%v", float64(x))
+	case int:
+		return fmt.Sprintf("F:%v", float64(x))
+	case string:
+		return "S:" + x
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("O:%v", v)
+		}
+		return "O:" + string(b)
+	}
 }
