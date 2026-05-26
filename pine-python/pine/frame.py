@@ -115,6 +115,14 @@ class ColumnFrame(Frame):
                     common_snapshot[df.name] = self._common[df.name]
                 else:
                     common_snapshot[df.name] = df.default
+            # Nullable common fields: missing → error, nil → pass through
+            for field in spec.nullable_common:
+                if field not in self._common:
+                    raise ExecutionError(
+                        op_name,
+                        f'required field "{field}" is missing in common',
+                    )
+                common_snapshot[field] = self._common[field]
 
             items_snapshot: list[dict[str, Any]] = []
             for i in range(self._row_count):
@@ -139,6 +147,16 @@ class ColumnFrame(Frame):
                         row[df.name] = col[i]
                     else:
                         row[df.name] = df.default
+                # Nullable item fields: !present → error, present && nil → pass through
+                for field in spec.nullable_item:
+                    col = self._columns.get(field)
+                    pres = self._presence.get(field)
+                    if col is None or pres is None or not pres[i]:
+                        raise ExecutionError(
+                            op_name,
+                            f'required field "{field}" is missing on item[{i}]',
+                        )
+                    row[field] = col[i]
 
                 items_snapshot.append(row)
 
@@ -345,6 +363,13 @@ class RowFrame(Frame):
                     common_snapshot[df.name] = self._common[df.name]
                 else:
                     common_snapshot[df.name] = df.default
+            for field in spec.nullable_common:
+                if field not in self._common:
+                    raise ExecutionError(
+                        op_name,
+                        f'required field "{field}" is missing in common',
+                    )
+                common_snapshot[field] = self._common[field]
 
             items_snapshot: list[dict[str, Any]] = []
             for i, row in enumerate(self._items):
@@ -362,6 +387,13 @@ class RowFrame(Frame):
                         snap[df.name] = row[df.name]
                     else:
                         snap[df.name] = df.default
+                for field in spec.nullable_item:
+                    if field not in row:
+                        raise ExecutionError(
+                            op_name,
+                            f'required field "{field}" is missing on item[{i}]',
+                        )
+                    snap[field] = row[field]
                 items_snapshot.append(snap)
 
             return OperatorInput(common_snapshot, items_snapshot)
