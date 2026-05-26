@@ -8,45 +8,45 @@
 
 namespace pine {
 
-// Forward declaration: Frame is defined in frame.hpp.
 class Frame;
 
-// OperatorInput is a read-only snapshot of the Frame fields relevant to an
-// operator, with item_defaults / common_defaults already substituted for nil
-// values. Mirrors Go's BuildInput → OperatorInput pattern (column_frame.go),
-// Java's Frame.buildInput(), and Python's Frame.build_input().
+// OperatorInput is a lazy read-only proxy over Frame + InputFieldSpec.
+// item(i, field) reads from Frame on demand, substituting defaults for
+// nil values. Avoids the O(N×M) eager reify that the old implementation
+// performed (copying every item×field into a vector<map>).
 //
-// Operators receive OperatorInput instead of raw Frame& so they never see nil
-// when a default exists — the engine layer handles default substitution
-// uniformly before dispatch.
+// Operators receive `const OperatorInput&` and call item()/common() —
+// the lazy proxy is transparent to them.
+//
+// Strict field validation is done once by build_operator_input before
+// constructing the proxy (PERF-1a).
 class OperatorInput {
 public:
-    OperatorInput(std::map<std::string, JsonValue> common,
-                  std::vector<std::map<std::string, JsonValue>> items,
-                  const std::map<std::string, JsonValue>* resources);
+    OperatorInput(const Frame& frame, const InputFieldSpec& spec);
 
     // common returns the value for the given field, or null if absent.
+    // Substitutes defaults for nil values.
     JsonValue common(const std::string& field) const;
 
     // item_count returns the number of items.
     std::size_t item_count() const;
 
     // item returns the value for (index, field), or null if absent.
+    // Substitutes defaults for nil values.
     JsonValue item(std::size_t index, const std::string& field) const;
 
-    // common_keys returns all common field names present.
+    // common_keys returns all common field names present in the spec.
     std::vector<std::string> common_keys() const;
 
-    // item_keys returns all field names present on a given item.
+    // item_keys returns all item field names present in the spec.
     std::vector<std::string> item_keys(std::size_t index) const;
 
     // resources returns the injected resource map (may be nullptr).
-    const std::map<std::string, JsonValue>* resources() const { return resources_; }
+    const std::map<std::string, JsonValue>* resources() const;
 
 private:
-    std::map<std::string, JsonValue> common_;
-    std::vector<std::map<std::string, JsonValue>> items_;
-    const std::map<std::string, JsonValue>* resources_ = nullptr;
+    const Frame* frame_;
+    const InputFieldSpec* spec_;
 };
 
 // build_operator_input constructs an OperatorInput from a Frame and the

@@ -3,41 +3,49 @@
 
 namespace pine {
 
-OperatorInput::OperatorInput(std::map<std::string, JsonValue> common,
-                             std::vector<std::map<std::string, JsonValue>> items,
-                             const std::map<std::string, JsonValue>* resources)
-    : common_(std::move(common)), items_(std::move(items)), resources_(resources) {}
+OperatorInput::OperatorInput(const Frame& frame, const InputFieldSpec& spec)
+    : frame_(&frame), spec_(&spec) {}
 
 JsonValue OperatorInput::common(const std::string& field) const {
-    auto it = common_.find(field);
-    if (it != common_.end()) return it->second;
+    JsonValue v = frame_->common(field);
+    if (!v.is_null()) return v;
+    for (const auto& df : spec_->defaulted_common) {
+        if (df.name == field) return df.default_value;
+    }
     return JsonValue(nullptr);
 }
 
 std::size_t OperatorInput::item_count() const {
-    return items_.size();
+    return frame_->item_count();
 }
 
 JsonValue OperatorInput::item(std::size_t index, const std::string& field) const {
-    if (index >= items_.size()) return JsonValue(nullptr);
-    auto it = items_[index].find(field);
-    if (it != items_[index].end()) return it->second;
+    if (index >= frame_->item_count()) return JsonValue(nullptr);
+    JsonValue v = frame_->item(index, field);
+    if (!v.is_null()) return v;
+    for (const auto& df : spec_->defaulted_item) {
+        if (df.name == field) return df.default_value;
+    }
     return JsonValue(nullptr);
 }
 
 std::vector<std::string> OperatorInput::common_keys() const {
     std::vector<std::string> keys;
-    keys.reserve(common_.size());
-    for (const auto& [k, _] : common_) keys.push_back(k);
+    for (const auto& f : spec_->strict_common) keys.push_back(f);
+    for (const auto& df : spec_->defaulted_common) keys.push_back(df.name);
     return keys;
 }
 
 std::vector<std::string> OperatorInput::item_keys(std::size_t index) const {
-    if (index >= items_.size()) return {};
+    (void)index;
     std::vector<std::string> keys;
-    keys.reserve(items_[index].size());
-    for (const auto& [k, _] : items_[index]) keys.push_back(k);
+    for (const auto& f : spec_->strict_item) keys.push_back(f);
+    for (const auto& df : spec_->defaulted_item) keys.push_back(df.name);
     return keys;
+}
+
+const std::map<std::string, JsonValue>* OperatorInput::resources() const {
+    return frame_->resources();
 }
 
 InputFieldSpec compute_input_field_spec(const OperatorConfig& config) {
@@ -64,25 +72,15 @@ InputFieldSpec compute_input_field_spec(const OperatorConfig& config) {
 OperatorInput build_operator_input(const Frame& frame,
                                    const std::string& op_name,
                                    const InputFieldSpec& spec) {
-    // Build common map
-    std::map<std::string, JsonValue> common;
+    // Validate strict common fields
     for (const auto& field : spec.strict_common) {
         JsonValue v = frame.common(field);
         if (v.is_null()) {
             throw ExecutionError(op_name, "required field \"" + field + "\" is nil in common");
         }
-        common[field] = std::move(v);
-    }
-    for (const auto& df : spec.defaulted_common) {
-        JsonValue v = frame.common(df.name);
-        if (v.is_null()) {
-            common[df.name] = df.default_value;
-        } else {
-            common[df.name] = std::move(v);
-        }
     }
 
-    // Batch-validate strict item fields (PERF-1a: ColumnFrame uses bitmap scan)
+    // Batch-validate strict item fields (PERF-1a)
     if (!spec.strict_item.empty()) {
         auto [bad_field, bad_row] = frame.validate_strict_items(spec.strict_item);
         if (bad_row >= 0) {
@@ -90,26 +88,8 @@ OperatorInput build_operator_input(const Frame& frame,
         }
     }
 
-    // Build items
-    std::vector<std::map<std::string, JsonValue>> items;
-    items.reserve(frame.item_count());
-    for (std::size_t i = 0; i < frame.item_count(); ++i) {
-        std::map<std::string, JsonValue> row;
-        for (const auto& field : spec.strict_item) {
-            row[field] = frame.item(i, field);
-        }
-        for (const auto& df : spec.defaulted_item) {
-            JsonValue v = frame.item(i, df.name);
-            if (v.is_null()) {
-                row[df.name] = df.default_value;
-            } else {
-                row[df.name] = std::move(v);
-            }
-        }
-        items.push_back(std::move(row));
-    }
-
-    return OperatorInput(std::move(common), std::move(items), frame.resources());
+    // Return lazy proxy — no eager reify of items (PERF-1b)
+    return OperatorInput(frame, spec);
 }
 
 }  // namespace pine
