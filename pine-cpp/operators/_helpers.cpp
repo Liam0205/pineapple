@@ -171,15 +171,15 @@ std::string dedup_key(const JsonValue& v) {
     if (v.is_bool()) return v.as_bool() ? "B:1" : "B:0";
     if (v.is_number()) {
         double d = v.as_number();
-        // DF-B4: Go uses the raw float64 as map key; Go's map == considers
-        // -0.0 == +0.0 (IEEE 754), so they deduplicate. go_format_g(-0.0)
-        // returns "-0" which differs from "0" → different string keys.
-        // Canonicalize to +0.0 before formatting so the string key matches.
+        // DF-B4: canonicalize -0.0 to +0.0 (IEEE 754: -0 == +0).
         if (d == 0.0) d = 0.0;
         return "F:" + go_format_g(d);
     }
     if (v.is_string()) return "S:" + v.as_string();
-    return "O:" + sprint_value(v);
+    // V-12: composite types (array/object) must produce distinct keys.
+    // Previously returned "O:<complex>" for both → all composites collided.
+    // Use compact JSON serialization (deterministic, distinguishes types).
+    return "O:" + dump_json(v, 0);
 }
 
 std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields) {
