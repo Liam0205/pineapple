@@ -540,6 +540,34 @@ class TestRenameControlFields:
         assert biz_op.common_input == ["_L1::if_1"]
         assert biz_op.skip == ["_L1::if_1"]
 
+    def test_subflow_rename_updates_lua_script(self):
+        """Lua evaluate in else/elseif must reference namespaced field via _ENV."""
+        from apple.base import OpCall
+        from apple.compiler import _rename_control_fields
+
+        ctrl_if = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": 'function evaluate() if (flag == true) then return false else return true end end',
+                    "function_for_common": "evaluate", "function_for_item": ""},
+            common_output=["_if_1"],
+            for_branch_control=True,
+            name="if_1",
+        )
+        ctrl_else = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": 'function evaluate() if ((_if_1)) then return false else return true end end',
+                    "function_for_common": "evaluate", "function_for_item": ""},
+            common_input=["_if_1"],
+            common_output=["_else_2"],
+            for_branch_control=True,
+            name="else_2",
+        )
+        _rename_control_fields(
+            [ctrl_if, ctrl_else], [("op", 0), ("op", 1)], "my_sf"
+        )
+        assert '_ENV["_my_sf::if_1"]' in ctrl_else.params["lua_script"]
+        assert "(_if_1)" not in ctrl_else.params["lua_script"]
+
     def test_nested_path_uses_double_colon(self):
         """Nested SubFlow path uses :: as separator."""
         from apple.base import OpCall

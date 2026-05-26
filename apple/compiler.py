@@ -222,6 +222,13 @@ def _rename_field(op: OpCall, old: str, new: str) -> None:
     op.skip = [new if s == old else s for s in op.skip]
     op.common_input = [new if f == old else f for f in op.common_input]
     op.common_output = [new if f == old else f for f in op.common_output]
+    # Also rename Lua variable references inside lua_script for control ops.
+    # Use _ENV["name"] syntax since namespaced names (containing ::) are not
+    # valid Lua identifiers.
+    lua_script = op.params.get("lua_script")
+    if lua_script and old in lua_script:
+        lua_safe_new = f'_ENV["{new}"]'
+        op.params["lua_script"] = lua_script.replace(f"({old})", f"({lua_safe_new})")
 
 
 def _apply_field_renames(fields: list[str], renames: dict[str, str]) -> list[str]:
