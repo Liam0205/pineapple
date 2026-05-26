@@ -102,8 +102,9 @@ func sanitizeMermaidID(name string) string {
 // Nodes are grouped by truncating their SubFlow path to the first `level`
 // segments (split by "/"). Nodes with empty SubFlow remain independent.
 type collapsedNode struct {
-	Name  string // group key or original node name
-	Group bool   // true if this represents a SubFlow group
+	Name         string // group key or original node name
+	Group        bool   // true if this represents a SubFlow group
+	OperatorType string // non-empty for standalone nodes (preserves type coloring)
 }
 
 type collapsedEdge struct {
@@ -139,7 +140,7 @@ func buildCollapsed(g *Graph, level int) ([]collapsedNode, []collapsedEdge) {
 			if node.SubFlow != "" {
 				groups = append(groups, collapsedNode{Name: collapseKey(node.SubFlow, level), Group: true})
 			} else {
-				groups = append(groups, collapsedNode{Name: node.Name, Group: false})
+				groups = append(groups, collapsedNode{Name: node.Name, Group: false, OperatorType: node.Config.OperatorType})
 			}
 			groupIndex[key] = idx
 			nodeToGroup[node.Index] = idx
@@ -179,6 +180,8 @@ func RenderCollapsedDOT(g *Graph, level int) string {
 		color := "#E0E0E0"
 		if group.Group {
 			color = "#BBDEFB"
+		} else if c, ok := dotColors[types.OperatorType(group.OperatorType)]; ok {
+			color = c
 		}
 		fmt.Fprintf(&b, "    %q [label=%q, fillcolor=%q];\n",
 			fmt.Sprintf("g%d", i), group.Name, color)
@@ -207,6 +210,8 @@ func RenderCollapsedMermaid(g *Graph, level int) string {
 		cls := "standalone"
 		if group.Group {
 			cls = "subflow"
+		} else if group.OperatorType != "" {
+			cls = group.OperatorType
 		}
 		fmt.Fprintf(&b, "    %s[\"%s\"]:::%s\n", id, group.Name, cls)
 	}
@@ -220,6 +225,14 @@ func RenderCollapsedMermaid(g *Graph, level int) string {
 	b.WriteString("\n")
 	b.WriteString("    classDef subflow fill:#BBDEFB,stroke:#1976D2\n")
 	b.WriteString("    classDef standalone fill:#E0E0E0,stroke:#616161\n")
+	for _, opType := range types.AllOperatorTypes {
+		colors, ok := mermaidClasses[opType]
+		if !ok {
+			continue
+		}
+		className := strings.ToLower(string(opType))
+		fmt.Fprintf(&b, "    classDef %s fill:%s,stroke:%s\n", className, colors[0], colors[1])
+	}
 
 	return b.String()
 }
