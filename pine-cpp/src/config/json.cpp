@@ -289,71 +289,90 @@ std::string go_format_json_number(double d) {
     return std::string(buf, ptr);
 }
 
-std::string dump_impl(const JsonValue& value, int indent_size, int depth) {
-    if (value.is_null()) return "null";
-    if (value.is_bool()) return value.as_bool() ? "true" : "false";
-    if (value.is_number()) {
-        return go_format_json_number(value.as_number());
-    }
+// dump_impl writes the JSON serialization of `value` into `out`. P2-01:
+// the earlier signature returned a fresh std::string per call and used
+// std::ostringstream for every array / object, allocating O(depth) extra
+// buffers on deeply nested values. Threading the output `std::string&`
+// through the recursion eliminates those temporaries — each character is
+// appended exactly once into the caller's buffer.
+void dump_impl(const JsonValue& value, int indent_size, int depth, std::string& out) {
+    if (value.is_null()) { out += "null"; return; }
+    if (value.is_bool()) { out += value.as_bool() ? "true" : "false"; return; }
+    if (value.is_number()) { out += go_format_json_number(value.as_number()); return; }
     if (value.is_string()) {
-        std::string escaped;
         const auto& s = value.as_string();
+        out.push_back('"');
         for (std::size_t i = 0; i < s.size(); ++i) {
             unsigned char ch = static_cast<unsigned char>(s[i]);
             switch (ch) {
-                case '"': escaped += "\\\""; break;
-                case '\\': escaped += "\\\\"; break;
-                case '\n': escaped += "\\n"; break;
-                case '\r': escaped += "\\r"; break;
-                case '\t': escaped += "\\t"; break;
-                case '<': escaped += "\\u003c"; break;
-                case '>': escaped += "\\u003e"; break;
-                case '&': escaped += "\\u0026"; break;
+                case '"': out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                case '<': out += "\\u003c"; break;
+                case '>': out += "\\u003e"; break;
+                case '&': out += "\\u0026"; break;
                 default:
                     // U+2028 (E2 80 A8) and U+2029 (E2 80 A9): escape like Go's encoding/json
                     if (ch == 0xE2 && i + 2 < s.size()
                         && static_cast<unsigned char>(s[i+1]) == 0x80
                         && (static_cast<unsigned char>(s[i+2]) == 0xA8 || static_cast<unsigned char>(s[i+2]) == 0xA9)) {
-                        escaped += (static_cast<unsigned char>(s[i+2]) == 0xA8) ? "\\u2028" : "\\u2029";
+                        out += (static_cast<unsigned char>(s[i+2]) == 0xA8) ? "\\u2028" : "\\u2029";
                         i += 2;
                     } else {
-                        escaped.push_back(static_cast<char>(ch));
+                        out.push_back(static_cast<char>(ch));
                     }
                     break;
             }
         }
-        return "\"" + escaped + "\"";
+        out.push_back('"');
+        return;
     }
     if (value.is_array()) {
         const auto& array = value.as_array();
-        if (array.empty()) return "[]";
-        std::ostringstream oss;
-        oss << "[\n";
+        if (array.empty()) { out += "[]"; return; }
+        out += "[\n";
+        const std::string inner_indent(static_cast<std::size_t>((depth + 1) * indent_size), ' ');
+        const std::string outer_indent(static_cast<std::size_t>(depth * indent_size), ' ');
         for (std::size_t i = 0; i < array.size(); ++i) {
-            oss << indent(depth + 1, indent_size) << dump_impl(array[i], indent_size, depth + 1);
-            if (i + 1 != array.size()) oss << ',';
-            oss << '\n';
+            out += inner_indent;
+            dump_impl(array[i], indent_size, depth + 1, out);
+            if (i + 1 != array.size()) out.push_back(',');
+            out.push_back('\n');
         }
-        oss << indent(depth, indent_size) << ']';
-        return oss.str();
+        out += outer_indent;
+        out.push_back(']');
+        return;
     }
     const auto& object = value.as_object();
-    if (object.empty()) return "{}";
-    std::ostringstream oss;
-    oss << "{\n";
+    if (object.empty()) { out += "{}"; return; }
+    out += "{\n";
+    const std::string inner_indent(static_cast<std::size_t>((depth + 1) * indent_size), ' ');
+    const std::string outer_indent(static_cast<std::size_t>(depth * indent_size), ' ');
     std::size_t index = 0;
     for (const auto& [key, item] : object) {
-        oss << indent(depth + 1, indent_size) << '"' << key << "\": " << dump_impl(item, indent_size, depth + 1);
-        if (++index != object.size()) oss << ',';
-        oss << '\n';
+        out += inner_indent;
+        out.push_back('"');
+        out += key;
+        out += "\": ";
+        dump_impl(item, indent_size, depth + 1, out);
+        if (++index != object.size()) out.push_back(',');
+        out.push_back('\n');
     }
-    oss << indent(depth, indent_size) << '}';
-    return oss.str();
+    out += outer_indent;
+    out.push_back('}');
 }
 
 }  // namespace
 
 JsonValue parse_json(const std::string& text) { return Parser(text).parse(); }
-std::string dump_json(const JsonValue& value, int indent) { return dump_impl(value, indent, 0) + "\n"; }
+std::string dump_json(const JsonValue& value, int indent) {
+    std::string out;
+    out.reserve(64);
+    dump_impl(value, indent, 0, out);
+    out.push_back('\n');
+    return out;
+}
 
 }  // namespace pine

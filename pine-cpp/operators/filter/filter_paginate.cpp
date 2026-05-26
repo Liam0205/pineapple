@@ -40,7 +40,6 @@ static const OperatorSchema k_filter_paginate_schema{
     .description = "Keeps only items in the [page*size, page*size+size) range, removes the rest.",
     .params = {},
 };
-PINE_REGISTER_OPERATOR(k_filter_paginate_schema,
-    ([] { return std::make_unique<FilterPaginateOp>(); }))
+PINE_REGISTER_OPERATOR_T(FilterPaginateOp, k_filter_paginate_schema)
 
 }  // namespace pine

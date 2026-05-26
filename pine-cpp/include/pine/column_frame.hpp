@@ -28,6 +28,24 @@ public:
     ColumnFrame(std::map<std::string, JsonValue> common,
                 std::vector<std::map<std::string, JsonValue>> items);
 
+    // Construct a non-owning read-only window over a parent frame's items.
+    // common_ and items_ are shared by pointer; (row_offset, row_count)
+    // selects a contiguous slice of the parent's rows.
+    //
+    // All mutating methods (set_common / apply_output / push_warning)
+    // throw PanicError on a window view. Used by parallel_execute (P2-05)
+    // to avoid row-major reification when sharding — operators see the
+    // shard's row range but never copy column data.
+    //
+    // CONTRACT: the caller must keep `parent` alive AND must not mutate
+    // `parent` while any window view exists. parallel_execute satisfies
+    // both: shards execute synchronously between cv-waits on the parent
+    // node, and the parent frame is read-only during the shard window.
+    static std::unique_ptr<ColumnFrame> make_window_view(
+        const ColumnFrame& parent,
+        std::size_t row_offset,
+        std::size_t row_count);
+
     // ---- common ----
     JsonValue common(const std::string& field) const;
     bool has_common(const std::string& field) const;
@@ -81,6 +99,15 @@ private:
     std::unique_ptr<ColumnStore> items_;
     std::vector<std::string> warnings_;
     const std::map<std::string, JsonValue>* resources_ = nullptr;
+
+    // Window-view mode (P2-05). When non-null, all reads delegate to
+    // the parent's storage with a (offset, count) translation, and all
+    // writes throw PanicError. Set only by make_window_view().
+    const ColumnStore* view_items_ = nullptr;
+    const std::map<std::string, JsonValue>* view_common_ = nullptr;
+    std::size_t view_offset_ = 0;
+    std::size_t view_count_ = 0;
+    bool is_window_view() const noexcept { return view_items_ != nullptr; }
 };
 
 }  // namespace pine

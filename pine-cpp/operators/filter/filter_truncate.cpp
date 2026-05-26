@@ -9,7 +9,7 @@ public:
         op_name_ = cfg.name;
         top_n_ = static_cast<int>(cfg.params.as_object().at("top_n").as_number());
         if (top_n_ < 0)
-            throw ExecutionError(cfg.name, "filter_truncate: top_n must be non-negative");
+            throw ExecutionError("filter_truncate: top_n must be non-negative, got " + std::to_string(top_n_));
     }
     void execute(const Frame& frame, OperatorOutput& out) override {
         int n = static_cast<int>(frame.item_count());
@@ -29,7 +29,6 @@ static const OperatorSchema k_filter_truncate_schema{
                    .description = "Number of items to keep."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_filter_truncate_schema,
-    ([] { return std::make_unique<FilterTruncateOp>(); }))
+PINE_REGISTER_OPERATOR_T(FilterTruncateOp, k_filter_truncate_schema)
 
 }  // namespace pine

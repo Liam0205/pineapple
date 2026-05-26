@@ -1,4 +1,5 @@
 #include "pine/resource.hpp"
+#include "pine/pine.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -30,6 +31,17 @@ bool register_fetcher_factory(const std::string& type_name, FetcherFactory facto
     reg.emplace(type_name, std::move(factory));
     return true;
 }
+
+// Built-in Static fetcher registration triggered at static initialization time.
+// This allows both server-side mtime config reload and CLI parsing to resolve "type": "static" on resource_config out-of-the-box.
+const bool _static_fetcher_init = [] {
+    register_fetcher_factory("static", [](const JsonValue& params) {
+        auto val_it = params.as_object().find("value");
+        JsonValue val = (val_it != params.as_object().end()) ? val_it->second : JsonValue();
+        return Fetcher{[val]() { return val; }};
+    });
+    return true;
+}();
 
 const FetcherFactory* lookup_fetcher_factory(const std::string& type_name) {
     std::lock_guard<std::mutex> lk(registry_mu());
@@ -87,6 +99,14 @@ void Manager::load_from_config(const Config& config) {
                                            : std::chrono::seconds(0);
         register_resource(name, std::move(fetcher), interval);
     }
+    // P1-D6: every load_from_config call now validates resource dependencies
+    // against the operators in the same config. The previous design ran
+    // validate_resource_deps only from server.cpp / pineapple-run; unit
+    // tests, Python bindings, or any future caller that constructed an
+    // Engine + Manager directly silently skipped the check. Closing the
+    // validate-or-die loop here makes the invariant unsurvivable from any
+    // path that loads config.
+    validate_resource_deps(config);
 }
 
 void Manager::start() {
@@ -139,6 +159,38 @@ std::vector<std::string> Manager::names() const {
     std::vector<std::string> out;
     for (const auto& kv : resources_) out.push_back(kv.first);
     return out;
+}
+
+void Manager::validate_resource_deps(const Config& config) const {
+    std::shared_lock<std::shared_mutex> lk(mu_);
+    std::vector<std::string> missing;
+    for (const auto& [op_key, params] : config.operators) {
+        auto res_it = params.params.as_object().find("resource_name");
+        if (res_it == params.params.as_object().end()) {
+            continue;
+        }
+        if (!res_it->second.is_string()) {
+            continue;
+        }
+        std::string name = res_it->second.as_string();
+        if (name.empty()) {
+            continue;
+        }
+        if (!resources_.count(name)) {
+            missing.push_back(name + " (operator " + params.type_name + "/" + op_key + ")");
+        }
+    }
+    if (!missing.empty()) {
+        std::string err_msg = "resource: missing resource definitions: ";
+        for (std::size_t i = 0; i < missing.size(); ++i) {
+            if (i > 0) err_msg += ", ";
+            err_msg += missing[i];
+        }
+        // P1-D5: raise the canonical ConfigError so callers see the
+        // `pine: config error: ...` prefix and exception type that
+        // matches every other init-time config defect.
+        throw ConfigError(err_msg);
+    }
 }
 
 void Manager::refresh_loop(Managed* r) {

@@ -3,6 +3,7 @@
 #include "pine/metrics.hpp"
 
 #include <atomic>
+#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
@@ -50,11 +51,30 @@ public:
 
 // ExecutionError carries the operator name and an inner error message and
 // formats like pine-go: `pine: execution error in operator "X": <inner>`.
-// The legacy single-string ctor remains for sites that don't yet pass an
-// operator name (the message will be used as-is and may not byte-match Go).
-class ExecutionError : public Error {
+//
+// Two construction forms:
+//   ExecutionError(operator_name, inner_msg)
+//     The canonical form. Builds the full `pine: execution error in
+//     operator "X": <inner>` what() string at construction time.
+//
+//   ExecutionError(msg)
+//     The legacy single-string form, used by operator-level throw sites
+//     that don't know their own operator name. `operator_name()` returns
+//     empty; `inner()` returns the message verbatim. The engine layer
+//     (`dispatch_with_recovery`, see runtime/engine.cpp) catches this
+//     form and re-wraps it via `std::throw_with_nested(ExecutionError(
+//     op.name, e.inner()))` so the eventual what() string still matches
+//     pine-go byte-for-byte. **In short: operator code may throw with
+//     either form; the byte-exact prefix is applied centrally by the
+//     scheduler, not by every throw site.** Tracked as P1-D1.
+//
+// Also inherits std::nested_exception so that when thrown via
+// std::throw_with_nested the original in-flight exception is preserved as a
+// nested cause. Use pine::error_as<T>() (include/pine/error_chain.hpp) to
+// walk the cause chain, mirroring Go's errors.As / Java's Throwable.getCause().
+class ExecutionError : public Error, public std::nested_exception {
 public:
-    using Error::Error;
+    explicit ExecutionError(std::string msg) : Error(msg), inner_(std::move(msg)) {}
     ExecutionError(std::string operator_name, std::string inner)
         : Error(format_msg(operator_name, inner)),
           operator_(std::move(operator_name)),
@@ -70,8 +90,10 @@ private:
 };
 
 // PanicError wraps an unexpected (non-pine::Error) exception thrown from an
-// operator. Mirrors pine-go's types.PanicError.
-class PanicError : public Error {
+// operator. Mirrors pine-go's types.PanicError. Inherits std::nested_exception
+// so the recovered std::exception is preserved as a nested cause when thrown
+// via std::throw_with_nested.
+class PanicError : public Error, public std::nested_exception {
 public:
     PanicError(std::string operator_name, std::string value)
         : Error(format_msg(operator_name, value)),
@@ -337,6 +359,12 @@ public:
     Result execute(const Request& request) const;
     Result execute(const Request& request, const std::map<std::string, JsonValue>& resources) const;
     TracedResult execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const;
+    // Variant of execute_traced that writes the partial result/trace/warnings
+    // into *out before re-throwing any execution error. Mirrors pine-go's
+    // (*Result, error) return contract where partial results survive errors.
+    void execute_traced_into(const Request& request,
+                              const std::map<std::string, JsonValue>& resources,
+                              TracedResult* out) const;
     std::string render_dag(const std::string& format, int collapse = 0) const;
 
     const ExpandedSequence& expanded() const { return expanded_; }
@@ -364,6 +392,11 @@ private:
     std::unique_ptr<std::atomic<int64_t>> peak_concurrency_;
     metrics::Provider* metrics_provider_ = nullptr;
     std::unique_ptr<EngineMetrics> engine_metrics_;
+    // Shared worker pool for data-parallel shards. Constructed in Engine
+    // ctor body (engine.cpp) so this header stays free of the pool
+    // implementation. See P1-P1.
+    struct PoolHolder;
+    std::unique_ptr<PoolHolder> shard_pool_;
 };
 
 Request load_request_from_file(const std::string& path);

@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "pine/column.hpp"
+#include "pine/column_store.hpp"
 
 using namespace pine;
 
@@ -135,4 +136,24 @@ TEST_CASE("JsonColumn accepts arbitrary types") {
     CHECK(col.get(1).as_string() == "s");
     CHECK(col.get(2).as_bool());
     CHECK(col.is_null(3));
+}
+
+TEST_CASE("TypedColumnStore::remove_rows rejects OOB indices") {
+    // Direct public-API contract: caller must not feed indices outside
+    // [0, row_count_). The ColumnFrame::apply_output path pre-validates,
+    // but the store surface is reachable from other callers and must
+    // self-defend (tracked as P1-S2).
+    pine::TypedColumnStore store(3);
+    std::vector<pine::JsonValue> vs{
+        pine::JsonValue(1.0), pine::JsonValue(2.0), pine::JsonValue(3.0)};
+    store.set_column("x", pine::make_column(vs));
+
+    CHECK_THROWS_AS(store.remove_rows({3}), std::invalid_argument);
+    CHECK_THROWS_AS(store.remove_rows({-1}), std::invalid_argument);
+    CHECK_THROWS_AS(store.remove_rows({0, 5}), std::invalid_argument);
+
+    // Valid path still works and keeps row_count_ + column sizes in sync.
+    store.remove_rows({1});
+    CHECK(store.row_count() == 2);
+    CHECK(store.column("x")->size() == 2);
 }

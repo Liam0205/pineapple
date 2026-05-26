@@ -18,7 +18,6 @@ static const OperatorSchema k_observe_log_schema{
                         .description = "Prefix prepended to each log line."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_observe_log_schema,
-    ([] { return std::make_unique<ObserveLogOp>(); }))
+PINE_REGISTER_OPERATOR_T(ObserveLogOp, k_observe_log_schema)
 
 }  // namespace pine

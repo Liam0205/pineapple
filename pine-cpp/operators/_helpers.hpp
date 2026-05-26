@@ -19,8 +19,28 @@ public:
 
 double to_double(const JsonValue& value);
 
+// json_type_name returns the Go-reflect-style type name for a JsonValue.
+// Used in operator error messages to mirror Go's `%T` output (e.g.
+// `[]interface {}` and `map[string]interface {}`). P2-19 consolidation —
+// previously each operator that needed this had a private copy that
+// returned the C++-native form (`array` / `object`), creating two
+// inconsistent vocabularies in the same codebase.
+std::string json_type_name(const JsonValue& value);
+
 JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field);
 JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t index, const std::string& field);
+
+// Variants that take the operator name + defaults map directly. Operators
+// that cached `op_name_` / `common_defaults_` / `item_defaults_` on `init`
+// (transform_copy, transform_normalize, reorder_sort, ...) used to keep a
+// per-class copy of these helpers; consolidated to one place so future
+// error-message tweaks land once. P2-12.
+JsonValue require_common_by_name(const Frame& frame,
+                                  const std::map<std::string, JsonValue>& defaults,
+                                  const std::string& field);
+JsonValue require_item_by_name(const Frame& frame, std::size_t index,
+                                const std::map<std::string, JsonValue>& defaults,
+                                const std::string& field);
 
 std::string go_format_g(double d);
 std::string sprint_value(const JsonValue& v);

@@ -71,7 +71,6 @@ static const OperatorSchema k_reorder_shuffle_by_salt_schema{
     .description = "Deterministic hash-based shuffle using a caller-provided salt.",
     .params = {},
 };
-PINE_REGISTER_OPERATOR(k_reorder_shuffle_by_salt_schema,
-    ([] { return std::make_unique<ReorderShuffleBySaltOp>(); }))
+PINE_REGISTER_OPERATOR_T(ReorderShuffleBySaltOp, k_reorder_shuffle_by_salt_schema)
 
 }  // namespace pine
