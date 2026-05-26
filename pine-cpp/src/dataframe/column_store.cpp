@@ -47,7 +47,7 @@ void TypedColumnStore::remove_rows(const std::set<int>& indices) {
     // silently corrupting `row_count_` vs column-internal sizes. The
     // ColumnFrame::apply_output path pre-validates, but ColumnStore is a
     // public surface and other callers (Arrow store, COW snapshot, ...)
-    // would otherwise step into the same trap. Tracked as P1-S2.
+    // would otherwise step into the same trap.
     for (int i : indices) {
         if (i < 0 || static_cast<std::size_t>(i) >= row_count_) {
             throw std::invalid_argument(

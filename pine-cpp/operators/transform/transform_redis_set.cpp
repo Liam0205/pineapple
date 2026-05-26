@@ -25,7 +25,7 @@ public:
         std::string key = rp_.key_prefix + operators::build_key_suffix(input, key_fields_);
         JsonValue value = input.common(value_field_);
 
-        // Borrow from the shared pool (P1-P4). See transform_redis_get for
+        // Borrow from the shared pool. See transform_redis_get for
         // pool semantics; same RAII guard pattern.
         std::unique_ptr<redis::Client> client;
         try {

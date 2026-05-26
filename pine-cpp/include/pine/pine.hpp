@@ -21,7 +21,7 @@ namespace pine {
 // Pineapple engine version. Single source of truth for all C++ code —
 // mirrors pine-go's `const Version` in pine-go/version.go. Keep in sync
 // with pine-go and the _PINEAPPLE_VERSION field embedded in compiled
-// configs. R3-L2.
+// configs.
 inline constexpr const char* kVersion = "0.8.0";
 
 class Error : public std::runtime_error {
@@ -59,8 +59,22 @@ public:
 
 // ExecutionError carries the operator name and an inner error message and
 // formats like pine-go: `pine: execution error in operator "X": <inner>`.
-// The legacy single-string ctor remains for sites that don't yet pass an
-// operator name (the message will be used as-is and may not byte-match Go).
+//
+// Two construction forms:
+//   ExecutionError(operator_name, inner_msg)
+//     The canonical form. Builds the full `pine: execution error in
+//     operator "X": <inner>` what() string at construction time.
+//
+//   ExecutionError(msg)
+//     The legacy single-string form, used by operator-level throw sites
+//     that don't know their own operator name. `operator_name()` returns
+//     empty; `inner()` returns the message verbatim. The engine layer
+//     (`dispatch_with_recovery`, see runtime/engine.cpp) catches this
+//     form and re-wraps it via `std::throw_with_nested(ExecutionError(
+//     op.name, e.inner()))` so the eventual what() string still matches
+//     pine-go byte-for-byte. **In short: operator code may throw with
+//     either form; the byte-exact prefix is applied centrally by the
+//     scheduler, not by every throw site.**
 //
 // Also inherits std::nested_exception so that when thrown via
 // std::throw_with_nested the original in-flight exception is preserved as a
@@ -88,7 +102,7 @@ private:
 // so the recovered std::exception is preserved as a nested cause when thrown
 // via std::throw_with_nested.
 //
-// R3-L1: detailed_error() returns the message plus a stack trace captured
+// detailed_error() returns the message plus a stack trace captured
 // at construction time, mirroring pine-go's PanicError.DetailedError().
 // stack() exposes the raw frames as a string. The capture is best-effort —
 // C++ has no goroutine concept, so the trace is the constructing thread's
@@ -291,6 +305,16 @@ class OperatorOutput {
 public:
     OperatorOutput() = default;
 
+    // ItemWrite is a single (index, field, value) log entry. set_item()
+    // appends; apply_output replays in order (last write wins per cell).
+    // Replaces the old nested map<int, map<string, JsonValue>> which paid
+    // two tree-node allocations per write.
+    struct ItemWrite {
+        int index;
+        std::string field;
+        JsonValue value;
+    };
+
     void set_common(const std::string& field, JsonValue value);
     void set_item(int index, const std::string& field, JsonValue value);
     void add_item(std::map<std::string, JsonValue> fields);
@@ -299,7 +323,7 @@ public:
     void set_warning(std::string msg);  // first warning wins
 
     const std::map<std::string, JsonValue>& common_writes() const { return common_writes_; }
-    const std::map<int, std::map<std::string, JsonValue>>& item_writes() const { return item_writes_; }
+    const std::vector<ItemWrite>& item_writes() const { return item_writes_; }
     const std::vector<std::map<std::string, JsonValue>>& added_items() const { return added_items_; }
     const std::set<int>& removed_items() const { return removed_items_; }
     const std::vector<int>& item_order() const { return item_order_; }
@@ -309,7 +333,7 @@ public:
 
 private:
     std::map<std::string, JsonValue> common_writes_;
-    std::map<int, std::map<std::string, JsonValue>> item_writes_;
+    std::vector<ItemWrite> item_writes_;
     std::vector<std::map<std::string, JsonValue>> added_items_;
     std::set<int> removed_items_;
     std::vector<int> item_order_;
@@ -385,7 +409,7 @@ public:
     // Cancellable variant: external_cancel.request_stop() (typically called
     // from a different thread when the client disconnects) interrupts any
     // cv.wait inside the DAG scheduler and aborts the run. Mirrors pine-go
-    // Execute(ctx, req) where ctx.Done() is watched at every wait. R3-H3.
+    // Execute(ctx, req) where ctx.Done() is watched at every wait.
     Result execute(const Request& request,
                    const std::map<std::string, JsonValue>& resources,
                    std::stop_token external_cancel) const;
@@ -430,7 +454,7 @@ private:
     std::unique_ptr<EngineMetrics> engine_metrics_;
     // Shared worker pool for data-parallel shards. Constructed in Engine
     // ctor body (engine.cpp) so this header stays free of the pool
-    // implementation. See P1-P1.
+    // implementation.
     struct PoolHolder;
     std::unique_ptr<PoolHolder> shard_pool_;
 };

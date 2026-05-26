@@ -124,7 +124,7 @@ std::string go_format_g(double d) {
 
 // go_format_lookup_key mirrors pine-go transform/resource_lookup.go:91-96.
 // Note: distinct from go_format_g — never emits scientific notation, so
-// `1e-5` becomes `"0.00001"` not `"1e-05"`. R3-H4.
+// `1e-5` becomes `"0.00001"` not `"1e-05"`.
 std::string go_format_lookup_key(double d) {
     if (std::isnan(d) || std::isinf(d)) {
         // Match strconv.FormatFloat for these edge cases via go_format_g —
@@ -171,12 +171,12 @@ std::string dedup_key(const JsonValue& v) {
     if (v.is_bool()) return v.as_bool() ? "B:1" : "B:0";
     if (v.is_number()) {
         double d = v.as_number();
-        // DF-B4: canonicalize -0.0 to +0.0 (IEEE 754: -0 == +0).
+        // Canonicalize -0.0 to +0.0 (IEEE 754: -0 == +0).
         if (d == 0.0) d = 0.0;
         return "F:" + go_format_g(d);
     }
     if (v.is_string()) return "S:" + v.as_string();
-    // V-12: composite types (array/object) must produce distinct keys.
+    // Composite types (array/object) must produce distinct keys.
     // Previously returned "O:<complex>" for both → all composites collided.
     // Use compact JSON serialization (deterministic, distinguishes types).
     return "O:" + dump_json(v, 0);

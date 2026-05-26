@@ -107,7 +107,7 @@ struct HttpRequest {
     std::string body;
     int64_t content_length = -1;
     bool connection_close = false;
-    // R3-L9b: track HTTP/1.0 vs HTTP/1.1 to choose default keep-alive policy.
+    // Track HTTP/1.0 vs HTTP/1.1 to choose default keep-alive policy.
     // HTTP/1.1 defaults to keep-alive unless `Connection: close`; HTTP/1.0
     // defaults to close unless `Connection: keep-alive`.
     std::string http_version = "HTTP/1.1";
@@ -117,7 +117,7 @@ struct HttpRequest {
 // Read all available data from socket until headers are complete, then read body.
 bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size,
                        int header_timeout_seconds, int body_timeout_seconds) {
-    // R3-L9a: pine-go's http.Server ReadHeaderTimeout caps the duration
+    // pine-go's http.Server ReadHeaderTimeout caps the duration
     // for header reading independently of ReadTimeout. Raw sockets cannot
     // model two timeouts at once, but we can swap SO_RCVTIMEO at the
     // header boundary — short window for headers (Slowloris defense),
@@ -134,7 +134,7 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size,
     char chunk[4096];
 
     // Read until we get full headers, hard cap headers size at 1MB to prevent OOM.
-    // P2-18: check the cap *after* append rather than before, so a single
+    // Check the cap *after* append rather than before, so a single
     // chunk that overflows the limit is reliably caught instead of letting
     // the buffer grow to `max_header_size + chunk_size` before we notice.
     const std::size_t max_header_size = 1024 * 1024;
@@ -164,7 +164,7 @@ bool read_http_request(int fd, HttpRequest& req, int64_t max_body_size,
     auto space2 = request_line.find(' ', space1 + 1);
     if (space2 == std::string::npos) return false;
     std::string uri = request_line.substr(space1 + 1, space2 - space1 - 1);
-    // R3-L9b: capture HTTP version so handle_connection can decide
+    // Capture HTTP version so handle_connection can decide
     // the default keep-alive policy (1.1 keep-alive by default, 1.0 close).
     req.http_version = request_line.substr(space2 + 1);
 
@@ -391,7 +391,7 @@ static std::string normalize_path(const std::string& path) {
 
 // Thread-local pointer to the current request's MiddlewareContext, so that
 // send_response can record the outgoing HTTP status for HTTP-layer
-// instrumentation (P2-G/P2-H). Set in the per-connection thread before
+// instrumentation. Set in the per-connection thread before
 // dispatch, cleared after.
 thread_local MiddlewareContext* t_mw_ctx = nullptr;
 
@@ -403,7 +403,7 @@ Server::~Server() {
 void Server::send_response(int fd, int status, const std::string& content_type,
                            const std::string& body) {
     if (t_mw_ctx) t_mw_ctx->status = status;
-    // R3-L9b: choose Connection header from the middleware context's
+    // Choose Connection header from the middleware context's
     // keep_alive flag, set by handle_connection's keep-alive loop. When
     // the flag is false (HTTP/1.0 by default, or `Connection: close`
     // header was present, or the keep-alive loop is on its way to close
@@ -895,7 +895,7 @@ bool Server::reload_config() {
     try {
         auto new_config = load_config_from_file(config_.config_path);
         // Forward resolved Provider during hot-reload too, so metrics keep
-        // flowing through the same sink after config swap. (R3-H5)
+        // flowing through the same sink after config swap.
         metrics::Provider* provider = config_.metrics_provider ? config_.metrics_provider : metrics::nop_provider();
         EngineOptions engine_opts;
         engine_opts.metrics_provider = provider;
@@ -978,7 +978,7 @@ int Server::run(const ServerConfig& cfg) {
     // Hot-reload Provider metrics. Mirrors pine-go pkg/server/server.go:100-114
     // — same metric names, help text, and bucket schedule so downstream
     // Prometheus dashboards work unchanged. NopProvider returns no-op
-    // pointers so the call sites stay branchless. R3-M6.
+    // pointers so the call sites stay branchless.
     m_reload_total_ = provider->new_counter(
         {"pine_config_reload_total", "Total successful config reloads.", {}});
     m_reload_errors_ = provider->new_counter(
@@ -994,7 +994,7 @@ int Server::run(const ServerConfig& cfg) {
         // fallback) into the Engine via EngineOptions so per-operator,
         // scheduler, and DAG-level metrics reach the same Provider as the
         // http_metrics middleware. Mirrors pine-go's
-        // `pine.NewEngine(cfg, pine.WithMetrics(mp))`. R3-H5.
+        // `pine.NewEngine(cfg, pine.WithMetrics(mp))`.
         EngineOptions engine_opts;
         engine_opts.metrics_provider = provider;
         if (!config.log_prefix.empty()) engine_opts.log_prefix = config.log_prefix;
@@ -1098,10 +1098,10 @@ int Server::run(const ServerConfig& cfg) {
 
         // Apply per-connection socket timeouts. Mirrors pine-go's
         // http.Server ReadTimeout / WriteTimeout. ReadHeaderTimeout is
-        // now wired (R3-L9a) — read_http_request swaps SO_RCVTIMEO at
+        // now wired — read_http_request swaps SO_RCVTIMEO at
         // the header boundary, so the short window applies to headers
         // and the long window applies to body reads. IdleTimeout is
-        // handled by the keep-alive loop (R3-L9b).
+        // handled by the keep-alive loop.
         int rcv_secs = config_.read_timeout_seconds > 0 ? config_.read_timeout_seconds : 30;
         int snd_secs = config_.write_timeout_seconds > 0 ? config_.write_timeout_seconds : 60;
         int header_secs = config_.read_header_timeout_seconds > 0
@@ -1123,7 +1123,7 @@ int Server::run(const ServerConfig& cfg) {
         std::thread([this, client_fd, header_secs, rcv_secs, idle_secs]() {
             // RAII decrement so detached threads always release the counter.
             // Wakes stop()'s drain loop via drain_cv_ so it does not have
-            // to poll on a 50 ms sleep_for (P1-P5).
+            // to poll on a 50 ms sleep_for.
             struct InFlightGuard {
                 std::atomic<int64_t>& c;
                 std::mutex& mu;
@@ -1136,7 +1136,7 @@ int Server::run(const ServerConfig& cfg) {
             } guard{in_flight_, drain_mu_, drain_cv_};
             (void)guard;
 
-            // R3-L9b: HTTP/1.1 keep-alive loop. The first request uses
+            // HTTP/1.1 keep-alive loop. The first request uses
             // header_secs as the header-phase timeout; subsequent
             // requests on the same connection use idle_secs as the
             // header-phase timeout (the idle window between requests).
@@ -1247,7 +1247,7 @@ int Server::run(const ServerConfig& cfg) {
     // the runtime of each individual request, so this loop terminates as
     // long as no handler is genuinely stuck. If a future regression makes
     // a handler unbounded, we will deadlock here — that is louder and
-    // safer than the UAF it replaces. Tracked as P0-2 + P1-P5.
+    // safer than the UAF it replaces.
     std::cerr << "shutting down...\n";
     {
         std::unique_lock<std::mutex> lk(drain_mu_);

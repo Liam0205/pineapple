@@ -22,7 +22,7 @@ namespace pine {
 // Config.storage_mode ("column" / "row"); storage_mode falls back to
 // "column" when unrecognised.
 //
-// R3-L3: Frame was previously `using Frame = ColumnFrame;` (single-impl).
+// Frame was previously `using Frame = ColumnFrame;` (single-impl).
 // Promoted to virtual base when pine-cpp grew RowFrame to match
 // pine-go's dual physical representation (decision-04 / decision-14
 // "MVP single impl" relaxed).
@@ -64,7 +64,7 @@ public:
     virtual JsonValue::object_t item_object(std::size_t index) const = 0;
 
     // Non-owning read-only window over a parent frame's items. Both
-    // implementations support this for parallel_execute (P2-05). Reads
+    // implementations support this for parallel_execute. Reads
     // delegate to the parent with an (offset, count) translation; writes
     // throw.
     virtual std::unique_ptr<Frame> make_window_view(std::size_t row_offset,
@@ -78,7 +78,7 @@ public:
 };
 
 // Factory: build the Frame implementation that matches storage_mode.
-// Unknown / empty storage_mode falls back to "column". (R3-L3)
+// Unknown / empty storage_mode falls back to "column".
 std::unique_ptr<Frame> make_frame(const std::string& storage_mode,
                                    std::map<std::string, JsonValue> common,
                                    std::vector<std::map<std::string, JsonValue>> items);

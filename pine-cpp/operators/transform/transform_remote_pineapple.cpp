@@ -207,7 +207,7 @@ private:
 
     // truncate_body clips a downstream-response body to kErrorBodyMax bytes
     // for inclusion in error messages / warnings. A 5 MB HTML 500 page
-    // should not fan out into log / JSON / exception streams as-is. P1-E4.
+    // should not fan out into log / JSON / exception streams as-is.
     static constexpr std::size_t kErrorBodyMax = 1024;
     static std::string truncate_body(const std::string& body) {
         if (body.size() <= kErrorBodyMax) return body;

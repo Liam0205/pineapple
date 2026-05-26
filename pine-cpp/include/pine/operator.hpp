@@ -13,7 +13,7 @@ namespace pine {
 
 // Frame is the polymorphic DataFrame base. ColumnFrame is the default
 // implementation; RowFrame ships in src/dataframe/row_frame.cpp.
-// (R3-L3 — was previously `using Frame = ColumnFrame;` aliased to the
+// (Was previously `using Frame = ColumnFrame;` aliased to the
 // single MVP impl.)
 
 enum class OpType { Recall, Transform, Filter, Merge, Reorder, Observe };
@@ -64,7 +64,7 @@ using OperatorFactory = std::function<std::unique_ptr<Operator>()>;
 // per type at startup — but moves the work to a constexpr expression so the
 // factory is invoked exactly once per Engine instantiation (the heavier
 // constructors — Lua-pool builders, libcurl handles, redis pool seeds —
-// stop paying the registration-time probe cost). P2-08.
+// stop paying the registration-time probe cost).
 template <typename T>
 struct OperatorTraits {
     static constexpr bool consumes_row_set         = std::is_base_of_v<ConsumesRowSet, T>;
@@ -98,7 +98,7 @@ void register_operator(OperatorSchema schema, OperatorFactory factory);
 // register_operator() performs. Validates schema/factory pointer but does
 // NOT invoke factory() at registration time, so operators with heavyweight
 // constructors (Lua pools, libcurl handles, redis seeds) pay only the
-// per-Engine instantiation cost. P2-08.
+// per-Engine instantiation cost.
 void register_operator_with_traits(OperatorSchema schema,
                                    OperatorFactory factory,
                                    bool consumes_row_set,
@@ -108,7 +108,7 @@ void register_operator_with_traits(OperatorSchema schema,
 
 // Templated entry: derives marker bits from OperatorTraits<T> at compile
 // time, so the registry never needs a dynamic_cast probe. Preferred entry
-// point for static registration via PINE_REGISTER_OPERATOR_T. P2-08.
+// point for static registration via PINE_REGISTER_OPERATOR_T.
 template <typename T>
 void register_operator_typed(OperatorSchema schema) {
     static_assert(std::is_base_of_v<Operator, T>,

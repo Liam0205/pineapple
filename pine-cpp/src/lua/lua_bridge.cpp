@@ -8,8 +8,10 @@ extern "C" {
 #include <lualib.h>
 }
 
+#include <algorithm>
 #include <cmath>
 #include <set>
+#include <string_view>
 #include <vector>
 
 // LuaJIT 2.1 compat
@@ -64,7 +66,7 @@ void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, in
         lua_setglobal(L, key.c_str());
     }
 
-    // P1-E3: Re-open the safe built-in libraries so any sub-table mutation
+    // Re-open the safe built-in libraries so any sub-table mutation
     // done by the script (`math.huge = 0`, `string.format = nil`, ...) is
     // wiped before the next borrow. This is the effective equivalent of
     // deep-cloning the baseline tables — luaopen_* allocates fresh table
@@ -92,18 +94,29 @@ void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, in
     // `_G`) have just been reset above; overwriting them from the snapshot
     // would restore the *polluted* references the borrow had, defeating
     // the deep-clone. We free those refs but skip the setglobal.
-    static const std::set<std::string> kSkipBuiltins = {
-        // base lib functions (luaopen_base sets these on _G)
-        "_G", "_VERSION", "assert", "collectgarbage", "error", "getfenv",
-        "getmetatable", "ipairs", "load", "loadstring", "next", "pairs",
-        "pcall", "print", "rawequal", "rawget", "rawset", "select",
-        "setfenv", "setmetatable", "tonumber", "tostring", "type",
-        "unpack", "xpcall",
-        // top-level tables
-        "string", "table", "math",
+    //
+    // Stored as a sorted constexpr array of string_view + std::binary_search:
+    // every release_vm hits this list, and the prior std::set required heap
+    // allocations of every entry the first time the function ran.
+    static constexpr std::string_view kSkipBuiltins[] = {
+        // sorted lexicographically — binary_search relies on this
+        "_G", "_VERSION",
+        "assert", "collectgarbage", "error",
+        "getfenv", "getmetatable",
+        "ipairs",
+        "load", "loadstring",
+        "math",
+        "next",
+        "pairs", "pcall", "print",
+        "rawequal", "rawget", "rawset",
+        "select", "setfenv", "setmetatable", "string",
+        "table", "tonumber", "tostring", "type",
+        "unpack",
+        "xpcall",
     };
     for (const auto& [key, ref] : borrow_snap) {
-        if (kSkipBuiltins.find(key) == kSkipBuiltins.end()) {
+        if (!std::binary_search(std::begin(kSkipBuiltins), std::end(kSkipBuiltins),
+                                std::string_view(key))) {
             lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
             lua_setglobal(L, key.c_str());
         }

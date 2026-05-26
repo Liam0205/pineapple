@@ -1,4 +1,4 @@
-// R3-X2: dual-impl equivalence — RowFrame vs ColumnFrame must produce
+// Dual-impl equivalence — RowFrame vs ColumnFrame must produce
 // byte-identical Result for the same (common, items, OperatorOutput) input.
 //
 // Mirrors pine-go FuzzApplyOutputStorageEquivalence and pine-python
@@ -122,7 +122,7 @@ OperatorOutput rand_output(std::mt19937& rng, std::size_t n_items) {
 
 }  // namespace
 
-TEST_CASE("Row/Column initial-state projection equivalence (R3-X2)") {
+TEST_CASE("Row/Column initial-state projection equivalence") {
     std::vector<std::map<std::string, JsonValue>> items;
     items.push_back({{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}});
     items.push_back({{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}});
@@ -132,7 +132,7 @@ TEST_CASE("Row/Column initial-state projection equivalence (R3-X2)") {
     CHECK(result_equal(r, c));
 }
 
-TEST_CASE("Row/Column common writes equivalence (R3-X2)") {
+TEST_CASE("Row/Column common writes equivalence") {
     auto p = make_pair({{"region", JsonValue(std::string("us"))}},
                        {{{"id", JsonValue(1.0)}}, {{"id", JsonValue(2.0)}}});
     OperatorOutput out;
@@ -143,7 +143,7 @@ TEST_CASE("Row/Column common writes equivalence (R3-X2)") {
                        p.col->to_result({"region", "ts"}, {"id"})));
 }
 
-TEST_CASE("Row/Column item writes equivalence (R3-X2)") {
+TEST_CASE("Row/Column item writes equivalence") {
     auto p = make_pair({}, {{{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}},
                             {{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}}});
     OperatorOutput out;
@@ -154,7 +154,7 @@ TEST_CASE("Row/Column item writes equivalence (R3-X2)") {
                        p.col->to_result({}, {"id", "score", "bonus"})));
 }
 
-TEST_CASE("Row/Column remove equivalence (R3-X2)") {
+TEST_CASE("Row/Column remove equivalence") {
     std::vector<std::map<std::string, JsonValue>> items;
     for (int i = 0; i < 5; ++i) items.push_back({{"id", JsonValue(static_cast<double>(i))}});
     auto p = make_pair({}, items);
@@ -167,7 +167,7 @@ TEST_CASE("Row/Column remove equivalence (R3-X2)") {
     CHECK(result_equal(p.row->to_result({}, {"id"}), p.col->to_result({}, {"id"})));
 }
 
-TEST_CASE("Row/Column reorder equivalence (R3-X2)") {
+TEST_CASE("Row/Column reorder equivalence") {
     auto p = make_pair({}, {{{"id", JsonValue(0.0)}},
                             {{"id", JsonValue(1.0)}},
                             {{"id", JsonValue(2.0)}}});
@@ -177,7 +177,7 @@ TEST_CASE("Row/Column reorder equivalence (R3-X2)") {
     CHECK(result_equal(p.row->to_result({}, {"id"}), p.col->to_result({}, {"id"})));
 }
 
-TEST_CASE("Row/Column additions + recall _source stamp equivalence (R3-X2)") {
+TEST_CASE("Row/Column additions + recall _source stamp equivalence") {
     auto p = make_pair({}, {{{"id", JsonValue(0.0)}}});
     OperatorOutput out;
     out.add_item({{"id", JsonValue(100.0)}, {"name", JsonValue(std::string("added"))}});
@@ -189,7 +189,7 @@ TEST_CASE("Row/Column additions + recall _source stamp equivalence (R3-X2)") {
                        p.col->to_result({}, {"id", "name", "_source"})));
 }
 
-TEST_CASE("Row/Column five-stage ordering equivalence (R3-X2)") {
+TEST_CASE("Row/Column five-stage ordering equivalence") {
     std::vector<std::map<std::string, JsonValue>> items;
     for (int i = 0; i < 4; ++i) {
         items.push_back({{"id", JsonValue(static_cast<double>(i))},
@@ -208,7 +208,7 @@ TEST_CASE("Row/Column five-stage ordering equivalence (R3-X2)") {
                        p.col->to_result({"src"}, {"id", "score"})));
 }
 
-TEST_CASE("Row/Column NaN-rejection error message equivalence (R3-X2)") {
+TEST_CASE("Row/Column NaN-rejection error message equivalence") {
     auto p = make_pair({}, {{{"id", JsonValue(1.0)}}});
     OperatorOutput out;
     out.set_common("ratio", JsonValue(std::numeric_limits<double>::quiet_NaN()));
@@ -222,7 +222,7 @@ TEST_CASE("Row/Column NaN-rejection error message equivalence (R3-X2)") {
     CHECK(row_err == col_err);
 }
 
-TEST_CASE("Row/Column reorder-permutation error message equivalence (R3-X2)") {
+TEST_CASE("Row/Column reorder-permutation error message equivalence") {
     auto p = make_pair({}, {{{"id", JsonValue(0.0)}},
                             {{"id", JsonValue(1.0)}},
                             {{"id", JsonValue(2.0)}}});
@@ -237,7 +237,7 @@ TEST_CASE("Row/Column reorder-permutation error message equivalence (R3-X2)") {
     CHECK(row_err == col_err);
 }
 
-TEST_CASE("Row/Column differential fuzz (R3-X2)") {
+TEST_CASE("Row/Column differential fuzz") {
     // 100 seeded rounds with random (common, items, OperatorOutput).
     // Either both succeed with identical Result, or both throw with
     // identical message. seed range 0..99; bump if regressions slip

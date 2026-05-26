@@ -14,7 +14,7 @@ std::unique_ptr<Client> ConnectionPool::acquire(const std::string& host, int por
             // Pop newest-first (LIFO) and drop anything that has been idle
             // longer than kIdleTimeout. Stale handles are very likely
             // closed by the broker side already; surfacing them as errors
-            // on first use defeats the purpose of pooling. (P2-28)
+            // on first use defeats the purpose of pooling.
             while (!it->second.empty()) {
                 auto entry = std::move(it->second.back());
                 it->second.pop_back();
@@ -37,7 +37,7 @@ void ConnectionPool::release(const std::string& host, int port,
     auto& bucket = idle_[key];
     // Bound the idle queue: a workload spike can push many handles into
     // the pool; without the cap they sit there indefinitely, eating fd
-    // budget for a key that may never see traffic again. (P2-28)
+    // budget for a key that may never see traffic again.
     if (bucket.size() >= kMaxIdlePerKey) return;  // c destructs here
     bucket.push_back({std::move(c), std::chrono::steady_clock::now()});
 }

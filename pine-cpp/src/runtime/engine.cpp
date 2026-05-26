@@ -55,7 +55,7 @@ void OperatorOutput::set_warning(std::string msg) {
 
 namespace {
 
-// Frame is the polymorphic base now (R3-L3); helpers in this TU still
+// Frame is the polymorphic base now; helpers in this TU still
 // use unqualified `Frame` for brevity, which resolves to ::pine::Frame.
 using Frame = ::pine::Frame;
 
@@ -88,7 +88,7 @@ void validate_request(const Request& request, const FlowContract& contract) {
 // (filtered by skip), with defaults substituted for missing/null values.
 // Items section omitted entirely when no item input field has any value.
 //
-// R3-L4: pine-go derives this from the projected OperatorInput so fields
+// pine-go derives this from the projected OperatorInput so fields
 // that are unset and have no default never appear in the snapshot. The
 // earlier C++ version inserted JsonValue() (null) placeholders for those
 // fields, polluting trace output relative to Go.
@@ -263,7 +263,7 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     metrics_provider_ = options.metrics_provider ? options.metrics_provider : metrics::nop_provider();
     // Engine-level worker pool reused across data_parallel shards. Sized to
     // hardware_concurrency (≥1). Avoids the per-request spawn/join cost
-    // that becomes dominant under high QPS. P1-P1.
+    // that becomes dominant under high QPS.
     {
         unsigned hw = std::thread::hardware_concurrency();
         if (hw == 0) hw = 4;
@@ -277,7 +277,7 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     // (dag.cpp:155 raises ConfigError("operator \"X\": sources contains
     // forward reference to \"Y\"")), so by the time we reach this point
     // every operator's sources are guaranteed to refer to nodes already
-    // visited. A second native-side check would be dead code (P1-D4).
+    // visited. A second native-side check would be dead code.
 
     // Instantiate and init one Operator per config operator.
     for (auto& [op_name, op_cfg] : config_.operators) {
@@ -422,7 +422,7 @@ void dispatch_with_recovery(const OperatorInput& input, const OperatorConfig& op
         // Non-std::exception payloads (`throw 42;`, `throw "literal";`) are
         // rare but legal. throw_with_nested still captures them so
         // pine::error_as<T>() can at least walk the chain even if no frame
-        // dynamic_casts to a useful type. P2-23.
+        // dynamic_casts to a useful type.
         std::throw_with_nested(PanicError(op.name, "unknown exception"));
     }
 }
@@ -435,7 +435,7 @@ void dispatch_with_recovery(const OperatorInput& input, const OperatorConfig& op
 // Runtime assert: if a shard *does* emit added_items / item_order / common
 // writes (which would happen only if config validation or operator schema
 // was bypassed), fail loudly rather than silently dropping data — the
-// reviewer-flagged silent-drop path in inc1 #4.
+// reviewer-flagged silent-drop path.
 void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
                         int offset, const std::string& op_name) {
     if (!src.added_items().empty() || src.has_item_order() ||
@@ -443,7 +443,7 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
         // Message body must match pine-go/parallel.go:65, pine-java
         // ParallelExecutor.java:85, and pine-python parallel.py:86-88
         // byte-for-byte — PanicError values are part of the cross-runtime
-        // contract (memory: "运行时错误对等需字节级一致"). (P2-27)
+        // contract (memory: "运行时错误对等需字节级一致").
         throw PanicError(op_name,
             "data_parallel shard emitted added_items, item_order, or common "
             "writes; only item_writes / removed_items / warnings are allowed");
@@ -471,7 +471,7 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
 //
 // When `pool` is non-null shard tasks are dispatched through the Engine's
 // shared ThreadPool, avoiding the per-request OS-thread spawn cost that
-// pine-go gets for free through goroutines (P1-P1). When `pool` is null
+// pine-go gets for free through goroutines. When `pool` is null
 // the legacy per-shard std::thread fallback runs — kept so unit tests and
 // stand-alone callers that construct Frame directly still work.
 void parallel_execute(const Frame& frame, const OperatorConfig& op,
@@ -492,7 +492,7 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     int rem = total % n;
 
     // Build shards as zero-copy window views into the parent frame's
-    // ColumnStore (P2-05). Previously each shard materialised its rows
+    // ColumnStore. Previously each shard materialised its rows
     // into a fresh row-major list and then back into a per-shard
     // ColumnStore — costing 2 × column-cell touches per request just to
     // set up parallelism. The window view shares parent storage with an
@@ -520,7 +520,7 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     // Shards already running cannot be interrupted mid-execute (operators
     // are not designed to be re-entrant against cancel during their own
     // execute body), so the saving is for shards still queued in the
-    // ThreadPool / awaiting their thread slot. R3-M3.
+    // ThreadPool / awaiting their thread slot.
     std::atomic<bool> shard_cancel{false};
 
     auto shard_body = [&](int i) {
@@ -589,7 +589,7 @@ std::vector<OpTrace> run_dag(const Config& config,
     // interrupt waits on still-pending predecessors through a stop_token,
     // rather than the old "wait until predecessor self-terminates" pattern
     // which forced every sibling to block until its own predecessors
-    // finished (inc1 #5). condition_variable_any::wait(lock, stop_token,
+    // finished). condition_variable_any::wait(lock, stop_token,
     // pred) is C++20 P0660 — it returns immediately when stop is requested.
     struct NodeSignal {
         std::mutex mu;
@@ -605,7 +605,7 @@ std::vector<OpTrace> run_dag(const Config& config,
     std::vector<OpTrace> traces;
     if (collect_traces) traces.assign(n, OpTrace{});
 
-    // P1-P3: Frame concurrency is managed by ColumnFrame's internal
+    // Frame concurrency is managed by ColumnFrame's internal
     // shared_mutex (column_frame.hpp:79). The DAG topology guarantees
     // predecessor-successor ordering through NodeSignal, and parallel_execute
     // shards copy items out before mutating, so siblings on the same DAG
@@ -619,7 +619,7 @@ std::vector<OpTrace> run_dag(const Config& config,
     // predecessor via cv.wait(lock, stop_token, pred). Replacing the
     // old `std::atomic<bool> cancelled` with stop_token lets the cv
     // implementation interrupt the wait directly — no polling, no
-    // sleep_for. P1-P2.
+    // sleep_for.
     std::stop_source cancel_source;
     auto stop_token = cancel_source.get_token();
 
@@ -629,7 +629,7 @@ std::vector<OpTrace> run_dag(const Config& config,
     // forwards it to cancel_source so every cv.wait(lock, stop_token, pred)
     // currently parked in this DAG returns immediately. Mirrors pine-go's
     // Execute(ctx, req) flow where the scheduler watches ctx.Done() at
-    // every wait. R3-H3.
+    // every wait.
     //
     // RAII ordering: declared after cancel_source so it destructs first —
     // the callback is unregistered before cancel_source's stop_state is
@@ -697,7 +697,7 @@ std::vector<OpTrace> run_dag(const Config& config,
             if (stop_token.stop_requested()) return;
 
             // Track active concurrency (mirrors pine-go scheduler activeOps + RecordConcurrency).
-            // P1-E1: Gauge must be updated on both increment AND decrement.
+            // Gauge must be updated on both increment AND decrement.
             // The earlier guard only fetch_sub'd the atomic without touching
             // the Prometheus handle, leaving pine_operator_active monotonic-
             // increasing and meaningless for monitoring.
@@ -722,7 +722,7 @@ std::vector<OpTrace> run_dag(const Config& config,
             auto start = std::chrono::steady_clock::now();
 
             // Hoisted so the catch block below can salvage the operator's
-            // pre-failure warning (P2-10).
+            // pre-failure warning.
             OperatorOutput out;
 
             try {
@@ -752,7 +752,6 @@ std::vector<OpTrace> run_dag(const Config& config,
                 // mutating the master frame. The bare-message ExecutionError
                 // here gets the standard `pine: execution error in operator
                 // "X": ...` prefix added by the outer run_dag catch block.
-                // R3-H1.
                 validate_output_against_type(op.name, op.operator_type, out);
 
                 // [pine-debug] log line for op.debug operators. Mirrors
@@ -760,7 +759,7 @@ std::vector<OpTrace> run_dag(const Config& config,
                 // Emit on stderr, with Java-style duration formatting
                 // (µs below 1ms, ms above). Done before apply_output so
                 // the snapshot reflects the inputs that produced this
-                // output. R3-L6.
+                // output.
                 if (op.debug) {
                     auto dur = std::chrono::steady_clock::now() - start;
                     auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
@@ -804,7 +803,7 @@ std::vector<OpTrace> run_dag(const Config& config,
                 }
             } catch (...) {
                 if (em && em->op_error_total) em->op_error_total->with({op.name})->inc();
-                // P2-10: if the operator managed to attach a warning to its
+                // If the operator managed to attach a warning to its
                 // OperatorOutput before throwing (e.g. "Redis unreachable,
                 // falling back to cache-miss"), surface it via the frame so
                 // the diagnostic survives the failure path. The frame
@@ -842,7 +841,7 @@ std::vector<OpTrace> run_dag(const Config& config,
 
     // Filter out pre-allocated trace slots that never got populated — Go
     // does the same at scheduler.go:285. Empty .name means the node was
-    // never reached (DAG aborted before reaching this slot). R3-L5.
+    // never reached (DAG aborted before reaching this slot).
     std::vector<OpTrace> filtered;
     filtered.reserve(traces.size());
     for (auto& t : traces) {
@@ -870,7 +869,7 @@ Result Engine::execute(const Request& request,
     // contract: `(*Result, error)` — partial Result survives errors. On
     // exception the caller still loses access to the partial Result via
     // this overload (no out-parameter in the signature); to access the
-    // partial Result and warnings, use execute_traced_into. R3-M4.
+    // partial Result and warnings, use execute_traced_into.
     TracedResult traced;
     execute_traced_into(request, resources, &traced, external_cancel);
     return std::move(traced.result);
@@ -893,7 +892,7 @@ void Engine::execute_traced_into(const Request& request,
                                   TracedResult* out,
                                   std::stop_token external_cancel) const {
     validate_request(request, config_.flow_contract);
-    // R3-L3: Frame is now the polymorphic base; pick the implementation
+    // Frame is now the polymorphic base; pick the implementation
     // requested by storage_mode ("column" / "row"), default "column".
     std::unique_ptr<Frame> frame_ptr = make_frame(
         config_.storage_mode, request.common, request.items);

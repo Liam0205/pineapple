@@ -105,7 +105,7 @@ using BoolColumn = TypedColumn<bool>;
 //
 // Note: pine-go / pine-java / pine-python store numeric columns as double
 // natively, so the precision loss is symmetric across runtimes; this helper
-// is the pine-cpp-only seam for diagnosing the boundary. Tracked as P1-S5.
+// is the pine-cpp-only seam for diagnosing the boundary.
 constexpr bool int64_lossy_as_double(int64_t v) {
     constexpr int64_t k = static_cast<int64_t>(1) << 53;
     return v > k || v < -k;
