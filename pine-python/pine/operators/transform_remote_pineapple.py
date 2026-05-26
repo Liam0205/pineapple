@@ -139,7 +139,7 @@ class TransformRemotePineapple(AbstractOperator, ConcurrentSafe, ConsumesRowSet)
         if resp.status_code != 200:
             self._handle_error(
                 output,
-                f"HTTP {resp.status_code}: {resp_body.decode('utf-8', errors='replace')}",
+                f"HTTP {resp.status_code}: {_truncate_body(resp_body)}",
                 None,
             )
             return
@@ -177,6 +177,19 @@ class TransformRemotePineapple(AbstractOperator, ConcurrentSafe, ConsumesRowSet)
         if self._fail_on_error:
             raise OperatorException(full_msg) from cause
         output.set_warning(OperatorException(full_msg))
+
+
+_ERROR_BODY_MAX = 1024
+
+
+def _truncate_body(body: bytes) -> str:
+    """Clip a downstream response body to _ERROR_BODY_MAX bytes for error
+    messages / warnings. P1-E4 — keeps a 5 MB HTML 500 page from
+    fanning out into log/JSON/exception streams as-is."""
+    if len(body) <= _ERROR_BODY_MAX:
+        return body.decode("utf-8", errors="replace")
+    head = body[:_ERROR_BODY_MAX].decode("utf-8", errors="replace")
+    return f"{head}...(truncated, total {len(body)} bytes)"
 
 
 def _validate_host(host: str):

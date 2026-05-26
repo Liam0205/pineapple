@@ -509,11 +509,31 @@ class Engine:
                     output_snapshot=output_snapshot,
                 )
                 self._stats.record_error(cop.name, duration_ns)
-                wrapped = PanicError(
-                    f'pine: execution error in operator "{cop.name}": apply output: {apply_err}',
-                    detail=traceback.format_exc(),
-                    cause=apply_err,
-                )
+                # ExecutionError thrown from apply_output (NaN/Inf validation,
+                # SetItemOrder permutation check) already carries the operator
+                # name and a structured `operator "X": <segment>: <msg>` body
+                # — wrap it once with the standard execution-error prefix to
+                # match Go/Java/C++ byte-for-byte. Other exceptions get the
+                # original `apply output: ` segment for legacy reasons. R3-H2.
+                if isinstance(apply_err, ExecutionError):
+                    # str(ExecutionError) already starts with `operator "X": `;
+                    # strip the redundant `operator "X": ` so the final wrap
+                    # reads `pine: execution error in operator "X": <segment>: <msg>`.
+                    inner = str(apply_err)
+                    prefix = f'operator "{cop.name}": '
+                    if inner.startswith(prefix):
+                        inner = inner[len(prefix):]
+                    wrapped = PanicError(
+                        f'pine: execution error in operator "{cop.name}": {inner}',
+                        detail=traceback.format_exc(),
+                        cause=apply_err,
+                    )
+                else:
+                    wrapped = PanicError(
+                        f'pine: execution error in operator "{cop.name}": apply output: {apply_err}',
+                        detail=traceback.format_exc(),
+                        cause=apply_err,
+                    )
                 set_fatal(wrapped)
                 return
 
