@@ -8,7 +8,9 @@
           "type_name": "transform_size",
           "$metadata": {
             "common_input": [],
-            "common_output": ["score"],
+            "common_output": [
+              "score"
+            ],
             "item_input": [],
             "item_output": []
           }
@@ -16,7 +18,9 @@
         "observe_score": {
           "type_name": "observe_log",
           "$metadata": {
-            "common_input": ["score"],
+            "common_input": [
+              "score"
+            ],
             "common_output": [],
             "item_input": [],
             "item_output": []
@@ -26,7 +30,9 @@
           "type_name": "transform_size",
           "$metadata": {
             "common_input": [],
-            "common_output": ["score"],
+            "common_output": [
+              "score"
+            ],
             "item_input": [],
             "item_output": []
           }
@@ -35,13 +41,19 @@
     },
     "pipeline_group": {
       "main": {
-        "pipeline": ["produce_score", "observe_score", "overwrite_score"]
+        "pipeline": [
+          "produce_score",
+          "observe_score",
+          "overwrite_score"
+        ]
       }
     },
     "flow_contract": {
       "common_input": [],
       "item_input": [],
-      "common_output": ["score"],
+      "common_output": [
+        "score"
+      ],
       "item_output": []
     }
   },
@@ -50,6 +62,12 @@
       "name": "observe between two writers must serialize via WAR edge",
       "request": {
         "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "score": 0
+        },
         "items": []
       }
     }

@@ -10,15 +10,13 @@ and the regression is only caught by end-to-end fixture diffs.
 """
 from __future__ import annotations
 
-import math
 import random
 from copy import deepcopy
 
 import pytest
-
-from pine.frame import Frame, RowFrame, ColumnFrame
-from pine.operator import OperatorOutput
 from pine.errors import ExecutionError
+from pine.frame import ColumnFrame, RowFrame
+from pine.operator import OperatorOutput
 
 
 def _project(frame, common_keys, item_keys):
@@ -70,7 +68,8 @@ def test_apply_output_item_writes_equivalence():
         out.set_item(0, "score", 99)
         out.set_item(1, "bonus", True)
         f.apply_output(out, "op", False)
-    assert row.to_result_items(["id", "score", "bonus"]) == col.to_result_items(["id", "score", "bonus"])
+    fields = ["id", "score", "bonus"]
+    assert row.to_result_items(fields) == col.to_result_items(fields)
 
 
 def test_apply_output_remove_equivalence():
@@ -107,7 +106,8 @@ def test_apply_output_additions_equivalence_with_recall():
         out.add_item({"id": 200})
         f.apply_output(out, "op_recall", True)  # recall stamps _source
     # Both impls must add the rows AND stamp _source=op_recall
-    assert row.to_result_items(["id", "name", "_source"]) == col.to_result_items(["id", "name", "_source"])
+    fields = ["id", "name", "_source"]
+    assert row.to_result_items(fields) == col.to_result_items(fields)
     assert row.item_count() == col.item_count() == 3
 
 
@@ -213,7 +213,7 @@ def test_dual_impl_random_equivalence(seed):
     # Independent rng for the col-side output would yield a different program;
     # we need IDENTICAL output programs, so rebuild deterministically:
     rng2 = random.Random(seed + 100000)
-    out_col = _rand_output(rng2, n_items)
+    _rand_output(rng2, n_items)  # consume rng2 to keep seed deterministic
     # The two random outputs from different rngs are unrelated → use the same
     # output object for both impls instead.
     # (Re-using the same OperatorOutput across applies is safe: apply_output
@@ -230,7 +230,9 @@ def test_dual_impl_random_equivalence(seed):
         col_err = str(e)
 
     # Match error-or-success across impls
-    assert (row_err is None) == (col_err is None), f"row_err={row_err!r} col_err={col_err!r} seed={seed}"
+    assert (row_err is None) == (col_err is None), (
+        f"row_err={row_err!r} col_err={col_err!r} seed={seed}"
+    )
     if row_err is not None:
         # Error messages may differ in OOB wording (impls store rows
         # differently); assert at minimum the leading segment matches.

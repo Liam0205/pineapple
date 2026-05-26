@@ -10,19 +10,27 @@
             "common_input": [],
             "common_output": [],
             "item_input": [],
-            "item_output": ["id"]
+            "item_output": [
+              "id"
+            ]
           }
         }
       }
     },
     "pipeline_group": {
-      "main": {"pipeline": ["recall_missing"]}
+      "main": {
+        "pipeline": [
+          "recall_missing"
+        ]
+      }
     },
     "flow_contract": {
       "common_input": [],
       "item_input": [],
       "common_output": [],
-      "item_output": ["id"]
+      "item_output": [
+        "id"
+      ]
     }
   },
   "request": {
@@ -31,6 +39,6 @@
   },
   "expected_error": {
     "type": "ConfigError",
-    "message_contains": "nonexistent_resource_xyz\\|no resource provider in context"
+    "message_contains": "nonexistent_resource_xyz"
   }
 }

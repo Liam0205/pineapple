@@ -98,14 +98,14 @@ print(' '.join(data.get('expected_error', {}).get('wrapping_exact_engines', []))
   cpp_ok=true
 
   if [[ -n "$expected_contains" ]]; then
-    if ! echo "$go_err" | grep -qi "$expected_contains"; then
+    if ! echo "$go_err" | grep -qFi "$expected_contains"; then
       go_ok=false
     fi
-    if ! echo "$java_err" | grep -qi "$expected_contains"; then
+    if ! echo "$java_err" | grep -qFi "$expected_contains"; then
       java_ok=false
     fi
     if [[ -n "$py_err" ]]; then
-      if ! echo "$py_err" | grep -qi "$expected_contains"; then
+      if ! echo "$py_err" | grep -qFi "$expected_contains"; then
         py_ok=false
       fi
     else
@@ -113,7 +113,7 @@ print(' '.join(data.get('expected_error', {}).get('wrapping_exact_engines', []))
     fi
     if [[ -n "${CPP_RUN:-}" ]]; then
       if [[ -n "$cpp_err" ]]; then
-        if ! echo "$cpp_err" | grep -qi "$expected_contains"; then
+        if ! echo "$cpp_err" | grep -qFi "$expected_contains"; then
           cpp_ok=false
         fi
       else

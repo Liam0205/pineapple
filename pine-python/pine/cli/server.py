@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from pine.engine import Engine, StaticResourceProvider
 from pine.errors import ConfigError, RegistryError, ValidationError
-from pine.go_format import go_json_marshal, _go_encode_value
+from pine.go_format import _go_encode_value, go_json_marshal
 from pine.http_stats import HttpStats
 from pine.metrics import (
     HistogramOpts,

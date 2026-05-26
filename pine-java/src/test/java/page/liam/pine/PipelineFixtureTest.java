@@ -40,6 +40,9 @@ public class PipelineFixtureTest {
                 byte[] configBytes = mapper.writeValueAsBytes(root.get("config"));
                 JsonNode cases = root.get("cases");
 
+                // Parse strict_order flag (default: true)
+                boolean strictOrder = !root.has("strict_order") || root.get("strict_order").asBoolean(true);
+
                 // Parse static_resources if present
                 ResourceProvider resourceProvider = null;
                 if (root.has("static_resources") && !root.get("static_resources").isNull()) {
@@ -87,10 +90,17 @@ public class PipelineFixtureTest {
                                 : Collections.emptyList();
 
                         assertMapEquals(expectedCommon, result.common, fullName + " — common mismatch");
-                        assertEquals(expectedItems.size(), result.items.size(),
+
+                        List<Map<String, Object>> expItems = expectedItems;
+                        List<Map<String, Object>> actItems = result.items;
+                        if (!strictOrder) {
+                            expItems = sortItemsByJSON(expItems);
+                            actItems = sortItemsByJSON(actItems);
+                        }
+                        assertEquals(expItems.size(), actItems.size(),
                                 fullName + " — item count mismatch");
-                        for (int idx = 0; idx < expectedItems.size(); idx++) {
-                            assertMapEquals(expectedItems.get(idx), result.items.get(idx),
+                        for (int idx = 0; idx < expItems.size(); idx++) {
+                            assertMapEquals(expItems.get(idx), actItems.get(idx),
                                     fullName + " — items[" + idx + "] mismatch");
                         }
                     }));
@@ -136,5 +146,21 @@ public class PipelineFixtureTest {
             if (dir == null) break;
         }
         return null;
+    }
+
+    /**
+     * Returns a copy of items sorted by their JSON serialization.
+     * Used for order-insensitive comparison when strict_order is false.
+     */
+    private static List<Map<String, Object>> sortItemsByJSON(List<Map<String, Object>> items) {
+        List<Map<String, Object>> copy = new ArrayList<>(items);
+        copy.sort(Comparator.comparing(m -> {
+            try {
+                return mapper.writeValueAsString(new TreeMap<>(m));
+            } catch (Exception e) {
+                return "";
+            }
+        }));
+        return copy;
     }
 }

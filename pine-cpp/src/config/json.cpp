@@ -267,7 +267,6 @@ private:
     }
 };
 
-std::string indent(int depth, int spaces) { return std::string(depth * spaces, ' '); }
 
 // go_format_json_number formats a double matching Go's encoding/json byte-for-byte.
 // Go rule (encoding/json/encode.go floatEncoder): for float64, use 'f' format
