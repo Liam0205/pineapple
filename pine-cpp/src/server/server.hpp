@@ -102,10 +102,16 @@ struct MiddlewareContext {
 // pine-go's Config.Middlewares semantics.
 using Middleware = std::function<void(MiddlewareContext&, const std::function<void()>& next)>;
 
+class HttpStats;
+
 // Builds the HTTP-layer metrics middleware (requests_total + duration
-// histogram). Append the returned Middleware to `ServerConfig::middlewares`
-// to enable instrumentation. Mirrors pine-go pkg/server/http_metrics.go.
+// histogram). The server core installs one of these automatically as the
+// innermost middleware on every run (with NopProvider tied off when no
+// provider is configured), mirroring pine-go's "always-on" behavior. The
+// overload taking an HttpStats* also feeds the in-process /stats.http
+// accumulator, which is what the server core uses internally.
 Middleware http_metrics_middleware(pine::metrics::Provider* provider);
+Middleware http_metrics_middleware(pine::metrics::Provider* provider, HttpStats* http_stats);
 
 // Server configuration.
 struct ServerConfig {
@@ -186,6 +192,9 @@ private:
     std::atomic<int64_t> reload_count_{0};
     std::atomic<int64_t> reload_error_count_{0};
     std::atomic<int64_t> last_reload_duration_ns_{0};
+
+    // HTTP request stats fed by the default http_metrics middleware.
+    std::unique_ptr<HttpStats> http_stats_;
 };
 
 }  // namespace server

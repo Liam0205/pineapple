@@ -1,4 +1,5 @@
 #include "server.hpp"
+#include "http_stats.hpp"
 #include "pine/metrics.hpp"
 
 #include <chrono>
@@ -20,13 +21,14 @@ const char* status_bucket(int code) {
 
 // Builds an HTTP-layer metrics middleware that records request totals and
 // duration histograms. Names + buckets match pine-go pkg/server/http_metrics.go.
+// The middleware always feeds two channels: the external Provider (Counter +
+// Histogram) and the optional in-process HttpStats accumulator that surfaces
+// through GET /stats.http. Both are mirrored across pine-go/java/python.
 //
-// Usage:
-//   cfg.middlewares.push_back(pine::server::http_metrics_middleware(provider));
-//
-// The provider is captured by value (raw pointer) — callers must keep it
-// alive for the lifetime of the server.
-Middleware http_metrics_middleware(metrics::Provider* provider) {
+// The provider is captured by raw pointer — callers must keep it alive for
+// the lifetime of the server. http_stats may be nullptr (the middleware then
+// only feeds the external Provider).
+Middleware http_metrics_middleware(metrics::Provider* provider, HttpStats* http_stats) {
     metrics::Counter* requests_total = provider->new_counter(
         {"pine_http_requests_total", "Total HTTP requests.",
          {"method", "path", "status"}});
@@ -35,16 +37,28 @@ Middleware http_metrics_middleware(metrics::Provider* provider) {
           {"method", "path"}},
          {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}});
 
-    return [requests_total, request_duration](MiddlewareContext& ctx,
-                                              const std::function<void()>& next) {
+    return [requests_total, request_duration, http_stats](MiddlewareContext& ctx,
+                                                          const std::function<void()>& next) {
         auto start = std::chrono::steady_clock::now();
         next();
         auto dur = std::chrono::steady_clock::now() - start;
-        requests_total->with({ctx.method, ctx.normalized_path, status_bucket(ctx.status)})->inc();
+        const char* bucket_name = status_bucket(ctx.status);
+        requests_total->with({ctx.method, ctx.normalized_path, bucket_name})->inc();
+        auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(dur);
         request_duration->with({ctx.method, ctx.normalized_path})
-            ->observe(metrics::duration_seconds(
-                std::chrono::duration_cast<std::chrono::nanoseconds>(dur)));
+            ->observe(metrics::duration_seconds(ns));
+        if (http_stats != nullptr) {
+            http_stats->record_request(ctx.method, ctx.normalized_path,
+                                       bucket_name, ns.count());
+        }
     };
+}
+
+// Backwards-compatible overload retaining the original single-arg signature.
+// Callers that constructed the middleware before HttpStats existed continue
+// to compile; their middleware just won't feed /stats.http.
+Middleware http_metrics_middleware(metrics::Provider* provider) {
+    return http_metrics_middleware(provider, nullptr);
 }
 
 }  // namespace server

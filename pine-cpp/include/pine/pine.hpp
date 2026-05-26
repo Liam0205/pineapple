@@ -51,22 +51,8 @@ public:
 
 // ExecutionError carries the operator name and an inner error message and
 // formats like pine-go: `pine: execution error in operator "X": <inner>`.
-//
-// Two construction forms:
-//   ExecutionError(operator_name, inner_msg)
-//     The canonical form. Builds the full `pine: execution error in
-//     operator "X": <inner>` what() string at construction time.
-//
-//   ExecutionError(msg)
-//     The legacy single-string form, used by operator-level throw sites
-//     that don't know their own operator name. `operator_name()` returns
-//     empty; `inner()` returns the message verbatim. The engine layer
-//     (`dispatch_with_recovery`, see runtime/engine.cpp) catches this
-//     form and re-wraps it via `std::throw_with_nested(ExecutionError(
-//     op.name, e.inner()))` so the eventual what() string still matches
-//     pine-go byte-for-byte. **In short: operator code may throw with
-//     either form; the byte-exact prefix is applied centrally by the
-//     scheduler, not by every throw site.** Tracked as P1-D1.
+// The legacy single-string ctor remains for sites that don't yet pass an
+// operator name (the message will be used as-is and may not byte-match Go).
 //
 // Also inherits std::nested_exception so that when thrown via
 // std::throw_with_nested the original in-flight exception is preserved as a
@@ -392,11 +378,6 @@ private:
     std::unique_ptr<std::atomic<int64_t>> peak_concurrency_;
     metrics::Provider* metrics_provider_ = nullptr;
     std::unique_ptr<EngineMetrics> engine_metrics_;
-    // Shared worker pool for data-parallel shards. Constructed in Engine
-    // ctor body (engine.cpp) so this header stays free of the pool
-    // implementation. See P1-P1.
-    struct PoolHolder;
-    std::unique_ptr<PoolHolder> shard_pool_;
 };
 
 Request load_request_from_file(const std::string& path);
