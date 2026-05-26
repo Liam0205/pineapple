@@ -28,6 +28,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 | **Pine-Go** | Go | 主执行引擎：解析配置、构建 DAG、并行调度 |
 | **Pine-Java** | Java | 第二执行引擎，与 Pine-Go 行为一致 |
 | **Pine-Python** | Python | 第三执行引擎，用于原型验证和测试 |
+| **Pine-C++** | C++ | 初始 MVP 切片：本地 CLI 执行与 DAG 渲染 |
 
 **工程团队**用 Go/Java 开发高性能算子；**业务团队**用 Python DSL 编排逻辑。两侧通过 JSON 配置彻底解耦。Pine-Python 提供纯 Python 运行时，适合快速原型验证和单元测试。
 
@@ -42,6 +43,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **白盒可观测** — 算子级 trace、`/stats` 端点、可插拔 Prometheus 接口
 - **行存/列存可切换** — DataFrame 支持两种存储模式
 - **三引擎一致性** — Go/Java/Python 引擎通过 CI 交叉验证保证 schema、DAG、执行结果一致
+- **Pine-C++ 初始 MVP 已入仓** — 提供自包含 CMake 工程、`pineapple-run` 与 `pineapple-render-dag` CLI，当前聚焦本地可编译的纵向切片
 
 ## 从旧版迁移（Breaking Change）
 
@@ -216,6 +218,11 @@ pineapple/
 ├── pine-java/              # Java 执行引擎 (Pine-Java)
 │   ├── src/main/java/      #   引擎实现 + CLI 工具
 │   └── src/test/java/      #   测试 + 基准 + fuzz
+├── pine-cpp/               # C++ 初始 MVP (Pine-C++)
+│   ├── include/pine/       #   公共头文件
+│   ├── src/                #   config/dag/runtime/render
+│   ├── operators/          #   MVP 内置算子实现占位
+│   └── cmd/                #   pineapple-run / pineapple-render-dag
 ├── fixtures/               # 共享测试 fixtures（Go/Java 公用）
 │   ├── operators/          #   算子级单元 fixtures
 │   ├── pipelines/          #   Pipeline 级端到端 fixtures
@@ -225,7 +232,21 @@ pineapple/
 └── doc/                    # 生成的算子文档 & 报告
 ```
 
-## 开发
+### Pine-C++ 初始 MVP
+
+仓库现已包含 `pine-cpp/` 初始纵向切片，目标是先提供一个不依赖系统级 JSON/Lua 头文件、可在本地直接编译的 C++ 运行时最小骨架，而不是宣称已与其余运行时完整 parity。
+
+当前能力：
+
+- CMake 工程：`cmake -S pine-cpp -B pine-cpp/build && cmake --build pine-cpp/build`
+- CLI：`pine-cpp/build/pineapple-run -config ... -request ...`
+- CLI：`pine-cpp/build/pineapple-render-dag -config ... -format dot|mermaid [-collapse N]`
+- 自包含最小 JSON 解析/序列化（object / array / string / number / bool / null）
+- 支持的 MVP 算子：`transform_copy`、`filter_truncate`、`recall_static`、`reorder_sort`
+- 支持 `pipeline_group` 展开、单一非 `main` group fallback、`pipeline_map` 递归展开、`skip` 归一化、strict/default field accessor、`storage_mode` 接受、基础 DAG 构建与渲染
+
+明确未实现：Lua、HTTP server、`/stats`、热加载、resource 管理、完整算子集合、跨运行时 parity 校验接入。
+
 
 ### 常用脚本
 

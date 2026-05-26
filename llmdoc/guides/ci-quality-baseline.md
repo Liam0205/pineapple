@@ -13,7 +13,7 @@
 
 ## CI workflow 架构
 
-`.github/workflows/ci.yml` 包含 11 个 job：
+`.github/workflows/ci.yml` 包含多个 job（数量与依赖关系以该文件为准，禁止在本指南中硬编码计数）。典型分组：
 
 | Job | 职责 | 依赖 |
 |-----|------|------|
@@ -23,17 +23,21 @@
 | java-test | Java 测试 + 覆盖率 | 无 |
 | python-test | Python DSL 测试 + 覆盖率 | 无 |
 | pine-python-test | Python 引擎测试 + 覆盖率 | 无 |
+| cpp-build | pine-cpp Release 构建（4 个可执行文件） | 无 |
+| cpp-sanitizer | pine-cpp ASan/UBSan smoke | cpp-build |
+| cpp-lint | pine-cpp `-Werror` 严格构建 + 基础卫生检查 | 无 |
+| cpp-test | pine-cpp doctest 单测套件 | cpp-build |
 | codegen-check | 重生成 + git diff 校验 | 无 |
 | fuzz | Go native fuzz 短时运行 | go-test |
 | pine-python-fuzz | Hypothesis property-based fuzz | pine-python-test |
 | benchmark | Go benchmark + job summary + artifact | go-test |
 | pine-python-benchmark | Python 引擎 benchmark | pine-python-test |
+| cross-validate | 多 section 跨运行时校验 | go-test + java-test + pine-python-test + cpp-build |
+| differential-fuzz | CI 模式 100 轮四引擎差异模糊测试 | go-test + java-test + pine-python-test + pine-cpp-test |
 
-另有两个独立 workflow：
+另有独立 nightly workflow：
 
-- **Cross-validate**（`.github/workflows/ci.yml` 中的 cross-validate job）：依赖 go-test + java-test + pine-python-test，运行十三层三引擎跨验证
-- **Differential-fuzz**（`.github/workflows/ci.yml` 中的 differential-fuzz job）：CI 模式运行 100 轮三引擎差异模糊测试
-- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行 5000 轮，发现分歧时自动创建 GitHub issue
+- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行四引擎差异比对；平日 10000 轮，**周六自动升级到 100000 轮 + `--shrink` 最小复现**（复用同一 workflow，通过 `date -u +%u` 判断星期）；发现分歧时自动创建 GitHub issue
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
 
@@ -106,12 +110,18 @@ CI 中 Hypothesis 使用默认 settings profile（200 examples），依赖 `pine
 
 ### 差异模糊测试（Differential Fuzz）
 
-`scripts/differential-fuzz.py` 生成随机管道配置，Go/Java/Python 三引擎执行并比对输出：
+`scripts/differential-fuzz.py` 生成随机管道配置，**Go/Java/Python/C++ 四引擎**执行并比对输出（R3-X4 接入 C++）：
 
 - CI 模式：100 轮，发现分歧则 job 失败
-- Nightly 模式（`.github/workflows/nightly-diff-fuzz.yml`）：5000 轮，发现分歧时自动创建 GitHub issue 附带复现 fixture
+- **Nightly 模式**（`.github/workflows/nightly-diff-fuzz.yml`）：**10000 轮**，4 引擎 6 pairs 比对，发现分歧时自动创建 GitHub issue 附带复现 fixture
+- **Weekend 深度模式**（nightly workflow 内置，周六 `date -u +%u == 6` 自动升级）：**100000 轮** + `--shrink` 启用最小复现，30 天 artifact 保留
 - 分歧产物保存为 CI artifact，可直接下载复现
-- Stability runs：每个配置执行 2 次以排除非确定性差异
+- Stability runs：每个配置执行 3 次以排除非确定性差异
+- **15 个算子类型**（R3-X5 从 10 扩展）：filter_truncate, filter_condition, filter_paginate, recall_static, recall_resource, reorder_sort, reorder_shuffle_by_salt, merge_dedup, transform_by_lua, transform_copy（4 方向）, transform_dispatch, transform_size, transform_normalize, transform_resource_lookup, observe_log
+- **11 个随机化维度**：pipeline 拓扑 / 算子参数 / 数据形状 / 边界值 / data_parallel / storage_mode（50/50 row/column）/ SubFlow / skip / sources（显式 DAG 边）/ common_defaults+item_defaults / debug+_return_trace / 请求直接提供 items / 稀疏 items（部分行缺字段）/ 嵌套 dict/array 值
+- **跨存储模式比较**：每个 fixture 自动在 row 和 column 两种 storage_mode 下执行，输出在同一引擎内进行 row-vs-column 等价比较
+- **Stabilize sort 条件收紧**：仅在 operator 有非 skip 的 `common_input` 时才附加 skip 字段，避免不必要的 skip 导致非确定性
+- **Stratified 报告**：summary 输出 `row=A/B column=C/D` pass/fail 分布 + per-dimension 覆盖计数
 
 ### DAG 差异模糊测试（DAG Differential Fuzz）
 
@@ -130,18 +140,59 @@ fuzz 通用策略分两步推进：
 
 ## Cross-validate 架构
 
-`scripts/cross-validate.sh` 运行十三层三引擎跨验证。sections 默认并行执行（`scripts/cross-validate/_parallel.sh` 调度），`--serial` 可回退串行；单 section 内三引擎也并行运行。
+`scripts/cross-validate.sh` 运行多 section 跨运行时校验。具体 section 列表以 `scripts/cross-validate/` 目录为准，禁止在本指南中硬编码层数。sections 默认并行执行（`scripts/cross-validate/_parallel.sh` 调度），`--serial` 可回退串行；单 section 内各运行时也并行运行。
 
-### Section 13: Metrics Parity
+C++ 端是否参与某次比对取决于该 section 中对 `CPP_RUN` / `CPP_DAG` / `CPP_SERVER` / `CPP_CODEGEN` 的引用，以及 `scripts/cross-validate/_prebuild.sh` 是否成功构建 pine-cpp 二进制（输出到 `$WORK_DIR/pineapple-*-cpp`）。
 
-`scripts/cross-validate/13-metrics-parity.sh` 验证三引擎 pre-init 行为和 `/stats` 数值一致性，包含 6 项检查：
+### 端口隔离
+
+各 section 使用独立的千位端口段避免并行执行时端口冲突（如 Section 4 用 4xxx，Section 6 用 6xxx）。每个 section 脚本内部通过 `BASE_PORT` 变量分配端口，确保各运行时 server 实例不会竞争同一端口。
+
+### Section 4: Column-Store Row-vs-Column 比较
+
+Section 4 (`04-column-store.sh`) 验证 `storage_mode: row` 和 `storage_mode: column` 在各引擎内产生相同输出：
+
+- 同一 fixture 分别以 row 和 column 模式执行，比较输出一致性
+- 覆盖 Go 引擎内部的 RowFrame vs ColumnFrame 等价性
+- 使用与 Section 3 相同的比较策略（支持 `strict_order` flag）
+
+### Section 3 执行 parity 的比较策略
+
+Section 3 (`03-execution-parity.sh`) 比较四引擎 `/execute` 输出：
+
+- **默认 list comparison**：`normalize_json` 规范化（递归 key 排序 + int→float 统一）后字符串精确比较。items 数组**顺序敏感**。
+- **Set comparison**（fixture 声明 `"strict_order": false` 时）：`normalize_json_set` 额外对 items 数组按 JSON 序列化排序后比较。**顺序无关**，仅验证 item 集合一致。
+- **适用场景**：fixture 有并行 DAG 节点（如多个 recall_static 无 trailing sort）时，item 插入顺序不确定，必须用 set comparison 避免假阳性。
+
+### Differential fuzz 的 stabilizing sort 机制
+
+`scripts/differential-fuzz.py` 在检测到 ≥2 recall-type 算子 + 下游 `filter_paginate` 时，自动在 paginate 前插入 `_stabilize_sort`（按 `_fuzz_distinctive_score` 排序），确保 paginate 输入确定性。这解决了"并行 recall → 非确定性位置 → paginate 切到不同 item 子集"的假阳性问题。
+
+### Metrics Parity section
+
+`scripts/cross-validate/13-metrics-parity.sh` 验证各运行时 pre-init 行为和 `/stats` 数值一致性，包含：
 
 - zero-traffic pre-init：引擎启动后、无请求时 `/stats` 已暴露全部算子
-- operator names match：三引擎的算子名集合一致
-- exec_count match：执行计数三引擎一致
-- skip_count match：跳过计数三引擎一致
-- error_count match：错误计数三引擎一致
-- scheduler.run_count match：调度器运行计数三引擎一致
+- operator names match：各运行时的算子名集合一致
+- exec_count / skip_count / error_count match：算子执行/跳过/错误计数一致
+- scheduler.run_count match：调度器运行计数一致
+- http.requests_total `POST /execute 2xx` 四方计数一致
+- http.request_duration_seconds `POST /execute` count 四方一致
+- `/stats.http` schema shape 四方一致（`requests_total` + `request_duration_seconds` 两子树存在 + duration bucket 含 `count`/`sum_ns` 字段）
+
+### Section 15: Error Cause Chain Parity
+
+`scripts/cross-validate/15-error-cause-chain.sh` 用 **probe binary 矩阵**验证四运行时的 ExecutionError cause chain 输出一致 -- 这是 cross-validate 框架的第二种验证模式（第一种是 fixture-driven HTTP 字节对比）。
+
+每方 probe binary:
+- pine-go: `cmd/pine-cause-chain-probe/main.go`
+- pine-java: `page.liam.pine.CauseChainProbe`
+- pine-python: `pine.cli.cause_chain_probe`
+- pine-cpp: `cmd/pineapple-cause-chain-probe/main.cpp`
+
+probe 流程：构造 `FakeRedisError("user:42")` -> 包装为 ExecutionError -> catch 外层 -> 用语言原生 idiom 取出 inner -> stdout 输出 `PASS:key=user:42 not found`。Section 15 收集四方 stdout 做字节级 diff。
+
+适用场景：当 parity 维度在 HTTP 接口不可见时（语言层 API 形态、原生能力可用性），用 probe binary 把维度具象化为可比对的 stdout 字符串。
 
 ## 跨引擎 Benchmark 基础设施
 
@@ -199,9 +250,9 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Pine-Python fuzz：`pine-python/tests/` (Hypothesis)
 - Differential-fuzz 脚本：`scripts/differential-fuzz.py`、`scripts/differential-fuzz.sh`
 - DAG differential-fuzz 脚本：`scripts/dag-differential-fuzz.py`
-- Cross-validate 脚本：`scripts/cross-validate.sh`、`scripts/cross-validate/`
-- Cross-validate 并行调度：`scripts/cross-validate/_parallel.sh`
-- Cross-validate section 13：`scripts/cross-validate/13-metrics-parity.sh`
+- Cross-validate section 列表：`scripts/cross-validate/`
+- Cross-validate metrics-parity section：`scripts/cross-validate/13-metrics-parity.sh`
+- Cross-validate pine-cpp 预构建：`scripts/cross-validate/_prebuild.sh`
 - 跨引擎 benchmark：`scripts/cross-engine-bench.py`、`scripts/cross-engine-bench-cli.sh`、`scripts/bench-generate-fixtures.py`
 - Tag release：`scripts/tag-release.sh`
 - Server stress 入口：`pine-go/pkg/server/server_test.go`
