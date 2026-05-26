@@ -83,7 +83,10 @@ func (o *ShuffleBySaltOp) Execute(_ context.Context, in *pine.OperatorInput, out
 		if items[a].r != items[b].r {
 			return items[a].r < items[b].r
 		}
-		return items[a].id < items[b].id
+		if items[a].id != items[b].id {
+			return items[a].id < items[b].id
+		}
+		return items[a].idx < items[b].idx
 	})
 
 	order := make([]int, n)
