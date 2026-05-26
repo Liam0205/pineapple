@@ -37,10 +37,34 @@ class OpCall:
     name: str = ""
 
     def unique_name(self) -> str:
-        """Return explicit name if set, otherwise generate type_name_HASH6."""
+        """Return explicit name if set, otherwise generate type_name_HASH6.
+
+        Hash input excludes code_info (source file path + line number) since
+        it is purely debugging metadata and should not affect the operator's
+        identity. subflow_path is intentionally included because it reflects
+        the operator's position in the DAG topology.
+        """
         if self.name:
             return self.name
-        h = hashlib.md5(repr(self).encode()).hexdigest()[:6].upper()
+        semantic = (
+            self.type_name,
+            repr(self.params),
+            tuple(self.common_input),
+            tuple(self.common_output),
+            tuple(self.item_input),
+            tuple(self.item_output),
+            repr(self.item_defaults),
+            repr(self.common_defaults),
+            self.recall,
+            tuple(self.sources) if self.sources else (),
+            tuple(self.skip) if self.skip else (),
+            self.for_branch_control,
+            self.consumes_row_set,
+            self.data_parallel,
+            self.debug,
+            self.subflow_path,
+        )
+        h = hashlib.md5(repr(semantic).encode()).hexdigest()[:6].upper()
         return f"{self.type_name}_{h}"
 
 
