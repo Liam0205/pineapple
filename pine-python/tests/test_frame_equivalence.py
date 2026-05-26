@@ -210,14 +210,9 @@ def test_dual_impl_random_equivalence(seed):
     row = RowFrame(deepcopy(common), deepcopy(items))
     col = ColumnFrame(deepcopy(common), deepcopy(items))
     out_row = _rand_output(rng, n_items)
-    # Independent rng for the col-side output would yield a different program;
-    # we need IDENTICAL output programs, so rebuild deterministically:
-    rng2 = random.Random(seed + 100000)
-    _rand_output(rng2, n_items)  # consume rng2 to keep seed deterministic
-    # The two random outputs from different rngs are unrelated → use the same
-    # output object for both impls instead.
-    # (Re-using the same OperatorOutput across applies is safe: apply_output
-    # only reads it; it does not mutate.)
+    # Use the same output object for both impls so they receive identical
+    # mutation programs. Re-using OperatorOutput is safe: apply_output
+    # only reads it; it does not mutate.
     row_err = None
     col_err = None
     try:
