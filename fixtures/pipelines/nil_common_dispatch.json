@@ -47,7 +47,7 @@
     {
       "name": "null common dispatched to item_label triggers error",
       "request": {"common": {"label": null}, "items": []},
-      "expect_error": "required field \"label\" is nil in common"
+      "expect_error": "required field \"label\" is missing in common"
     }
   ]
 }

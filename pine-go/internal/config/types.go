@@ -61,8 +61,8 @@ type OperatorConfig struct {
 	AdditiveWritesRowSet bool           `json:"additive_writes_row_set,omitempty"`
 	CommonDefaults   map[string]any `json:"common_defaults,omitempty"`
 	ItemDefaults     map[string]any `json:"item_defaults,omitempty"`
-	NullableCommon   []string       `json:"nullable_common,omitempty"`
-	NullableItem     []string       `json:"nullable_item,omitempty"`
+	StrictCommon     []string       `json:"strict_common,omitempty"`
+	StrictItem       []string       `json:"strict_item,omitempty"`
 	ForBranchControl bool           `json:"for_branch_control,omitempty"`
 	DataParallel     int            `json:"data_parallel,omitempty"`
 
@@ -96,43 +96,44 @@ type InputFieldSpec struct {
 	NullableItem    []string
 }
 
-// ComputeInputFieldSpec creates the InputFieldSpec from metadata, defaults, nullable, and skip fields.
-func ComputeInputFieldSpec(meta Metadata, commonDefaults, itemDefaults map[string]any, nullableCommon, nullableItem, skip []string) *InputFieldSpec {
+// ComputeInputFieldSpec creates the InputFieldSpec from metadata, defaults, strict, and skip fields.
+// Default mode is Nullable (missing → error, nil → pass through). Strict and Defaulted are opt-in.
+func ComputeInputFieldSpec(meta Metadata, commonDefaults, itemDefaults map[string]any, strictCommon, strictItem, skip []string) *InputFieldSpec {
 	spec := &InputFieldSpec{}
 
 	skipSet := make(map[string]struct{}, len(skip))
 	for _, s := range skip {
 		skipSet[s] = struct{}{}
 	}
-	nullableCommonSet := make(map[string]struct{}, len(nullableCommon))
-	for _, f := range nullableCommon {
-		nullableCommonSet[f] = struct{}{}
+	strictCommonSet := make(map[string]struct{}, len(strictCommon))
+	for _, f := range strictCommon {
+		strictCommonSet[f] = struct{}{}
 	}
-	nullableItemSet := make(map[string]struct{}, len(nullableItem))
-	for _, f := range nullableItem {
-		nullableItemSet[f] = struct{}{}
+	strictItemSet := make(map[string]struct{}, len(strictItem))
+	for _, f := range strictItem {
+		strictItemSet[f] = struct{}{}
 	}
 
 	for _, field := range meta.CommonInput {
 		if _, skipped := skipSet[field]; skipped {
 			continue
 		}
-		if _, nullable := nullableCommonSet[field]; nullable {
-			spec.NullableCommon = append(spec.NullableCommon, field)
-		} else if d, ok := commonDefaults[field]; ok {
+		if d, ok := commonDefaults[field]; ok {
 			spec.DefaultedCommon = append(spec.DefaultedCommon, DefaultedField{Name: field, Default: d})
-		} else {
+		} else if _, strict := strictCommonSet[field]; strict {
 			spec.StrictCommon = append(spec.StrictCommon, field)
+		} else {
+			spec.NullableCommon = append(spec.NullableCommon, field)
 		}
 	}
 
 	for _, field := range meta.ItemInput {
-		if _, nullable := nullableItemSet[field]; nullable {
-			spec.NullableItem = append(spec.NullableItem, field)
-		} else if d, ok := itemDefaults[field]; ok {
+		if d, ok := itemDefaults[field]; ok {
 			spec.DefaultedItem = append(spec.DefaultedItem, DefaultedField{Name: field, Default: d})
-		} else {
+		} else if _, strict := strictItemSet[field]; strict {
 			spec.StrictItem = append(spec.StrictItem, field)
+		} else {
+			spec.NullableItem = append(spec.NullableItem, field)
 		}
 	}
 

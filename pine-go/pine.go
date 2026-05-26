@@ -174,20 +174,7 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 			ma.SetMetricsProvider(mp)
 		}
 		// Pre-compute InputFieldSpec for BuildInput.
-		// Control operators (for_branch_control) treat all common_input as
-		// defaulted-nil so that missing fields evaluate to nil instead of
-		// causing an ExecutionError — the branch condition simply won't match.
-		if opCfg.ForBranchControl {
-			if opCfg.CommonDefaults == nil {
-				opCfg.CommonDefaults = make(map[string]any)
-			}
-			for _, f := range opCfg.Meta.CommonInput {
-				if _, exists := opCfg.CommonDefaults[f]; !exists {
-					opCfg.CommonDefaults[f] = nil
-				}
-			}
-		}
-		opCfg.InputSpec = config.ComputeInputFieldSpec(opCfg.Meta, opCfg.CommonDefaults, opCfg.ItemDefaults, opCfg.NullableCommon, opCfg.NullableItem, opCfg.Skip)
+		opCfg.InputSpec = config.ComputeInputFieldSpec(opCfg.Meta, opCfg.CommonDefaults, opCfg.ItemDefaults, opCfg.StrictCommon, opCfg.StrictItem, opCfg.Skip)
 		compiledOps[i] = &runtime.CompiledOperator{
 			Name:     name,
 			Instance: op,

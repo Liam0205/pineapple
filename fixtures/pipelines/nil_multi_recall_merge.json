@@ -52,7 +52,7 @@
     {
       "name": "merged items missing cross-recall fields triggers error",
       "request": {"common": {}, "items": []},
-      "expect_error": "is nil on item"
+      "expect_error": "is missing on item"
     }
   ]
 }

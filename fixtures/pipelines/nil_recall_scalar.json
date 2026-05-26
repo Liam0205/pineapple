@@ -41,7 +41,7 @@
     {
       "name": "null item_name triggers strict accessor error",
       "request": {"common": {}, "items": []},
-      "expect_error": "required field \"item_name\" is nil on item"
+      "expect_error": "required field \"item_name\" is missing on item"
     }
   ]
 }
