@@ -31,7 +31,7 @@ class OperatorConfig:
     skip: list[str] = field(default_factory=list)
     recall: bool = False
     sources: list[str] = field(default_factory=list)
-    debug: bool = False
+    debug: bool | None = None
     consumes_row_set: bool = False
     mutates_row_set: bool = False
     additive_writes_row_set: bool = False
@@ -240,7 +240,7 @@ def _parse_operator_config(node: dict[str, Any]) -> OperatorConfig:
     op_cfg = OperatorConfig()
     op_cfg.type_name = node.get("type_name", "")
     op_cfg.recall = node.get("recall", False)
-    op_cfg.debug = node.get("debug", False)
+    op_cfg.debug = node.get("debug") if "debug" in node else None
     op_cfg.consumes_row_set = node.get("consumes_row_set", False)
     op_cfg.mutates_row_set = node.get("mutates_row_set", False)
     op_cfg.additive_writes_row_set = node.get("additive_writes_row_set", False)
