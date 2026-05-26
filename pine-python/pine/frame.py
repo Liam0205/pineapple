@@ -19,7 +19,7 @@ class Frame(ABC):
         common: dict[str, Any] | None,
         items: list[dict[str, Any]] | None,
     ) -> "Frame":
-        # R3-X1: route by storage_mode to match pine-go NewFrame /
+        # Route by storage_mode to match pine-go NewFrame /
         # pine-java Frame.create / pine-cpp pine::make_frame. Unknown /
         # empty values fall back to "column" (Go's NewFrame default).
         if storage_mode == "row":
@@ -278,7 +278,7 @@ def _check_value(field: str, value):
     """Mirror pine-go validateValue (row_frame.go:224). Returns the
     violation message (without prefix) or None when OK. Reject NaN/Inf
     in any numeric write; everything else (str, bool, int, list, dict,
-    None) passes through. R3-H2.
+    None) passes through.
     """
     if value is None:
         return None
@@ -297,7 +297,7 @@ def _check_value(field: str, value):
 
 class RowFrame(Frame):
     """Row-oriented Frame implementation. Items are stored as a list of dicts,
-    matching pine-go's RowFrame and pine-cpp's RowFrame. R3-X1.
+    matching pine-go's RowFrame and pine-cpp's RowFrame.
 
     Trade-off vs ColumnFrame: cheaper for per-row access patterns (Lua
     snapshots, remote requests, observe logging, recall add_item) at the
@@ -443,7 +443,7 @@ class RowFrame(Frame):
                 if item_out is None:
                     # Keep explicit nulls — pine-go RowFrame.ToResult /
                     # ColumnFrame.ToResult both preserve PRESENT-NULL,
-                    # only ABSENT keys are stripped. (R3-X1 dual-impl
+                    # only ABSENT keys are stripped. (Dual-impl
                     # equivalence requires the same projection rule.)
                     items.append(dict(row))
                 else:

@@ -35,7 +35,7 @@ class MergeDedup(AbstractOperator, ConsumesRowSet, MutatesRowSet):
 
 
 def _normalize_key(v):
-    # V-12: all types must produce distinct, hashable keys.
+    # All types must produce distinct, hashable keys.
     # Python's set treats False==0==0.0 and True==1 as equal (PEP 285),
     # so we must stringify with type prefix to avoid cross-type collision.
     # Matches Go fmt.Sprintf("%T:%v") and C++ dedup_key "B:"/"F:"/"S:"/"N:" prefixes.
