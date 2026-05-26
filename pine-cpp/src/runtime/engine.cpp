@@ -793,11 +793,14 @@ std::vector<OpTrace> run_dag(const Config& config,
                     std::size_t input_size = frame.item_count();
                     std::size_t output_size = input_size + out.added_items().size() - out.removed_items().size();
                     std::string in_json = trace.has_input_snapshot
-                        ? dump_json(trace.input_snapshot) : std::string("{}");
+                        ? dump_json(trace.input_snapshot, 0) : std::string("{}");
                     std::string out_json = trace.has_output_snapshot
-                        ? dump_json(trace.output_snapshot) : std::string("{}");
-                    // dump_json appends a trailing '\n' for top-level
-                    // values; strip it so the log line stays on one line.
+                        ? dump_json(trace.output_snapshot, 0) : std::string("{}");
+                    // R13-1: compact mode used above; no trailing newline
+                    // to strip. Old code stripped trailing '\n' from the
+                    // indented form — kept the loop as defensive no-op so
+                    // any future formatting drift still keeps the log line
+                    // single-line.
                     while (!in_json.empty() && in_json.back() == '\n') in_json.pop_back();
                     while (!out_json.empty() && out_json.back() == '\n') out_json.pop_back();
                     std::cerr << "[pine-debug] operator=\"" << op.name

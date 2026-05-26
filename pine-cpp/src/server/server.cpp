@@ -523,8 +523,8 @@ void Server::handle_execute(int client_fd, const std::string& method,
         return_trace = trace_it->second.as_bool();
     }
 
-    // Execute
-    auto exec_result = execute_with_trace(req, return_trace);
+    // Execute (R10-2: pass client_fd so engine sees client-disconnect cancel)
+    auto exec_result = execute_with_trace(req, return_trace, client_fd);
 
     // Build response JSON — match Go's executeResponse structure.
     // Go writes resp.Common/Items from result only when result != nil; an
@@ -760,7 +760,8 @@ void Server::handle_not_found(int client_fd) {
     send_error(client_fd, 404, "not found");
 }
 
-ExecuteResult Server::execute_with_trace(const Request& request, bool return_trace) {
+ExecuteResult Server::execute_with_trace(const Request& request, bool return_trace,
+                                          int client_fd) {
     ExecuteResult exec_result;
     run_count_.fetch_add(1, std::memory_order_relaxed);
 
@@ -769,13 +770,57 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
         std::map<std::string, JsonValue> res_snap;
         if (resource_manager_) res_snap = resource_manager_->snapshot();
         std::exception_ptr exec_err = nullptr;
+
+        // R10-2: poll the client socket for disconnect and forward the
+        // cancel into the engine. Without this, /execute keeps running
+        // even after the client closed (waste + slow shutdown).
+        // poll(POLLRDHUP|POLLHUP|POLLERR) does NOT consume bytes, so
+        // it is safe to use mid-keep-alive — a queued follow-up request
+        // looks like POLLIN, which we don't react to.
+        std::stop_source cancel_src;
+        std::atomic<bool> exec_done{false};
+        std::thread watcher;
+        if (client_fd >= 0) {
+            watcher = std::thread([client_fd, &cancel_src, &exec_done]() {
+                while (!exec_done.load(std::memory_order_acquire)) {
+                    struct pollfd pfd{};
+                    pfd.fd = client_fd;
+#ifdef POLLRDHUP
+                    pfd.events = POLLRDHUP;
+#else
+                    pfd.events = 0;
+#endif
+                    int rc = ::poll(&pfd, 1, 100 /*ms*/);
+                    if (rc > 0) {
+                        if (pfd.revents & (POLLERR | POLLHUP
+#ifdef POLLRDHUP
+                                            | POLLRDHUP
+#endif
+                                            | POLLNVAL)) {
+                            cancel_src.request_stop();
+                            return;
+                        }
+                    }
+                    // rc == 0 (timeout) or rc < 0 (interrupted) — loop.
+                }
+            });
+        }
         {
             std::shared_lock<std::shared_mutex> lock(engine_mu_);
             try {
-                engine_->execute_traced_into(request, res_snap, &traced);
+                engine_->execute_traced_into(request, res_snap, &traced,
+                                              cancel_src.get_token());
             } catch (...) {
                 exec_err = std::current_exception();
             }
+        }
+        exec_done.store(true, std::memory_order_release);
+        if (watcher.joinable()) {
+            // Force the watcher poll() to return early so we don't wait
+            // up to 100 ms after a fast request. request_stop is
+            // idempotent and harmless when the engine already returned.
+            cancel_src.request_stop();
+            watcher.join();
         }
         // Match Go: even on partial execution errors, we capture the Projected
         // result (items and common containing fields up to failure point) as well

@@ -42,7 +42,12 @@ public:
             snapshot["items"] = JsonValue(std::move(items));
         }
 
-        std::string data = dump_json(JsonValue(snapshot));
+        // R13-1: compact one-line JSON for log-friendly output.
+        // dump_json(value, 0) suppresses all newlines/indent — observe_log
+        // entries stay single-line so grep / journalctl -g / Loki pattern
+        // matchers can filter on them. Matches pine-go observe/log.go which
+        // uses json.Marshal (compact by default).
+        std::string data = dump_json(JsonValue(snapshot), 0);
         // dump_json appends a trailing newline; strip it so the
         // [observe_log] line is single-line on stderr like Go's
         // log.Printf output.

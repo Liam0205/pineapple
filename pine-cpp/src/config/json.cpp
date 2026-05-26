@@ -332,14 +332,30 @@ void dump_impl(const JsonValue& value, int indent_size, int depth, std::string& 
     if (value.is_array()) {
         const auto& array = value.as_array();
         if (array.empty()) { out += "[]"; return; }
-        out += "[\n";
-        const std::string inner_indent(static_cast<std::size_t>((depth + 1) * indent_size), ' ');
-        const std::string outer_indent(static_cast<std::size_t>(depth * indent_size), ' ');
+        // R13-1: compact mode (indent_size == 0) suppresses all '\n' and
+        // indent strings — matches Go json.Marshal output used by
+        // observe_log / [pine-debug] log lines and HTTP /execute trace
+        // payloads. Indented mode kept identical to the original layout.
+        const bool compact = (indent_size == 0);
+        out.push_back('[');
+        if (!compact) out.push_back('\n');
+        const std::string inner_indent = compact ? std::string()
+            : std::string(static_cast<std::size_t>((depth + 1) * indent_size), ' ');
+        const std::string outer_indent = compact ? std::string()
+            : std::string(static_cast<std::size_t>(depth * indent_size), ' ');
         for (std::size_t i = 0; i < array.size(); ++i) {
             out += inner_indent;
             dump_impl(array[i], indent_size, depth + 1, out);
-            if (i + 1 != array.size()) out.push_back(',');
-            out.push_back('\n');
+            if (i + 1 != array.size()) {
+                out.push_back(',');
+                if (compact) {
+                    // no trailing space — Go json.Marshal uses bare ','
+                } else {
+                    out.push_back('\n');
+                }
+            } else if (!compact) {
+                out.push_back('\n');
+            }
         }
         out += outer_indent;
         out.push_back(']');
@@ -347,18 +363,28 @@ void dump_impl(const JsonValue& value, int indent_size, int depth, std::string& 
     }
     const auto& object = value.as_object();
     if (object.empty()) { out += "{}"; return; }
-    out += "{\n";
-    const std::string inner_indent(static_cast<std::size_t>((depth + 1) * indent_size), ' ');
-    const std::string outer_indent(static_cast<std::size_t>(depth * indent_size), ' ');
+    const bool compact = (indent_size == 0);
+    out.push_back('{');
+    if (!compact) out.push_back('\n');
+    const std::string inner_indent = compact ? std::string()
+        : std::string(static_cast<std::size_t>((depth + 1) * indent_size), ' ');
+    const std::string outer_indent = compact ? std::string()
+        : std::string(static_cast<std::size_t>(depth * indent_size), ' ');
     std::size_t index = 0;
     for (const auto& [key, item] : object) {
         out += inner_indent;
         out.push_back('"');
         out += key;
-        out += "\": ";
+        // Go json.Marshal compact form: `"k":v` (no space). Indent form
+        // keeps `"k": v` for human readability.
+        out += compact ? "\":" : "\": ";
         dump_impl(item, indent_size, depth + 1, out);
-        if (++index != object.size()) out.push_back(',');
-        out.push_back('\n');
+        if (++index != object.size()) {
+            out.push_back(',');
+            if (!compact) out.push_back('\n');
+        } else if (!compact) {
+            out.push_back('\n');
+        }
     }
     out += outer_indent;
     out.push_back('}');
@@ -371,7 +397,11 @@ std::string dump_json(const JsonValue& value, int indent) {
     std::string out;
     out.reserve(64);
     dump_impl(value, indent, 0, out);
-    out.push_back('\n');
+    // R13-1: compact mode suppresses the trailing newline too so a single
+    // dump_json(value, 0) result fits in one line (observe_log / pine-debug
+    // log line filters depend on this). Indented mode keeps the trailing
+    // '\n' for human-readable file output.
+    if (indent != 0) out.push_back('\n');
     return out;
 }
 
