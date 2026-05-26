@@ -462,7 +462,7 @@ public class Engine {
             // name and a structured `pine: execution error in operator "X":
             // <segment>: <inner>` message — avoid double-wrapping with the
             // `apply output: ` prefix which would diverge from Go's output
-            // shape. (R3-H2)
+            // shape.
             Exception wrapped;
             if (applyErr instanceof PineErrors.ExecutionError) {
                 wrapped = applyErr;
