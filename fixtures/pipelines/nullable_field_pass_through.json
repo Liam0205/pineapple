@@ -1,0 +1,69 @@
+{
+  "name": "nullable field mode — explicit nil pass-through vs missing error",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.8.0",
+    "pipeline_config": {
+      "operators": {
+        "set_nil": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function f() return nil end",
+          "function_for_common": "f",
+          "function_for_item": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["nullable_field"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "read_nullable": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function f()\n  if nullable_field == nil then\n    return 'was_nil'\n  else\n    return tostring(nullable_field)\n  end\nend",
+          "function_for_common": "f",
+          "function_for_item": "",
+          "nullable_common": ["nullable_field"],
+          "$metadata": {
+            "common_input": ["nullable_field"],
+            "common_output": ["result"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "size": {
+          "type_name": "transform_size",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["size"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {}
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["set_nil", "read_nullable", "size"]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "common_output": ["result", "size"],
+      "item_input": [],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "explicit nil is observable via nullable mode",
+      "request": {
+        "common": {},
+        "items": [{"id": "a"}]
+      },
+      "expected": {
+        "common": {"result": "was_nil", "size": 1},
+        "items": [{}]
+      }
+    }
+  ]
+}
