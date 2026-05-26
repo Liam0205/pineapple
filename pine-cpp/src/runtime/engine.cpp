@@ -1,19 +1,23 @@
 #include "pine/pine.hpp"
 #include "pine/column_frame.hpp"
 #include "pine/operator.hpp"
+#include "runtime/thread_pool.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <exception>
 #include <future>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <sstream>
+#include <stop_token>
 #include <thread>
 
 namespace pine {
@@ -23,7 +27,7 @@ void OperatorOutput::set_common(const std::string& field, JsonValue value) {
 }
 
 void OperatorOutput::set_item(int index, const std::string& field, JsonValue value) {
-    item_writes_[index][field] = std::move(value);
+    item_writes_.push_back(ItemWrite{index, field, std::move(value)});
 }
 
 void OperatorOutput::add_item(std::map<std::string, JsonValue> fields) {
@@ -133,8 +137,16 @@ JsonValue snapshot_output(const OperatorOutput& out) {
     }
 
     if (!out.item_writes().empty()) {
+        // The vector log can hold multiple writes for the same (idx, field);
+        // group by idx and let later writes overwrite earlier ones to
+        // preserve the snapshot's "final state" semantics. apply_output
+        // also replays the vector in order so the on-frame state matches.
+        std::map<int, std::map<std::string, JsonValue>> grouped;
+        for (const auto& w : out.item_writes()) {
+            grouped[w.index][w.field] = w.value;
+        }
         JsonValue::object_t iw;
-        for (const auto& [idx, fields] : out.item_writes()) {
+        for (const auto& [idx, fields] : grouped) {
             JsonValue::object_t row;
             for (const auto& [field, value] : fields) row[field] = value;
             iw[std::to_string(idx)] = JsonValue(std::move(row));
@@ -220,6 +232,13 @@ std::unique_ptr<Engine::EngineMetrics> build_engine_metrics(metrics::Provider* p
 
 }  // namespace
 
+// Engine::PoolHolder wraps the worker pool, hidden from pine.hpp so the
+// public header does not depend on runtime/thread_pool.hpp.
+struct Engine::PoolHolder {
+    runtime::ThreadPool pool;
+    explicit PoolHolder(std::size_t n) : pool(n) {}
+};
+
 Engine::Engine(Config config) : Engine(std::move(config), EngineOptions{}) {}
 
 Engine::~Engine() = default;
@@ -234,9 +253,23 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     log_prefix_ = options.log_prefix.has_value() ? *options.log_prefix : config_.log_prefix;
     peak_concurrency_ = std::make_unique<std::atomic<int64_t>>(0);
     metrics_provider_ = options.metrics_provider ? options.metrics_provider : metrics::nop_provider();
+    // Engine-level worker pool reused across data_parallel shards. Sized to
+    // hardware_concurrency (≥1). Avoids the per-request spawn/join cost
+    // that becomes dominant under high QPS. P1-P1.
+    {
+        unsigned hw = std::thread::hardware_concurrency();
+        if (hw == 0) hw = 4;
+        shard_pool_ = std::make_unique<PoolHolder>(static_cast<std::size_t>(hw));
+    }
     expanded_ = expand_operator_sequence_with_subflows(config_);
     graph_ = build_dag(config_, expanded_);
     engine_metrics_ = build_engine_metrics(metrics_provider_, expanded_.sequence);
+
+    // Forward-reference validation runs inside build_dag() above
+    // (dag.cpp:155 raises ConfigError("operator \"X\": sources contains
+    // forward reference to \"Y\"")), so by the time we reach this point
+    // every operator's sources are guaranteed to refer to nodes already
+    // visited. A second native-side check would be dead code (P1-D4).
 
     // Instantiate and init one Operator per config operator.
     for (auto& [op_name, op_cfg] : config_.operators) {
@@ -246,6 +279,11 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
         }
         auto instance = entry->factory();
         instance->init(op_cfg);
+        // Inject metrics provider for operators that opt-in. Mirrors
+        // pine-go pine.go:170 — init first, then provider injection.
+        if (auto* ma = dynamic_cast<MetricsAware*>(instance.get())) {
+            ma->set_metrics_provider(metrics_provider_);
+        }
         operators_.emplace(op_name, std::move(instance));
     }
 }
@@ -281,19 +319,36 @@ void validate_item_inputs(const Frame& frame, const OperatorConfig& op) {
 
 // dispatch_with_recovery runs dispatch_operator and converts any non-pine::Error
 // exception into a PanicError carrying the operator name. Pine typed errors
-// (ExecutionError, RegistryError, etc.) propagate unchanged because they
-// already encode the operator context in their message.
+// (ExecutionError, RegistryError, etc.) propagate unchanged after ensuring
+// they are correctly formatted matching Go.
+//
+// Both re-wrap paths use std::throw_with_nested so the original in-flight
+// exception is preserved as a nested cause on the outgoing ExecutionError /
+// PanicError. Downstream code can use pine::error_as<T>() to walk the chain,
+// mirroring Go's errors.As / Java's Throwable.getCause().
 void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
                             const std::map<std::string, std::unique_ptr<Operator>>& operators,
                             OperatorOutput& out) {
     try {
         dispatch_operator(frame, op, operators, out);
+    } catch (ExecutionError& e) {
+        // If the execution error was thrown without operator name context or
+        // formatted with raw inner message, ensure it matches:
+        // `pine: execution error in operator "X": <inner>`
+        if (e.operator_name().empty()) {
+            std::throw_with_nested(ExecutionError(op.name, e.inner().empty() ? std::string(e.what()) : e.inner()));
+        }
+        throw;
     } catch (const Error&) {
         throw;
     } catch (const std::exception& e) {
-        throw PanicError(op.name, e.what());
+        std::throw_with_nested(PanicError(op.name, e.what()));
     } catch (...) {
-        throw PanicError(op.name, "unknown exception");
+        // Non-std::exception payloads (`throw 42;`, `throw "literal";`) are
+        // rare but legal. throw_with_nested still captures them so
+        // pine::error_as<T>() can at least walk the chain even if no frame
+        // dynamic_casts to a useful type. P2-23.
+        std::throw_with_nested(PanicError(op.name, "unknown exception"));
     }
 }
 
@@ -301,11 +356,25 @@ void dispatch_with_recovery(const Frame& frame, const OperatorConfig& op,
 // applying `offset` to item-index references. Parallel ops are constrained to
 // transforms (no added_items, no item_order, empty common_output), so only
 // item_writes, removed_items, and warnings need merging.
-void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offset) {
-    for (const auto& [idx, fields] : src.item_writes()) {
-        for (const auto& [field, value] : fields) {
-            dst.set_item(idx + offset, field, value);
-        }
+//
+// Runtime assert: if a shard *does* emit added_items / item_order / common
+// writes (which would happen only if config validation or operator schema
+// was bypassed), fail loudly rather than silently dropping data — the
+// reviewer-flagged silent-drop path in inc1 #4.
+void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src,
+                        int offset, const std::string& op_name) {
+    if (!src.added_items().empty() || src.has_item_order() ||
+        !src.common_writes().empty()) {
+        // Message body must match pine-go/parallel.go:65, pine-java
+        // ParallelExecutor.java:85, and pine-python parallel.py:86-88
+        // byte-for-byte — PanicError values are part of the cross-runtime
+        // contract (memory: "运行时错误对等需字节级一致"). (P2-27)
+        throw PanicError(op_name,
+            "data_parallel shard emitted added_items, item_order, or common "
+            "writes; only item_writes / removed_items / warnings are allowed");
+    }
+    for (const auto& [idx, field, value] : src.item_writes()) {
+        dst.set_item(idx + offset, field, value);
     }
     for (int idx : src.removed_items()) {
         dst.remove_item(idx + offset);
@@ -324,9 +393,16 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offs
 //   - op.metadata.common_output is empty
 //   - op.type_name is in the ConcurrentSafe set
 // Therefore shards only emit item_writes / removed_items / warnings.
+//
+// When `pool` is non-null shard tasks are dispatched through the Engine's
+// shared ThreadPool, avoiding the per-request OS-thread spawn cost that
+// pine-go gets for free through goroutines (P1-P1). When `pool` is null
+// the legacy per-shard std::thread fallback runs — kept so unit tests and
+// stand-alone callers that construct Frame directly still work.
 void parallel_execute(const Frame& frame, const OperatorConfig& op,
                       const std::map<std::string, std::unique_ptr<Operator>>& operators,
-                      OperatorOutput& out) {
+                      OperatorOutput& out,
+                      runtime::ThreadPool* pool = nullptr) {
     int total = static_cast<int>(frame.item_count());
     int n = op.data_parallel;
     if (n <= 1 || total == 0) {
@@ -338,13 +414,13 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     int base = total / n;
     int rem = total % n;
 
-    // Materialize the source frame's common into a plain map for shard
-    // construction. The original ColumnFrame's resources pointer is shared.
-    std::map<std::string, JsonValue> common_snapshot;
-    for (const auto& f : frame.common_fields()) {
-        common_snapshot[f] = frame.common(f);
-    }
-
+    // Build shards as zero-copy window views into the parent frame's
+    // ColumnStore (P2-05). Previously each shard materialised its rows
+    // into a fresh row-major list and then back into a per-shard
+    // ColumnStore — costing 2 × column-cell touches per request just to
+    // set up parallelism. The window view shares parent storage with an
+    // (offset, count) translation; the parent is read-only during the
+    // shard window (no apply_output until merge_shard_output below).
     std::vector<std::unique_ptr<Frame>> shards;
     shards.reserve(static_cast<std::size_t>(n));
     std::vector<OperatorOutput> shard_outs(static_cast<std::size_t>(n));
@@ -352,14 +428,9 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     int cursor = 0;
     for (int i = 0; i < n; ++i) {
         int size = base + (i < rem ? 1 : 0);
-        std::vector<std::map<std::string, JsonValue>> shard_items;
-        shard_items.reserve(static_cast<std::size_t>(size));
-        for (int j = 0; j < size; ++j) {
-            auto obj = frame.item_object(static_cast<std::size_t>(cursor + j));
-            shard_items.emplace_back(obj.begin(), obj.end());
-        }
-        auto shard = std::make_unique<Frame>(common_snapshot, std::move(shard_items));
-        shard->set_resources(frame.resources());
+        auto shard = Frame::make_window_view(frame,
+                                              static_cast<std::size_t>(cursor),
+                                              static_cast<std::size_t>(size));
         shards.push_back(std::move(shard));
         offsets[static_cast<std::size_t>(i)] = cursor;
         cursor += size;
@@ -368,26 +439,37 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     std::mutex err_mu;
     std::exception_ptr first_err;
 
-    std::vector<std::thread> threads;
-    threads.reserve(static_cast<std::size_t>(n));
-    for (int i = 0; i < n; ++i) {
-        threads.emplace_back([&shards, &shard_outs, &op, &operators, &err_mu, &first_err, i]() {
-            try {
-                dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op, operators,
-                                       shard_outs[static_cast<std::size_t>(i)]);
-            } catch (...) {
-                std::lock_guard<std::mutex> lk(err_mu);
-                if (!first_err) first_err = std::current_exception();
-            }
-        });
+    auto shard_body = [&](int i) {
+        try {
+            dispatch_with_recovery(*shards[static_cast<std::size_t>(i)], op, operators,
+                                   shard_outs[static_cast<std::size_t>(i)]);
+        } catch (...) {
+            std::lock_guard<std::mutex> lk(err_mu);
+            if (!first_err) first_err = std::current_exception();
+        }
+    };
+
+    if (pool != nullptr) {
+        std::vector<std::future<void>> futs;
+        futs.reserve(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            futs.push_back(pool->submit([&, i]() { shard_body(i); }));
+        }
+        for (auto& f : futs) f.wait();
+    } else {
+        std::vector<std::thread> threads;
+        threads.reserve(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            threads.emplace_back([&, i]() { shard_body(i); });
+        }
+        for (auto& t : threads) t.join();
     }
-    for (auto& t : threads) t.join();
 
     if (first_err) std::rethrow_exception(first_err);
 
     for (int i = 0; i < n; ++i) {
         merge_shard_output(out, shard_outs[static_cast<std::size_t>(i)],
-                           offsets[static_cast<std::size_t>(i)]);
+                           offsets[static_cast<std::size_t>(i)], op.name);
     }
 }
 
@@ -404,33 +486,67 @@ std::vector<OpTrace> run_dag(const Config& config,
                              Frame& frame,
                              bool collect_traces,
                              std::atomic<int64_t>* peak_concurrency = nullptr,
-                             Engine::EngineMetrics* em = nullptr) {
+                             Engine::EngineMetrics* em = nullptr,
+                             runtime::ThreadPool* shard_pool = nullptr) {
     const std::size_t n = graph.nodes.size();
 
     if (em && em->scheduler_runs) em->scheduler_runs->inc();
     auto dag_start = std::chrono::steady_clock::now();
     std::atomic<int64_t> ops_executed{0};
 
-    std::vector<std::promise<void>> promises(n);
-    std::vector<std::shared_future<void>> futures;
-    futures.reserve(n);
-    for (auto& p : promises) futures.push_back(p.get_future().share());
+    // NodeSignal replaces std::promise/shared_future so that a fail() can
+    // interrupt waits on still-pending predecessors through a stop_token,
+    // rather than the old "wait until predecessor self-terminates" pattern
+    // which forced every sibling to block until its own predecessors
+    // finished (inc1 #5). condition_variable_any::wait(lock, stop_token,
+    // pred) is C++20 P0660 — it returns immediately when stop is requested.
+    struct NodeSignal {
+        std::mutex mu;
+        std::condition_variable_any cv;
+        bool done = false;
+    };
+    std::vector<std::unique_ptr<NodeSignal>> signals;
+    signals.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        signals.emplace_back(std::make_unique<NodeSignal>());
+    }
 
     std::vector<OpTrace> traces;
     if (collect_traces) traces.assign(n, OpTrace{});
 
-    std::shared_mutex frame_mu;
+    // P1-P3: Frame concurrency is managed by ColumnFrame's internal
+    // shared_mutex (column_frame.hpp:79). The DAG topology guarantees
+    // predecessor-successor ordering through NodeSignal, and parallel_execute
+    // shards copy items out before mutating, so siblings on the same DAG
+    // level only ever issue concurrent reads. We removed the redundant
+    // engine-level frame_mu — the inner lock is the source of truth.
     std::mutex fatal_mu;
     std::exception_ptr fatal_err;
-    std::atomic<bool> cancelled{false};
     std::atomic<int64_t> active_ops{0};
+
+    // stop_source broadcasts cancellation to every node waiting on a
+    // predecessor via cv.wait(lock, stop_token, pred). Replacing the
+    // old `std::atomic<bool> cancelled` with stop_token lets the cv
+    // implementation interrupt the wait directly — no polling, no
+    // sleep_for. P1-P2.
+    std::stop_source cancel_source;
+    auto stop_token = cancel_source.get_token();
 
     auto fail = [&](std::exception_ptr e) {
         std::lock_guard<std::mutex> lk(fatal_mu);
         if (!fatal_err) {
             fatal_err = e;
-            cancelled.store(true, std::memory_order_release);
+            cancel_source.request_stop();
         }
+    };
+
+    auto mark_done = [&](std::size_t idx) {
+        auto& s = *signals[idx];
+        {
+            std::lock_guard<std::mutex> lk(s.mu);
+            s.done = true;
+        }
+        s.cv.notify_all();
     };
 
     // CAS-update the cumulative peak to at least n_current.
@@ -453,26 +569,40 @@ std::vector<OpTrace> run_dag(const Config& config,
         threads.emplace_back([&, i]() {
             // RAII: always notify successors, even on early return / exception.
             struct Notifier {
-                std::promise<void>& p;
-                ~Notifier() { try { p.set_value(); } catch (...) {} }
-            } notifier{promises[i]};
+                std::function<void()> fn;
+                ~Notifier() { try { fn(); } catch (...) {} }
+            } notifier{[&, i] { mark_done(i); }};
             (void)notifier;
 
             const auto& node = graph.nodes[i];
             const auto& op = config.operators.at(node.name);
 
+            // Wait on every predecessor's done flag; cv.wait with stop_token
+            // returns false when fail() requests stop, letting us bail out
+            // without serializing through still-running siblings.
             for (int pred : node.preds) {
-                futures[static_cast<std::size_t>(pred)].wait();
+                auto& s = *signals[static_cast<std::size_t>(pred)];
+                std::unique_lock<std::mutex> lk(s.mu);
+                bool got_pred = s.cv.wait(lk, stop_token, [&] { return s.done; });
+                if (!got_pred) return;  // stop requested
             }
-            if (cancelled.load(std::memory_order_acquire)) return;
+            if (stop_token.stop_requested()) return;
 
             // Track active concurrency (mirrors pine-go scheduler activeOps + RecordConcurrency).
+            // P1-E1: Gauge must be updated on both increment AND decrement.
+            // The earlier guard only fetch_sub'd the atomic without touching
+            // the Prometheus handle, leaving pine_operator_active monotonic-
+            // increasing and meaningless for monitoring.
             struct ActiveGuard {
                 std::atomic<int64_t>& counter;
-                ~ActiveGuard() { counter.fetch_sub(1, std::memory_order_relaxed); }
+                metrics::Gauge* gauge;
+                ~ActiveGuard() {
+                    int64_t after = counter.fetch_sub(1, std::memory_order_relaxed) - 1;
+                    if (gauge) gauge->set(static_cast<double>(after));
+                }
             };
             int64_t cur_active = active_ops.fetch_add(1, std::memory_order_relaxed) + 1;
-            ActiveGuard active_guard{active_ops};
+            ActiveGuard active_guard{active_ops, em ? em->active_ops : nullptr};
             record_peak(cur_active);
             if (em && em->active_ops) em->active_ops->set(static_cast<double>(cur_active));
 
@@ -483,12 +613,12 @@ std::vector<OpTrace> run_dag(const Config& config,
             }
             auto start = std::chrono::steady_clock::now();
 
+            // Hoisted so the catch block below can salvage the operator's
+            // pre-failure warning (P2-10).
+            OperatorOutput out;
+
             try {
-                bool skip;
-                {
-                    std::shared_lock<std::shared_mutex> lk(frame_mu);
-                    skip = should_skip(frame, op);
-                }
+                bool skip = should_skip(frame, op);
                 if (skip) {
                     if (em && em->op_skip_total) em->op_skip_total->with({op.name})->inc();
                     if (collect_traces) {
@@ -500,24 +630,17 @@ std::vector<OpTrace> run_dag(const Config& config,
                     return;
                 }
 
-                OperatorOutput out;
-                {
-                    std::shared_lock<std::shared_mutex> lk(frame_mu);
-                    validate_item_inputs(frame, op);
-                    if (collect_traces && op.debug) {
-                        trace.input_snapshot = snapshot_input(frame, op);
-                        trace.has_input_snapshot = true;
-                    }
-                    parallel_execute(frame, op, operators, out);
+                validate_item_inputs(frame, op);
+                if (collect_traces && op.debug) {
+                    trace.input_snapshot = snapshot_input(frame, op);
+                    trace.has_input_snapshot = true;
                 }
+                parallel_execute(frame, op, operators, out, shard_pool);
                 if (collect_traces && op.debug) {
                     trace.output_snapshot = snapshot_output(out);
                     trace.has_output_snapshot = true;
                 }
-                {
-                    std::unique_lock<std::shared_mutex> lk(frame_mu);
-                    frame.apply_output(out, op.name, op.operator_type == "recall");
-                }
+                frame.apply_output(out, op.name, op.operator_type == "recall");
                 auto end = std::chrono::steady_clock::now();
                 auto dur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
                 if (em) {
@@ -531,6 +654,19 @@ std::vector<OpTrace> run_dag(const Config& config,
                 }
             } catch (...) {
                 if (em && em->op_error_total) em->op_error_total->with({op.name})->inc();
+                // P2-10: if the operator managed to attach a warning to its
+                // OperatorOutput before throwing (e.g. "Redis unreachable,
+                // falling back to cache-miss"), surface it via the frame so
+                // the diagnostic survives the failure path. The frame
+                // serializes warnings into the response /execute envelope
+                // even when the request ultimately errors.
+                if (out.has_warning()) {
+                    try {
+                        frame.push_warning(std::string("operator \"") + op.name + "\": " + out.warning());
+                    } catch (...) {
+                        // Ignore — fail() below carries the original error.
+                    }
+                }
                 fail(std::current_exception());
             }
         });
@@ -568,19 +704,34 @@ Result Engine::execute(const Request& request, const std::map<std::string, JsonV
     validate_request(request, config_.flow_contract);
     Frame frame(request.common, request.items);
     frame.set_resources(&resources);
-    run_dag(config_, graph_, operators_, frame, /*collect_traces=*/false, peak_concurrency_.get(), engine_metrics_.get());
+    run_dag(config_, graph_, operators_, frame, /*collect_traces=*/false, peak_concurrency_.get(), engine_metrics_.get(),
+            shard_pool_ ? &shard_pool_->pool : nullptr);
     return project_result(frame, config_.flow_contract);
 }
 
 TracedResult Engine::execute_traced(const Request& request, const std::map<std::string, JsonValue>& resources) const {
     TracedResult traced;
+    execute_traced_into(request, resources, &traced);
+    return traced;
+}
+
+void Engine::execute_traced_into(const Request& request,
+                                  const std::map<std::string, JsonValue>& resources,
+                                  TracedResult* out) const {
     validate_request(request, config_.flow_contract);
     Frame frame(request.common, request.items);
     frame.set_resources(&resources);
-    traced.trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get());
-    traced.result = project_result(frame, config_.flow_contract);
-    traced.warnings = frame.take_warnings();
-    return traced;
+    std::exception_ptr run_err = nullptr;
+    try {
+        out->trace = run_dag(config_, graph_, operators_, frame, /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
+                             shard_pool_ ? &shard_pool_->pool : nullptr);
+    } catch (...) {
+        run_err = std::current_exception();
+    }
+    // Match Go: even on execution failure we project the partial Result and take warnings
+    out->result = project_result(frame, config_.flow_contract);
+    out->warnings = frame.take_warnings();
+    if (run_err) std::rethrow_exception(run_err);
 }
 
 std::string Engine::render_dag(const std::string& format, int collapse) const {
@@ -591,6 +742,22 @@ std::string Engine::render_dag(const std::string& format, int collapse) const {
 
 int64_t Engine::peak_concurrency() const {
     return peak_concurrency_ ? peak_concurrency_->load(std::memory_order_relaxed) : 0;
+}
+
+std::map<std::string, std::map<std::string, int64_t>> Engine::operator_custom_stats() const {
+    std::map<std::string, std::map<std::string, int64_t>> result;
+    for (const auto& cop : expanded_.sequence) {
+        auto it = operators_.find(cop); // cop is std::string
+        if (it != operators_.end()) {
+            if (auto* sp = dynamic_cast<const StatsProvider*>(it->second.get())) {
+                auto s = sp->operator_stats();
+                if (!s.empty()) {
+                    result[cop] = std::move(s);
+                }
+            }
+        }
+    }
+    return result;
 }
 
 }  // namespace pine

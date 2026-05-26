@@ -1,3 +1,5 @@
+#define LUA_COMPAT_ALL 1
+
 #include "lua_bridge.hpp"
 
 extern "C" {
@@ -6,15 +8,145 @@ extern "C" {
 #include <lualib.h>
 }
 
+#include <algorithm>
 #include <cmath>
+#include <set>
+#include <string_view>
+#include <vector>
+
+// LuaJIT 2.1 compat
+#ifndef lua_pushglobaltable
+#define lua_pushglobaltable(L) lua_pushvalue(L, LUA_GLOBALSINDEX)
+#endif
 
 namespace pine {
 namespace lua {
 
+LuaSnapshot::LuaSnapshot(lua_State* L) {
+    lua_pushglobaltable(L);
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            std::string key = lua_tostring(L, -2);
+            globals.insert(key);
+        }
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+}
+
+std::map<std::string, int> LuaSnapshot::capture_values(lua_State* L) const {
+    std::map<std::string, int> values;
+    // Pushing references to the registry to keep them alive
+    for (const auto& key : globals) {
+        lua_getglobal(L, key.c_str());
+        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        values[key] = ref;
+    }
+    return values;
+}
+
+void LuaSnapshot::reset_to_baseline(lua_State* L, const std::map<std::string, int>& borrow_snap) const {
+    lua_pushglobaltable(L);
+    lua_pushnil(L);
+    std::vector<std::string> to_remove;
+    while (lua_next(L, -2) != 0) {
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            std::string key = lua_tostring(L, -2);
+            if (globals.find(key) == globals.end()) {
+                to_remove.push_back(key);
+            }
+        }
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    for (const auto& key : to_remove) {
+        lua_pushnil(L);
+        lua_setglobal(L, key.c_str());
+    }
+
+    // P1-E3: Re-open the safe built-in libraries so any sub-table mutation
+    // done by the script (`math.huge = 0`, `string.format = nil`, ...) is
+    // wiped before the next borrow. This is the effective equivalent of
+    // deep-cloning the baseline tables — luaopen_* allocates fresh table
+    // instances on every call and registers fresh C closures into them.
+    // Cheaper than maintaining a cross-state native deep-clone and avoids
+    // the Lua-to-C-state mapping headache (registry refs are per-state).
+    static const struct { const char* name; lua_CFunction fn; } kSafeLibs[] = {
+        {"",              luaopen_base},
+        {LUA_TABLIBNAME,  luaopen_table},
+        {LUA_STRLIBNAME,  luaopen_string},
+        {LUA_MATHLIBNAME, luaopen_math},
+    };
+    for (const auto& lib : kSafeLibs) {
+        lua_pushcfunction(L, lib.fn);
+        lua_pushstring(L, lib.name);
+        lua_call(L, 1, 0);
+    }
+    // Re-strip the filesystem-exposing globals the LuaVM ctor stripped,
+    // because luaopen_base re-installs them.
+    lua_pushnil(L); lua_setglobal(L, "dofile");
+    lua_pushnil(L); lua_setglobal(L, "loadfile");
+
+    // Restore non-builtin baseline globals from the captured snapshot.
+    // The builtin tables (`string`, `table`, `math`, base lib functions on
+    // `_G`) have just been reset above; overwriting them from the snapshot
+    // would restore the *polluted* references the borrow had, defeating
+    // the deep-clone. We free those refs but skip the setglobal.
+    //
+    // Stored as a sorted constexpr array of string_view + std::binary_search:
+    // every release_vm hits this list, and the prior std::set required heap
+    // allocations of every entry the first time the function ran. (P2-32)
+    static constexpr std::string_view kSkipBuiltins[] = {
+        // sorted lexicographically — binary_search relies on this
+        "_G", "_VERSION",
+        "assert", "collectgarbage", "error",
+        "getfenv", "getmetatable",
+        "ipairs",
+        "load", "loadstring",
+        "math",
+        "next",
+        "pairs", "pcall", "print",
+        "rawequal", "rawget", "rawset",
+        "select", "setfenv", "setmetatable", "string",
+        "table", "tonumber", "tostring", "type",
+        "unpack",
+        "xpcall",
+    };
+    for (const auto& [key, ref] : borrow_snap) {
+        if (!std::binary_search(std::begin(kSkipBuiltins), std::end(kSkipBuiltins),
+                                std::string_view(key))) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+            lua_setglobal(L, key.c_str());
+        }
+        luaL_unref(L, LUA_REGISTRYINDEX, ref);
+    }
+}
+
 LuaVM::LuaVM() {
     L_ = luaL_newstate();
     if (!L_) throw ExecutionError("failed to create Lua state");
-    luaL_openlibs(L_);
+
+    // Sandbox: Only load safe standard libraries: base (including coroutine etc if opened via those, but here base, table, string, math)
+    // To match Go's SkipOpenLibs: true, we open libraries individually using standard luaopen_* functions.
+    lua_pushcfunction(L_, luaopen_base);
+    lua_pushstring(L_, "");
+    lua_call(L_, 1, 0);
+
+    lua_pushcfunction(L_, luaopen_table);
+    lua_pushstring(L_, LUA_TABLIBNAME);
+    lua_call(L_, 1, 0);
+
+    lua_pushcfunction(L_, luaopen_string);
+    lua_pushstring(L_, LUA_STRLIBNAME);
+    lua_call(L_, 1, 0);
+
+    lua_pushcfunction(L_, luaopen_math);
+    lua_pushstring(L_, LUA_MATHLIBNAME);
+    lua_call(L_, 1, 0);
+
+    // Remove potentially filesystem-accessing functions
     lua_pushnil(L_); lua_setglobal(L_, "dofile");
     lua_pushnil(L_); lua_setglobal(L_, "loadfile");
 }

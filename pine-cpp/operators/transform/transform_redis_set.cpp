@@ -1,5 +1,6 @@
 #include "operators/_helpers.hpp"
 #include "pine/operator.hpp"
+#include "redis/connection_pool.hpp"
 #include "redis/redis_client.hpp"
 
 #include <memory>
@@ -13,7 +14,7 @@ public:
         rp_ = operators::parse_redis_params(cfg);
         int n = static_cast<int>(cfg.metadata.common_input.size());
         if (n < 2)
-            throw ExecutionError(cfg.name, "transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
+            throw ExecutionError("transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
         common_input_ = cfg.metadata.common_input;
         key_fields_ = std::vector<std::string>(cfg.metadata.common_input.begin(), cfg.metadata.common_input.begin() + (n - 1));
         value_field_ = cfg.metadata.common_input.back();
@@ -24,46 +25,59 @@ public:
         std::string key = rp_.key_prefix + operators::build_key_suffix(frame, key_fields_);
         JsonValue value = frame.common(value_field_);
 
-        std::unique_ptr<redis::Client> client;
+        // Borrow from the shared pool (P1-P4). See transform_redis_get for
+        // pool semantics; same RAII guard pattern.
+        redis::ConnectionPool::ScopedClient client;
         try {
-            client = std::make_unique<redis::Client>(rp_.host, rp_.port, rp_.password, rp_.db);
+            client = redis::shared_pool().acquire_scoped(rp_.host, rp_.port, rp_.password, rp_.db);
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_set: write key " + key + ": " + e.what());
+                throw ExecutionError("transform_redis_set: write key " + key + ": " + e.what());
             out.set_warning("transform_redis_set: write key " + key + ": " + std::string(e.what()));
             return;
         }
-        if (!client->connected()) {
+        if (!client || !client->connected()) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_set: write key " + key + ": connection failed");
+                throw ExecutionError("transform_redis_set: write key " + key + ": connection failed");
             out.set_warning("transform_redis_set: write key " + key + ": connection failed");
             return;
         }
+        redis::Client* cli = client.get();
 
         try {
             if (rp_.data_type == "string") {
                 if (!value.is_string()) return;
-                client->set(key, value.as_string(), rp_.ttl);
+                cli->set(key, value.as_string(), rp_.ttl);
             } else if (rp_.data_type == "set") {
                 auto members = operators::json_to_string_slice(value);
                 if (members.empty()) return;
-                client->del(key);
-                client->sadd(key, members);
-                if (rp_.ttl > 0) client->expire(key, rp_.ttl);
+                std::vector<std::vector<std::string>> commands = {{"DEL", key}};
+                std::vector<std::string> sadd_cmd = {"SADD", key};
+                for (const auto& m : members) sadd_cmd.push_back(m);
+                commands.push_back(std::move(sadd_cmd));
+                if (rp_.ttl > 0) {
+                    commands.push_back({"EXPIRE", key, std::to_string(rp_.ttl)});
+                }
+                cli->write_multiexec(commands);
             } else if (rp_.data_type == "list") {
                 auto members = operators::json_to_string_slice(value);
                 if (members.empty()) return;
-                client->del(key);
-                client->rpush(key, members);
-                if (rp_.ttl > 0) client->expire(key, rp_.ttl);
+                std::vector<std::vector<std::string>> commands = {{"DEL", key}};
+                std::vector<std::string> rpush_cmd = {"RPUSH", key};
+                for (const auto& m : members) rpush_cmd.push_back(m);
+                commands.push_back(std::move(rpush_cmd));
+                if (rp_.ttl > 0) {
+                    commands.push_back({"EXPIRE", key, std::to_string(rp_.ttl)});
+                }
+                cli->write_multiexec(commands);
             } else {
-                throw ExecutionError(op_name_, "transform_redis_set: unsupported data_type \"" + rp_.data_type + "\"");
+                throw ExecutionError("transform_redis_set: unsupported data_type \"" + rp_.data_type + "\"");
             }
         } catch (const ExecutionError&) {
             throw;
         } catch (const std::exception& e) {
             if (rp_.fail_on_error)
-                throw ExecutionError(op_name_, "transform_redis_set: write key " + key + ": " + e.what());
+                throw ExecutionError("transform_redis_set: write key " + key + ": " + e.what());
             out.set_warning("transform_redis_set: write key " + key + ": " + std::string(e.what()));
         }
     }
@@ -96,7 +110,6 @@ static const OperatorSchema k_transform_redis_set_schema{
                  .description = "TTL in seconds. 0 means no expiry."}},
     },
 };
-PINE_REGISTER_OPERATOR(k_transform_redis_set_schema,
-    ([] { return std::make_unique<TransformRedisSetOp>(); }))
+PINE_REGISTER_OPERATOR_T(TransformRedisSetOp, k_transform_redis_set_schema)
 
 }  // namespace pine

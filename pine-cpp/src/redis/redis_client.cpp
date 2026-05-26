@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -83,24 +84,58 @@ void Client::send_command(const std::vector<std::string>& args) {
 
 std::string Client::read_line() {
     std::string line;
-    char c;
-    while (true) {
-        ssize_t n = read(fd_, &c, 1);
-        if (n <= 0) throw std::runtime_error("redis read failed");
+    for (;;) {
+        char c = read_byte();
         if (c == '\r') {
-            n = read(fd_, &c, 1);
-            if (n <= 0 || c != '\n') throw std::runtime_error("redis protocol error");
+            char lf = read_byte();
+            if (lf != '\n') throw std::runtime_error("redis protocol error");
             return line;
         }
         line.push_back(c);
     }
 }
 
-char Client::read_type() {
-    char c;
-    ssize_t n = read(fd_, &c, 1);
-    if (n <= 0) throw std::runtime_error("redis read failed");
-    return c;
+char Client::read_type() { return read_byte(); }
+
+void Client::ensure_bytes(std::size_t need) {
+    while (read_buf_.size() - read_pos_ < need) {
+        if (read_pos_ > 0 && read_pos_ == read_buf_.size()) {
+            // Buffer fully drained; reset to avoid unbounded growth.
+            read_buf_.clear();
+            read_pos_ = 0;
+        }
+        char chunk[4096];
+        ssize_t n = read(fd_, chunk, sizeof(chunk));
+        if (n <= 0) throw std::runtime_error("redis read failed");
+        read_buf_.append(chunk, static_cast<std::size_t>(n));
+    }
+}
+
+char Client::read_byte() {
+    ensure_bytes(1);
+    return read_buf_[read_pos_++];
+}
+
+void Client::read_into(char* dst, std::size_t n) {
+    while (n > 0) {
+        std::size_t avail = read_buf_.size() - read_pos_;
+        if (avail == 0) {
+            // Drain directly into the caller buffer — no per-syscall 4 KB
+            // staging copy. The previous variant read into a stack chunk
+            // and memcpy'd out, paying 2× memory traffic on every large
+            // bulk read. (P2-31)
+            ssize_t got = read(fd_, dst, n);
+            if (got <= 0) throw std::runtime_error("redis read failed");
+            dst += got;
+            n -= static_cast<std::size_t>(got);
+            continue;
+        }
+        std::size_t take = std::min(avail, n);
+        std::memcpy(dst, read_buf_.data() + read_pos_, take);
+        read_pos_ += take;
+        dst += take;
+        n -= take;
+    }
 }
 
 std::string Client::read_simple_string() {
@@ -121,15 +156,11 @@ std::optional<std::string> Client::read_bulk_string() {
     int len = std::stoi(len_str);
     if (len < 0) return std::nullopt;
     std::string data(static_cast<std::size_t>(len), '\0');
-    std::size_t pos = 0;
-    while (pos < data.size()) {
-        ssize_t n = read(fd_, &data[pos], data.size() - pos);
-        if (n <= 0) throw std::runtime_error("redis read failed");
-        pos += static_cast<std::size_t>(n);
-    }
-    char cr, lf;
-    if (read(fd_, &cr, 1) != 1 || read(fd_, &lf, 1) != 1) {
-        throw std::runtime_error("redis read failed");
+    if (len > 0) read_into(&data[0], static_cast<std::size_t>(len));
+    char cr = read_byte();
+    char lf = read_byte();
+    if (cr != '\r' || lf != '\n') {
+        throw std::runtime_error("redis protocol error: missing CRLF after bulk");
     }
     return data;
 }
@@ -245,6 +276,35 @@ void Client::expire(const std::string& key, int seconds) {
     if (type == ':') { read_integer(); return; }
     if (type == '-') throw std::runtime_error("redis error: " + read_error());
     throw std::runtime_error("redis: unexpected response type for EXPIRE");
+}
+
+void Client::write_multiexec(const std::vector<std::vector<std::string>>& command_args_list) {
+    send_command({"MULTI"});
+    char type = read_type();
+    if (type == '-') throw std::runtime_error("redis error: " + read_error());
+    if (type == '+') { read_line(); } else { throw std::runtime_error("redis: unexpected MULTI response"); }
+
+    for (const auto& args : command_args_list) {
+        send_command(args);
+        type = read_type();
+        if (type == '-') {
+            std::string err = read_error();
+            // Try to abort transaction if possible
+            try { send_command({"DISCARD"}); read_line(); } catch (...) {}
+            throw std::runtime_error("redis error: " + err);
+        }
+        if (type == '+') { read_line(); } else { throw std::runtime_error("redis: unexpected queued response"); }
+    }
+
+    send_command({"EXEC"});
+    type = read_type();
+    if (type == '*') {
+        // Read and discard EXEC results
+        read_array();
+        return;
+    }
+    if (type == '-') throw std::runtime_error("redis error: " + read_error());
+    throw std::runtime_error("redis: unexpected response type for EXEC");
 }
 
 }  // namespace redis
