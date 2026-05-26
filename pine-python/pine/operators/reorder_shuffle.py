@@ -46,7 +46,7 @@ class ReorderShuffle(AbstractOperator, ConsumesRowSet, MutatesRowSet):
             ranks.append(_hash_to_unit_interval(key))
             ids.append(_parse_uint64(item_val))
 
-        indices.sort(key=lambda idx: (ranks[idx], ids[idx]))
+        indices.sort(key=lambda idx: (ranks[idx], ids[idx], idx))
         output.set_item_order(indices)
 
 
