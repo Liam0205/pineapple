@@ -17,6 +17,7 @@ package reorder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"math"
@@ -82,7 +83,10 @@ func (o *ShuffleBySaltOp) Execute(_ context.Context, in *pine.OperatorInput, out
 		if items[a].r != items[b].r {
 			return items[a].r < items[b].r
 		}
-		return items[a].id < items[b].id
+		if items[a].id != items[b].id {
+			return items[a].id < items[b].id
+		}
+		return items[a].idx < items[b].idx
 	})
 
 	order := make([]int, n)
@@ -103,18 +107,27 @@ func anyToString(v any) string {
 	switch x := v.(type) {
 	case string:
 		return x
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
 	case int64:
-		return fmt.Sprintf("%d", x)
+		return fmt.Sprintf("%g", float64(x))
 	case uint64:
-		return fmt.Sprintf("%d", x)
+		return fmt.Sprintf("%g", float64(x))
 	case float64:
 		return fmt.Sprintf("%g", x)
 	case int:
-		return fmt.Sprintf("%d", x)
+		return fmt.Sprintf("%g", float64(x))
 	case nil:
 		return ""
 	default:
-		return fmt.Sprintf("%v", x)
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(b)
 	}
 }
 
