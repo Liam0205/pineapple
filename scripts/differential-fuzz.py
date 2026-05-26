@@ -1373,6 +1373,39 @@ def main():
                     if args.verbose:
                         sys.stderr.write("\n")
                         print(f"  [{i+1}] match")
+
+                    # TEST-1: ~20% of passed rounds, re-run with the opposite
+                    # storage_mode and compare Go outputs (row vs column).
+                    if not is_error_path and ref_rc == 0 and rng.random() < 0.2:
+                        orig_mode = config.get("storage_mode", "row")
+                        alt_mode = "column" if orig_mode == "row" else "row"
+                        alt_config = dict(config)
+                        if alt_mode == "column":
+                            alt_config["storage_mode"] = "column"
+                        else:
+                            alt_config.pop("storage_mode", None)
+                        alt_config_file = os.path.join(tmpdir, "alt_config.json")
+                        with open(alt_config_file, "w") as f:
+                            json.dump(alt_config, f, ensure_ascii=False)
+                        go_engine = engines[0]
+                        try:
+                            alt_rc, alt_out, _ = go_engine.run(alt_config_file, request_file)
+                            if alt_rc == ref_rc:
+                                has_trace = common.get("_return_trace") is True
+                                ref_norm2 = normalize_json(ref_out, sort_items=not strict_order, strip_trace=has_trace)
+                                alt_norm2 = normalize_json(alt_out, sort_items=not strict_order, strip_trace=has_trace)
+                                if ref_norm2 != alt_norm2:
+                                    stats["cross_storage_diverge"] = stats.get("cross_storage_diverge", 0) + 1
+                                    d = save_divergence(save_dir, i, config, request,
+                                                        {f"go_{orig_mode}": (ref_rc, ref_out),
+                                                         f"go_{alt_mode}": (alt_rc, alt_out)},
+                                                        (f"go_{orig_mode}", f"go_{alt_mode}"),
+                                                        kind="cross_storage")
+                                    print(f"  [{i+1}] CROSS-STORAGE divergence ({orig_mode} vs {alt_mode}): → {d}")
+                                else:
+                                    stats["cross_storage_pass"] = stats.get("cross_storage_pass", 0) + 1
+                        except (subprocess.TimeoutExpired, Exception):
+                            pass  # skip cross-storage check on timeout
                 else:
                     failed += 1
                     if config.get("storage_mode") == "column":
