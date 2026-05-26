@@ -55,7 +55,7 @@ type OperatorConfig struct {
 	Skip             []string       `json:"-"`
 	Recall               bool           `json:"recall,omitempty"`
 	Sources              []string       `json:"sources,omitempty"`
-	Debug                bool           `json:"debug,omitempty"`
+	Debug                *bool          `json:"debug,omitempty"`
 	ConsumesRowSet       bool           `json:"consumes_row_set,omitempty"`
 	MutatesRowSet        bool           `json:"mutates_row_set,omitempty"`
 	AdditiveWritesRowSet bool           `json:"additive_writes_row_set,omitempty"`
