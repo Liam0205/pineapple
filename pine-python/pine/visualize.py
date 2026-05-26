@@ -82,6 +82,7 @@ class _CollapsedGroup:
     key: str
     label: str
     is_subflow: bool
+    operator_type: str = ""  # non-empty for standalone nodes (preserves type coloring)
     node_indices: list[int] = field(default_factory=list)
 
 
@@ -107,6 +108,7 @@ def _build_collapsed(dag: DAG, level: int) -> tuple[list[_CollapsedGroup], list[
                 key=f"_standalone_{node.index}",
                 label=node.name,
                 is_subflow=False,
+                operator_type=node.config.operator_type,
                 node_indices=[node.index],
             ))
             node_to_group.append(gidx)
@@ -150,7 +152,11 @@ def render_collapsed_dot(dag: DAG, level: int) -> str:
     lines.append("")
 
     for i, group in enumerate(groups):
-        color = "#BBDEFB" if group.is_subflow else "#E0E0E0"
+        color = "#E0E0E0"
+        if group.is_subflow:
+            color = "#BBDEFB"
+        elif group.operator_type:
+            color = _DOT_FILL_COLORS.get(group.operator_type, "#E0E0E0")
         lines.append(f'    "g{i}" [label="{group.label}", fillcolor="{color}"];')
 
     lines.append("")
@@ -169,7 +175,11 @@ def render_collapsed_mermaid(dag: DAG, level: int) -> str:
     lines.append("graph TB")
 
     for i, group in enumerate(groups):
-        cls = "subflow" if group.is_subflow else "standalone"
+        cls = "standalone"
+        if group.is_subflow:
+            cls = "subflow"
+        elif group.operator_type:
+            cls = group.operator_type
         lines.append(f'    g{i}["{group.label}"]:::{cls}')
 
     lines.append("")
@@ -180,5 +190,7 @@ def render_collapsed_mermaid(dag: DAG, level: int) -> str:
     lines.append("")
     lines.append("    classDef subflow fill:#BBDEFB,stroke:#1976D2")
     lines.append("    classDef standalone fill:#E0E0E0,stroke:#616161")
+    for cd in _MERMAID_CLASS_DEFS:
+        lines.append(f"    {cd}")
 
     return "\n".join(lines) + "\n"
