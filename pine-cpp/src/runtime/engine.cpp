@@ -225,7 +225,7 @@ std::unique_ptr<Engine::EngineMetrics> build_engine_metrics(metrics::Provider* p
     });
     em->dag_ops_executed = p->new_histogram({
         {"pine_dag_operators_executed", "Number of operators executed per DAG run.", {}},
-        {1, 5, 10, 20, 50, 100, 200}
+        {1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 450}
     });
     for (const auto& n : op_names) {
         em->op_exec_total->with({n});
