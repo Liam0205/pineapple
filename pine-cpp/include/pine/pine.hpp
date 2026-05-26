@@ -184,6 +184,7 @@ struct OperatorConfig {
     bool additive_writes_row_set = false;
     bool concurrent_safe = false;
     bool debug = false;
+    bool for_branch_control = false;
     std::map<std::string, JsonValue> common_defaults;
     std::map<std::string, JsonValue> item_defaults;
     std::vector<std::string> sources;
