@@ -69,6 +69,12 @@ public:
     // throw.
     virtual std::unique_ptr<Frame> make_window_view(std::size_t row_offset,
                                                      std::size_t row_count) const = 0;
+
+    // Batch-validate strict item fields. Returns ("", -1) if all rows pass.
+    // On failure returns (field_name, row_index) of the first violation.
+    // ColumnFrame uses bitmap scans; RowFrame checks per-row maps.
+    virtual std::pair<std::string, int> validate_strict_items(
+        const std::vector<std::string>& fields) const = 0;
 };
 
 // Factory: build the Frame implementation that matches storage_mode.

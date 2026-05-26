@@ -82,17 +82,21 @@ OperatorInput build_operator_input(const Frame& frame,
         }
     }
 
+    // Batch-validate strict item fields (PERF-1a: ColumnFrame uses bitmap scan)
+    if (!spec.strict_item.empty()) {
+        auto [bad_field, bad_row] = frame.validate_strict_items(spec.strict_item);
+        if (bad_row >= 0) {
+            throw ExecutionError(op_name, "required field \"" + bad_field + "\" is nil on item[" + std::to_string(bad_row) + "]");
+        }
+    }
+
     // Build items
     std::vector<std::map<std::string, JsonValue>> items;
     items.reserve(frame.item_count());
     for (std::size_t i = 0; i < frame.item_count(); ++i) {
         std::map<std::string, JsonValue> row;
         for (const auto& field : spec.strict_item) {
-            JsonValue v = frame.item(i, field);
-            if (v.is_null()) {
-                throw ExecutionError(op_name, "required field \"" + field + "\" is nil on item[" + std::to_string(i) + "]");
-            }
-            row[field] = std::move(v);
+            row[field] = frame.item(i, field);
         }
         for (const auto& df : spec.defaulted_item) {
             JsonValue v = frame.item(i, df.name);

@@ -58,6 +58,9 @@ public:
     std::unique_ptr<Frame> make_window_view(std::size_t row_offset,
                                              std::size_t row_count) const override;
 
+    std::pair<std::string, int> validate_strict_items(
+        const std::vector<std::string>& fields) const override;
+
 private:
     mutable std::shared_mutex mu_;
     std::map<std::string, JsonValue> common_;
