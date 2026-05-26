@@ -173,7 +173,7 @@ class Engine:
                     f'operator "{name}": Recall type must implement AdditiveWritesRowSet'
                 )
 
-            effective_debug = global_debug or op_cfg.debug
+            effective_debug = op_cfg.debug if op_cfg.debug is not None else global_debug
             effective_recall = op_cfg.recall or op_type == OperatorType.RECALL
 
             # Injection: MetadataAware -> DebugAware -> MetricsAware -> ResourceAware
