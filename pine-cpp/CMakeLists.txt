@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(pine_cpp_mvp LANGUAGES CXX)
 
-# R3-L1: bumped from C++20 to C++23 for std::stacktrace (PanicError detail).
+# Bumped from C++20 to C++23 for std::stacktrace (PanicError detail).
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -11,7 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # name libstdc++_libbacktrace. Both are independent backend wrappers
 # around libbacktrace. We probe at configure time and skip stacktrace
 # linkage if neither is available — PanicError still works, just without
-# the stack field. (R3-L1)
+# the stack field.
 include(CheckLibraryExists)
 include(CheckCXXSourceCompiles)
 set(PINE_STACKTRACE_LIB "")
@@ -108,7 +108,7 @@ if(NOT PINE_STACKTRACE_LIB STREQUAL "")
   target_link_libraries(pine_cpp_core PUBLIC ${PINE_STACKTRACE_LIB})
 endif()
 # Debug symbols are required for std::stacktrace to resolve source
-# file / line numbers; without them the trace prints `at :0`. R3-L1.
+# file / line numbers; without them the trace prints `at :0`.
 target_compile_options(pine_cpp_core PUBLIC -g)
 
 target_compile_options(pine_cpp_core PRIVATE -Wall -Wextra -Wpedantic)

@@ -54,7 +54,7 @@ public:
         // composite key is unique in practice (FNV-64a collisions are
         // astronomically rare and the id tiebreak resolves them), so the
         // outputs match — but using std::sort keeps the algorithmic
-        // contract aligned with Go for any future divergence. R3-L7.
+        // contract aligned with Go for any future divergence.
         std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
             if (a.r != b.r) return a.r < b.r;
             if (a.id != b.id) return a.id < b.id;

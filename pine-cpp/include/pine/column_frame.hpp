@@ -24,7 +24,7 @@ namespace pine {
 // writes). The engine's per-operator scheduling lock can be relaxed to
 // rely on this.
 //
-// Implements the Frame interface (R3-L3) — Engine selects ColumnFrame or
+// Implements the Frame interface — Engine selects ColumnFrame or
 // RowFrame based on Config.storage_mode.
 class ColumnFrame : public Frame {
 public:
@@ -90,7 +90,7 @@ private:
     std::vector<std::string> warnings_;
     const std::map<std::string, JsonValue>* resources_ = nullptr;
 
-    // Window-view mode (P2-05). When non-null, all reads delegate to
+    // Window-view mode. When non-null, all reads delegate to
     // the parent's storage with a (offset, count) translation, and all
     // writes throw PanicError. Set only by make_window_view().
     const ColumnStore* view_items_ = nullptr;

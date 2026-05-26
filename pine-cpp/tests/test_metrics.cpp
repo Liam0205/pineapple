@@ -115,7 +115,7 @@ TEST_CASE("metrics: provider receives scheduler/op/dag observations") {
 
     auto* active = provider.gauge("pine_operator_active");
     REQUIRE(active);
-    // P1-E1: each op invokes set twice — once at entry (current high
+    // Each op invokes set twice — once at entry (current high
     // water-mark) and once at ActiveGuard destruction (after dec).
     CHECK(active->set_calls.load() == 2);
 }

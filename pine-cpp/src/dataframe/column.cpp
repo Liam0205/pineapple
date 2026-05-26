@@ -61,8 +61,7 @@ template <> JsonValue Int64Column::get(std::size_t i) const {
     // pine-go / pine-java / pine-python store numeric columns as double
     // natively, so the loss is symmetric across runtimes; the precision
     // boundary is documented here and pine::int64_lossy_as_double()
-    // exposes the detection seam. See P1-S5 in
-    // .code-review/from-v0.8.0/progress.md.
+    // exposes the detection seam.
     return JsonValue(static_cast<double>(data_[i]));
 }
 template <> JsonValue DoubleColumn::get(std::size_t i) const {

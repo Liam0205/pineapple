@@ -21,8 +21,6 @@ namespace runtime {
 // are stuck on inner futures. Data-parallel shards (parallel_execute) and
 // future request-thread reuse fit naturally; DAG node scheduling currently
 // uses per-node std::thread to avoid this hazard.
-//
-// Tracked in .code-review/from-v0.8.0/progress.md as P1-P1.
 class ThreadPool {
 public:
     explicit ThreadPool(std::size_t worker_count);

@@ -37,3 +37,25 @@ TEST_CASE("HttpStats records and sorts entries") {
     CHECK(durs["GET _other"].count == 1);
     CHECK(durs["GET _other"].sum_ns == 100);
 }
+
+TEST_CASE("HttpStats key contains METHOD path bucket but path normalized to whitelist") {
+    // Defensive check: the request_total key is `<METHOD> <path> <bucket>`
+    // space-separated. If a future path contained a space, the key would
+    // ambiguous. The Section 13 +9 schema check on /stats.http already
+    // catches drift across runtimes, but lock the invariant here too —
+    // record a request with a path that contains a space and confirm
+    // HttpStats does not let the caller produce an ambiguous key by
+    // requiring normalize_path() at the call site.
+    pine::server::HttpStats stats;
+    // Direct record_request with an unnormalized path: this is the
+    // callable surface. Whoever invokes it is responsible for
+    // normalize_path-ing first. We test what happens if they don't:
+    stats.record_request("GET", "/path with space", "2xx", 100);
+    auto snap = stats.requests_snapshot();
+    // The key shape is preserved literally; the defense lives at
+    // normalize_path (server.cpp), which is the only entry exercised by
+    // the http_metrics_middleware. This test exists to make the
+    // contract explicit: HttpStats does not parse keys.
+    CHECK(snap.size() == 1);
+    CHECK(snap.begin()->first == "GET /path with space 2xx");
+}

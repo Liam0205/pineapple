@@ -101,7 +101,7 @@ void Manager::load_from_config(const Config& config) {
                                            : std::chrono::seconds(0);
         register_resource(name, std::move(fetcher), interval);
     }
-    // P1-D6: every load_from_config call now validates resource dependencies
+    // Every load_from_config call now validates resource dependencies
     // against the operators in the same config. The previous design ran
     // validate_resource_deps only from server.cpp / pineapple-run; unit
     // tests, Python bindings, or any future caller that constructed an
@@ -119,7 +119,7 @@ void Manager::start() {
             throw std::runtime_error("resource: already started");
         }
         // Synchronous initial load — propagate failure so callers see it.
-        // P1-P6: wrap each fetcher in std::async + wait_for(30s) so a
+        // Wrap each fetcher in std::async + wait_for(30s) so a
         // hung backend (DNS resolution stall, broker dead, etc.) does
         // NOT hang server startup forever. Fetchers themselves already
         // honour socket-level SO_RCVTIMEO / SO_SNDTIMEO, so 30 s is an
@@ -204,7 +204,7 @@ void Manager::validate_resource_deps(const Config& config) const {
             if (i > 0) err_msg += ", ";
             err_msg += missing[i];
         }
-        // P1-D5: raise the canonical ConfigError so callers see the
+        // Raise the canonical ConfigError so callers see the
         // `pine: config error: ...` prefix and exception type that
         // matches every other init-time config defect.
         throw ConfigError(err_msg);

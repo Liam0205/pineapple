@@ -15,7 +15,7 @@ namespace {
 // (ms/us/ns) because the C++ server cannot apply timeouts more granular than
 // SO_RCVTIMEO seconds in a meaningful way.
 //
-// P2-15: units must appear in strictly *descending* magnitude order
+// Units must appear in strictly *descending* magnitude order
 // (h, m, s) to match Go time.ParseDuration ordering. "1h30m" is valid;
 // "30m1h" is rejected. The previous implementation accepted any order
 // and produced silently-different totals from Go for shuffled inputs.
@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
         } else if (arg == "-idle-timeout") {
             cfg.idle_timeout_seconds = take_seconds(i, "-idle-timeout");
         } else if (arg == "-max-body-size") {
-            // P2-13: strict parse — strtoll returns 0 on garbage which
+            // Strict parse — strtoll returns 0 on garbage which
             // would silently 413 every POST. Require the suffix to be
             // fully consumed and the value to be positive.
             const char* raw = take_value(i, "-max-body-size");

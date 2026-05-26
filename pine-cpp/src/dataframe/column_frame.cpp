@@ -15,7 +15,6 @@ namespace {
 // silently corrupting downstream consumers) and is called from
 // apply_output's three write phases (common, items, additions). Returns
 // the violation message (without `pine:`/op prefix) or empty when OK.
-// R3-H2.
 std::string validate_value(const std::string& field, const JsonValue& value) {
     if (value.is_null()) return "";
     if (value.is_number()) {
@@ -92,7 +91,7 @@ std::unique_ptr<Frame> ColumnFrame::make_window_view(std::size_t row_offset,
                                                        std::size_t row_count) const {
     // Frame-interface override delegates to the static ColumnFrame factory
     // and returns a base-class pointer for parallel_execute, which holds
-    // shards as unique_ptr<Frame>. (R3-L3)
+    // shards as unique_ptr<Frame>.
     return std::unique_ptr<Frame>(make_window_view(*this, row_offset, row_count).release());
 }
 

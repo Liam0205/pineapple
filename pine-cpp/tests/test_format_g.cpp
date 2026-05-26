@@ -3,7 +3,7 @@
 
 using pine::operators::go_format_g;
 
-TEST_CASE("go_format_g matches Go strconv.FormatFloat('g', -1, 64) at long-integer boundaries (P1-B2)") {
+TEST_CASE("go_format_g matches Go strconv.FormatFloat('g', -1, 64) at long-integer boundaries") {
     // Each line below was captured from `strconv.FormatFloat(v, 'g', -1, 64)`
     // in Go 1.22 — Go's exact source of truth.
     CHECK(go_format_g(100.0) == "100");
@@ -23,4 +23,29 @@ TEST_CASE("go_format_g matches Go strconv.FormatFloat('g', -1, 64) at long-integ
     CHECK(go_format_g(-100.0) == "-100");
     CHECK(go_format_g(0.1) == "0.1");
     CHECK(go_format_g(1.5) == "1.5");
+}
+
+TEST_CASE("go_format_lookup_key matches Go FormatInt / FormatFloat('f', -1)") {
+    using pine::operators::go_format_lookup_key;
+    // Integer-valued floats: FormatInt — no decimal point.
+    CHECK(go_format_lookup_key(0.0) == "0");
+    CHECK(go_format_lookup_key(1.0) == "1");
+    CHECK(go_format_lookup_key(-1.0) == "-1");
+    CHECK(go_format_lookup_key(100000.0) == "100000");
+    CHECK(go_format_lookup_key(1e7) == "10000000");
+    CHECK(go_format_lookup_key(1e15) == "1000000000000000");
+
+    // Non-integer floats: FormatFloat('f', -1) — never scientific.
+    // The exact byte-level comparison against Go FormatFloat is constrained:
+    // both produce the shortest round-tripping representation, with the
+    // 'f' format guaranteeing no exponent. The parity-critical case
+    // is 1e-5 — Go renders "0.00001"; C++ go_format_g would render "1e-05"
+    // and miss the lookup.
+    CHECK(go_format_lookup_key(0.5) == "0.5");
+    CHECK(go_format_lookup_key(0.1) == "0.1");
+    CHECK(go_format_lookup_key(-0.5) == "-0.5");
+    CHECK(go_format_lookup_key(1.5) == "1.5");
+    CHECK(go_format_lookup_key(1e-5).find('e') == std::string::npos);
+    CHECK(go_format_lookup_key(1e-5).find('E') == std::string::npos);
+    CHECK(go_format_lookup_key(1e-5) == "0.00001");
 }

@@ -142,7 +142,7 @@ TEST_CASE("TypedColumnStore::remove_rows rejects OOB indices") {
     // Direct public-API contract: caller must not feed indices outside
     // [0, row_count_). The ColumnFrame::apply_output path pre-validates,
     // but the store surface is reachable from other callers and must
-    // self-defend (tracked as P1-S2).
+    // self-defend.
     pine::TypedColumnStore store(3);
     std::vector<pine::JsonValue> vs{
         pine::JsonValue(1.0), pine::JsonValue(2.0), pine::JsonValue(3.0)};
@@ -158,7 +158,7 @@ TEST_CASE("TypedColumnStore::remove_rows rejects OOB indices") {
     CHECK(store.column("x")->size() == 2);
 }
 
-TEST_CASE("Int64Column precision boundary detection (P1-S5)") {
+TEST_CASE("Int64Column precision boundary detection") {
     using pine::int64_lossy_as_double;
     // Within IEEE 754 binary64 precise range: 0..2^53
     CHECK_FALSE(int64_lossy_as_double(0));

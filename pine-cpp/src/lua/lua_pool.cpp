@@ -27,7 +27,7 @@ void StatePool::Releaser::operator()(LuaVM* vm) const {
         // Releaser is a unique_ptr deleter — invoked from ~unique_ptr,
         // which is noexcept. release_vm() can throw if reset_to_baseline
         // faults on a script-corrupted state; letting that exception cross
-        // the noexcept boundary triggers std::terminate (inc-6 阻塞 B1).
+        // the noexcept boundary triggers std::terminate.
         // Counters and metrics are still updated inside release_vm's catch
         // block before it rethrows, so swallowing here loses no observability.
         try {
@@ -45,7 +45,7 @@ StatePool::BorrowedVM StatePool::borrow() {
 }
 
 LuaVM* StatePool::acquire_vm(std::map<std::string, int>& out_snap) {
-    // P1-E2: defer all counter / metric increments until we are certain the
+    // Defer all counter / metric increments until we are certain the
     // borrow will succeed AND capture_values has returned. The earlier
     // implementation incremented atomics + Prometheus first, then could
     // drop out of acquire via the closed path (which dec'd only the
@@ -103,7 +103,7 @@ void StatePool::release_vm(LuaVM* vm, const std::map<std::string, int>& snap) {
         // If it throws we must NOT swallow — but we also must still update
         // counters / metrics so they stay symmetric with acquire_vm. The
         // vm is dropped (not pushed back) so a future borrow recreates it
-        // (create_count_ ticks up next time). P1-E2.
+        // (create_count_ ticks up next time).
         try {
             baseline_.reset_to_baseline(vm->state(), snap);
             std::lock_guard<std::mutex> lock(mu_);

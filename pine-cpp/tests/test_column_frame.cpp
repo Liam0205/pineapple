@@ -173,7 +173,7 @@ TEST_CASE("ColumnFrame: out-of-range item write raises ExecutionError") {
 TEST_CASE("ColumnFrame: SetItemOrder rejects non-permutation (duplicate index)") {
     // Permutation check guards against silent data loss when an operator
     // emits an order like [0, 0, 0] — without it the frame would replace
-    // every item with item 0, no error surfaced. Tracked as P1-S3.
+    // every item with item 0, no error surfaced.
     auto frame = make_frame();
     OperatorOutput out;
     out.set_item_order({0, 0, 0});  // duplicate 0 three times
@@ -211,7 +211,7 @@ TEST_CASE("ColumnFrame: window view reads parent common via view_common_ (R8-1)"
     CHECK_THROWS_AS(view->to_result({"region"}, {"id"}), Error);
 }
 
-TEST_CASE("ColumnFrame: apply_output rejects NaN/Inf in common writes (R3-H2)") {
+TEST_CASE("ColumnFrame: apply_output rejects NaN/Inf in common writes") {
     auto frame = make_frame();
     OperatorOutput out;
     out.set_common("ratio", JsonValue(std::numeric_limits<double>::quiet_NaN()));
@@ -224,7 +224,7 @@ TEST_CASE("ColumnFrame: apply_output rejects NaN/Inf in common writes (R3-H2)") 
     }
 }
 
-TEST_CASE("ColumnFrame: apply_output rejects Inf in item writes (R3-H2)") {
+TEST_CASE("ColumnFrame: apply_output rejects Inf in item writes") {
     auto frame = make_frame();
     OperatorOutput out;
     out.set_item(0, "x", JsonValue(std::numeric_limits<double>::infinity()));
@@ -237,7 +237,7 @@ TEST_CASE("ColumnFrame: apply_output rejects Inf in item writes (R3-H2)") {
     }
 }
 
-TEST_CASE("ColumnFrame: apply_output rejects NaN in additions (R3-H2)") {
+TEST_CASE("ColumnFrame: apply_output rejects NaN in additions") {
     auto frame = make_frame();
     OperatorOutput out;
     std::map<std::string, JsonValue> row;

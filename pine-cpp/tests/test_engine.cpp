@@ -128,7 +128,7 @@ TEST_CASE("Engine::log_prefix: empty when unset on both Config and EngineOptions
     CHECK(engine.log_prefix() == "");
 }
 
-TEST_CASE("validate_output_against_type: Recall must not SetCommon (R3-H1)") {
+TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
     // Use a custom in-process operator registered just for this test to keep
     // the assertion focused on the validate_output codepath. The Recall type
     // forbids SetCommon, SetItem, RemoveItem, SetItemOrder.
@@ -183,7 +183,7 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon (R3-H1)") {
     }
 }
 
-TEST_CASE("Engine::execute honors external stop_token (R3-H3)") {
+TEST_CASE("Engine::execute honors external stop_token") {
     static const char* kCfg = R"({
       "_PINEAPPLE_VERSION": "0.8.0",
       "pipeline_config": {

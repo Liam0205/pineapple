@@ -208,10 +208,10 @@ Config load_config_from_json(const std::string& text) {
             config.resource_config[name] = std::move(re);
         }
     }
-    // R3 follow-up: flow_contract is optional in pine-go (struct field
+    // Follow-up: flow_contract is optional in pine-go (struct field
     // with omitempty semantics defaults to empty FlowContract{}). Match
     // that — only parse the four input/output lists when the field is
-    // present. Caught by R3-X4 differential fuzz: 17/50 smoke
+    // present. Caught by differential fuzz: 17/50 smoke
     // divergences all hit this strictness.
     if (auto fit = root.find("flow_contract"); fit != root.end() && fit->second.is_object()) {
         const auto& flow = fit->second.as_object();
