@@ -27,7 +27,7 @@ public class EngineMetrics {
         this.dagExecDuration = provider.newHistogram(new HistogramOpts("pine_dag_execution_duration_seconds", "DAG execution duration",
                 new double[]{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}));
         this.dagOpsExecuted = provider.newHistogram(new HistogramOpts("pine_dag_operators_executed", "Operators executed per DAG run",
-                new double[]{1, 5, 10, 20, 50, 100, 200}));
+                new double[]{1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 450}));
     }
 
     public void preInitOperators(List<String> opNames) {
