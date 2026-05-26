@@ -211,7 +211,7 @@ func RenderCollapsedMermaid(g *Graph, level int) string {
 		if group.Group {
 			cls = "subflow"
 		} else if group.OperatorType != "" {
-			cls = group.OperatorType
+			cls = strings.ToLower(group.OperatorType)
 		}
 		fmt.Fprintf(&b, "    %s[\"%s\"]:::%s\n", id, group.Name, cls)
 	}
