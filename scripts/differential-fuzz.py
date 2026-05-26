@@ -1,19 +1,27 @@
 """Differential fuzzer: generates random configs+requests, runs all engines, reports divergences.
 
-Supported engines: Go, Java, Python (extensible via --engines flag).
+Supported engines: Go, Java, Python, C++ (extensible via --engines flag).
 Randomization dimensions:
-  - Pipeline topology (1-8 ops, 10 operator types, random combinations)
+  - Pipeline topology (1-8 ops, 15 operator types, random combinations)
   - Operator parameters (type-specific random values)
-  - Data shape (item count 1-50, field count 2-6)
-  - Data values (edge floats, unicode, large strings, null, booleans)
+  - Data shape (item count 1-50, field count 2-6, sparse items with dropped fields)
+  - Data values (edge floats, unicode, large strings, null, booleans, nested dicts/arrays)
   - data_parallel (1-4 for ConcurrentSafe operators)
   - storage_mode (row / column)
   - SubFlow / nested pipeline_map
   - skip / for_branch_control conditional execution
   - Edge numerics (near-zero, large, negative zero boundary)
+  - Request-provided items (bypass recall, items in request directly)
+  - Explicit sources (DAG edges to prior operators)
+  - common_defaults / item_defaults on operators
+  - debug=true on random operators
+  - _return_trace=true in request common
+  - Resource operators (transform_resource_lookup, recall_resource with static resource_config)
+  - merge_dedup, reorder_shuffle_by_salt, filter_paginate operators
+  - transform_copy all 4 directions (common_to_item, item_to_common, common_to_common, item_to_item)
 
 Usage:
-    python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,python,java]
+    python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,python,java,cpp]
 """
 from __future__ import annotations
 
@@ -106,7 +114,7 @@ LUA_COMMON_FUNCTIONS = [
 def random_scalar(rng: random.Random, edge_weight: float = 0.2) -> Any:
     if rng.random() < edge_weight:
         return rng.choice(EDGE_SCALARS)
-    choice = rng.randint(0, 4)
+    choice = rng.randint(0, 6)
     if choice == 0:
         return rng.randint(-1000, 1000)
     elif choice == 1:
@@ -115,8 +123,12 @@ def random_scalar(rng: random.Random, edge_weight: float = 0.2) -> Any:
         return rng.choice(["hello", "world", "test", "foo", "bar", "", "café", "🎉"])
     elif choice == 3:
         return rng.choice([True, False])
-    else:
+    elif choice == 4:
         return None
+    elif choice == 5:
+        return [rng.randint(1, 10), rng.choice(["a", "b"]), None]
+    else:
+        return {"nested_key": rng.randint(1, 100), "nested_str": rng.choice(["x", "y"])}
 
 
 def random_numeric(rng: random.Random, edge_weight: float = 0.3) -> float | int:
@@ -149,6 +161,11 @@ def random_items(rng: random.Random, fields: list[str], count: int, edge_weight:
                     item[f] = rng.choice(["a", "b", "c", "d"])
             else:
                 item[f] = random_scalar(rng, edge_weight)
+        # Sparse items: randomly drop a field to exercise missing-field paths
+        if rng.random() < 0.15 and len(item) > 1:
+            drop_field = rng.choice(list(item.keys()))
+            if drop_field != "_fuzz_distinctive_score":  # keep the sort key
+                del item[drop_field]
         items.append(item)
     return items
 
@@ -160,12 +177,16 @@ def random_items(rng: random.Random, fields: list[str], count: int, edge_weight:
 
 def gen_operator(rng: random.Random, name: str,
                  prev_item_outputs: list[str], prev_common_outputs: list[str],
-                 allow_data_parallel: bool = True) -> tuple[dict, list[str], list[str]]:
+                 allow_data_parallel: bool = True,
+                 prev_op_names: list[str] | None = None) -> tuple[dict, list[str], list[str]]:
     """Generate a random operator config. Returns (config, new_item_outputs, new_common_outputs)."""
     op_types = [
         "filter_truncate", "filter_condition", "recall_static", "reorder_sort",
         "transform_by_lua", "transform_copy", "transform_dispatch",
         "transform_size", "transform_normalize", "observe_log",
+        # New operator types (appended for seed reproducibility)
+        "merge_dedup", "reorder_shuffle_by_salt", "filter_paginate",
+        "transform_resource_lookup", "recall_resource",
     ]
     op_type = rng.choice(op_types)
 
@@ -252,19 +273,32 @@ def gen_operator(rng: random.Random, name: str,
                 del config["data_parallel"]
 
     elif op_type == "transform_copy":
-        direction = rng.choice(["common_to_item", "item_to_common"])
+        direction = rng.choice(["common_to_item", "item_to_common", "common_to_common", "item_to_item"])
         config["direction"] = direction
         if direction == "common_to_item":
             field = rng.choice(prev_common_outputs) if prev_common_outputs else "tag"
             common_in = [field]
             item_out = [field]
-        else:
+        elif direction == "item_to_common":
             field = rng.choice(prev_item_outputs) if prev_item_outputs else "item_score"
             item_in = [field]
             common_out = [field]
             # data_parallel requires empty common_output
             if "data_parallel" in config:
                 del config["data_parallel"]
+        elif direction == "common_to_common":
+            src_field = rng.choice(prev_common_outputs) if prev_common_outputs else "tag"
+            dst_field = src_field + "_copy"
+            common_in = [src_field]
+            common_out = [dst_field]
+            # data_parallel requires empty common_output
+            if "data_parallel" in config:
+                del config["data_parallel"]
+        else:  # item_to_item
+            src_field = rng.choice(prev_item_outputs) if prev_item_outputs else "item_score"
+            dst_field = src_field + "_copy"
+            item_in = [src_field]
+            item_out = [dst_field]
 
     elif op_type == "transform_dispatch":
         if prev_common_outputs:
@@ -298,12 +332,105 @@ def gen_operator(rng: random.Random, name: str,
         item_in = prev_item_outputs[:2] if prev_item_outputs else []
         config.pop("data_parallel", None)
 
+    elif op_type == "merge_dedup":
+        config["strategy"] = "first"
+        if prev_item_outputs:
+            dedup_keys = rng.sample(prev_item_outputs, min(rng.randint(1, 2), len(prev_item_outputs)))
+            item_in = dedup_keys
+        else:
+            item_in = ["item_id"]
+        config.pop("data_parallel", None)
+
+    elif op_type == "reorder_shuffle_by_salt":
+        if prev_item_outputs:
+            item_in = [rng.choice(prev_item_outputs)]
+        else:
+            item_in = ["item_id"]
+        if prev_common_outputs:
+            common_in = rng.sample(prev_common_outputs, min(rng.randint(1, 2), len(prev_common_outputs)))
+        config.pop("data_parallel", None)
+
+    elif op_type == "filter_paginate":
+        # filter_paginate reads page (0-indexed) and size from common fields by position:
+        # common_input[0] = page field, common_input[1] = size field
+        config.pop("data_parallel", None)
+        page_val = rng.randint(0, 3)
+        size_val = rng.randint(1, 20)
+        common_in = ["_fuzz_page", "_fuzz_size"]
+        # These will be injected into request.common by gen_pipeline
+        config["_fuzz_paginate_page"] = page_val
+        config["_fuzz_paginate_size"] = size_val
+
+    elif op_type == "transform_resource_lookup":
+        # Needs a resource with static lookup table
+        resource_name = f"_fuzz_lookup_{name}"
+        n_entries = rng.randint(2, 6)
+        lookup_table: dict[str, Any] = {}
+        for j in range(n_entries):
+            lookup_table[f"key_{j}"] = random_scalar(rng, edge_weight=0.1)
+        config["resource_name"] = resource_name
+        if prev_item_outputs:
+            lookup_key = rng.choice(prev_item_outputs)
+        else:
+            lookup_key = "item_id"
+        config["lookup_key"] = lookup_key
+        output_field = f"_fuzz_looked_up_{name}"
+        config["output_field"] = output_field
+        if rng.random() < 0.5:
+            config["default_value"] = random_scalar(rng, edge_weight=0.1)
+        item_in = [lookup_key]
+        item_out = [output_field]
+        # Store resource info for gen_pipeline to inject into resource_config
+        config["_fuzz_resource"] = {
+            "name": resource_name,
+            "value": lookup_table,
+        }
+
+    elif op_type == "recall_resource":
+        # Needs a resource with static item list
+        resource_name = f"_fuzz_recall_res_{name}"
+        n_res_items = rng.randint(2, 15)
+        res_fields = rng.sample(ITEM_FIELD_POOL, min(rng.randint(2, 4), len(ITEM_FIELD_POOL)))
+        res_items = random_items(rng, res_fields, n_res_items)
+        # Add distinctive score for stable ordering
+        base = rng.uniform(1e6, 1e9)
+        for idx, ri in enumerate(res_items):
+            ri["_fuzz_distinctive_score"] = base + idx * 1000.0 + rng.uniform(0.1, 999.9)
+        config["resource_name"] = resource_name
+        item_out = res_fields + ["_fuzz_distinctive_score"]
+        config.pop("data_parallel", None)
+        # Store resource info for gen_pipeline to inject into resource_config
+        config["_fuzz_resource"] = {
+            "name": resource_name,
+            "value": res_items,
+        }
+
     config["$metadata"] = {
         "common_input": common_in,
         "common_output": common_out,
         "item_input": item_in,
         "item_output": item_out,
     }
+
+    # Randomly add defaults for declared input fields (20% chance each)
+    if rng.random() < 0.2 and item_in:
+        defaults = {}
+        for f in item_in:
+            if rng.random() < 0.5:
+                defaults[f] = random_scalar(rng)
+        if defaults:
+            config["item_defaults"] = defaults
+    if rng.random() < 0.2 and common_in:
+        defaults = {}
+        for f in common_in:
+            if rng.random() < 0.5:
+                defaults[f] = random_scalar(rng)
+        if defaults:
+            config["common_defaults"] = defaults
+
+    # Randomly add explicit sources (DAG edges) ~15% of the time
+    if prev_op_names and len(prev_op_names) >= 2 and rng.random() < 0.15:
+        config["sources"] = [rng.choice(prev_op_names)]
 
     new_item_out = list(set(prev_item_outputs + item_out))
     new_common_out = list(set(prev_common_outputs + common_out))
@@ -322,31 +449,45 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     """
     n_ops = rng.randint(1, 8)
 
-    # Start with recall_static — always include _fuzz_distinctive_score with unique values
-    n_recall_items = rng.randint(3, 50)
-    recall_fields = rng.sample(ITEM_FIELD_POOL, min(rng.randint(2, 5), len(ITEM_FIELD_POOL)))
-    recall_items = random_items(rng, recall_fields, n_recall_items)
-    for idx, item in enumerate(recall_items):
-        item["_fuzz_distinctive_score"] = idx * 1000.0 + rng.uniform(0.1, 999.9)
-    recall_fields_with_score = recall_fields + ["_fuzz_distinctive_score"]
+    # ~20% of rounds use request-provided items instead of recall_static
+    use_request_items = rng.random() < 0.2
 
     operators: dict[str, Any] = {}
     pipeline: list[str] = []
+    resource_configs: dict[str, Any] = {}
 
-    operators["recall"] = {
-        "type_name": "recall_static",
-        "recall": True,
-        "items": recall_items,
-        "$metadata": {
-            "common_input": [],
-            "common_output": [],
-            "item_input": [],
-            "item_output": recall_fields_with_score,
-        },
-    }
-    pipeline.append("recall")
+    if use_request_items:
+        # Generate items directly in request.items
+        req_fields = rng.sample(ITEM_FIELD_POOL, min(rng.randint(2, 5), len(ITEM_FIELD_POOL)))
+        n_req_items = rng.randint(3, 50)
+        req_items = random_items(rng, req_fields, n_req_items)
+        for idx, item in enumerate(req_items):
+            item["_fuzz_distinctive_score"] = idx * 1000.0 + rng.uniform(0.1, 999.9)
+        item_outputs = req_fields + ["_fuzz_distinctive_score"]
+        request_items: list[dict] = req_items
+    else:
+        # Start with recall_static — always include _fuzz_distinctive_score with unique values
+        n_recall_items = rng.randint(3, 50)
+        recall_fields = rng.sample(ITEM_FIELD_POOL, min(rng.randint(2, 5), len(ITEM_FIELD_POOL)))
+        recall_items = random_items(rng, recall_fields, n_recall_items)
+        for idx, item in enumerate(recall_items):
+            item["_fuzz_distinctive_score"] = idx * 1000.0 + rng.uniform(0.1, 999.9)
+        recall_fields_with_score = recall_fields + ["_fuzz_distinctive_score"]
 
-    item_outputs = list(recall_fields_with_score)
+        operators["recall"] = {
+            "type_name": "recall_static",
+            "recall": True,
+            "items": recall_items,
+            "$metadata": {
+                "common_input": [],
+                "common_output": [],
+                "item_input": [],
+                "item_output": recall_fields_with_score,
+            },
+        }
+        pipeline.append("recall")
+        item_outputs = list(recall_fields_with_score)
+        request_items = []
 
     # Generate common inputs with edge values
     common_fields = rng.sample(FIELD_POOL, rng.randint(1, 5))
@@ -394,18 +535,108 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     for i in range(n_ops):
         op_name = f"op_{i}"
         op_config, item_outputs, common_outputs = gen_operator(
-            rng, op_name, item_outputs, common_outputs
+            rng, op_name, item_outputs, common_outputs,
+            prev_op_names=list(pipeline),
         )
 
-        # Randomly attach skip to some ops
+        # Handle filter_paginate: inject page/size fields into common
+        if op_config.get("type_name") == "filter_paginate":
+            page_val = op_config.pop("_fuzz_paginate_page", 0)
+            size_val = op_config.pop("_fuzz_paginate_size", 10)
+            common["_fuzz_page"] = page_val
+            common["_fuzz_size"] = size_val
+            if "_fuzz_page" not in common_outputs:
+                common_outputs.append("_fuzz_page")
+            if "_fuzz_size" not in common_outputs:
+                common_outputs.append("_fuzz_size")
+
+        # Collect resource configs from resource operators
+        fuzz_resource = op_config.pop("_fuzz_resource", None)
+        if fuzz_resource:
+            resource_configs[fuzz_resource["name"]] = {
+                "type": "static",
+                "interval": 3600,
+                "params": {"value": fuzz_resource["value"]},
+            }
+
+        # Randomly attach skip to some ops — but only if the operator has
+        # at least one non-skip common_input field. Otherwise skip filtering
+        # would empty CommonInput, causing operators that read CommonInput[0]
+        # (dispatch, paginate) to panic on empty access.
         if use_skip and skip_field and rng.random() < 0.3:
-            op_config["skip"] = skip_field
-            op_config["for_branch_control"] = True
-            if skip_field not in op_config["$metadata"]["common_input"]:
-                op_config["$metadata"]["common_input"].append(skip_field)
+            existing_common = op_config["$metadata"]["common_input"]
+            non_skip_common = [f for f in existing_common if f != skip_field]
+            if non_skip_common or not existing_common:
+                op_config["skip"] = skip_field
+                op_config["for_branch_control"] = True
+                if skip_field not in op_config["$metadata"]["common_input"]:
+                    op_config["$metadata"]["common_input"].append(skip_field)
+
+        # ~15% chance add debug=true on this operator
+        if rng.random() < 0.15:
+            op_config["debug"] = True
 
         operators[op_name] = op_config
         pipeline.append(op_name)
+
+    # Row-set mutators/consumers split the pipeline into sections.
+    # Within a section, multiple recall ops can run in parallel, producing
+    # non-deterministic item ordering. For each section that contains ≥2
+    # recalls, insert a stabilizing sort just before the section's ending
+    # boundary (the next row-set mutator/consumer).
+    #
+    # Boundary = ConsumesRowSet or MutatesRowSet marker (from Go operator
+    # definitions in pine-go/operators/). OR implicit consumer: any op with
+    # item_input or item_output (the DAG auto-injects _row_set_ read).
+    # The explicit set must be updated when new operators are added.
+    recall_types = ("recall_static", "recall_resource")
+    # ConsumesRowSet and/or MutatesRowSet — from pine-go operator markers
+    _row_set_boundary_types = frozenset({
+        # ConsumesRowSet + MutatesRowSet
+        "filter_truncate", "filter_paginate", "filter_condition",
+        "reorder_sort", "reorder_shuffle_by_salt",
+        "merge_dedup",
+        # ConsumesRowSet only
+        "transform_size",
+        "transform_by_remote_pineapple",
+    })
+
+    def _is_row_set_boundary(op_config: dict) -> bool:
+        tn = op_config.get("type_name", "")
+        if tn in _row_set_boundary_types:
+            return True
+        meta = op_config.get("$metadata", {})
+        if meta.get("item_input") or meta.get("item_output"):
+            return True
+        return False
+
+    if "_fuzz_distinctive_score" in item_outputs:
+        section_recalls = 0
+        insert_positions: list[int] = []
+        for i, name in enumerate(pipeline):
+            op = operators.get(name, {})
+            tn = op.get("type_name", "")
+            is_recall = tn in recall_types or op.get("recall")
+            if is_recall:
+                section_recalls += 1
+            elif _is_row_set_boundary(op):
+                if section_recalls >= 2:
+                    insert_positions.append(i)
+                section_recalls = 0
+        # Insert in reverse order to preserve indices
+        for pos in reversed(insert_positions):
+            stab_name = f"_stabilize_sort_{pos}"
+            operators[stab_name] = {
+                "type_name": "reorder_sort",
+                "order": "asc",
+                "$metadata": {
+                    "common_input": [],
+                    "common_output": [],
+                    "item_input": ["_fuzz_distinctive_score"],
+                    "item_output": [],
+                },
+            }
+            pipeline.insert(pos, stab_name)
 
     # ~40% chance: append a trailing sort on _fuzz_distinctive_score (enables strict order check)
     strict_order = False
@@ -474,7 +705,14 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
         group_pipeline = pipeline
 
     # Randomly inject storage_mode
-    storage_mode = rng.choice(["row", "row", "row", "column"])  # 25% column
+    # 50/50 storage_mode split. The prior 75% row / 25% column bias
+    # was inherited from when pine-python and pine-cpp lacked RowFrame
+    # impls — the row mode silently downgraded to column on those engines,
+    # so 75% bias was a way to over-sample what was effectively column.
+    # With both impls real on every engine,
+    # equal weighting exercises each path equally and surfaces row-vs-
+    # column drift faster.
+    storage_mode = rng.choice(["row", "column"])
 
     config: dict[str, Any] = {
         "_PINEAPPLE_VERSION": "0.6.6",
@@ -488,7 +726,15 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     if storage_mode == "column":
         config["storage_mode"] = "column"
 
-    items: list[dict] = []  # recall_static provides items
+    # Inject resource_config if any operators need resources
+    if resource_configs:
+        config["resource_config"] = resource_configs
+
+    # ~15% chance add _return_trace to common
+    if rng.random() < 0.15:
+        common["_return_trace"] = True
+
+    items: list[dict] = request_items
     return config, common, items, strict_order
 
 
@@ -716,6 +962,23 @@ class JavaEngine(Engine):
         return result.returncode, result.stdout, result.stderr
 
 
+class CppEngine(Engine):
+    """Pine-cpp backend. Invokes the same pineapple-run binary
+    shape as GoEngine; built via CMake into pine-cpp/build/pineapple-run.
+    """
+    name = "cpp"
+
+    def __init__(self, binary: str):
+        self.binary = binary
+
+    def run(self, config_file: str, request_file: str) -> tuple[int, str, str]:
+        result = subprocess.run(
+            [self.binary, "-config", config_file, "-request", request_file],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.returncode, result.stdout, result.stderr
+
+
 # ---------------------------------------------------------------------------
 # Comparison
 # ---------------------------------------------------------------------------
@@ -737,6 +1000,19 @@ def _normalize_value(v: Any) -> Any:
     return v
 
 
+def _strip_trace_timing(obj: Any) -> Any:
+    """Strip timing-sensitive fields from trace output for comparison.
+    Keeps trace structure (operator names, order) but removes exact durations.
+    """
+    if isinstance(obj, dict):
+        return {k: _strip_trace_timing(v) for k, v in obj.items()
+                if k not in ("duration_ns", "start_ns", "end_ns", "duration_us",
+                             "start_us", "end_us", "elapsed_ns", "elapsed_us")}
+    if isinstance(obj, list):
+        return [_strip_trace_timing(item) for item in obj]
+    return obj
+
+
 def _sort_items(items: list) -> list:
     """Sort items by stable key for order-independent comparison."""
     def sort_key(item):
@@ -746,7 +1022,7 @@ def _sort_items(items: list) -> list:
     return sorted(items, key=sort_key)
 
 
-def normalize_json(data: str, sort_items: bool = False) -> str:
+def normalize_json(data: str, sort_items: bool = False, strip_trace: bool = False) -> str:
     """Parse and re-serialize JSON for comparison."""
     try:
         obj = json.loads(data)
@@ -754,6 +1030,8 @@ def normalize_json(data: str, sort_items: bool = False) -> str:
         return data.strip()
 
     obj = _normalize_value(obj)
+    if strip_trace and isinstance(obj, dict) and "trace" in obj:
+        obj["trace"] = _strip_trace_timing(obj["trace"])
     if sort_items and isinstance(obj, dict) and "items" in obj:
         obj["items"] = _sort_items(obj["items"])
 
@@ -872,9 +1150,11 @@ def main():
     parser = argparse.ArgumentParser(description="Differential fuzzer: multi-engine parity")
     parser.add_argument("--rounds", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--engines", type=str, default="go,python,java",
-                        help="Comma-separated engines to compare (go,python,java)")
+    parser.add_argument("--engines", type=str, default="go,python,java,cpp",
+                        help="Comma-separated engines to compare (go,python,java,cpp)")
     parser.add_argument("--go-bin", type=str, default="")
+    parser.add_argument("--cpp-bin", type=str, default="",
+                        help="Path to pine-cpp pineapple-run binary")
     parser.add_argument("--save-dir", type=str, default="")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--stability-runs", type=int, default=0,
@@ -909,6 +1189,13 @@ def main():
                 engines.append(JavaEngine(cp))
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
                 print(f"  WARNING: Java not available ({e}), skipping")
+        elif name == "cpp":
+            cpp_bin = args.cpp_bin or str(REPO_ROOT / "pine-cpp" / "build" / "pineapple-run")
+            if not Path(cpp_bin).exists():
+                print(f"  WARNING: pine-cpp binary not found at {cpp_bin}, skipping")
+                print(f"           build first: cmake -S pine-cpp -B pine-cpp/build && cmake --build pine-cpp/build")
+                continue
+            engines.append(CppEngine(cpp_bin))
         else:
             print(f"  WARNING: unknown engine '{name}', skipping")
 
@@ -926,7 +1213,15 @@ def main():
     errors = 0
     unstable = 0
     stats = {"flat": 0, "subflow": 0, "nested": 0, "deep_nested": 0, "column": 0, "skip": 0,
-             "data_parallel": 0, "strict_order": 0, "error_path": 0}
+             "data_parallel": 0, "strict_order": 0, "error_path": 0,
+             # Row mode count + per-storage-mode pass/fail buckets so
+             # the summary surfaces stratification across the two impls.
+             "row": 0, "pass_row": 0, "pass_column": 0, "fail_row": 0, "fail_column": 0,
+             # New dimensions
+             "request_items": 0, "resources": 0, "debug": 0, "return_trace": 0,
+             "sources": 0, "defaults": 0, "sparse_items": 0,
+             "merge_dedup": 0, "shuffle_by_salt": 0, "paginate": 0,
+             "resource_lookup": 0, "recall_resource": 0}
     start_time = time.time()
 
     def _progress(i: int):
@@ -962,6 +1257,8 @@ def main():
                 if not is_error_path:
                     if config.get("storage_mode") == "column":
                         stats["column"] += 1
+                    else:
+                        stats["row"] += 1
                     pm = config.get("pipeline_config", {}).get("pipeline_map", {})
                     if pm:
                         # Count nesting depth
@@ -985,6 +1282,30 @@ def main():
                         stats["data_parallel"] += 1
                     if strict_order:
                         stats["strict_order"] += 1
+                    # Track new dimensions
+                    if config.get("resource_config"):
+                        stats["resources"] += 1
+                    if common.get("_return_trace"):
+                        stats["return_trace"] += 1
+                    if items:  # request-provided items
+                        stats["request_items"] += 1
+                    op_types_in_pipeline = {op.get("type_name") for op in ops.values()}
+                    if "merge_dedup" in op_types_in_pipeline:
+                        stats["merge_dedup"] += 1
+                    if "reorder_shuffle_by_salt" in op_types_in_pipeline:
+                        stats["shuffle_by_salt"] += 1
+                    if "filter_paginate" in op_types_in_pipeline:
+                        stats["paginate"] += 1
+                    if "transform_resource_lookup" in op_types_in_pipeline:
+                        stats["resource_lookup"] += 1
+                    if "recall_resource" in op_types_in_pipeline:
+                        stats["recall_resource"] += 1
+                    if any(op.get("debug") for op in ops.values()):
+                        stats["debug"] += 1
+                    if any(op.get("sources") for op in ops.values()):
+                        stats["sources"] += 1
+                    if any(op.get("item_defaults") or op.get("common_defaults") for op in ops.values()):
+                        stats["defaults"] += 1
 
                 with open(config_file, "w") as f:
                     json.dump(config, f, ensure_ascii=False)
@@ -1033,8 +1354,9 @@ def main():
                         break
 
                     # Both succeed → compare output
-                    ref_norm = normalize_json(ref_out, sort_items=not strict_order)
-                    e_norm = normalize_json(e_out, sort_items=not strict_order)
+                    has_trace = common.get("_return_trace") is True
+                    ref_norm = normalize_json(ref_out, sort_items=not strict_order, strip_trace=has_trace)
+                    e_norm = normalize_json(e_out, sort_items=not strict_order, strip_trace=has_trace)
                     if ref_norm != e_norm:
                         all_match = False
                         divergent_pair = (ref_name, engine.name)
@@ -1042,11 +1364,54 @@ def main():
 
                 if all_match:
                     passed += 1
+                    # Stratify pass/fail by storage_mode so the summary
+                    # exposes row-vs-column divergence rates.
+                    if config.get("storage_mode") == "column":
+                        stats["pass_column"] += 1
+                    else:
+                        stats["pass_row"] += 1
                     if args.verbose:
                         sys.stderr.write("\n")
                         print(f"  [{i+1}] match")
+
+                    # TEST-1: ~20% of passed rounds, re-run with the opposite
+                    # storage_mode and compare Go outputs (row vs column).
+                    if not is_error_path and ref_rc == 0 and rng.random() < 0.2:
+                        orig_mode = config.get("storage_mode", "row")
+                        alt_mode = "column" if orig_mode == "row" else "row"
+                        alt_config = dict(config)
+                        if alt_mode == "column":
+                            alt_config["storage_mode"] = "column"
+                        else:
+                            alt_config.pop("storage_mode", None)
+                        alt_config_file = os.path.join(tmpdir, "alt_config.json")
+                        with open(alt_config_file, "w") as f:
+                            json.dump(alt_config, f, ensure_ascii=False)
+                        go_engine = engines[0]
+                        try:
+                            alt_rc, alt_out, _ = go_engine.run(alt_config_file, request_file)
+                            if alt_rc == ref_rc:
+                                has_trace = common.get("_return_trace") is True
+                                ref_norm2 = normalize_json(ref_out, sort_items=not strict_order, strip_trace=has_trace)
+                                alt_norm2 = normalize_json(alt_out, sort_items=not strict_order, strip_trace=has_trace)
+                                if ref_norm2 != alt_norm2:
+                                    stats["cross_storage_diverge"] = stats.get("cross_storage_diverge", 0) + 1
+                                    d = save_divergence(save_dir, i, config, request,
+                                                        {f"go_{orig_mode}": (ref_rc, ref_out),
+                                                         f"go_{alt_mode}": (alt_rc, alt_out)},
+                                                        (f"go_{orig_mode}", f"go_{alt_mode}"),
+                                                        kind="cross_storage")
+                                    print(f"  [{i+1}] CROSS-STORAGE divergence ({orig_mode} vs {alt_mode}): → {d}")
+                                else:
+                                    stats["cross_storage_pass"] = stats.get("cross_storage_pass", 0) + 1
+                        except (subprocess.TimeoutExpired, Exception):
+                            pass  # skip cross-storage check on timeout
                 else:
                     failed += 1
+                    if config.get("storage_mode") == "column":
+                        stats["fail_column"] += 1
+                    else:
+                        stats["fail_row"] += 1
                     outputs = {name: (rc, out) for name, (rc, out, _) in results.items()}
 
                     # Shrink if enabled
@@ -1086,8 +1451,14 @@ def main():
         print(f"  UNSTABLE: {unstable}")
     print(f"  ERROR: {errors}")
     print(f"  Coverage: flat={stats['flat']} subflow={stats['subflow']} nested={stats['nested']} deep_nested={stats['deep_nested']}")
-    print(f"            column={stats['column']} skip={stats['skip']} data_parallel={stats['data_parallel']}")
+    print(f"            row={stats['row']} column={stats['column']} skip={stats['skip']} data_parallel={stats['data_parallel']}")
     print(f"            strict_order={stats['strict_order']} error_path={stats['error_path']}")
+    print(f"  New dims: request_items={stats['request_items']} resources={stats['resources']} debug={stats['debug']} return_trace={stats['return_trace']}")
+    print(f"            sources={stats['sources']} defaults={stats['defaults']}")
+    print(f"            merge_dedup={stats['merge_dedup']} shuffle_by_salt={stats['shuffle_by_salt']} paginate={stats['paginate']}")
+    print(f"            resource_lookup={stats['resource_lookup']} recall_resource={stats['recall_resource']}")
+    # Stratified summary:
+    print(f"  Storage stratified pass/fail:  row={stats['pass_row']}/{stats['fail_row']}  column={stats['pass_column']}/{stats['fail_column']}")
     if failed > 0:
         print(f"  Divergences: {save_dir}")
     print(f"{'='*60}")
