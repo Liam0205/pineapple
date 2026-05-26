@@ -123,8 +123,9 @@ PostResult post(const PostOptions& opts) {
     // validation.
     curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, &opensocket_ssrf_callback);
     curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, &allow_private_flag);
-    // Reject TLS by default for now — pine-go uses plain HTTP for downstream
-    // pineapple. If a future caller needs HTTPS, lift this restriction.
+    // Disable redirect-follow to keep the SSRF guard authoritative.
+    // libcurl's OPENSOCKETFUNCTION fires on redirects too, but disabling
+    // follow makes the security boundary more explicit for auditors.
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
 
     CURLcode rc = curl_easy_perform(curl);

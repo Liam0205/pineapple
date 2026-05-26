@@ -560,7 +560,8 @@ jobs:
             --rounds 100 \
             --stability-runs 2 \
             --seed "$SEED" \
-            --engines go,python,java \
+            --engines go,python,java,cpp \
+            --cpp-binary pine-cpp/build/pineapple-run \
             --save-dir /tmp/diff-fuzz-ci | tee diff-fuzz-output.txt
       - name: Upload divergences
         uses: actions/upload-artifact@v7
