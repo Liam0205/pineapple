@@ -34,6 +34,15 @@ public:
 
 private:
     int fd_ = -1;
+    // Read buffer to avoid one syscall per byte on response parsing.
+    // Sized to a single typical Redis read response (8 KB). The buffer is
+    // refilled lazily when the next read needs more bytes than are
+    // currently available. P1-P4.
+    std::string read_buf_;
+    std::size_t read_pos_ = 0;
+    void ensure_bytes(std::size_t need);
+    char read_byte();
+    void read_into(char* dst, std::size_t n);
 
     void send_command(const std::vector<std::string>& args);
     std::string read_line();

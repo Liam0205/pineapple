@@ -1,6 +1,8 @@
 #include "pine/resource.hpp"
 #include "pine/pine.hpp"
 
+#include <chrono>
+#include <future>
 #include <iostream>
 #include <stdexcept>
 #include <utility>
@@ -117,8 +119,24 @@ void Manager::start() {
             throw std::runtime_error("resource: already started");
         }
         // Synchronous initial load — propagate failure so callers see it.
+        // P1-P6: wrap each fetcher in std::async + wait_for(30s) so a
+        // hung backend (DNS resolution stall, broker dead, etc.) does
+        // NOT hang server startup forever. Fetchers themselves already
+        // honour socket-level SO_RCVTIMEO / SO_SNDTIMEO, so 30 s is an
+        // outer fence; the future's destructor will still block until
+        // the task finishes, but the inner socket timeout bounds that
+        // wait to a few seconds beyond the outer deadline.
+        constexpr auto kInitDeadline = std::chrono::seconds(30);
         for (auto& [name, r] : resources_) {
-            r->value = r->fetcher();
+            auto fut = std::async(std::launch::async, [&r] {
+                return r->fetcher();
+            });
+            if (fut.wait_for(kInitDeadline) != std::future_status::ready) {
+                throw std::runtime_error(
+                    "resource: initial fetch of \"" + name +
+                    "\" timed out after " + std::to_string(kInitDeadline.count()) + "s");
+            }
+            r->value = fut.get();
             r->loaded = true;
             to_refresh.push_back(r.get());
         }
