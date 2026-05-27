@@ -1,0 +1,159 @@
+name: Nightly Cross-Runtime Benchmark
+
+on:
+  schedule:
+    - cron: "30 14 * * *"  # 22:30 UTC+8, after diff-fuzz starts
+  workflow_dispatch:
+    inputs:
+      sizes:
+        description: "DAG sizes (comma-separated)"
+        default: "5,15,50,100,200,500"
+      skip:
+        description: "Runtimes to skip (comma-separated)"
+        default: ""
+
+permissions:
+  actions: read
+
+jobs:
+  cross-runtime-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: pine-go/go.mod
+          cache-dependency-path: pine-go/go.sum
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
+
+      - name: Install hey
+        run: go install github.com/rakyll/hey@latest
+
+      - name: Install pine-python
+        run: pip install -e pine-python/
+
+      - name: Stop unneeded services for isolation
+        run: |
+          sudo systemctl stop mysql.service 2>/dev/null || true
+          sudo systemctl stop postgresql.service 2>/dev/null || true
+          sudo systemctl stop mono-xsp4.service 2>/dev/null || true
+          sudo systemctl stop docker.service 2>/dev/null || true
+          sudo systemctl stop snapd.service 2>/dev/null || true
+
+      - name: Download previous successful report
+        id: prev
+        run: |
+          PREV_RUN_ID=$(gh run list \
+            --workflow="nightly-benchmark.yml" \
+            --status=success \
+            -L1 --json databaseId -q '.[0].databaseId' 2>/dev/null || echo "")
+          if [ -n "$PREV_RUN_ID" ] && [ "$PREV_RUN_ID" != "null" ]; then
+            mkdir -p /tmp/bench_prev
+            ARTIFACT_NAME=$(gh api "repos/${{ github.repository }}/actions/runs/${PREV_RUN_ID}/artifacts" \
+              --jq '.artifacts[] | select(.name | startswith("cross-runtime-benchmark-")) | .name' \
+              | head -1)
+            if [ -n "$ARTIFACT_NAME" ]; then
+              gh run download "$PREV_RUN_ID" -n "$ARTIFACT_NAME" -D /tmp/bench_prev/ 2>/dev/null || true
+            fi
+            if [ -f /tmp/bench_prev/report.txt ]; then
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              echo "run_id=$PREV_RUN_ID" >> "$GITHUB_OUTPUT"
+            else
+              echo "found=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run cross-runtime benchmark
+        run: |
+          SIZES="${{ inputs.sizes || '5,15,50,100,200,500' }}"
+          SKIP="${{ inputs.skip || '' }}"
+          ARGS="--sizes $SIZES"
+          if [ -n "$SKIP" ]; then
+            ARGS="$ARGS --skip $SKIP"
+          fi
+          bash scripts/bench-cross-runtime.sh $ARGS \
+            2>&1 | tee bench-output.log
+
+      - name: Generate comparison report
+        if: steps.prev.outputs.found == 'true'
+        run: |
+          python3 scripts/bench-compare.py \
+            --prev /tmp/bench_prev/report.txt \
+            --curr /tmp/bench_cross_runtime/report.txt \
+            --output /tmp/bench_cross_runtime/comparison.txt
+
+      - name: Write benchmark summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Cross-Runtime Benchmark"
+            echo ""
+            if [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
+              echo "#### Delta vs previous run"
+              echo '```text'
+              cat /tmp/bench_cross_runtime/comparison.txt
+              echo '```'
+              echo ""
+            fi
+            echo "#### Full results"
+            echo '```text'
+            cat /tmp/bench_cross_runtime/report.txt 2>/dev/null || echo "No report generated"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cross-runtime-benchmark-${{ github.run_number }}
+          path: |
+            /tmp/bench_cross_runtime/report.txt
+            /tmp/bench_cross_runtime/comparison.txt
+            /tmp/bench_cross_runtime/phase*.txt
+          retention-days: 30
+
+      - name: Notify via Bark
+        if: always()
+        env:
+          BARK_KEY: ${{ secrets.BARK_DEVICE_KEY }}
+        run: |
+          if [ -z "$BARK_KEY" ]; then
+            echo "BARK_DEVICE_KEY not set, skipping notification"
+            exit 0
+          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
+            BODY=$(head -20 /tmp/bench_cross_runtime/comparison.txt)
+          elif [ -f /tmp/bench_cross_runtime/report.txt ]; then
+            BODY=$(grep -A 100 "Phase 3: Max throughput" /tmp/bench_cross_runtime/report.txt \
+              | grep -E "^\s+(go|java|python|cpp)" | head -8)
+          else
+            BODY="No report generated. Check logs."
+          fi
+          STATUS="${{ job.status }}"
+          TITLE="Benchmark ${STATUS}"
+          ENCODED_BODY=$(echo "$BODY" | python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))")
+          curl -sf "http://api.day.app/${BARK_KEY}/${TITLE}/${ENCODED_BODY}?url=${RUN_URL}&group=pineapple-ci" \
+            || echo "Bark notification failed (non-fatal)"
