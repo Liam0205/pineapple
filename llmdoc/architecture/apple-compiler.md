@@ -68,7 +68,7 @@ Apple 支持两种声明算子的方式。
 - 无静态类型要求
 - 算子名直接取自调用的属性名
 - 元数据 kwargs 和业务参数在运行时分离
-- `_add_op` 会提取引擎保留字段；`recall` 虽可传入但会被忽略并改由 `type_name` 前缀推导，`data_parallel` 则会被当作引擎级元数据保留在 `OpCall` 上，而不会混入业务 `params`
+- `_add_op` 会提取引擎保留字段；`recall` 虽可传入但会被忽略并改由 `type_name` 前缀推导，`data_parallel` 和 `strict_common` / `strict_item` 则会被当作引擎级元数据保留在 `OpCall` 上，而不会混入业务 `params`
 
 这是基线 API，也解释了为何 wheel 无需 `apple_generated/` 即可运行。
 
@@ -92,7 +92,8 @@ Apple 支持两种声明算子的方式。
 - `type_name`
 - 业务参数
 - 元数据字段（`common_input`、`common_output`、`item_input`、`item_output`）
-- 默认值
+- 默认值（`common_defaults`、`item_defaults`）
+- 字段模式覆盖（`strict_common`、`strict_item`）
 - 控制流字段如 `skip` 和 `for_branch_control`
 - merge 祖先（`sources`）
 - 引擎级 flags（`row_dependency`、`recall`、`data_parallel: int = 0`）
@@ -334,6 +335,8 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - `data_parallel`（仅当 `> 1` 时输出）
 - `item_defaults`
 - `common_defaults`
+- `strict_common`（仅当非空时输出）
+- `strict_item`（仅当非空时输出）
 - `debug`
 - 业务参数
 

@@ -120,3 +120,24 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 - 对未注册路径发送请求，验证 middleware 是否能拦截
 - 对比各运行时的公共 API surface（不只是内部实现）
 - 枚举 Server 级扩展点（add handler、wrap middleware、custom route），验证各运行时均暴露等价能力
+
+## 7. 声明→生效端到端路径校验
+
+当 Apple DSL 引入或修改声明侧字段（如 `strict_common`、`debug`），且该字段最终需要被运行时消费时，必须验证完整的声明→编译→运行时链路，而非仅验证编译产出的 JSON 格式正确。
+
+核心问题：Apple DSL 和运行时通过 JSON 解耦，一侧的键名变更不会导致另一侧编译失败——JSON 反序列化对未知键静默忽略。这意味着"Apple 产出的 JSON 在运行时是否被实际读取"需要显式验证。
+
+检查清单：
+
+1. **Apple DSL 侧**：`apple/base.py` 的 `OpCall` 字段名 → `apple/compiler.py` emit 的 JSON 键名 → `apple/flow.py` 的 `_add_op` meta_keys 集合，三处必须一致
+2. **运行时侧**：`pine-go/internal/config/types.go` 的 `OperatorConfig` JSON tag → `pine-go/internal/registry/registry.go` 的 `reservedKeys` → 各运行时等价实现，三处必须一致
+3. **Apple ↔ 运行时对齐**：Apple emit 的 JSON 键名必须与运行时读取的 JSON tag 完全匹配
+4. **hash 一致性**：`OpCall.unique_name()` 的语义元组中的字段必须与当前 OpCall 上实际有运行时语义的字段保持一致——已废弃的字段不应参与 hash，新增的字段必须加入 hash
+
+端到端验证方法：
+
+- 在 `apple/tests/test_e2e.py` 中编写 Apple DSL → 编译 JSON → Go 引擎执行的用例
+- 断言编译产物 JSON 包含正确的键名
+- 断言运行时行为符合声明语义（如 strict 字段传 nil → 运行时报错）
+
+教训来源：v0.9.0 将 InputFieldSpec 默认从 Strict 翻转为 Nullable，运行时 JSON 键从 `nullable_common`/`nullable_item` 改为 `strict_common`/`strict_item`，但 Apple DSL 侧未同步——编译器仍 emit 旧键名，运行时静默忽略，Strict 模式声明能力丧失。详见 `memory/reflections/v090-nullable-strict-apple-desync.md`。

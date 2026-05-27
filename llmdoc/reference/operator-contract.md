@@ -250,6 +250,17 @@ C++ 侧提供两种注册路径：
 - **Strict**（通过 `strict_common` / `strict_item` opt-in）：字段缺失或值为 nil → error。适用于算子逻辑无法处理 nil 的必需字段。
 - **Defaulted**（通过 `common_defaults` / `item_defaults`）：字段缺失或值为 nil → 替换为默认值。
 
+#### 字段模式 JSON 键 ↔ 各层字段映射
+
+| JSON 键 | Apple DSL（OpCall 字段） | pine-go（OperatorConfig） | pine-java | pine-python | pine-cpp |
+|---|---|---|---|---|---|
+| `strict_common` | `strict_common` | `StrictCommon` | `strictCommon` | `strict_common` | `strict_common` |
+| `strict_item` | `strict_item` | `StrictItem` | `strictItem` | `strict_item` | `strict_item` |
+| `common_defaults` | `common_defaults` | `CommonDefaults` | `commonDefaults` | `common_defaults` | `common_defaults` |
+| `item_defaults` | `item_defaults` | `ItemDefaults` | `itemDefaults` | `item_defaults` | `item_defaults` |
+
+当涉及字段模式相关的 JSON 键名变更时，必须同步检查此表中所有列。历史教训：v0.9.0 翻转默认模式时运行时完成迁移但 Apple DSL 侧遗漏，导致声明能力丧失（详见 `memory/reflections/v090-nullable-strict-apple-desync.md`）。
+
 ### Pine-C++ OperatorInput 投影层
 
 C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputFieldSpec 之上的 lazy read-only proxy。与 Go/Java/Python 的 eager map 构建不同，C++ 采用按需读取策略：

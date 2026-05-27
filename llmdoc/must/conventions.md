@@ -111,7 +111,8 @@ Pineapple 的持久测试模式分层为：
 2. 每个内置算子包的单元测试（Go / Java / Python / C++）
 3. 使用真实或仅测试用算子的 Go 引擎和集成测试
 4. Python DSL 测试，包括跨语言 JSON→Go 执行测试
-5. `scripts/cross-validate.sh` 多 section 跨运行时校验（具体覆盖以 `scripts/cross-validate/` 为准）
+5. Apple→运行时"声明→生效"端到端测试（`apple/tests/test_e2e.py`），验证 DSL 声明字段经编译 JSON 后被运行时实际消费（如 `strict_common` 传 nil → Go 引擎报错）
+6. `scripts/cross-validate.sh` 多 section 跨运行时校验（具体覆盖以 `scripts/cross-validate/` 为准）
 
 优先扩展最近的已有层，而非创建一次性测试风格。
 
@@ -213,6 +214,8 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 各运行时的 strict opt-in 字段在 JSON 配置中的位置：
 - `strict_common`：列在此列表中的 common 字段走 Strict 模式
 - `strict_item`：列在此列表中的 item 字段走 Strict 模式
+
+Apple DSL 侧通过 `_add_op` 或动态分发的 `strict_common=["field"]` / `strict_item=["field"]` kwargs 声明 Strict 模式。编译器将其作为 `OpCall.strict_common` / `OpCall.strict_item` 存储，并在步骤 4 以 `"strict_common"` / `"strict_item"` JSON 键输出。`unique_name()` 的语义元组包含这两个字段，因此 Strict 声明会影响自动生成的算子名。
 
 ## Operator-level debug 三态继承
 
