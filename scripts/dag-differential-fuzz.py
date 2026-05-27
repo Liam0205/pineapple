@@ -136,7 +136,7 @@ def gen_dag_config(rng: random.Random) -> tuple[dict, list[str]]:
                 op["consumes_row_set"] = True
 
     config = {
-        "_PINEAPPLE_VERSION": "0.9.0",
+        "_PINEAPPLE_VERSION": "0.9.1",
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": {},

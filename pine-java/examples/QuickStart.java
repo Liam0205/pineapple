@@ -46,7 +46,7 @@ public class QuickStart {
     // For this example, we inline a minimal config directly.
     // -------------------------------------------------------------------------
     private static final String PIPELINE_CONFIG = "{\n"
-            + "  \"_PINEAPPLE_VERSION\": \"0.9.0\",\n"
+            + "  \"_PINEAPPLE_VERSION\": \"0.9.1\",\n"
             + "  \"pipeline_config\": {\n"
             + "    \"operators\": {\n"
             + "      \"fetch_items\": {\n"

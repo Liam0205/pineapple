@@ -1,7 +1,7 @@
 {
   "name": "filter_condition removes all items — empty result",
   "config": {
-    "_PINEAPPLE_VERSION": "0.9.0",
+    "_PINEAPPLE_VERSION": "0.9.1",
     "pipeline_config": {
       "operators": {
         "remove_banned": {
