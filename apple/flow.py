@@ -98,7 +98,8 @@ class _FlowBase:
         # Separate metadata kwargs from business params
         meta_keys = {
             "name", "common_input", "common_output", "item_input", "item_output",
-            "item_defaults", "common_defaults", "sources", "debug",
+            "item_defaults", "common_defaults", "strict_common", "strict_item",
+            "sources", "debug",
         }
         meta = {}
         params = {}
@@ -125,6 +126,8 @@ class _FlowBase:
             item_output=meta.get("item_output", []),
             item_defaults=meta.get("item_defaults"),
             common_defaults=meta.get("common_defaults"),
+            strict_common=meta.get("strict_common", []),
+            strict_item=meta.get("strict_item", []),
             recall=is_recall,
             sources=meta.get("sources"),
             debug=meta.get("debug", False),

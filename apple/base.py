@@ -22,8 +22,8 @@ class OpCall:
     item_output: list[str] = field(default_factory=list)
     item_defaults: dict[str, Any] | None = None
     common_defaults: dict[str, Any] | None = None
-    nullable_common: list[str] = field(default_factory=list)
-    nullable_item: list[str] = field(default_factory=list)
+    strict_common: list[str] = field(default_factory=list)
+    strict_item: list[str] = field(default_factory=list)
     # Engine-level flags
     recall: bool = False
     sources: list[str] | None = None
@@ -57,8 +57,8 @@ class OpCall:
             tuple(self.item_output),
             repr(self.item_defaults),
             repr(self.common_defaults),
-            tuple(self.nullable_common),
-            tuple(self.nullable_item),
+            tuple(self.strict_common),
+            tuple(self.strict_item),
             self.recall,
             tuple(self.sources) if self.sources else (),
             tuple(self.skip) if self.skip else (),

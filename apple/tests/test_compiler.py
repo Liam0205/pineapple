@@ -376,6 +376,105 @@ class TestDefaultsAndDebug:
         assert "debug" not in op
 
 
+class TestStrictFields:
+    def test_strict_common_in_json(self):
+        flow = Flow(
+            name="strict_test",
+            common_input=["age", "name"],
+            common_output=["result"],
+        )
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["age", "name"],
+            common_output=["result"],
+            strict_common=["age"],
+            lua_script="function f() return age end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert op["strict_common"] == ["age"]
+        assert "nullable_common" not in op
+
+    def test_strict_item_in_json(self):
+        flow = Flow(
+            name="strict_item_test",
+            item_input=["price"],
+            item_output=["result"],
+        )
+        flow._add_op(
+            "transform_by_lua",
+            item_input=["price"],
+            item_output=["result"],
+            strict_item=["price"],
+            lua_script="function f() return price end",
+            function_for_item="f",
+            function_for_common="",
+        )
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert op["strict_item"] == ["price"]
+        assert "nullable_item" not in op
+
+    def test_no_strict_omitted(self):
+        flow = Flow(name="no_strict", common_input=["x"], common_output=["y"])
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["x"],
+            common_output=["y"],
+            lua_script="function f() return x end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert "strict_common" not in op
+        assert "strict_item" not in op
+        assert "nullable_common" not in op
+        assert "nullable_item" not in op
+
+    def test_strict_via_getattr(self):
+        """strict_common/strict_item work through flow.op(...) dynamic dispatch."""
+        flow = Flow(
+            name="getattr_strict",
+            common_input=["age"],
+            common_output=["result"],
+        )
+        flow.transform_by_lua(
+            common_input=["age"],
+            common_output=["result"],
+            strict_common=["age"],
+            lua_script="function f() return age end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        op = list(cfg["pipeline_config"]["operators"].values())[0]
+        assert op["strict_common"] == ["age"]
+
+    def test_strict_affects_unique_name(self):
+        """Adding strict_common changes the auto-generated operator name."""
+        from apple.base import OpCall
+
+        op_no_strict = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": "function f() return x end",
+                    "function_for_item": "f", "function_for_common": ""},
+            common_input=["x"],
+            common_output=["y"],
+        )
+        op_with_strict = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": "function f() return x end",
+                    "function_for_item": "f", "function_for_common": ""},
+            common_input=["x"],
+            common_output=["y"],
+            strict_common=["x"],
+        )
+        assert op_no_strict.unique_name() != op_with_strict.unique_name()
+
+
 class TestCodeInfo:
     def test_code_info_present(self):
         flow = Flow(name="codeinfo", common_input=["x"], common_output=["y"])

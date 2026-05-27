@@ -115,10 +115,10 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             entry["item_defaults"] = op.item_defaults
         if op.common_defaults:
             entry["common_defaults"] = op.common_defaults
-        if op.nullable_common:
-            entry["nullable_common"] = op.nullable_common
-        if op.nullable_item:
-            entry["nullable_item"] = op.nullable_item
+        if op.strict_common:
+            entry["strict_common"] = op.strict_common
+        if op.strict_item:
+            entry["strict_item"] = op.strict_item
         if op.debug:
             entry["debug"] = True
         if op.data_parallel > 1:
