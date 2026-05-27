@@ -871,6 +871,11 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     std::thread watcher;
     if (client_fd >= 0) {
       wake_fd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+      if (wake_fd < 0) {
+        client_fd = -1;
+      }
+    }
+    if (client_fd >= 0) {
       int wfd = wake_fd;
       watcher = std::thread([client_fd, wfd, &cancel_src]() {
         for (;;) {

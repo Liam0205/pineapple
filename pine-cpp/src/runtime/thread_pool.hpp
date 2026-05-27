@@ -18,9 +18,9 @@ namespace runtime {
 //
 // Intended for tasks that do NOT internally wait on the completion of other
 // tasks submitted to the same pool — such waits can deadlock when all workers
-// are stuck on inner futures. Data-parallel shards (parallel_execute) and
-// future request-thread reuse fit naturally; DAG node scheduling currently
-// uses per-node std::thread to avoid this hazard.
+// are stuck on inner futures. Data-parallel shards (parallel_execute) fit
+// naturally. DAG node scheduling uses a separate dedicated pool with a
+// ready-queue + eventfd wakeup to avoid this hazard.
 class ThreadPool {
  public:
   explicit ThreadPool(std::size_t worker_count);
