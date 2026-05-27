@@ -273,6 +273,10 @@ class SubFlow(_FlowBase):
     Optionally declares input/output field contracts and required resources
     for compile-time validation. All contract parameters are optional —
     existing SubFlows with only a name argument continue to work unchanged.
+
+    Note: ``required_resources`` is validated at compile time.
+    ``common_input``/``common_output``/``item_input``/``item_output`` are
+    currently stored as metadata only and not yet validated by the compiler.
     """
 
     def __init__(
