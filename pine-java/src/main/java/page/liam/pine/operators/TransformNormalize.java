@@ -2,6 +2,7 @@ package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
+import page.liam.pine.GoTypeNames;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 import page.liam.pine.OperatorParams;
@@ -63,17 +64,6 @@ public class TransformNormalize extends AbstractOperator {
         // Render Java types using Go reflection terminology so error messages
         // remain byte-identical with pine-{go,cpp,python}.
         throw new PineErrors.OperatorException(
-            "cannot convert " + goTypeName(v) + " to float64");
-    }
-
-    private static String goTypeName(Object v) {
-        if (v == null) return "<nil>";
-        if (v instanceof Boolean) return "bool";
-        if (v instanceof String) return "string";
-        if (v instanceof Integer || v instanceof Long) return "int";
-        if (v instanceof Float || v instanceof Double) return "float64";
-        if (v instanceof java.util.List) return "[]interface {}";
-        if (v instanceof java.util.Map) return "map[string]interface {}";
-        return v.getClass().getSimpleName();
+            "cannot convert " + GoTypeNames.of(v) + " to float64");
     }
 }
