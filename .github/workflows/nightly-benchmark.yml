@@ -131,7 +131,7 @@ jobs:
           path: |
             /tmp/bench_cross_runtime/report.txt
             /tmp/bench_cross_runtime/comparison.txt
-            /tmp/bench_cross_runtime/phase*.txt
+            /tmp/bench_cross_runtime/phase*.csv
           retention-days: 30
 
       - name: Notify via Bark

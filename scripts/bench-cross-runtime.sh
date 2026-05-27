@@ -220,27 +220,37 @@ stop_server() {
   fi
 }
 
+cleanup() {
+  for rt in "${RUNTIMES[@]}"; do
+    stop_server "$rt"
+  done
+}
+trap cleanup EXIT INT TERM
+
 parse_hey() {
-  local output="$1"
-  local qps p50 p90 p99 mean stddev
-
-  qps=$(echo "$output" | grep "Requests/sec:" | awk '{print $2}')
-  # hey format: "50%% in 0.0002 secs" (no leading spaces sometimes)
-  p50=$(echo "$output" | grep "50%" | awk '{print $3}')
-  p90=$(echo "$output" | grep "90%" | awk '{print $3}')
-  p99=$(echo "$output" | grep "99%" | awk '{print $3}')
-  mean=$(echo "$output" | grep -E "^\s+Average:" | awk '{print $2}')
-  # hey doesn't output stddev directly; compute from fastest/slowest as range indicator
-  local fastest slowest
-  fastest=$(echo "$output" | grep -E "^\s+Fastest:" | awk '{print $2}')
-  slowest=$(echo "$output" | grep -E "^\s+Slowest:" | awk '{print $2}')
-  if [[ -n "$fastest" && -n "$slowest" ]]; then
-    stddev=$(python3 -c "print(f'{(${slowest}-${fastest})/4:.6f}')" 2>/dev/null || echo "N/A")
-  else
-    stddev="N/A"
-  fi
-
-  echo "$qps|$mean|$stddev|$p50|$p90|$p99"
+  local csv_file="$1"
+  python3 -c "
+import csv, math, sys
+times, offsets = [], []
+with open(sys.argv[1]) as f:
+    for row in csv.DictReader(f):
+        times.append(float(row['response-time']))
+        offsets.append(float(row['offset']))
+if not times:
+    print('N/A|N/A|N/A|N/A|N/A|N/A')
+    sys.exit(0)
+n = len(times)
+wall = max(o + t for o, t in zip(offsets, times)) - min(offsets)
+qps = n / wall if wall > 0 else 0
+times.sort()
+mean = sum(times) / n
+var = sum((t - mean) ** 2 for t in times) / (n - 1) if n > 1 else 0
+stddev = math.sqrt(var)
+p50 = times[int(n * 0.50)]
+p90 = times[int(n * 0.90)]
+p99 = times[int(n * 0.99)]
+print(f'{qps:.4f}|{mean:.6f}|{stddev:.6f}|{p50:.6f}|{p90:.6f}|{p99:.6f}')
+" "$csv_file" 2>/dev/null || echo "N/A|N/A|N/A|N/A|N/A|N/A"
 }
 
 TABLE_HEADER="  %-8s %6s %10s %10s %10s %10s %10s %10s\n"
@@ -289,10 +299,11 @@ for n in "${DAG_SIZES[@]}"; do
     HEY_OUT=$(hey -n 1000 -c 1 -m POST \
       -H "Content-Type: application/json" \
       -d "$REQ_BODY" \
+      -o csv \
       "http://localhost:$port/execute" 2>&1)
 
-    echo "$HEY_OUT" > "$WORK_DIR/phase1_${rt}_${n}.txt"
-    METRICS=$(parse_hey "$HEY_OUT")
+    echo "$HEY_OUT" > "$WORK_DIR/phase1_${rt}_${n}.csv"
+    METRICS=$(parse_hey "$WORK_DIR/phase1_${rt}_${n}.csv")
     IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
     printf "  %-8s %6d %10s %10s %10s %10s %10s %10s\n" \
       "$rt" "$n" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
@@ -327,10 +338,11 @@ for n in "${DAG_SIZES[@]}"; do
     HEY_OUT=$(hey -n 15000 -q 10 -c 50 -m POST \
       -H "Content-Type: application/json" \
       -d "$REQ_BODY" \
+      -o csv \
       "http://localhost:$port/execute" 2>&1)
 
-    echo "$HEY_OUT" > "$WORK_DIR/phase2_${rt}_${n}.txt"
-    METRICS=$(parse_hey "$HEY_OUT")
+    echo "$HEY_OUT" > "$WORK_DIR/phase2_${rt}_${n}.csv"
+    METRICS=$(parse_hey "$WORK_DIR/phase2_${rt}_${n}.csv")
     IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
     printf "  %-8s %6d %10s %10s %10s %10s %10s %10s\n" \
       "$rt" "$n" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
@@ -365,10 +377,11 @@ for n in "${DAG_SIZES[@]}"; do
     HEY_OUT=$(hey -n 10000 -c 50 -m POST \
       -H "Content-Type: application/json" \
       -d "$REQ_BODY" \
+      -o csv \
       "http://localhost:$port/execute" 2>&1)
 
-    echo "$HEY_OUT" > "$WORK_DIR/phase3_${rt}_${n}.txt"
-    METRICS=$(parse_hey "$HEY_OUT")
+    echo "$HEY_OUT" > "$WORK_DIR/phase3_${rt}_${n}.csv"
+    METRICS=$(parse_hey "$WORK_DIR/phase3_${rt}_${n}.csv")
     IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
     printf "  %-8s %6d %10s %10s %10s %10s %10s %10s\n" \
       "$rt" "$n" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
@@ -381,7 +394,7 @@ echo >> "$REPORT"
 
 # ─── Summary ──────────────────────────────────────────────────────────
 {
-  echo "Raw hey output: $WORK_DIR/phase{1,2,3}_<runtime>_<nodes>.txt"
+  echo "Raw CSV data: $WORK_DIR/phase{1,2,3}_<runtime>_<nodes>.csv"
 } >> "$REPORT"
 
 info "Done. Report:"
