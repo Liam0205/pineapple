@@ -30,6 +30,7 @@ constexpr const char* kBadCopyConfig = R"({
       "bad": {
         "type_name": "transform_copy",
         "direction": "common_to_common",
+        "strict_common": ["a"],
         "$metadata": {
           "common_input": ["a"],
           "common_output": ["b"]

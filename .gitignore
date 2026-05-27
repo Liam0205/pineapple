@@ -53,3 +53,5 @@ pine-cpp/build/
 pine-cpp/build-asan/
 pine-cpp/build-tests/
 pine-cpp/build-werror/
+pine-cpp/build-lint/
+pine-cpp/build/

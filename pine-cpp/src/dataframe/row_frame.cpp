@@ -39,7 +39,7 @@ bool RowFrame::has_common(const std::string& field) const {
     std::shared_lock<std::shared_mutex> lk(mu_);
     const auto& src = view_common_ ? *view_common_ : common_;
     auto it = src.find(field);
-    return it != src.end() && !it->second.is_null();
+    return it != src.end();
 }
 
 void RowFrame::set_common(const std::string& field, JsonValue value) {
@@ -90,7 +90,7 @@ bool RowFrame::item_has(std::size_t index, const std::string& field) const {
         return false;
     }
     auto it = src[index].find(field);
-    return it != src[index].end() && !it->second.is_null();
+    return it != src[index].end();
 }
 
 std::vector<std::string> RowFrame::item_fields() const {
