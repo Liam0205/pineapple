@@ -541,7 +541,7 @@ class TestRenameControlFields:
         assert biz_op.skip == ["_L1::if_1"]
 
     def test_subflow_rename_updates_lua_script(self):
-        """Lua evaluate in else/elseif must reference namespaced field via _ENV."""
+        """Lua evaluate in else/elseif must reference namespaced field via _G."""
         from apple.base import OpCall
         from apple.compiler import _rename_control_fields
 
@@ -580,7 +580,7 @@ class TestRenameControlFields:
         _rename_control_fields(
             [ctrl_if, ctrl_else], [("op", 0), ("op", 1)], "my_sf"
         )
-        assert '_ENV["_my_sf::if_1"]' in ctrl_else.params["lua_script"]
+        assert '_G["_my_sf::if_1"]' in ctrl_else.params["lua_script"]
         assert "(_if_1)" not in ctrl_else.params["lua_script"]
 
     def test_nested_path_uses_double_colon(self):
@@ -689,3 +689,151 @@ class TestCollectExclusionGroups:
         assert len(groups) == 1
         assert "_L1::if_1" in groups[0]
         assert "_else_2" in groups[0]
+
+
+class TestUniqueNameStability:
+    """#31: unique_name must be stable across different code_info values
+    and sensitive to subflow_path differences."""
+
+    def test_same_op_different_code_info_same_name(self):
+        """Same operator config from different source locations must produce
+        the same unique_name, since code_info is excluded from the hash."""
+        from apple.base import OpCall
+
+        op1 = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": "function f() return x end",
+                    "function_for_item": "f", "function_for_common": ""},
+            item_input=["x"],
+            item_output=["y"],
+            code_info="file_a.py:10 in test(): .transform_by_lua(...)",
+        )
+        op2 = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": "function f() return x end",
+                    "function_for_item": "f", "function_for_common": ""},
+            item_input=["x"],
+            item_output=["y"],
+            code_info="file_b.py:99 in other(): .transform_by_lua(...)",
+        )
+        assert op1.unique_name() == op2.unique_name()
+
+    def test_same_op_no_code_info_same_name(self):
+        """An op with empty code_info and one with non-empty code_info
+        must still produce the same unique_name."""
+        from apple.base import OpCall
+
+        op1 = OpCall(
+            type_name="transform_copy",
+            params={"direction": "common_to_item"},
+            common_input=["tag"],
+            item_output=["tag"],
+            code_info="",
+        )
+        op2 = OpCall(
+            type_name="transform_copy",
+            params={"direction": "common_to_item"},
+            common_input=["tag"],
+            item_output=["tag"],
+            code_info="some_file.py:42 in build(): .transform_copy(...)",
+        )
+        assert op1.unique_name() == op2.unique_name()
+
+    def test_different_subflow_path_different_name(self):
+        """Same operator config placed in different SubFlow paths must
+        produce different unique_names."""
+        from apple.base import OpCall
+
+        op1 = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": "function f() return x end",
+                    "function_for_item": "f", "function_for_common": ""},
+            item_input=["x"],
+            item_output=["y"],
+            subflow_path="recall/candidates",
+        )
+        op2 = OpCall(
+            type_name="transform_by_lua",
+            params={"lua_script": "function f() return x end",
+                    "function_for_item": "f", "function_for_common": ""},
+            item_input=["x"],
+            item_output=["y"],
+            subflow_path="ranking/features",
+        )
+        assert op1.unique_name() != op2.unique_name()
+
+    def test_explicit_name_ignores_hash(self):
+        """When an explicit name is set, unique_name returns it directly."""
+        from apple.base import OpCall
+
+        op = OpCall(
+            type_name="transform_copy",
+            params={},
+            name="my_explicit_step",
+        )
+        assert op.unique_name() == "my_explicit_step"
+
+
+class TestSubFlowRequiredResources:
+    """#37: SubFlow required_resources must be validated against parent Flow."""
+
+    def test_missing_resource_raises(self):
+        """SubFlow declares required_resources not in parent Flow → error."""
+        from apple.validator import ValidationError
+
+        sf = SubFlow(
+            name="needs_feed",
+            required_resources=["feed_data"],
+        )
+        sf._add_op(
+            "transform_by_lua",
+            item_input=["x"],
+            item_output=["y"],
+            lua_script="function f() return x end",
+            function_for_item="f",
+            function_for_common="",
+        )
+
+        flow = Flow(
+            name="parent",
+            item_input=["x"],
+            item_output=["y"],
+            sub_flows=[sf],
+        )
+
+        with pytest.raises(ValidationError, match="requires resource.*feed_data"):
+            compile_flow(flow)
+
+    def test_declared_resource_passes(self):
+        """SubFlow declares required_resources that parent Flow has → OK."""
+        from apple.resource import BaseResource
+
+        class FakeResource(BaseResource):
+            resource_type = "fake"
+            interval = 60
+            params: dict = {}
+
+        sf = SubFlow(
+            name="needs_feed",
+            required_resources=["feed_data"],
+        )
+        sf._add_op(
+            "transform_resource_lookup",
+            item_input=["item_id"],
+            item_output=["item_feed"],
+            resource_name="feed_data",
+            lookup_key="item_id",
+            output_field="item_feed",
+        )
+
+        flow = Flow(
+            name="parent",
+            item_input=["item_id"],
+            item_output=["item_id", "item_feed"],
+            sub_flows=[sf],
+        )
+        flow.resource("feed_data", FakeResource())
+
+        # Should not raise
+        cfg = compile_flow(flow)
+        assert "pipeline_config" in cfg
