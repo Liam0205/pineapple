@@ -1,7 +1,7 @@
 {
   "name": "recall → lua scoring → sort → truncate (recommendation pipeline)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.9.1",
+    "_PINEAPPLE_VERSION": "0.9.2",
     "pipeline_config": {
       "operators": {
         "recall_candidates": {
