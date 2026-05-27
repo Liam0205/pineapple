@@ -4,7 +4,7 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / Python `__init__.py` / C++ `PINE_REGISTER_OPERATOR`）、版本同步（四处）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / Python `__init__.py` / C++ `PINE_REGISTER_OPERATOR`）、版本同步（五处，含 pine-cpp `kVersion`）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述、InputFieldSpec 三态模型（Nullable/Strict/Defaulted）、operator-level debug 三态继承。
 
 ## overview/
 
@@ -12,14 +12,14 @@
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、ExecutionError/PanicError 因果链（四运行时 cause chain parity）、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
-- `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、编译流水线、校验规则、控制流降级、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义（含 InputFieldSpec 三态模型：Nullable/Strict/Defaulted）、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入（含 debug nullable 三态继承）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、ExecutionError/PanicError 因果链（四运行时 cause chain parity）、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
+- `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、SubFlow 契约声明（`common_input`/`common_output`/`item_input`/`item_output`/`required_resources`）、编译流水线、校验规则、控制流降级（含 `_rename_field` Lua `_G[]` 语法处理）、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
 - `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时架构：作为完整第四运行时的定位、错误/fixture parity 契约、CLI 与 HTTP 入口（含 HTTP/1.1 keep-alive / read-header-timeout / idle-timeout / max-body-size / middleware / graceful shutdown / 客户端断连取消）、`metrics::Provider` 与 `resource::Manager` 对等、Frame 多态基类 + ColumnFrame/RowFrame 双物理实现（C++23）、Column 类型层级、`PINE_REGISTER_OPERATOR_T` 注册模型、ValidateOutput 类型约束、NaN/Inf 校验、PanicError stacktrace、外部 stop_token 取消、observe_log/pine-debug 日志。
 
 ## guides/
 
 - `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步。
-- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint / test / coverage / fuzz / differential-fuzz / cross-validate / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径）。
+- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint（含 Java checkstyle `failOnViolation=true` + `OneStatementPerLine`）/ test / coverage / fuzz / differential-fuzz / cross-validate / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则。
 - `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价）。
 
@@ -27,7 +27,7 @@
 
 - `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）。
 - `llmdoc/reference/apple-control-template-syntax.md` — Apple DSL 控制流条件参考：`if_` / `elseif_` 需要使用 `{{field_name}}` 模板语法显式标记字段引用，编译器据此提取依赖并在发射 Lua 前去掉模板标记。
-- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 子树 schema）、内置 HTTP metrics middleware（四运行时 default-on）、Prometheus 适配边界。
+- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-python/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 子树 schema）、内置 HTTP metrics middleware（四运行时 default-on）、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
 
 ## memory/

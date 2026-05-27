@@ -35,6 +35,11 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 - `Flow` — 带输入/输出契约、资源和可选 `storage_mode` / `log_prefix` / `debug` 的顶层声明
 - `SubFlow` — 无独立契约的可复用算子片段，可任意层级嵌套
 
+`SubFlow.__init__` 接受可选的契约声明参数：`common_input`、`common_output`、`item_input`、`item_output` 和 `required_resources`。这些声明不参与运行时（SubFlow 不是独立的执行单元），而是在 `compile()` 阶段供校验器使用：
+
+- `required_resources`：`compile()` 校验 SubFlow 内引用的 `resource_name` 必须在此列表中声明
+- `common_input` / `common_output` / `item_input` / `item_output`：为 SubFlow 声明输入输出契约，供未来校验扩展使用
+
 两者继承 `_FlowBase`。`_FlowBase` 现在同时维护：
 
 - `_ops` — 当前节点直挂的算子
@@ -176,6 +181,10 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 - 更深层嵌套路径会继续把路径信息编码进字段名前缀，确保不同子树中的控制字段不会碰撞
 
 这项前缀化只影响编译器生成的内部 common 字段名，不改变控制算子的公开命名规则：控制算子本身仍使用 `if_1`、`elseif_2`、`else_3` 这类显式 `OpCall.name`，而真正写入 frame 并供 skip 依赖引用的是带路径前缀的内部字段。
+
+### `_rename_field` 对 SubFlow 内 Lua 脚本的处理
+
+当控制字段被路径前缀化时，SubFlow 内的控制算子 Lua 脚本中的变量引用也需要同步更新。由于命名空间化后的字段名可能包含 `/` 等非法 Lua 标识符字符，`_rename_field` 使用 `_G["namespaced_field"]` 语法替换 Lua 脚本中的变量引用，而不是直接使用点号访问。例如，将 `_if_1` 替换为 `_G["_inner_if_1"]`。这确保重命名后的控制字段在 Lua 运行时可被正确访问。
 注意 `_parent_skips` 在 `add_subflow()` 声明期捕获的是原始字段名；compile traversal 时会先经 `_rename_control_fields(...)` 生成当前节点的字段映射，再由 skip 注入阶段把这些引用统一到重命名后的字段名，确保继承链路与最终 JSON 产物一致。
 ### 条件字段提取
 
@@ -291,7 +300,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 - 显式 `name=` 直接使用
 - 显式名必须全局唯一
-- 自动名使用 `{type_name}_{MD5[:6].upper()}`
+- 自动名使用 `{type_name}_{MD5[:6].upper()}`，其中 hash 输入为显式语义元组（排除 `code_info`），确保在不同源文件位置声明的相同语义算子获得相同名称
 - 自动名冲突时追加 `_N`
 
 这创建了后续所有阶段使用的有序命名序列。

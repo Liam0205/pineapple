@@ -155,6 +155,8 @@ C++ 侧提供两种注册路径：
 - `row_dependency`
 - `common_defaults`
 - `item_defaults`
+- `strict_common`
+- `strict_item`
 - `for_branch_control`
 - `data_parallel`
 
@@ -241,6 +243,12 @@ C++ 侧提供两种注册路径：
 - `ItemKeys(index)`
 
 不要假设完整 frame 或任意未声明字段存在；输入从声明的元数据投影。
+
+字段访问遵循 InputFieldSpec 三态模型：
+
+- **Nullable**（默认）：字段缺失 → error；值为 nil → 透传 nil 给算子。大多数字段的默认行为。
+- **Strict**（通过 `strict_common` / `strict_item` opt-in）：字段缺失或值为 nil → error。适用于算子逻辑无法处理 nil 的必需字段。
+- **Defaulted**（通过 `common_defaults` / `item_defaults`）：字段缺失或值为 nil → 替换为默认值。
 
 ### Pine-C++ OperatorInput 投影层
 

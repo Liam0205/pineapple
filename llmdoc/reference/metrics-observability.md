@@ -28,7 +28,8 @@
 
 ### pine-java / pine-python
 
-- 参考各自 `Registry` / `pine.metrics` 模块；同名指标与桶通过 cross-validate metrics-parity section 保证一致
+- pine-java: 参考 `Registry` / `metrics/Provider.java` 模块；同名指标与桶通过 cross-validate metrics-parity section 保证一致
+- pine-python: `pine-python/pine/engine_metrics.py` 提供完整的 `EngineMetrics` 实现，与 Go/Java/C++ 对等（含算子级、DAG 级、调度器级指标预创建和热路径记录）；同名指标与桶通过 cross-validate metrics-parity section 保证一致
 
 ## 设计目标
 
@@ -136,7 +137,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 
 - `pine_dag_executions_total{status=success|error}` — DAG 执行总次数，按成功/失败分标签
 - `pine_dag_execution_duration_seconds` — 单次 DAG 执行端到端耗时
-- `pine_dag_operators_executed` — 每次 DAG 执行中实际运行（非跳过、非取消）的算子数
+- `pine_dag_operators_executed` — 每次 DAG 执行中实际运行（非跳过、非取消）的算子数（histogram，16 个 bucket：1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 75, 100, 150, 200, 500）
 
 DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度开始到所有算子完成的完整区间；`status` 标签由是否有 fatal error 决定；`operators_executed` 只计入 `!Skipped` 的 trace 条目。
 

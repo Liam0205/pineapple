@@ -48,7 +48,7 @@ Go 的 blank import 是标准的聚合机制。`pine-go/operators/all.go` 使得
 
 当二进制文件或测试依赖内置算子时，先检查 blank import、`ensureRegistered()` 调用、Python 包导入或 C++ 静态库链接。
 
-## 版本同步跨四组文件
+## 版本同步跨五组文件
 
 Pineapple 版本号在以下位置有意同步：
 
@@ -56,11 +56,12 @@ Pineapple 版本号在以下位置有意同步：
 - `pine-java/pom.xml`
 - `pine-python/pyproject.toml`
 - `apple/_version.py`
+- `pine-cpp/include/pine/pine.hpp`（`kVersion` 常量）
 - 包含 `_PINEAPPLE_VERSION` 的 JSON fixture，包括 `pipeline.json` 和 `pine-go/testdata/` 中的文件
 
-`scripts/bump-version.sh` 是保持对齐的标准路径。仅修改一侧语言常量的版本升级是不完整的。
+`scripts/bump-version.sh` 是保持对齐的标准路径，已覆盖第五处 C++ 版本常量。仅修改一侧语言常量的版本升级是不完整的。
 
-`scripts/tag-release.sh` 是创建双 tag 的标准路径，自动校验四处版本源一致后创建 `vX.Y.Z` + `pine-go/vX.Y.Z` tag 并推送。
+`scripts/tag-release.sh` 是创建双 tag 的标准路径，自动校验五处版本源一致后创建 `vX.Y.Z` + `pine-go/vX.Y.Z` tag 并推送。
 
 ## 生成代码必须保持最新
 
@@ -118,7 +119,7 @@ Pineapple 的持久测试模式分层为：
 
 - Go 使用 `golangci-lint`，配置位于 `pine-go/.golangci.yml`
 - Python（apple + pine-python）使用 `ruff`，配置位于 `pyproject.toml` 的 `[tool.ruff]`
-- Java 使用 `checkstyle`（自定义 `pine-java/checkstyle.xml`，4-space indent）
+- Java 使用 `checkstyle`（自定义 `pine-java/checkstyle.xml`，4-space indent，`failOnViolation=true`），包含 `OneStatementPerLine` 规则强制每行最多一条语句
 - C++ 使用 `-Werror` 严格构建作为 lint 等价（CI 中的 `cpp-lint` job）
 
 关键输入边界应补 Go native fuzz 测试，优先覆盖 JSON/配置解析、DAG 构建等高扇出入口。C++ 端的内存与并发错误由 ASan/UBSan 与 doctest 测试套件兜底（`cpp-sanitizer` / `cpp-test` job）。
@@ -198,6 +199,31 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 各运行时（pine-go / pine-java / pine-python / pine-cpp）的 HTTP server 必须**无条件**注入 `http_metrics_middleware`（含 `HttpStats` 累加器作为第二写入路径），不得要求用户显式 opt-in。`metrics_provider` 为 null 时自动 tie-off 至 `NopProvider`，middleware 链与外部观测语义保持各方字节一致。
 
 理由：R2 后续审计（2026-05-23）发现 pine-java 此前是 conditional 接入，pine-python 完全缺失，与 R2 时 pine-cpp 的 conditional 状态同型。本约定收口"各方装配条件统一"，由 Section 13 schema shape 检查长期监管。
+
+## InputFieldSpec 三态模型（默认 Nullable 字段模式）
+
+各运行时的 `InputFieldSpec`（或等价的字段访问策略）遵循三态模型，控制算子输入构建时对字段缺失/nil 的处理行为：
+
+- **Nullable**（默认）：字段缺失 → 返回 error（字段必须存在于 frame 中）；字段存在但值为 nil → 透传 nil 给算子。这是所有字段的默认行为。
+- **Strict**：字段缺失或值为 nil → 均返回 error。通过 JSON 配置中的 `strict_common` / `strict_item` 字段列表 opt-in。
+- **Defaulted**：字段缺失或值为 nil → 替换为默认值。通过 `common_defaults` / `item_defaults` 配置（不变）。
+
+该模型的核心变更是默认行为从 Strict 改为 Nullable：算子在未声明 strict 的情况下，收到 nil 值时不再报错，而是将 nil 透传。这使得"字段存在但值为空"成为合法的业务语义，减少了不必要的运行时错误。
+
+各运行时的 strict opt-in 字段在 JSON 配置中的位置：
+- `strict_common`：列在此列表中的 common 字段走 Strict 模式
+- `strict_item`：列在此列表中的 item 字段走 Strict 模式
+
+## Operator-level debug 三态继承
+
+各运行时的逐算子 `debug` 配置采用 nullable 三态语义：
+
+- Go: `*bool`
+- Java: `Boolean`（装箱类型）
+- Python: `Optional[bool]`
+- C++: `std::optional<bool>`
+
+未设置时（nil/null/None/nullopt），算子继承 flow-level 全局 debug 设置；显式设置 `true` 或 `false` 时，覆盖全局值。这替代了旧版"全局 debug 单向传播覆写所有算子"的行为，使单个算子可以在全局 debug 开启时显式关闭自身的 debug，或在全局 debug 关闭时单独开启。
 
 ## ExecutionError/PanicError 必须保留 cause chain
 
