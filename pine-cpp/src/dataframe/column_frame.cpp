@@ -134,7 +134,7 @@ bool ColumnFrame::has_common(const std::string& field) const {
     std::shared_lock<std::shared_mutex> lk(mu_);
     const auto& src = view_common_ ? *view_common_ : common_;
     auto it = src.find(field);
-    return it != src.end() && !it->second.is_null();
+    return it != src.end();
 }
 
 void ColumnFrame::set_common(const std::string& field, JsonValue value) {
@@ -186,7 +186,7 @@ bool ColumnFrame::item_has(std::size_t index, const std::string& field) const {
     }
     const Column* col = store->column(field);
     if (!col) return false;
-    return !col->is_null(index);
+    return col->is_present(index);
 }
 
 std::vector<std::string> ColumnFrame::item_fields() const {
