@@ -545,18 +545,33 @@ class TestRenameControlFields:
         from apple.base import OpCall
         from apple.compiler import _rename_control_fields
 
+        lua_if = (
+            "function evaluate() if (flag == true) "
+            "then return false else return true end end"
+        )
+        lua_else = (
+            "function evaluate() if ((_if_1)) "
+            "then return false else return true end end"
+        )
+
         ctrl_if = OpCall(
             type_name="transform_by_lua",
-            params={"lua_script": 'function evaluate() if (flag == true) then return false else return true end end',
-                    "function_for_common": "evaluate", "function_for_item": ""},
+            params={
+                "lua_script": lua_if,
+                "function_for_common": "evaluate",
+                "function_for_item": "",
+            },
             common_output=["_if_1"],
             for_branch_control=True,
             name="if_1",
         )
         ctrl_else = OpCall(
             type_name="transform_by_lua",
-            params={"lua_script": 'function evaluate() if ((_if_1)) then return false else return true end end',
-                    "function_for_common": "evaluate", "function_for_item": ""},
+            params={
+                "lua_script": lua_else,
+                "function_for_common": "evaluate",
+                "function_for_item": "",
+            },
             common_input=["_if_1"],
             common_output=["_else_2"],
             for_branch_control=True,
