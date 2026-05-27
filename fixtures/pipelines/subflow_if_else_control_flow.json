@@ -1,0 +1,121 @@
+{
+  "name": "SubFlow if/else control flow with namespaced fields",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.8.0",
+    "pipeline_config": {
+      "operators": {
+        "my_sf::if_1": {
+          "type_name": "transform_by_lua",
+          "$metadata": {
+            "common_input": ["score_threshold"],
+            "common_output": ["_my_sf::if_1"],
+            "item_input": [],
+            "item_output": []
+          },
+          "for_branch_control": true,
+          "lua_script": "function evaluate() if (score_threshold > 50) then return false else return true end end",
+          "function_for_item": "",
+          "function_for_common": "evaluate"
+        },
+        "label_high_low": {
+          "type_name": "transform_by_lua",
+          "$metadata": {
+            "common_input": ["_my_sf::if_1", "score_threshold"],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": ["item_label"]
+          },
+          "skip": ["_my_sf::if_1"],
+          "lua_script": "function label() if item_score >= score_threshold then return \"high\" else return \"low\" end end",
+          "function_for_item": "label",
+          "function_for_common": ""
+        },
+        "my_sf::else_2": {
+          "type_name": "transform_by_lua",
+          "$metadata": {
+            "common_input": ["_my_sf::if_1"],
+            "common_output": ["_my_sf::else_2"],
+            "item_input": [],
+            "item_output": []
+          },
+          "for_branch_control": true,
+          "lua_script": "function evaluate() if ((_G[\"_my_sf::if_1\"])) then return false else return true end end",
+          "function_for_item": "",
+          "function_for_common": "evaluate"
+        },
+        "label_default": {
+          "type_name": "transform_by_lua",
+          "$metadata": {
+            "common_input": ["_my_sf::else_2"],
+            "common_output": [],
+            "item_input": ["item_score"],
+            "item_output": ["item_label"]
+          },
+          "skip": ["_my_sf::else_2"],
+          "lua_script": "function fallback() return \"default\" end",
+          "function_for_item": "fallback",
+          "function_for_common": ""
+        }
+      },
+      "pipeline_map": {
+        "my_sf": {
+          "pipeline": [
+            "my_sf::if_1",
+            "label_high_low",
+            "my_sf::else_2",
+            "label_default"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["my_sf"]
+      }
+    },
+    "flow_contract": {
+      "common_input": ["score_threshold"],
+      "item_input": ["item_score"],
+      "common_output": [],
+      "item_output": ["item_score", "item_label"]
+    }
+  },
+  "cases": [
+    {
+      "name": "if branch active (score_threshold > 50): labels by score comparison",
+      "request": {
+        "common": {"score_threshold": 80},
+        "items": [
+          {"item_score": 90},
+          {"item_score": 70},
+          {"item_score": 50}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_score": 90, "item_label": "high"},
+          {"item_score": 70, "item_label": "low"},
+          {"item_score": 50, "item_label": "low"}
+        ]
+      }
+    },
+    {
+      "name": "else branch active (score_threshold <= 50): all get default label",
+      "request": {
+        "common": {"score_threshold": 30},
+        "items": [
+          {"item_score": 100},
+          {"item_score": 10}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_score": 100, "item_label": "default"},
+          {"item_score": 10, "item_label": "default"}
+        ]
+      }
+    }
+  ]
+}
