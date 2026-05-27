@@ -42,9 +42,9 @@
 - Go 侧算子调用 `pine.Register(...)`，资源调用 `pine.RegisterResource(...)`
 - Java 侧在 `AllOperators.java` 的 static initializer 中调用 `Registry.register(...)`
 - Python 引擎侧在 `pine-python/pine/operators/__init__.py` 中注册全部内置算子
-- C++ 侧通过 **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏**（首选）在每个 `operators/<category>/<name>.cpp` 中 static init 注册——编译期 `OperatorTraits<T>` 解析标记位，跳过 `dynamic_cast` probe。旧 `PINE_REGISTER_OPERATOR(SCHEMA, FACTORY)` 宏仍可用但非首选。资源 fetcher 通过 `pine::resource::register_fetcher_factory(type, factory)` 注册
+- C++ 侧通过 **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏**在每个 `operators/<category>/<name>.cpp` 中 static init 注册——编译期 `OperatorTraits<T>` 解析标记位，跳过 `dynamic_cast` probe。资源 fetcher 通过 `pine::resource::register_fetcher_factory(type, factory)` 注册
 
-Go 的 blank import 是标准的聚合机制。`pine-go/operators/all.go` 使得 `pine-go/cmd/pineapple-server/main.go` 和 `pine-go/cmd/pineapple-codegen/main.go` 等入口点可通过 import 副作用注册全部内置算子。Java 侧通过 `AllOperators.ensureRegistered()` 触发类加载。C++ 侧的内置算子被 CMake 链接进 `pine_operators` 静态库，所有可执行入口都依赖该库以触发 static init 注册。新增 C++ 算子时应使用 `PINE_REGISTER_OPERATOR_T(Type, schema)` 而非 `PINE_REGISTER_OPERATOR(schema, factory)`。
+Go 的 blank import 是标准的聚合机制。`pine-go/operators/all.go` 使得 `pine-go/cmd/pineapple-server/main.go` 和 `pine-go/cmd/pineapple-codegen/main.go` 等入口点可通过 import 副作用注册全部内置算子。Java 侧通过 `AllOperators.ensureRegistered()` 触发类加载。C++ 侧的内置算子被 CMake 链接进 `pine_operators` 静态库，所有可执行入口都依赖该库以触发 static init 注册。新增 C++ 算子时使用 `PINE_REGISTER_OPERATOR_T(Type, schema)` 宏。
 
 当二进制文件或测试依赖内置算子时，先检查 blank import、`ensureRegistered()` 调用、Python 包导入或 C++ 静态库链接。
 

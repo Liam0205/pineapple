@@ -103,10 +103,9 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
 - **算子框架**
   - `pine::Operator` 基类（`init` + `execute(const OperatorInput&, OperatorOutput&)`）
   - marker 类型 `ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` / `ConcurrentSafe`
-  - `OperatorTraits<T>` 编译期 `std::is_base_of_v` 标记检查，替代注册时的 `dynamic_cast` probe
-  - `register_operator(schema, factory)` API + `PINE_REGISTER_OPERATOR` 宏（legacy，仍可用）
-  - `register_operator_typed<T>(schema)` API + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏（首选）**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
-  - 17 个内置算子已全部迁移到 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`
+  - `OperatorTraits<T>` 编译期 `std::is_base_of_v` 标记检查
+  - `register_operator_with_traits(schema, factory, ...)` 底层 API + `register_operator_typed<T>(schema)` 模板 + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
+  - 17 个内置算子均使用 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`
   - `observe_log` 完整实现（R3-L8）：init 读取 metadata 字段列表和 `log_prefix`，execute 构造 `{common, items}` snapshot 后 `dump_json(value, 0)` 紧凑输出到 stderr。`dump_json(value, 0)` 紧凑模式（R13-1）抑制所有 `\n` / 缩进 / 冒号后空格，与 Go `json.Marshal` 格式对齐
   - `[pine-debug]` stderr 日志（R3-L6）：debug=true 的算子在 execute 后、apply_output 前输出 `operator/duration/input_size/output_size/input/output` 单行日志
   - `inline constexpr const char* kVersion = "0.8.0"`（R3-L2）：编译期版本常量，对齐 Go `const Version`
@@ -195,7 +194,7 @@ cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 c
 ### 9. 扩展机制
 
 - 与现有运行时一致，采用 **编译时注册**（schema + factory）
-- C++ 侧通过 `pine::register_operator(schema, factory)` 与 `PINE_REGISTER_OPERATOR(SCHEMA, FACTORY)` 宏完成 static init 注册；每个内置算子位于 `operators/<category>/<name>.cpp`
+- C++ 侧通过 `PINE_REGISTER_OPERATOR_T(Type, schema)` 宏完成 static init 注册；每个内置算子位于 `operators/<category>/<name>.cpp`
 - 业务侧资源 fetcher 通过 `pine::resource::register_fetcher_factory(type_name, factory)` 注册，`Manager::load_from_config(...)` 据此实例化
 - Lua 作为轻量级脚本扩展口
 - 不在第一阶段引入 `.so/.dll` 动态插件 ABI

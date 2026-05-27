@@ -4,7 +4,7 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / Python `__init__.py` / C++ `PINE_REGISTER_OPERATOR`）、版本同步（五处，含 pine-cpp `kVersion`）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述、InputFieldSpec 三态模型（Nullable/Strict/Defaulted）、operator-level debug 三态继承。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / Python `__init__.py` / C++ `PINE_REGISTER_OPERATOR_T`）、版本同步（五处，含 pine-cpp `kVersion`）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述、InputFieldSpec 三态模型（Nullable/Strict/Defaulted）、operator-level debug 三态继承。
 
 ## overview/
 
