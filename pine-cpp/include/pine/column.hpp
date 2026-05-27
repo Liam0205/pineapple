@@ -32,63 +32,74 @@ const char* column_type_name(ColumnType t);
 // write into a typed column) return false; the caller is expected to
 // promote the column to a JsonColumn first via to_json_column().
 class Column {
-public:
-    virtual ~Column() = default;
+ public:
+  virtual ~Column() = default;
 
-    virtual ColumnType type() const = 0;
-    virtual std::size_t size() const = 0;
-    // is_null is the user-facing "value at i is nil" predicate. Returns
-    // true when the slot is ABSENT or when the stored value is JsonValue
-    // null (only possible on JsonColumn).
-    virtual bool is_null(std::size_t i) const = 0;
-    // is_present reflects the raw presence bit: true iff the row
-    // explicitly wrote this field (the written value may itself be null
-    // for JsonColumn).
-    virtual bool is_present(std::size_t i) const = 0;
-    virtual JsonValue get(std::size_t i) const = 0;
+  virtual ColumnType type() const = 0;
+  virtual std::size_t size() const = 0;
+  // is_null is the user-facing "value at i is nil" predicate. Returns
+  // true when the slot is ABSENT or when the stored value is JsonValue
+  // null (only possible on JsonColumn).
+  virtual bool is_null(std::size_t i) const = 0;
+  // is_present reflects the raw presence bit: true iff the row
+  // explicitly wrote this field (the written value may itself be null
+  // for JsonColumn).
+  virtual bool is_present(std::size_t i) const = 0;
+  virtual JsonValue get(std::size_t i) const = 0;
 
-    virtual bool set(std::size_t i, const JsonValue& v) = 0;
-    virtual bool append(const JsonValue& v) = 0;
-    virtual void append_null() = 0;
-    virtual void remove(const std::set<int>& indices) = 0;
-    virtual void reorder(const std::vector<int>& order) = 0;
+  virtual bool set(std::size_t i, const JsonValue& v) = 0;
+  virtual bool append(const JsonValue& v) = 0;
+  virtual void append_null() = 0;
+  virtual void remove(const std::set<int>& indices) = 0;
+  virtual void reorder(const std::vector<int>& order) = 0;
 
-    virtual std::unique_ptr<Column> clone() const = 0;
-    // Materialize this column as an equivalent JsonColumn (used when a
-    // type-incompatible value or a present-null forces promotion).
-    virtual std::unique_ptr<Column> to_json_column() const = 0;
+  virtual std::unique_ptr<Column> clone() const = 0;
+  // Materialize this column as an equivalent JsonColumn (used when a
+  // type-incompatible value or a present-null forces promotion).
+  virtual std::unique_ptr<Column> to_json_column() const = 0;
 };
 
 // TypedColumn<T> stores fixed-width scalar data with a parallel validity
 // bitmap. Specialized for int64_t, double, std::string, bool.
 template <typename T>
 class TypedColumn final : public Column {
-public:
-    TypedColumn() = default;
-    explicit TypedColumn(std::size_t n) : data_(n), validity_(n, false) {}
+ public:
+  TypedColumn() = default;
+  explicit TypedColumn(std::size_t n) : data_(n), validity_(n, false) {
+  }
 
-    ColumnType type() const override;
-    std::size_t size() const override { return data_.size(); }
-    bool is_null(std::size_t i) const override { return i >= validity_.size() || !validity_[i]; }
-    bool is_present(std::size_t i) const override { return i < validity_.size() && validity_[i]; }
-    JsonValue get(std::size_t i) const override;
+  ColumnType type() const override;
+  std::size_t size() const override {
+    return data_.size();
+  }
+  bool is_null(std::size_t i) const override {
+    return i >= validity_.size() || !validity_[i];
+  }
+  bool is_present(std::size_t i) const override {
+    return i < validity_.size() && validity_[i];
+  }
+  JsonValue get(std::size_t i) const override;
 
-    bool set(std::size_t i, const JsonValue& v) override;
-    bool append(const JsonValue& v) override;
-    void append_null() override;
-    void remove(const std::set<int>& indices) override;
-    void reorder(const std::vector<int>& order) override;
+  bool set(std::size_t i, const JsonValue& v) override;
+  bool append(const JsonValue& v) override;
+  void append_null() override;
+  void remove(const std::set<int>& indices) override;
+  void reorder(const std::vector<int>& order) override;
 
-    std::unique_ptr<Column> clone() const override;
-    std::unique_ptr<Column> to_json_column() const override;
+  std::unique_ptr<Column> clone() const override;
+  std::unique_ptr<Column> to_json_column() const override;
 
-    // Direct access for testing / typed paths.
-    const std::vector<T>& data() const { return data_; }
-    const std::vector<bool>& validity() const { return validity_; }
+  // Direct access for testing / typed paths.
+  const std::vector<T>& data() const {
+    return data_;
+  }
+  const std::vector<bool>& validity() const {
+    return validity_;
+  }
 
-private:
-    std::vector<T> data_;
-    std::vector<bool> validity_;
+ private:
+  std::vector<T> data_;
+  std::vector<bool> validity_;
 };
 
 using Int64Column = TypedColumn<int64_t>;
@@ -107,37 +118,44 @@ using BoolColumn = TypedColumn<bool>;
 // natively, so the precision loss is symmetric across runtimes; this helper
 // is the pine-cpp-only seam for diagnosing the boundary.
 constexpr bool int64_lossy_as_double(int64_t v) {
-    constexpr int64_t k = static_cast<int64_t>(1) << 53;
-    return v > k || v < -k;
+  constexpr int64_t k = static_cast<int64_t>(1) << 53;
+  return v > k || v < -k;
 }
 
 // JsonColumn is the heterogeneous fallback: data stored as JsonValue.
 // All set/append operations succeed regardless of value type.
 class JsonColumn final : public Column {
-public:
-    JsonColumn() = default;
-    explicit JsonColumn(std::size_t n) : data_(n), validity_(n, false) {}
+ public:
+  JsonColumn() = default;
+  explicit JsonColumn(std::size_t n) : data_(n), validity_(n, false) {
+  }
 
-    ColumnType type() const override { return ColumnType::Json; }
-    std::size_t size() const override { return data_.size(); }
-    bool is_null(std::size_t i) const override {
-        return i >= validity_.size() || !validity_[i] || data_[i].is_null();
-    }
-    bool is_present(std::size_t i) const override { return i < validity_.size() && validity_[i]; }
-    JsonValue get(std::size_t i) const override;
+  ColumnType type() const override {
+    return ColumnType::Json;
+  }
+  std::size_t size() const override {
+    return data_.size();
+  }
+  bool is_null(std::size_t i) const override {
+    return i >= validity_.size() || !validity_[i] || data_[i].is_null();
+  }
+  bool is_present(std::size_t i) const override {
+    return i < validity_.size() && validity_[i];
+  }
+  JsonValue get(std::size_t i) const override;
 
-    bool set(std::size_t i, const JsonValue& v) override;
-    bool append(const JsonValue& v) override;
-    void append_null() override;
-    void remove(const std::set<int>& indices) override;
-    void reorder(const std::vector<int>& order) override;
+  bool set(std::size_t i, const JsonValue& v) override;
+  bool append(const JsonValue& v) override;
+  void append_null() override;
+  void remove(const std::set<int>& indices) override;
+  void reorder(const std::vector<int>& order) override;
 
-    std::unique_ptr<Column> clone() const override;
-    std::unique_ptr<Column> to_json_column() const override;
+  std::unique_ptr<Column> clone() const override;
+  std::unique_ptr<Column> to_json_column() const override;
 
-private:
-    std::vector<JsonValue> data_;
-    std::vector<bool> validity_;
+ private:
+  std::vector<JsonValue> data_;
+  std::vector<bool> validity_;
 };
 
 // make_column scans `values` and returns the best-fitting Column:

@@ -1,7 +1,7 @@
 #pragma once
-#include "pine/pine.hpp"
-#include "pine/operator_input.hpp"
 #include "pine/column_frame.hpp"
+#include "pine/operator_input.hpp"
+#include "pine/pine.hpp"
 
 #include <cstdint>
 #include <string>
@@ -14,8 +14,8 @@ using Frame = pine::Frame;
 
 // Exception type for operator-internal errors (converted to ExecutionError by caller).
 class OperatorError : public std::runtime_error {
-public:
-    using std::runtime_error::runtime_error;
+ public:
+  using std::runtime_error::runtime_error;
 };
 
 double to_double(const JsonValue& value);
@@ -29,19 +29,18 @@ double to_double(const JsonValue& value);
 std::string json_type_name(const JsonValue& value);
 
 JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field);
-JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t index, const std::string& field);
+JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t index,
+                       const std::string& field);
 
 // Variants that take the operator name + defaults map directly. Operators
 // that cached `op_name_` / `common_defaults_` / `item_defaults_` on `init`
 // (transform_copy, transform_normalize, reorder_sort, ...) used to keep a
 // per-class copy of these helpers; consolidated to one place so future
 // error-message tweaks land once.
-JsonValue require_common_by_name(const Frame& frame,
-                                  const std::map<std::string, JsonValue>& defaults,
-                                  const std::string& field);
+JsonValue require_common_by_name(const Frame& frame, const std::map<std::string, JsonValue>& defaults,
+                                 const std::string& field);
 JsonValue require_item_by_name(const Frame& frame, std::size_t index,
-                                const std::map<std::string, JsonValue>& defaults,
-                                const std::string& field);
+                               const std::map<std::string, JsonValue>& defaults, const std::string& field);
 
 std::string go_format_g(double d);
 // go_format_lookup_key mirrors pine-go transform/resource_lookup.go:91-96:
@@ -58,14 +57,14 @@ std::string build_key_suffix(const OperatorInput& input, const std::vector<std::
 std::vector<std::string> json_to_string_slice(const JsonValue& v);
 
 struct RedisParams {
-    std::string host;
-    int port = 6379;
-    std::string password;
-    int db = 0;
-    std::string key_prefix;
-    std::string data_type = "string";
-    int ttl = 0;
-    bool fail_on_error = false;
+  std::string host;
+  int port = 6379;
+  std::string password;
+  int db = 0;
+  std::string key_prefix;
+  std::string data_type = "string";
+  int ttl = 0;
+  bool fail_on_error = false;
 };
 
 RedisParams parse_redis_params(const OperatorConfig& op);

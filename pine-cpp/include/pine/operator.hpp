@@ -1,8 +1,9 @@
 #pragma once
-#include "pine/pine.hpp"
 #include "pine/column_frame.hpp"
 #include "pine/frame.hpp"
 #include "pine/metrics.hpp"
+#include "pine/pine.hpp"
+
 #include <functional>
 #include <map>
 #include <memory>
@@ -31,18 +32,18 @@ struct ConcurrentSafe {};
 // Engine injects the configured metrics::Provider after init() but before
 // the first execute() call (matches pine-go pine.go:170 ordering).
 class MetricsAware {
-public:
-    virtual ~MetricsAware() = default;
-    virtual void set_metrics_provider(metrics::Provider* provider) = 0;
+ public:
+  virtual ~MetricsAware() = default;
+  virtual void set_metrics_provider(metrics::Provider* provider) = 0;
 };
 
 // StatsProvider mirrors pine-go's types.StatsProvider optional interface.
 // Operators that expose internal counters/gauges for the /stats endpoint
 // implement this. The Engine polls OperatorStats() during stats collection.
 class StatsProvider {
-public:
-    virtual ~StatsProvider() = default;
-    virtual std::map<std::string, int64_t> operator_stats() const = 0;
+ public:
+  virtual ~StatsProvider() = default;
+  virtual std::map<std::string, int64_t> operator_stats() const = 0;
 };
 
 // Note: Operator base class is declared in pine/pine.hpp (as class Operator)
@@ -51,10 +52,10 @@ public:
 
 // --- OperatorSchema ---
 struct OperatorSchema {
-    std::string name;
-    OpType type;
-    std::string description;
-    std::map<std::string, ParamSchema> params;
+  std::string name;
+  OpType type;
+  std::string description;
+  std::map<std::string, ParamSchema> params;
 };
 
 using OperatorFactory = std::function<std::unique_ptr<Operator>()>;
@@ -64,19 +65,19 @@ using OperatorFactory = std::function<std::unique_ptr<Operator>()>;
 // Engine instantiation.
 template <typename T>
 struct OperatorTraits {
-    static constexpr bool consumes_row_set         = std::is_base_of_v<ConsumesRowSet, T>;
-    static constexpr bool mutates_row_set          = std::is_base_of_v<MutatesRowSet, T>;
-    static constexpr bool additive_writes_row_set  = std::is_base_of_v<AdditiveWritesRowSet, T>;
-    static constexpr bool concurrent_safe          = std::is_base_of_v<ConcurrentSafe, T>;
+  static constexpr bool consumes_row_set = std::is_base_of_v<ConsumesRowSet, T>;
+  static constexpr bool mutates_row_set = std::is_base_of_v<MutatesRowSet, T>;
+  static constexpr bool additive_writes_row_set = std::is_base_of_v<AdditiveWritesRowSet, T>;
+  static constexpr bool concurrent_safe = std::is_base_of_v<ConcurrentSafe, T>;
 };
 
 struct OperatorEntry {
-    OperatorSchema schema;
-    OperatorFactory factory;
-    bool consumes_row_set = false;
-    bool mutates_row_set = false;
-    bool additive_writes_row_set = false;
-    bool concurrent_safe = false;
+  OperatorSchema schema;
+  OperatorFactory factory;
+  bool consumes_row_set = false;
+  bool mutates_row_set = false;
+  bool additive_writes_row_set = false;
+  bool concurrent_safe = false;
 };
 
 // Register an operator with pre-computed marker bits. Used by
@@ -85,26 +86,19 @@ struct OperatorEntry {
 //
 // Throws RegistryError on: empty name, empty description, null factory,
 // duplicate name.
-void register_operator_with_traits(OperatorSchema schema,
-                                   OperatorFactory factory,
-                                   bool consumes_row_set,
-                                   bool mutates_row_set,
-                                   bool additive_writes_row_set,
-                                   bool concurrent_safe);
+void register_operator_with_traits(OperatorSchema schema, OperatorFactory factory, bool consumes_row_set,
+                                   bool mutates_row_set, bool additive_writes_row_set, bool concurrent_safe);
 
 // Templated entry: derives marker bits from OperatorTraits<T> at compile
 // time, so the registry never needs a dynamic_cast probe.
 template <typename T>
 void register_operator_typed(OperatorSchema schema) {
-    static_assert(std::is_base_of_v<Operator, T>,
-                  "register_operator_typed<T>: T must derive from pine::Operator");
-    register_operator_with_traits(
-        std::move(schema),
-        [] { return std::make_unique<T>(); },
-        OperatorTraits<T>::consumes_row_set,
-        OperatorTraits<T>::mutates_row_set,
-        OperatorTraits<T>::additive_writes_row_set,
-        OperatorTraits<T>::concurrent_safe);
+  static_assert(std::is_base_of_v<Operator, T>,
+                "register_operator_typed<T>: T must derive from pine::Operator");
+  register_operator_with_traits(
+      std::move(schema), [] { return std::make_unique<T>(); }, OperatorTraits<T>::consumes_row_set,
+      OperatorTraits<T>::mutates_row_set, OperatorTraits<T>::additive_writes_row_set,
+      OperatorTraits<T>::concurrent_safe);
 }
 
 // Lookup an operator entry by type name; returns nullptr if not registered.
@@ -115,7 +109,7 @@ std::vector<std::string> registered_operator_names();
 
 // --- Macro helpers ---
 #define PINE_DETAIL_CONCAT_INNER(a, b) a##b
-#define PINE_DETAIL_CONCAT(a, b) PINE_DETAIL_CONCAT_INNER(a, b)
+#define PINE_DETAIL_CONCAT(a, b)       PINE_DETAIL_CONCAT_INNER(a, b)
 
 // PINE_REGISTER_OPERATOR_T registers an operator at static initialization
 // time. It accepts the operator type directly so marker bits resolve at
@@ -124,13 +118,12 @@ std::vector<std::string> registered_operator_names();
 // Example:
 //   static const pine::OperatorSchema k_my_op_schema{ ... };
 //   PINE_REGISTER_OPERATOR_T(MyOp, k_my_op_schema)
-#define PINE_REGISTER_OPERATOR_T(T, SCHEMA)                                  \
-    namespace {                                                              \
-        const bool PINE_DETAIL_CONCAT(_pine_reg_t_, __COUNTER__) = [] {      \
-            ::pine::register_operator_typed<T>((SCHEMA));                    \
-            return true;                                                     \
-        }();                                                                 \
-    }
-
+#define PINE_REGISTER_OPERATOR_T(T, SCHEMA)                       \
+  namespace {                                                     \
+  const bool PINE_DETAIL_CONCAT(_pine_reg_t_, __COUNTER__) = [] { \
+    ::pine::register_operator_typed<T>((SCHEMA));                 \
+    return true;                                                  \
+  }();                                                            \
+  }
 
 }  // namespace pine

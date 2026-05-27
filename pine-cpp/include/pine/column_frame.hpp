@@ -27,77 +27,76 @@ namespace pine {
 // Implements the Frame interface — Engine selects ColumnFrame or
 // RowFrame based on Config.storage_mode.
 class ColumnFrame : public Frame {
-public:
-    ColumnFrame();
-    ColumnFrame(std::map<std::string, JsonValue> common,
-                std::vector<std::map<std::string, JsonValue>> items);
+ public:
+  ColumnFrame();
+  ColumnFrame(std::map<std::string, JsonValue> common, std::vector<std::map<std::string, JsonValue>> items);
 
-    // Static convenience constructor kept for callers that already know
-    // they want a ColumnFrame window view. parallel_execute uses the
-    // virtual Frame::make_window_view on the parent — this static form
-    // returns a ColumnFrame-typed unique_ptr for tests / legacy code.
-    //
-    // CONTRACT: the caller must keep `parent` alive AND must not mutate
-    // `parent` while any window view exists. parallel_execute satisfies
-    // both: shards execute synchronously between cv-waits on the parent
-    // node, and the parent frame is read-only during the shard window.
-    static std::unique_ptr<ColumnFrame> make_window_view(
-        const ColumnFrame& parent,
-        std::size_t row_offset,
-        std::size_t row_count);
+  // Static convenience constructor kept for callers that already know
+  // they want a ColumnFrame window view. parallel_execute uses the
+  // virtual Frame::make_window_view on the parent — this static form
+  // returns a ColumnFrame-typed unique_ptr for tests / legacy code.
+  //
+  // CONTRACT: the caller must keep `parent` alive AND must not mutate
+  // `parent` while any window view exists. parallel_execute satisfies
+  // both: shards execute synchronously between cv-waits on the parent
+  // node, and the parent frame is read-only during the shard window.
+  static std::unique_ptr<ColumnFrame> make_window_view(const ColumnFrame& parent, std::size_t row_offset,
+                                                       std::size_t row_count);
 
-    // ---- Frame interface ----
-    JsonValue common(const std::string& field) const override;
-    bool has_common(const std::string& field) const override;
-    void set_common(const std::string& field, JsonValue value) override;
-    std::vector<std::string> common_fields() const override;
+  // ---- Frame interface ----
+  JsonValue common(const std::string& field) const override;
+  bool has_common(const std::string& field) const override;
+  void set_common(const std::string& field, JsonValue value) override;
+  std::vector<std::string> common_fields() const override;
 
-    std::size_t item_count() const override;
-    JsonValue item(std::size_t index, const std::string& field) const override;
-    bool item_has(std::size_t index, const std::string& field) const override;
-    std::vector<std::string> item_fields() const override;
+  std::size_t item_count() const override;
+  JsonValue item(std::size_t index, const std::string& field) const override;
+  bool item_has(std::size_t index, const std::string& field) const override;
+  std::vector<std::string> item_fields() const override;
 
-    void set_resources(const std::map<std::string, JsonValue>* res) override { resources_ = res; }
-    const std::map<std::string, JsonValue>* resources() const override { return resources_; }
+  void set_resources(const std::map<std::string, JsonValue>* res) override {
+    resources_ = res;
+  }
+  const std::map<std::string, JsonValue>* resources() const override {
+    return resources_;
+  }
 
-    void push_warning(std::string msg) override;
-    std::vector<std::string> take_warnings() override;
-    const std::vector<std::string>& warnings_ref() const { return warnings_; }
+  void push_warning(std::string msg) override;
+  std::vector<std::string> take_warnings() override;
+  const std::vector<std::string>& warnings_ref() const {
+    return warnings_;
+  }
 
-    void apply_output(const OperatorOutput& out,
-                      const std::string& op_name,
-                      bool is_recall) override;
+  void apply_output(const OperatorOutput& out, const std::string& op_name, bool is_recall) override;
 
-    Result to_result(const std::vector<std::string>& common_out,
-                     const std::vector<std::string>& item_out) const override;
+  Result to_result(const std::vector<std::string>& common_out,
+                   const std::vector<std::string>& item_out) const override;
 
-    JsonValue::object_t item_object(std::size_t index) const override;
+  JsonValue::object_t item_object(std::size_t index) const override;
 
-    std::unique_ptr<Frame> make_window_view(std::size_t row_offset,
-                                             std::size_t row_count) const override;
+  std::unique_ptr<Frame> make_window_view(std::size_t row_offset, std::size_t row_count) const override;
 
-    std::pair<std::string, int> validate_strict_items(
-        const std::vector<std::string>& fields) const override;
+  std::pair<std::string, int> validate_strict_items(const std::vector<std::string>& fields) const override;
 
-private:
-    void write_item_field_locked(std::size_t idx,
-                                 const std::string& field,
-                                 const JsonValue& value);
+ private:
+  void write_item_field_locked(std::size_t idx, const std::string& field, const JsonValue& value);
 
-    mutable std::shared_mutex mu_;
-    std::map<std::string, JsonValue> common_;
-    std::unique_ptr<ColumnStore> items_;
-    std::vector<std::string> warnings_;
-    const std::map<std::string, JsonValue>* resources_ = nullptr;
+  mutable std::shared_mutex mu_;
+  std::map<std::string, JsonValue> common_;
+  std::unique_ptr<ColumnStore> items_;
+  std::vector<std::string> warnings_;
+  const std::map<std::string, JsonValue>* resources_ = nullptr;
 
-    // Window-view mode. When non-null, all reads delegate to
-    // the parent's storage with a (offset, count) translation, and all
-    // writes throw PanicError. Set only by make_window_view().
-    const ColumnStore* view_items_ = nullptr;
-    const std::map<std::string, JsonValue>* view_common_ = nullptr;
-    std::size_t view_offset_ = 0;
-    std::size_t view_count_ = 0;
-    bool is_window_view() const noexcept { return view_items_ != nullptr; }
+  // Window-view mode. When non-null, all reads delegate to
+  // the parent's storage with a (offset, count) translation, and all
+  // writes throw PanicError. Set only by make_window_view().
+  const ColumnStore* view_items_ = nullptr;
+  const std::map<std::string, JsonValue>* view_common_ = nullptr;
+  std::size_t view_offset_ = 0;
+  std::size_t view_count_ = 0;
+  bool is_window_view() const noexcept {
+    return view_items_ != nullptr;
+  }
 };
 
 }  // namespace pine

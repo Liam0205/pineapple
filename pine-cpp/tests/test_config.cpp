@@ -1,6 +1,6 @@
-#include <doctest/doctest.h>
-
 #include "pine/pine.hpp"
+
+#include <doctest/doctest.h>
 
 #include <algorithm>
 
@@ -49,33 +49,35 @@ constexpr const char* kSimpleConfig = R"({
 }  // namespace
 
 TEST_CASE("load_config_from_json: parses pipeline operators") {
-    Config cfg = load_config_from_json(kSimpleConfig);
-    REQUIRE(cfg.operators.size() == 2);
-    CHECK(cfg.operators.count("first") == 1);
-    CHECK(cfg.operators.count("second") == 1);
-    CHECK(cfg.operators.at("first").type_name == "transform_copy");
-    CHECK(cfg.operators.at("second").type_name == "filter_truncate");
+  Config cfg = load_config_from_json(kSimpleConfig);
+  REQUIRE(cfg.operators.size() == 2);
+  CHECK(cfg.operators.count("first") == 1);
+  CHECK(cfg.operators.count("second") == 1);
+  CHECK(cfg.operators.at("first").type_name == "transform_copy");
+  CHECK(cfg.operators.at("second").type_name == "filter_truncate");
 }
 
 TEST_CASE("apply_registry_traits: fills operator_type from registry") {
-    Config cfg = load_config_from_json(kSimpleConfig);
-    apply_registry_traits(cfg);
-    // filter_truncate is a "filter" in the registry → mutates row set.
-    CHECK(cfg.operators.at("second").operator_type == "filter");
+  Config cfg = load_config_from_json(kSimpleConfig);
+  apply_registry_traits(cfg);
+  // filter_truncate is a "filter" in the registry → mutates row set.
+  CHECK(cfg.operators.at("second").operator_type == "filter");
 }
 
 TEST_CASE("expand_operator_sequence_with_subflows: produces topological order") {
-    Config cfg = load_config_from_json(kSimpleConfig);
-    auto expanded = expand_operator_sequence_with_subflows(cfg);
-    REQUIRE(expanded.sequence.size() == 2);
-    // "first" must precede "second" because second consumes b which first produces.
-    auto first_idx = std::find(expanded.sequence.begin(), expanded.sequence.end(), "first") - expanded.sequence.begin();
-    auto second_idx = std::find(expanded.sequence.begin(), expanded.sequence.end(), "second") - expanded.sequence.begin();
-    CHECK(first_idx < second_idx);
+  Config cfg = load_config_from_json(kSimpleConfig);
+  auto expanded = expand_operator_sequence_with_subflows(cfg);
+  REQUIRE(expanded.sequence.size() == 2);
+  // "first" must precede "second" because second consumes b which first produces.
+  auto first_idx =
+      std::find(expanded.sequence.begin(), expanded.sequence.end(), "first") - expanded.sequence.begin();
+  auto second_idx =
+      std::find(expanded.sequence.begin(), expanded.sequence.end(), "second") - expanded.sequence.begin();
+  CHECK(first_idx < second_idx);
 }
 
 TEST_CASE("load_config_from_json: invalid JSON throws ConfigError") {
-    CHECK_THROWS_AS(load_config_from_json("{not valid json"), ConfigError);
+  CHECK_THROWS_AS(load_config_from_json("{not valid json"), ConfigError);
 }
 
 namespace {
@@ -125,26 +127,26 @@ constexpr const char* kConfigWithMetadata = R"({
 }  // namespace
 
 TEST_CASE("load_config_from_json: parses _PINEAPPLE_VERSION and _PINEAPPLE_CREATE_TIME") {
-    Config cfg = load_config_from_json(kConfigWithMetadata);
-    CHECK(cfg.pineapple_version == "1.2.3");
-    CHECK(cfg.pineapple_create_time == "2026-05-22T10:00:00Z");
+  Config cfg = load_config_from_json(kConfigWithMetadata);
+  CHECK(cfg.pineapple_version == "1.2.3");
+  CHECK(cfg.pineapple_create_time == "2026-05-22T10:00:00Z");
 }
 
 TEST_CASE("load_config_from_json: parses resource_config entries") {
-    Config cfg = load_config_from_json(kConfigWithMetadata);
-    REQUIRE(cfg.resource_config.size() == 2);
-    const auto& up = cfg.resource_config.at("user_profile");
-    CHECK(up.type == "static_table");
-    CHECK(up.interval == 60);
-    REQUIRE(up.params.is_object());
-    CHECK(up.params.as_object().at("path").as_string() == "/tmp/profile.json");
-    const auto& nd = cfg.resource_config.at("no_interval_default");
-    CHECK(nd.type == "noop");
-    CHECK(nd.interval == 0);
+  Config cfg = load_config_from_json(kConfigWithMetadata);
+  REQUIRE(cfg.resource_config.size() == 2);
+  const auto& up = cfg.resource_config.at("user_profile");
+  CHECK(up.type == "static_table");
+  CHECK(up.interval == 60);
+  REQUIRE(up.params.is_object());
+  CHECK(up.params.as_object().at("path").as_string() == "/tmp/profile.json");
+  const auto& nd = cfg.resource_config.at("no_interval_default");
+  CHECK(nd.type == "noop");
+  CHECK(nd.interval == 0);
 }
 
 TEST_CASE("load_config_from_json: omits resource_config when absent") {
-    Config cfg = load_config_from_json(kSimpleConfig);
-    CHECK(cfg.resource_config.empty());
-    CHECK(cfg.pineapple_create_time == "");
+  Config cfg = load_config_from_json(kSimpleConfig);
+  CHECK(cfg.resource_config.empty());
+  CHECK(cfg.pineapple_create_time == "");
 }

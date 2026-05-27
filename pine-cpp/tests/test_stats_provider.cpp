@@ -1,57 +1,65 @@
-#include "pine/pine.hpp"
 #include "pine/operator.hpp"
 #include "pine/operator_input.hpp"
+#include "pine/pine.hpp"
 
 #include <doctest/doctest.h>
 
-#include <memory>
 #include <map>
+#include <memory>
 #include <string>
 
 using namespace pine;
 
 namespace {
-using pine::Engine; // Fix ambiguity with pine::Engine/Engine
+using pine::Engine;  // Fix ambiguity with pine::Engine/Engine
 
 // Provide a global accessor to inject stats
 class StatsMockOp;
 StatsMockOp* g_mock_op = nullptr;
 
 class StatsMockOp : public Operator, public StatsProvider {
-public:
-    std::map<std::string, int64_t> stats;
-    StatsMockOp() { g_mock_op = this; }
-    ~StatsMockOp() { if (g_mock_op == this) g_mock_op = nullptr; }
-    void execute(const OperatorInput&, OperatorOutput&) override {}
-    std::map<std::string, int64_t> operator_stats() const override {
-        return stats;
+ public:
+  std::map<std::string, int64_t> stats;
+  StatsMockOp() {
+    g_mock_op = this;
+  }
+  ~StatsMockOp() {
+    if (g_mock_op == this) {
+      g_mock_op = nullptr;
     }
+  }
+  void execute(const OperatorInput&, OperatorOutput&) override {
+  }
+  std::map<std::string, int64_t> operator_stats() const override {
+    return stats;
+  }
 };
 
 class EmptyStatsMockOp : public Operator, public StatsProvider {
-public:
-    void execute(const OperatorInput&, OperatorOutput&) override {}
-    std::map<std::string, int64_t> operator_stats() const override {
-        return {}; // Exposes StatsProvider but returns empty map
-    }
+ public:
+  void execute(const OperatorInput&, OperatorOutput&) override {
+  }
+  std::map<std::string, int64_t> operator_stats() const override {
+    return {};  // Exposes StatsProvider but returns empty map
+  }
 };
 
 void run_test() {
-    OperatorSchema schema1{
-        .name = "test_stats_mock",
-        .type = OpType::Recall,
-        .description = "mock",
-        .params = {},
-    };
-    register_operator_typed<StatsMockOp>(std::move(schema1));
+  OperatorSchema schema1{
+      .name = "test_stats_mock",
+      .type = OpType::Recall,
+      .description = "mock",
+      .params = {},
+  };
+  register_operator_typed<StatsMockOp>(std::move(schema1));
 
-    OperatorSchema schema2{
-        .name = "test_empty_stats_mock",
-        .type = OpType::Recall,
-        .description = "mock",
-        .params = {},
-    };
-    register_operator_typed<EmptyStatsMockOp>(std::move(schema2));
+  OperatorSchema schema2{
+      .name = "test_empty_stats_mock",
+      .type = OpType::Recall,
+      .description = "mock",
+      .params = {},
+  };
+  register_operator_typed<EmptyStatsMockOp>(std::move(schema2));
 }
 const bool _reg = (run_test(), true);
 
@@ -75,20 +83,20 @@ const char* kConfig = R"({
 }  // namespace
 
 TEST_CASE("stats_provider: engine collects custom stats") {
-    g_mock_op = nullptr;
-    auto cfg = load_config_from_json(kConfig);
-    pine::Engine engine(std::move(cfg));
+  g_mock_op = nullptr;
+  auto cfg = load_config_from_json(kConfig);
+  pine::Engine engine(std::move(cfg));
 
-    auto custom = engine.operator_custom_stats();
-    CHECK(custom.empty()); // initially empty because StatsMockOp has empty stats
+  auto custom = engine.operator_custom_stats();
+  CHECK(custom.empty());  // initially empty because StatsMockOp has empty stats
 
-    REQUIRE(g_mock_op != nullptr);
-    g_mock_op->stats["cache_hits"] = 42;
-    g_mock_op->stats["cache_misses"] = 7;
+  REQUIRE(g_mock_op != nullptr);
+  g_mock_op->stats["cache_hits"] = 42;
+  g_mock_op->stats["cache_misses"] = 7;
 
-    custom = engine.operator_custom_stats();
-    REQUIRE(custom.size() == 1);
-    CHECK(custom.count("mock1") == 1);
-    CHECK(custom["mock1"]["cache_hits"] == 42);
-    CHECK(custom["mock1"]["cache_misses"] == 7);
+  custom = engine.operator_custom_stats();
+  REQUIRE(custom.size() == 1);
+  CHECK(custom.count("mock1") == 1);
+  CHECK(custom["mock1"]["cache_hits"] == 42);
+  CHECK(custom["mock1"]["cache_misses"] == 7);
 }

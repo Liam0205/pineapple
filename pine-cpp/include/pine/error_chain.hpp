@@ -42,18 +42,22 @@ namespace detail {
 // leaving nested_ptr() null.
 template <typename Visitor>
 auto walk_nested(const std::exception& e, Visitor visitor) -> decltype(visitor(e)) {
-    const std::nested_exception* nested = dynamic_cast<const std::nested_exception*>(&e);
-    if (nested == nullptr) return nullptr;
-    if (nested->nested_ptr() == nullptr) return nullptr;
-    try {
-        nested->rethrow_nested();
-    } catch (const std::exception& inner) {
-        return visitor(inner);
-    } catch (...) {
-        // non-std::exception nested cause; we cannot type-match further
-        return nullptr;
-    }
+  const std::nested_exception* nested = dynamic_cast<const std::nested_exception*>(&e);
+  if (nested == nullptr) {
     return nullptr;
+  }
+  if (nested->nested_ptr() == nullptr) {
+    return nullptr;
+  }
+  try {
+    nested->rethrow_nested();
+  } catch (const std::exception& inner) {
+    return visitor(inner);
+  } catch (...) {
+    // non-std::exception nested cause; we cannot type-match further
+    return nullptr;
+  }
+  return nullptr;
 }
 
 }  // namespace detail
@@ -70,17 +74,17 @@ auto walk_nested(const std::exception& e, Visitor visitor) -> decltype(visitor(e
 // reviewer assertion of O(N²) was a misreading of the call structure).
 template <typename T>
 const T* error_as(const std::exception& err) {
-    if (auto self = dynamic_cast<const T*>(&err)) return self;
-    return detail::walk_nested(err, [](const std::exception& inner) -> const T* {
-        return error_as<T>(inner);
-    });
+  if (auto self = dynamic_cast<const T*>(&err)) {
+    return self;
+  }
+  return detail::walk_nested(err, [](const std::exception& inner) -> const T* { return error_as<T>(inner); });
 }
 
 // error_is returns true if any exception in the nested chain (including the
 // outermost) is dynamic_castable to T. Equivalent to Go's errors.Is(err, T{}).
 template <typename T>
 bool error_is(const std::exception& err) {
-    return error_as<T>(err) != nullptr;
+  return error_as<T>(err) != nullptr;
 }
 
 }  // namespace pine

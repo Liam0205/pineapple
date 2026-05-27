@@ -1,74 +1,90 @@
-#include "operators/_helpers.hpp"
 #include "pine/operator.hpp"
 
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
 
+#include "operators/_helpers.hpp"
+
 namespace pine {
 
 namespace {
 
 uint64_t fnv64a(const std::string& s) {
-    uint64_t hash = 14695981039346656037ULL;
-    for (unsigned char c : s) {
-        hash ^= c;
-        hash *= 1099511628211ULL;
-    }
-    return hash;
+  uint64_t hash = 14695981039346656037ULL;
+  for (unsigned char c : s) {
+    hash ^= c;
+    hash *= 1099511628211ULL;
+  }
+  return hash;
 }
 
 uint64_t parse_uint64(const std::string& s) {
-    uint64_t result = 0;
-    std::from_chars(s.data(), s.data() + s.size(), result);
-    return result;
+  uint64_t result = 0;
+  std::from_chars(s.data(), s.data() + s.size(), result);
+  return result;
 }
 
 }  // namespace
 
 class ReorderShuffleBySaltOp : public Operator, public ConsumesRowSet, public MutatesRowSet {
-public:
-    void init(const OperatorConfig& cfg) override {
-        op_name_ = cfg.name;
-        common_inputs_ = cfg.metadata.common_input;
-        item_field_ = cfg.metadata.item_input.at(0);
+ public:
+  void init(const OperatorConfig& cfg) override {
+    op_name_ = cfg.name;
+    common_inputs_ = cfg.metadata.common_input;
+    item_field_ = cfg.metadata.item_input.at(0);
+  }
+  void execute(const OperatorInput& input, OperatorOutput& out) override {
+    if (input.item_count() == 0) {
+      return;
     }
-    void execute(const OperatorInput& input, OperatorOutput& out) override {
-        if (input.item_count() == 0) return;
-        std::string salt;
-        for (std::size_t i = 0; i < common_inputs_.size(); ++i) {
-            if (i > 0) salt += '|';
-            salt += operators::any_to_string(input.common(common_inputs_[i]));
-        }
+    std::string salt;
+    for (std::size_t i = 0; i < common_inputs_.size(); ++i) {
+      if (i > 0) {
         salt += '|';
-        struct Ranked { std::size_t idx; double r; uint64_t id; };
-        std::vector<Ranked> ranked;
-        ranked.reserve(input.item_count());
-        for (std::size_t i = 0; i < input.item_count(); ++i) {
-            std::string item_val = operators::any_to_string(input.item(i, item_field_));
-            uint64_t h = fnv64a(salt + item_val);
-            double r = static_cast<double>(h) / (static_cast<double>(UINT64_MAX) + 1.0);
-            ranked.push_back({i, r, parse_uint64(item_val)});
-        }
-        // pine-go shuffle.go:81 uses sort.Slice (non-stable). The (r, id)
-        // composite key is unique in practice (FNV-64a collisions are
-        // astronomically rare and the id tiebreak resolves them), so the
-        // outputs match — but using std::sort keeps the algorithmic
-        // contract aligned with Go for any future divergence.
-        std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
-            if (a.r != b.r) return a.r < b.r;
-            if (a.id != b.id) return a.id < b.id;
-            return a.idx < b.idx;
-        });
-        std::vector<int> order;
-        order.reserve(ranked.size());
-        for (const auto& r : ranked) order.push_back(static_cast<int>(r.idx));
-        out.set_item_order(std::move(order));
+      }
+      salt += operators::any_to_string(input.common(common_inputs_[i]));
     }
-private:
-    std::string op_name_;
-    std::vector<std::string> common_inputs_;
-    std::string item_field_;
+    salt += '|';
+    struct Ranked {
+      std::size_t idx;
+      double r;
+      uint64_t id;
+    };
+    std::vector<Ranked> ranked;
+    ranked.reserve(input.item_count());
+    for (std::size_t i = 0; i < input.item_count(); ++i) {
+      std::string item_val = operators::any_to_string(input.item(i, item_field_));
+      uint64_t h = fnv64a(salt + item_val);
+      double r = static_cast<double>(h) / (static_cast<double>(UINT64_MAX) + 1.0);
+      ranked.push_back({i, r, parse_uint64(item_val)});
+    }
+    // pine-go shuffle.go:81 uses sort.Slice (non-stable). The (r, id)
+    // composite key is unique in practice (FNV-64a collisions are
+    // astronomically rare and the id tiebreak resolves them), so the
+    // outputs match — but using std::sort keeps the algorithmic
+    // contract aligned with Go for any future divergence.
+    std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
+      if (a.r != b.r) {
+        return a.r < b.r;
+      }
+      if (a.id != b.id) {
+        return a.id < b.id;
+      }
+      return a.idx < b.idx;
+    });
+    std::vector<int> order;
+    order.reserve(ranked.size());
+    for (const auto& r : ranked) {
+      order.push_back(static_cast<int>(r.idx));
+    }
+    out.set_item_order(std::move(order));
+  }
+
+ private:
+  std::string op_name_;
+  std::vector<std::string> common_inputs_;
+  std::string item_field_;
 };
 
 static const OperatorSchema k_reorder_shuffle_by_salt_schema{

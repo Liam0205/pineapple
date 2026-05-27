@@ -22,28 +22,30 @@ namespace runtime {
 // future request-thread reuse fit naturally; DAG node scheduling currently
 // uses per-node std::thread to avoid this hazard.
 class ThreadPool {
-public:
-    explicit ThreadPool(std::size_t worker_count);
-    ~ThreadPool();
+ public:
+  explicit ThreadPool(std::size_t worker_count);
+  ~ThreadPool();
 
-    ThreadPool(const ThreadPool&) = delete;
-    ThreadPool& operator=(const ThreadPool&) = delete;
+  ThreadPool(const ThreadPool&) = delete;
+  ThreadPool& operator=(const ThreadPool&) = delete;
 
-    // Submit a task that will run on one of the pool workers. Returns a
-    // future the caller can wait on.
-    std::future<void> submit(std::function<void()> task);
+  // Submit a task that will run on one of the pool workers. Returns a
+  // future the caller can wait on.
+  std::future<void> submit(std::function<void()> task);
 
-    std::size_t worker_count() const { return worker_count_; }
+  std::size_t worker_count() const {
+    return worker_count_;
+  }
 
-private:
-    void worker_loop();
+ private:
+  void worker_loop();
 
-    std::size_t worker_count_;
-    std::vector<std::thread> workers_;
-    std::queue<std::packaged_task<void()>> tasks_;
-    std::mutex mu_;
-    std::condition_variable cv_;
-    bool stopping_ = false;
+  std::size_t worker_count_;
+  std::vector<std::thread> workers_;
+  std::queue<std::packaged_task<void()>> tasks_;
+  std::mutex mu_;
+  std::condition_variable cv_;
+  bool stopping_ = false;
 };
 
 }  // namespace runtime
