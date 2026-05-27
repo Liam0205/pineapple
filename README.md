@@ -2,7 +2,7 @@
 
 # Pineapple
 
-高性能 DAG 流水线引擎。**Python 声明，Go/Java 执行，JSON 解耦。**
+高性能 DAG 流水线引擎。**Python 声明，Go/Java/Python/C++ 四引擎执行，JSON 解耦。**
 
 算子只需声明输入/输出字段，引擎自动推导依赖、构建 DAG、并行调度——你专注业务逻辑，Pineapple 负责把它跑快。
 
@@ -15,11 +15,11 @@
 ```
 Python DSL (Apple)  ──compile──>  JSON Config
                                       │
-                          ┌───────────┼───────────┐
-                          v           v           v
-                   Pine-Go (Go)  Pine-Java    Pine-Python
-                   构建 DAG       构建 DAG      构建 DAG
-                   并行执行       并行执行      顺序执行
+                          ┌───────────┼───────────┬───────────┐
+                          v           v           v           v
+                   Pine-Go (Go)  Pine-Java    Pine-Python  Pine-C++
+                   构建 DAG       构建 DAG      构建 DAG     构建 DAG
+                   并行执行       并行执行      线程池执行   per-node 并行
 ```
 
 | 组件 | 语言 | 职责 |
@@ -28,9 +28,9 @@ Python DSL (Apple)  ──compile──>  JSON Config
 | **Pine-Go** | Go | 主执行引擎：解析配置、构建 DAG、并行调度 |
 | **Pine-Java** | Java | 第二执行引擎，与 Pine-Go 行为一致 |
 | **Pine-Python** | Python | 第三执行引擎，用于原型验证和测试 |
-| **Pine-C++** | C++ | 初始 MVP 切片：本地 CLI 执行与 DAG 渲染 |
+| **Pine-C++** | C++23 | 第四执行引擎（标杆运行时），完全 parity + 性能上限探索 |
 
-**工程团队**用 Go/Java 开发高性能算子；**业务团队**用 Python DSL 编排逻辑。两侧通过 JSON 配置彻底解耦。Pine-Python 提供纯 Python 运行时，适合快速原型验证和单元测试。
+**工程团队**用 Go/Java/C++ 开发高性能算子；**业务团队**用 Python DSL 编排逻辑。两侧通过 JSON 配置彻底解耦。
 
 ## 核心特性
 
@@ -42,8 +42,8 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **动态资源** — 后台定时刷新的内存资源管理器，无锁读
 - **白盒可观测** — 算子级 trace、`/stats` 端点、可插拔 Prometheus 接口
 - **行存/列存可切换** — DataFrame 支持两种存储模式
-- **三引擎一致性** — Go/Java/Python 引擎通过 CI 交叉验证保证 schema、DAG、执行结果一致
-- **Pine-C++ 初始 MVP 已入仓** — 提供自包含 CMake 工程、`pineapple-run` 与 `pineapple-render-dag` CLI，当前聚焦本地可编译的纵向切片
+- **四引擎一致性** — Go/Java/Python/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息一致
+- **Pine-C++ 标杆运行时** — 完整第四运行时，17 个内置算子、HTTP server（热加载/graceful shutdown）、ColumnFrame/RowFrame 双物理实现、OperatorInput lazy 投影、LuaJIT 集成、metrics/resource 对等
 
 ## 从旧版迁移（Breaking Change）
 
@@ -112,19 +112,20 @@ Apple DSL 侧同步变更：`OpCall(..., row_dependency=True)` → `OpCall(..., 
 
 **自定义算子迁移**：如果你实现了自定义的 Recall 类型算子，需要嵌入 `types.AdditiveWritesRowSetMarker`。
 
-#### 3. Field Accessor 严格模式
+#### 3. Field Accessor 三态模型
 
-`BuildInput` 现在区分 Strict 和 Defaulted 字段：
+`BuildInput` 现在支持三种字段模式：
 
-- **Strict**（无 `common_defaults` / `item_defaults` 条目的字段）：运行时值为 nil 时立即报错，而非将 nil 透传给算子
-- **Defaulted**（有 default 的字段）：运行时值为 nil 或缺失时替换为默认值
+- **Nullable**（默认）：字段缺失时报错，值为 nil 时透传给算子
+- **Strict**（通过 `strict_common` / `strict_item` 声明）：值为 nil 时立即报错
+- **Defaulted**（通过 `common_defaults` / `item_defaults` 声明）：值为 nil 或缺失时替换为默认值
 
-**影响**：如果你的流水线依赖"nil 值透传给算子由算子自行处理"的行为，需要在配置中为该字段添加 `common_defaults` 或 `item_defaults` 条目（值可以是 `null`）来保持旧行为：
+**影响**：v0.9.0 起默认模式从 Strict 变为 Nullable。如果你的流水线依赖"nil 值必须报错"的行为，需要在配置中声明 `strict_common` / `strict_item`：
 
 ```json
 {
-  "$metadata": { "common_input": ["optional_field"], ... },
-  "common_defaults": { "optional_field": null }
+  "$metadata": { "common_input": ["required_field"], ... },
+  "strict_common": ["required_field"]
 }
 ```
 
@@ -135,6 +136,7 @@ Apple DSL 侧同步变更：`OpCall(..., row_dependency=True)` → `OpCall(..., 
 - Go 1.22+（Pine-Go）
 - Java 21+（Pine-Java）
 - Python 3.11+（Apple DSL + Pine-Python）
+- CMake 3.20+ / C++23 编译器 / LuaJIT（Pine-C++，可选）
 
 ### 1. 编写 Pipeline
 
@@ -218,12 +220,13 @@ pineapple/
 ├── pine-java/              # Java 执行引擎 (Pine-Java)
 │   ├── src/main/java/      #   引擎实现 + CLI 工具
 │   └── src/test/java/      #   测试 + 基准 + fuzz
-├── pine-cpp/               # C++ 初始 MVP (Pine-C++)
+├── pine-cpp/               # C++ 执行引擎 (Pine-C++)
 │   ├── include/pine/       #   公共头文件
-│   ├── src/                #   config/dag/runtime/render
-│   ├── operators/          #   MVP 内置算子实现占位
-│   └── cmd/                #   pineapple-run / pineapple-render-dag
-├── fixtures/               # 共享测试 fixtures（Go/Java 公用）
+│   ├── src/                #   config/dag/dataframe/runtime/server/lua/redis
+│   ├── operators/          #   17 个内置算子
+│   ├── cmd/                #   pineapple-run / pineapple-render-dag / pineapple-server / pineapple-codegen
+│   └── tests/              #   doctest 单测套件
+├── fixtures/               # 共享测试 fixtures（四引擎公用）
 │   ├── operators/          #   算子级单元 fixtures
 │   ├── pipelines/          #   Pipeline 级端到端 fixtures
 │   └── errors/             #   错误路径 fixtures
@@ -232,20 +235,20 @@ pineapple/
 └── doc/                    # 生成的算子文档 & 报告
 ```
 
-### Pine-C++ 初始 MVP
+### Pine-C++ 标杆运行时
 
-仓库现已包含 `pine-cpp/` 初始纵向切片，目标是先提供一个不依赖系统级 JSON/Lua 头文件、可在本地直接编译的 C++ 运行时最小骨架，而不是宣称已与其余运行时完整 parity。
+`pine-cpp/` 是完整的第四运行时（C++23），定位为**在完全 parity 前提下的标杆实现**。
 
 当前能力：
 
-- CMake 工程：`cmake -S pine-cpp -B pine-cpp/build && cmake --build pine-cpp/build`
-- CLI：`pine-cpp/build/pineapple-run -config ... -request ...`
-- CLI：`pine-cpp/build/pineapple-render-dag -config ... -format dot|mermaid [-collapse N]`
-- 自包含最小 JSON 解析/序列化（object / array / string / number / bool / null）
-- 支持的 MVP 算子：`transform_copy`、`filter_truncate`、`recall_static`、`reorder_sort`
-- 支持 `pipeline_group` 展开、单一非 `main` group fallback、`pipeline_map` 递归展开、`skip` 归一化、strict/default field accessor、`storage_mode` 接受、基础 DAG 构建与渲染
-
-明确未实现：Lua、HTTP server、`/stats`、热加载、resource 管理、完整算子集合、跨运行时 parity 校验接入。
+- **17 个内置算子**，与 Go/Java/Python 完全对等
+- **HTTP server**：`pineapple-cpp-server`，含热加载、graceful shutdown、HTTP/1.1 keep-alive、`/health`/`/execute`/`/stats`/`/dag` 端点
+- **CLI**：`pineapple-cpp-run`、`pineapple-cpp-render-dag`、`pineapple-cpp-codegen`
+- **Frame 多态**：ColumnFrame（列存）+ RowFrame（行存），OperatorInput lazy 投影
+- **LuaJIT**：StatePool、沙箱隔离、`_G["..."]` 变量注入
+- **可观测**：`metrics::Provider`、`resource::Manager`、`/stats.http`、cause chain
+- **CI**：cpp-build、cpp-test（doctest 145）、cpp-sanitizer（ASan/UBSan）、cpp-lint（-Werror）
+- **Cross-validate**：全 section 接入，四引擎一致性验证
 
 
 ### 常用脚本
@@ -260,9 +263,9 @@ pineapple/
 | `scripts/java-bench.sh` | Java 性能基准 |
 | `scripts/go-fuzz.sh` | Go fuzz 测试 |
 | `scripts/java-fuzz.sh` | Java fuzz 测试 |
-| `scripts/cross-validate.sh` | Go/Java 交叉验证（schema + DAG + 执行） |
-| `scripts/codegen.sh` | 代码生成（支持 `--backend go\|java`） |
-| `scripts/render-dag.sh` | DAG 可视化（支持 `--backend go\|java`） |
+| `scripts/cross-validate.sh` | 四引擎交叉验证（schema + DAG + 执行 + 错误 + server + metrics） |
+| `scripts/codegen.sh` | 代码生成（支持 `--backend go\|java\|python\|cpp`） |
+| `scripts/render-dag.sh` | DAG 可视化（支持 `--backend go\|java\|python\|cpp`） |
 | `scripts/apple-compile.sh` | Apple DSL 编译为 JSON |
 | `scripts/run-pipeline.sh` | 单次执行 pipeline |
 | `scripts/bump-version.sh` | 版本号同步更新 |
@@ -271,24 +274,26 @@ pineapple/
 
 CI 在每次 push/PR 时自动运行：
 
-- **Lint** — Go (golangci-lint)、Java (checkstyle)、Python (ruff)
-- **Test** — Go/Java/Python 全量测试 + 覆盖率
-- **Fuzz** — Go/Java fuzz 测试
-- **Benchmark** — Go/Java 性能基准
-- **Cross-validation** — Go/Java schema parity + DAG parity + 执行结果一致性
+- **Lint** — Go (golangci-lint)、Java (checkstyle, failOnViolation=true)、Python (ruff)、C++ (-Werror)
+- **Test** — Go/Java/Python/C++ 全量测试 + 覆盖率
+- **Fuzz** — Go/Java fuzz + 四引擎差异模糊测试
+- **Benchmark** — Go/Java/Python 性能基准
+- **Cross-validation** — 四引擎 schema/DAG/执行/错误/server/metrics 一致性
 - **Codegen check** — 确保生成代码与源码同步
 
 ### 交叉验证
 
-`scripts/cross-validate.sh` 验证 Go 和 Java 引擎的一致性：
+`scripts/cross-validate.sh` 验证四引擎的一致性（具体 section 以 `scripts/cross-validate/` 目录为准）：
 
-1. **Schema parity** — 两端 codegen 导出的算子 schema（名称、参数类型、必填项、默认值）必须一致
-2. **DAG parity** — 相同配置输入，两端渲染的 DAG（DOT + Mermaid，含 collapse）必须一致
-3. **Execution parity** — 相同配置 + 请求，两端执行结果（JSON 归一化后）必须一致
-4. **Column-store parity** — 以列存模式重复上述执行验证
-5. **Error parity** — 非法配置/请求，两端返回相同的错误分类和消息
+1. **Schema parity** — 四端 codegen 导出的算子 schema 必须一致
+2. **DAG parity** — 相同配置，四端渲染的 DAG（DOT + Mermaid，含 collapse）必须一致
+3. **Execution parity** — 相同配置 + 请求，四端执行结果必须一致
+4. **Column-store parity** — 以列存模式重复执行验证
+5. **Error parity** — 非法配置/请求，四端返回相同的错误分类和消息
 6. **Server parity** — HTTP 端点的 status code、body 结构、Content-Type 一致
 7. **Cancellation parity** — 超时和运行时错误的取消行为一致
+8. **Metrics parity** — `/stats` 结构和数值一致
+9. **Cause chain parity** — ExecutionError 因果链可解包一致
 
 ### 为下游构建 Cross-Validation 体系
 

@@ -2,7 +2,7 @@ English | [简体中文](README.md)
 
 # Pineapple
 
-High-performance DAG pipeline engine. **Declare in Python, execute in Go/Java, decouple via JSON.**
+High-performance DAG pipeline engine. **Declare in Python, execute in Go/Java/Python/C++ (four engines), decouple via JSON.**
 
 Operators declare their input/output fields; the engine automatically infers dependencies, builds the DAG, and schedules parallel execution — you focus on business logic, Pineapple makes it fast.
 
@@ -15,11 +15,11 @@ Suitable for any scenario requiring **multi-step data processing pipelines**: se
 ```
 Python DSL (Apple)  ──compile──>  JSON Config
                                       │
-                          ┌───────────┼───────────┐
-                          v           v           v
-                   Pine-Go (Go)  Pine-Java    Pine-Python
-                   Build DAG      Build DAG    Build DAG
-                   parallel exec  parallel     sequential
+                          ┌───────────┼───────────┬───────────┐
+                          v           v           v           v
+                   Pine-Go (Go)  Pine-Java    Pine-Python  Pine-C++
+                   Build DAG      Build DAG    Build DAG    Build DAG
+                   parallel exec  parallel     threadpool   per-node parallel
 ```
 
 | Component | Language | Role |
@@ -28,8 +28,9 @@ Python DSL (Apple)  ──compile──>  JSON Config
 | **Pine-Go** | Go | Primary execution engine: parse config, build DAG, parallel scheduling |
 | **Pine-Java** | Java | Second execution engine, behavior-consistent with Pine-Go |
 | **Pine-Python** | Python | Third execution engine, for prototyping and testing |
+| **Pine-C++** | C++23 | Fourth execution engine (benchmark runtime), full parity + performance ceiling |
 
-**Engineering teams** develop high-performance operators in Go/Java; **product teams** compose logic with the Python DSL. The two sides are fully decoupled via JSON config. Pine-Python provides a pure-Python runtime for rapid prototyping and unit testing.
+**Engineering teams** develop high-performance operators in Go/Java/C++; **product teams** compose logic with the Python DSL. The two sides are fully decoupled via JSON config.
 
 ## Key Features
 
@@ -41,7 +42,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Dynamic resources** — Background-refreshed in-memory resource manager with lock-free reads
 - **White-box observability** — Operator-level traces, `/stats` endpoint, pluggable Prometheus interface
 - **Row/Column storage** — DataFrame supports both storage modes
-- **Tri-engine consistency** — Go/Java/Python engines verified via CI cross-validation for schema, DAG, and execution parity
+- **Quad-engine consistency** — Go/Java/Python/C++ engines verified via CI cross-validation for schema, DAG, execution, error, server, and metrics parity
 
 ## Migrating from Older Versions (Breaking Change)
 
