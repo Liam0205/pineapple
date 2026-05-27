@@ -55,3 +55,4 @@ pine-cpp/build-tests/
 pine-cpp/build-werror/
 pine-cpp/build-lint/
 pine-cpp/build/
+.clang-format.preferred
