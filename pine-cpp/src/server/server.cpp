@@ -19,6 +19,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -866,30 +867,37 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     // it is safe to use mid-keep-alive — a queued follow-up request
     // looks like POLLIN, which we don't react to.
     std::stop_source cancel_src;
-    std::atomic<bool> exec_done{false};
+    int wake_fd = -1;
     std::thread watcher;
     if (client_fd >= 0) {
-      watcher = std::thread([client_fd, &cancel_src, &exec_done]() {
-        while (!exec_done.load(std::memory_order_acquire)) {
-          struct pollfd pfd{};
-          pfd.fd = client_fd;
+      wake_fd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+      int wfd = wake_fd;
+      watcher = std::thread([client_fd, wfd, &cancel_src]() {
+        for (;;) {
+          struct pollfd pfds[2]{};
+          pfds[0].fd = client_fd;
 #ifdef POLLRDHUP
-          pfd.events = POLLRDHUP;
+          pfds[0].events = POLLRDHUP;
 #else
-          pfd.events = 0;
+          pfds[0].events = 0;
 #endif
-          int rc = ::poll(&pfd, 1, 100 /*ms*/);
+          pfds[1].fd = wfd;
+          pfds[1].events = POLLIN;
+
+          int rc = ::poll(pfds, 2, -1);
           if (rc > 0) {
-            if (pfd.revents & (POLLERR | POLLHUP
+            if (pfds[1].revents & POLLIN) {
+              return;
+            }
+            if (pfds[0].revents & (POLLERR | POLLHUP
 #ifdef POLLRDHUP
-                               | POLLRDHUP
+                                   | POLLRDHUP
 #endif
-                               | POLLNVAL)) {
+                                   | POLLNVAL)) {
               cancel_src.request_stop();
               return;
             }
           }
-          // rc == 0 (timeout) or rc < 0 (interrupted) — loop.
         }
       });
     }
@@ -901,13 +909,16 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
         exec_err = std::current_exception();
       }
     }
-    exec_done.store(true, std::memory_order_release);
     if (watcher.joinable()) {
-      // Force the watcher poll() to return early so we don't wait
-      // up to 100 ms after a fast request. request_stop is
-      // idempotent and harmless when the engine already returned.
-      cancel_src.request_stop();
+      if (wake_fd >= 0) {
+        uint64_t val = 1;
+        auto ignored = ::write(wake_fd, &val, sizeof(val));
+        (void)ignored;
+      }
       watcher.join();
+    }
+    if (wake_fd >= 0) {
+      ::close(wake_fd);
     }
     // Match Go: even on partial execution errors, we capture the Projected
     // result (items and common containing fields up to failure point) as well
