@@ -172,7 +172,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     _validate_resource_refs(named_ops, declared_resources)
 
     # 9b. Validate SubFlow contracts (if declared)
-    _validate_subflow_contracts(flow, named_ops, declared_resources)
+    _validate_subflow_contracts(flow, declared_resources)
 
     # 10. Build result
     result: dict[str, Any] = {
@@ -410,7 +410,6 @@ def _validate_resource_refs(
 
 def _validate_subflow_contracts(
     flow: Any,
-    named_ops: list[tuple[str, Any]],
     declared_resources: set[str],
 ) -> None:
     """Validate SubFlow-declared required_resources against parent Flow."""
