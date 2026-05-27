@@ -231,7 +231,10 @@ public class Codegen {
         StringBuilder sb = new StringBuilder();
         boolean upper = true;
         for (char c : s.toCharArray()) {
-            if (c == '_') { upper = true; continue; }
+            if (c == '_') {
+                upper = true;
+                continue;
+            }
             if (upper && c >= 'a' && c <= 'z') {
                 sb.append((char)(c - 'a' + 'A'));
                 upper = false;
@@ -276,14 +279,30 @@ public class Codegen {
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
             switch (c) {
-                case '\\': sb.append("\\\\"); break;
-                case '"':  sb.append("\\\""); break;
-                case '\n': sb.append("\\n"); break;
-                case '\r': sb.append("\\r"); break;
-                case '\t': sb.append("\\t"); break;
-                case '\0': sb.append("\\0"); break;
-                case '\b': sb.append("\\b"); break;
-                case '\f': sb.append("\\f"); break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '"':
+                    sb.append("\\\"");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+                case '\0':
+                    sb.append("\\0");
+                    break;
+                case '\b':
+                    sb.append("\\b");
+                    break;
+                case '\f':
+                    sb.append("\\f");
+                    break;
                 default:
                     if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) {
                         sb.append(String.format("\\u%04x", (int) c));
