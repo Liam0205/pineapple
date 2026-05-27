@@ -2,6 +2,7 @@ package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
+import page.liam.pine.GoTypeNames;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 import page.liam.pine.OperatorParams;
@@ -76,16 +77,6 @@ public class ReorderSort extends AbstractOperator implements page.liam.pine.Cons
         if (v instanceof Number) {
             return ((Number) v).doubleValue();
         }
-        throw new PineErrors.OperatorException("cannot convert " + (v == null ? "<nil>" : goTypeName(v)) + " to float64");
-    }
-
-    private static String goTypeName(Object v) {
-        if (v == null) return "<nil>";
-        if (v instanceof Boolean) return "bool";
-        if (v instanceof String) return "string";
-        if (v instanceof Number) return "float64";
-        if (v instanceof java.util.List) return "[]interface {}";
-        if (v instanceof java.util.Map) return "map[string]interface {}";
-        return v.getClass().getSimpleName();
+        throw new PineErrors.OperatorException("cannot convert " + (v == null ? "<nil>" : GoTypeNames.of(v)) + " to float64");
     }
 }

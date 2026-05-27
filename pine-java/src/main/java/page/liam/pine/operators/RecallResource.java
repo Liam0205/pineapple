@@ -41,7 +41,7 @@ public class RecallResource extends AbstractOperator implements ResourceAware, p
             items = (List<?>) raw;
         } else {
             throw new PineErrors.OperatorException("recall_resource: resource \"" + resourceName + "\" is " +
-                    goTypeName(raw) + ", want []map[string]any");
+                    GoTypeNames.of(raw) + ", want []map[string]any");
         }
 
         for (int i = 0; i < items.size(); i++) {
@@ -51,18 +51,8 @@ public class RecallResource extends AbstractOperator implements ResourceAware, p
                 output.addItem(new java.util.LinkedHashMap<>(m));
             } else {
                 throw new PineErrors.OperatorException("recall_resource: items[" + i + "] is " +
-                        goTypeName(item) + ", want map[string]any");
+                        GoTypeNames.of(item) + ", want map[string]any");
             }
         }
-    }
-
-    private static String goTypeName(Object v) {
-        if (v == null) return "<nil>";
-        if (v instanceof Boolean) return "bool";
-        if (v instanceof String) return "string";
-        if (v instanceof Number) return "float64";
-        if (v instanceof java.util.List) return "[]interface {}";
-        if (v instanceof java.util.Map) return "map[string]interface {}";
-        return v.getClass().getSimpleName();
     }
 }

@@ -2,6 +2,7 @@ package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
 import page.liam.pine.CancellationToken;
+import page.liam.pine.GoTypeNames;
 import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
@@ -25,7 +26,7 @@ public class FilterTruncate extends AbstractOperator implements page.liam.pine.C
         if (v instanceof Number) {
             topN = ((Number) v).longValue();
         } else {
-            throw new IllegalArgumentException("filter_truncate: top_n must be numeric, got " + goTypeName(v));
+            throw new IllegalArgumentException("filter_truncate: top_n must be numeric, got " + GoTypeNames.of(v));
         }
         if (topN < 0) {
             throw new IllegalArgumentException("filter_truncate: top_n must be non-negative, got " + topN);
@@ -37,15 +38,5 @@ public class FilterTruncate extends AbstractOperator implements page.liam.pine.C
         for (int i = (int) Math.min(topN, input.itemCount()); i < input.itemCount(); i++) {
             output.removeItem(i);
         }
-    }
-
-    private static String goTypeName(Object v) {
-        if (v == null) return "<nil>";
-        if (v instanceof Boolean) return "bool";
-        if (v instanceof String) return "string";
-        if (v instanceof Number) return "float64";
-        if (v instanceof java.util.List) return "[]interface {}";
-        if (v instanceof java.util.Map) return "map[string]interface {}";
-        return v.getClass().getSimpleName();
     }
 }
