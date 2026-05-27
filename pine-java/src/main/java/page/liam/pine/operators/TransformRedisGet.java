@@ -101,9 +101,15 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         } catch (Exception e) {
             String redisCmd;
             switch (dataType) {
-                case "set": redisCmd = "SMembers"; break;
-                case "list": redisCmd = "LRange"; break;
-                default: redisCmd = "Get"; break;
+                case "set":
+                    redisCmd = "SMembers";
+                    break;
+                case "list":
+                    redisCmd = "LRange";
+                    break;
+                default:
+                    redisCmd = "Get";
+                    break;
             }
             output.setWarning(new PineErrors.OperatorException(
                     "transform_redis_get: " + redisCmd + "(" + key + "): " + e.getMessage(), e));
