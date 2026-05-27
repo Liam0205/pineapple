@@ -60,4 +60,5 @@ if [ -n "$errors" ]; then
   exit 1
 fi
 
+echo "pre-push: all lint checks passed."
 exit 0
