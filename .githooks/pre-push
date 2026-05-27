@@ -15,7 +15,7 @@ fi
 errors=""
 
 # Python lint — apple
-if [ -d "apple" ]; then
+if [ -d "apple" ] && command -v ruff &>/dev/null; then
   py_out=$(ruff check apple/ 2>&1)
   if [ $? -ne 0 ]; then
     errors+="=== ruff check apple/ ===\n${py_out}\n\n"
@@ -23,7 +23,7 @@ if [ -d "apple" ]; then
 fi
 
 # Python lint — pine-python
-if [ -d "pine-python" ]; then
+if [ -d "pine-python" ] && command -v ruff &>/dev/null; then
   pyp_out=$(ruff check pine-python/ 2>&1)
   if [ $? -ne 0 ]; then
     errors+="=== ruff check pine-python/ ===\n${pyp_out}\n\n"
@@ -31,7 +31,7 @@ if [ -d "pine-python" ]; then
 fi
 
 # Go lint
-if [ -f "pine-go/go.mod" ]; then
+if [ -f "pine-go/go.mod" ] && command -v golangci-lint &>/dev/null; then
   go_out=$(cd pine-go && golangci-lint run ./... 2>&1)
   if [ $? -ne 0 ]; then
     errors+="=== golangci-lint run ./... ===\n${go_out}\n\n"
@@ -39,7 +39,7 @@ if [ -f "pine-go/go.mod" ]; then
 fi
 
 # Java lint
-if [ -f "pine-java/pom.xml" ]; then
+if [ -f "pine-java/pom.xml" ] && command -v mvn &>/dev/null; then
   java_out=$(cd pine-java && mvn checkstyle:check -B -q 2>&1)
   if [ $? -ne 0 ]; then
     errors+="=== mvn checkstyle:check ===\n${java_out}\n\n"
@@ -48,8 +48,9 @@ fi
 
 # C++ format
 if [ -d "pine-cpp" ] && command -v clang-format &>/dev/null; then
-  cpp_out=$(find pine-cpp -type f \( -name '*.cpp' -o -name '*.hpp' \) -not -path '*/build*' \
-    | xargs clang-format --dry-run --Werror 2>&1)
+  cpp_out=$(find pine-cpp -type d \( -name 'build' -o -name 'build-*' \) -prune \
+    -o -type f \( -name '*.cpp' -o -name '*.hpp' \) -print0 \
+    | xargs -0 clang-format --dry-run --Werror 2>&1)
   if [ $? -ne 0 ]; then
     errors+="=== clang-format ===\n${cpp_out}\n\n"
   fi
