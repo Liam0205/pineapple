@@ -57,7 +57,7 @@ ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: true
 DeriveLineEnding: true
-DerivePointerAlignment: true
+DerivePointerAlignment: false
 DisableFormat: false
 FixNamespaceComments: true
 ForEachMacros:
@@ -117,7 +117,7 @@ SpacesInCStyleCastParentheses: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
 SpaceBeforeSquareBrackets: false
-Standard: Auto
+Standard: Latest
 TabWidth: 8
 UseCRLF: false
 UseTab: Never
