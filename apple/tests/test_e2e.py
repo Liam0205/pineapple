@@ -247,3 +247,75 @@ class TestE2E:
         if result.returncode != 0:
             print(result.stderr)
         assert result.returncode == 0, f"Go test failed:\n{result.stdout}\n{result.stderr}"
+
+    def test_go_engine_strict_field_e2e(self):
+        """Full e2e: DSL strict_common → JSON → Go engine rejects nil.
+
+        Validates the complete declaration→compilation→runtime path for
+        strict field mode, ensuring Apple DSL's strict_common key is
+        consumed by pine-go.
+        """
+        flow = Flow(
+            name="apple_strict_e2e",
+            common_input=["age"],
+            item_output=["item_id", "item_score"],
+        )
+        flow._add_op(
+            "recall_static",
+            item_output=["item_id", "item_score"],
+            items=[{"item_id": "x", "item_score": 1.0}],
+        )
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["age"],
+            strict_common=["age"],
+            item_input=["item_score"],
+            item_output=["item_score"],
+            lua_script=(
+                "function f()\n"
+                "  return item_score * age\n"
+                "end"
+            ),
+            function_for_item="f",
+            function_for_common="",
+        )
+
+        json_str = flow.compile()
+
+        # Verify the compiled JSON actually contains "strict_common"
+        parsed = json.loads(json_str)
+        ops = parsed["pipeline_config"]["operators"]
+        lua_ops = [o for o in ops.values() if o["type_name"] == "transform_by_lua"]
+        assert len(lua_ops) == 1
+        assert lua_ops[0].get("strict_common") == ["age"], (
+            f"compiled JSON must contain strict_common; got: {lua_ops[0]}"
+        )
+
+        config_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "pine-go",
+            "testdata", "e2e_apple_strict_field.json",
+        )
+        try:
+            with open(config_path, "w") as f:
+                f.write(json_str)
+
+            result = subprocess.run(
+                [
+                    "go", "test", "./integration/",
+                    "-run", "TestAppleDSLStrictFieldE2E",
+                    "-v", "-count=1",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=os.path.join(os.path.dirname(__file__), "..", "..", "pine-go"),
+                timeout=60,
+            )
+            print(result.stdout)
+            if result.returncode != 0:
+                print(result.stderr)
+            assert result.returncode == 0, (
+                f"Go strict-field e2e failed:\n{result.stdout}\n{result.stderr}"
+            )
+        finally:
+            if os.path.exists(config_path):
+                os.unlink(config_path)
