@@ -62,6 +62,8 @@
     "wrapping_exact": "items[2] is string",
     "wrapping_exact_engines": [
       "go",
+      "java",
+      "python",
       "cpp"
     ]
   }

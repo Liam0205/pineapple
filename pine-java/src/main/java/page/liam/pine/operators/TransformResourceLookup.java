@@ -48,7 +48,7 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
         Object raw = result.value();
         if (!(raw instanceof Map)) {
             throw new PineErrors.OperatorException("transform_resource_lookup: resource \"" + resourceName + "\" is " +
-                    (raw == null ? "null" : raw.getClass().getSimpleName()) + ", want map[string]any");
+                    goTypeName(raw) + ", want map[string]any");
         }
         Map<String, Object> table = (Map<String, Object>) raw;
 
@@ -79,5 +79,15 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
             return GoFormat.formatFloatF(d);
         }
         return String.valueOf(v);
+    }
+
+    private static String goTypeName(Object v) {
+        if (v == null) return "<nil>";
+        if (v instanceof Boolean) return "bool";
+        if (v instanceof String) return "string";
+        if (v instanceof Number) return "float64";
+        if (v instanceof java.util.List) return "[]interface {}";
+        if (v instanceof java.util.Map) return "map[string]interface {}";
+        return v.getClass().getSimpleName();
     }
 }
