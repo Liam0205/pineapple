@@ -311,7 +311,8 @@ public class Config {
         public List<String> skip;
         public boolean recall;
         public List<String> sources;
-        public Boolean debug;        public boolean consumesRowSet;
+        public Boolean debug;
+        public boolean consumesRowSet;
         public boolean mutatesRowSet;
         public boolean additiveWritesRowSet;
         public boolean forBranchControl;
