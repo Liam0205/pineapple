@@ -28,7 +28,7 @@ std::string color_for(const std::string& t) {
     const auto& m = dot_colors_map();
     auto it = m.find(t);
     if (it != m.end()) return it->second;
-    return "#FFFFFF";
+    return "#F5F5F5";
 }
 
 std::string collapse_key(const std::string& subflow, int level) {
