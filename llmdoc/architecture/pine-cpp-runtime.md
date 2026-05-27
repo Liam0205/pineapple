@@ -79,10 +79,17 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - graceful shutdown：`Server::stop()` 在停止接受新连接后等待 in-flight 请求计数归零，5s 超时
   - **HTTP/1.1 keep-alive**（R3-L9b）：连接处理 while-loop 复用 socket；`Connection: keep-alive/close` 头由 `MiddlewareContext.keep_alive` 控制（HTTP/1.1 默认 keep-alive，HTTP/1.0 默认 close）。`-idle-timeout` 控制 keep-alive 连接两次请求间的空闲超时
   - **read-header-timeout**（R3-L9a）：`read_http_request` 入参增 `header_timeout` / `body_timeout`；header 阶段 `SO_RCVTIMEO` 短窗口防 Slowloris，`\r\n\r\n` 边界后 swap 为 body_timeout 长窗口
-  - **客户端断连取消**（R10-2）：`execute_with_trace` 接收 `client_fd`，spawn watcher 线程 `poll(POLLRDHUP|POLLHUP|POLLERR)` 100ms 周期检测断连，`request_stop()` 转发到 Engine `stop_token`
+  - **客户端断连取消**（R10-2）：`execute_with_trace` 接收 `client_fd`，spawn watcher 线程 `poll()` 同时监听 client fd（`POLLRDHUP|POLLHUP|POLLERR`）和 `eventfd` wakeup fd，`poll` 超时设为 `-1`（无限等待），实现零延迟唤醒。请求完成后主线程 `eventfd_write` 通知 watcher 退出，替代原 100ms 轮询超时方案
   - 双重边界 body 读取：Content-Length 与 `max_request_body_size+1` hard cap 同时生效；malformed Content-Length 直接拒绝
 - **Engine / 调度**
-  - per-node thread DAG 调度，节点完成时 fan-out 后继；C++20 `std::stop_token` + `condition_variable_any::wait(lock, token, pred)` 协作取消
+  - **Ready-queue DAG 调度器**（v0.9.2）：替代原 per-node `std::thread` 方案，使用双隔离线程池架构：
+    - **DAG pool**（默认 `nproc * 4`）：负责 DAG 节点调度，只有前驱全部完成的节点才被提交到池中，池中不存在阻塞任务
+    - **Shard pool**（默认 `nproc * 2`）：负责 `data_parallel` 分片执行
+    - **In-degree 追踪**：`std::atomic<int>[]` 数组，每个节点初始值为前驱数量；前驱完成时 `fetch_sub(1)` 递减后继 in-degree，归零即提交
+    - **Completion latch**：`std::atomic<size_t> remaining` + `condition_variable` 等待所有节点完成
+    - **Seed loop 安全**：根节点识别使用不可变的 `graph.nodes[i].preds.empty()`（而非可变的 `in_degree[i]`），避免 pool worker 已递减非根节点 in-degree 导致的竞态
+    - 可通过 `EngineOptions::dag_pool_size` / `EngineOptions::shard_pool_size` 配置，CLI 对应 `-dag-pool-size` / `-shard-pool-size`
+  - C++20 `std::stop_token` + `std::stop_callback` 协作取消
   - **外部取消 API**（R3-H3）：`Engine::execute` / `execute_traced_into` 接受可选 `std::stop_token external_cancel`；run_dag 通过 `std::stop_callback` 桥接到内部 `cancel_source`
   - **shard 级取消**（R3-M3）：parallel_execute 首个 shard 失败后 `atomic<bool> shard_cancel` 阻止后续 shard 启动
   - `Engine::peak_concurrency()` 通过 atomic CAS 追踪累积峰值，序列化到 `/stats.scheduler.peak_concurrency`
@@ -108,7 +115,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - 17 个内置算子均使用 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`
   - `observe_log` 完整实现（R3-L8）：init 读取 metadata 字段列表和 `log_prefix`，execute 构造 `{common, items}` snapshot 后 `dump_json(value, 0)` 紧凑输出到 stderr。`dump_json(value, 0)` 紧凑模式（R13-1）抑制所有 `\n` / 缩进 / 冒号后空格，与 Go `json.Marshal` 格式对齐
   - `[pine-debug]` stderr 日志（R3-L6）：debug=true 的算子在 execute 后、apply_output 前输出 `operator/duration/input_size/output_size/input/output` 单行日志
-  - `inline constexpr const char* kVersion = "0.8.0"`（R3-L2）：编译期版本常量，对齐 Go `const Version`
+  - `inline constexpr const char* kVersion = "0.9.2"`（R3-L2）：编译期版本常量，对齐 Go `const Version`
   - warning operator-name 前缀（`{op_name}: ...`）由框架在 `apply_output` 阶段统一加上
 - **错误体系**
   - `ConfigError` / `ValidationError` / `RegistryError` 在构造时自动加 `pine: <kind> error: ...` 前缀，与 pine-go `types/errors.go` 字节级一致
@@ -187,9 +194,11 @@ cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 c
 
 ### 8. 并行执行模型
 
-- 固定大小线程池
-- DAG 分支并行与算子内数据分片共用同一个 pool
+- **双隔离线程池**（v0.9.2 ready-queue scheduler）
+- DAG pool（默认 `nproc * 4`）：调度 DAG 节点，只有 in-degree 归零的节点才被提交
+- Shard pool（默认 `nproc * 2`）：`data_parallel` 分片执行专用
 - 不依赖 C++20 coroutine runtime；当前阶段优先成熟、可控、易调试的线程池方案
+- CLI 可通过 `-dag-pool-size` / `-shard-pool-size` 调整
 
 ### 9. 扩展机制
 
