@@ -994,6 +994,12 @@ bool Server::reload_config() {
     if (!new_config.log_prefix.empty()) {
       engine_opts.log_prefix = new_config.log_prefix;
     }
+    if (config_.dag_pool_size > 0) {
+      engine_opts.dag_pool_size = config_.dag_pool_size;
+    }
+    if (config_.shard_pool_size > 0) {
+      engine_opts.shard_pool_size = config_.shard_pool_size;
+    }
     auto new_engine = std::make_unique<Engine>(new_config, std::move(engine_opts));
     auto new_expanded = expand_operator_sequence_with_subflows(new_config);
 
@@ -1104,6 +1110,12 @@ int Server::run(const ServerConfig& cfg) {
     engine_opts.metrics_provider = provider;
     if (!config.log_prefix.empty()) {
       engine_opts.log_prefix = config.log_prefix;
+    }
+    if (cfg.dag_pool_size > 0) {
+      engine_opts.dag_pool_size = cfg.dag_pool_size;
+    }
+    if (cfg.shard_pool_size > 0) {
+      engine_opts.shard_pool_size = cfg.shard_pool_size;
     }
     engine_ = std::make_unique<Engine>(config, std::move(engine_opts));
 
