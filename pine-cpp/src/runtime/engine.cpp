@@ -973,10 +973,10 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
   frame.set_resources(&resources);
   std::exception_ptr run_err = nullptr;
   try {
-    out->trace = run_dag(config_, graph_, operators_, input_specs_, frame, /*collect_traces=*/true,
-                         peak_concurrency_.get(), engine_metrics_.get(),
-                         dag_pool_ ? &dag_pool_->pool : nullptr,
-                         shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel);
+    out->trace =
+        run_dag(config_, graph_, operators_, input_specs_, frame, /*collect_traces=*/true,
+                peak_concurrency_.get(), engine_metrics_.get(), dag_pool_ ? &dag_pool_->pool : nullptr,
+                shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel);
   } catch (...) {
     run_err = std::current_exception();
   }
