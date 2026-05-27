@@ -138,6 +138,10 @@ struct ServerConfig {
 
   // Optional metrics provider for HTTP-layer instrumentation. nullptr → no-op.
   pine::metrics::Provider* metrics_provider = nullptr;
+
+  // Thread pool sizes. 0 means "use default" (dag: nproc*4, shard: nproc*2).
+  std::size_t dag_pool_size = 0;
+  std::size_t shard_pool_size = 0;
 };
 
 // Minimal HTTP server for pine-cpp.

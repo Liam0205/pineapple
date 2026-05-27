@@ -114,6 +114,24 @@ int main(int argc, char** argv) {
         std::exit(2);
       }
       cfg.max_request_body_size = static_cast<int64_t>(v);
+    } else if (arg == "-dag-pool-size") {
+      const char* raw = take_value(i, "-dag-pool-size");
+      char* endp = nullptr;
+      long long v = std::strtoll(raw, &endp, 10);
+      if (endp == raw || *endp != '\0' || v <= 0) {
+        fprintf(stderr, "invalid -dag-pool-size value: %s\n", raw);
+        std::exit(2);
+      }
+      cfg.dag_pool_size = static_cast<std::size_t>(v);
+    } else if (arg == "-shard-pool-size") {
+      const char* raw = take_value(i, "-shard-pool-size");
+      char* endp = nullptr;
+      long long v = std::strtoll(raw, &endp, 10);
+      if (endp == raw || *endp != '\0' || v <= 0) {
+        fprintf(stderr, "invalid -shard-pool-size value: %s\n", raw);
+        std::exit(2);
+      }
+      cfg.shard_pool_size = static_cast<std::size_t>(v);
     }
   }
 
@@ -122,7 +140,8 @@ int main(int argc, char** argv) {
             "usage: pineapple-server -config <path-to-config.json> "
             "[-addr :8080] [-read-timeout 30s] [-read-header-timeout 5s] "
             "[-write-timeout 60s] [-idle-timeout 120s] "
-            "[-max-body-size 10485760]\n");
+            "[-max-body-size 10485760] "
+            "[-dag-pool-size N] [-shard-pool-size N]\n");
     return 1;
   }
 

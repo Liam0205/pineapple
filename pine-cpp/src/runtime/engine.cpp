@@ -295,15 +295,15 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
   log_prefix_ = options.log_prefix.has_value() ? *options.log_prefix : config_.log_prefix;
   peak_concurrency_ = std::make_unique<std::atomic<int64_t>>(0);
   metrics_provider_ = options.metrics_provider ? options.metrics_provider : metrics::nop_provider();
-  // Engine-level worker pool reused across data_parallel shards. Sized to
-  // hardware_concurrency (≥1). Avoids the per-request spawn/join cost
-  // that becomes dominant under high QPS.
   {
     unsigned hw = std::thread::hardware_concurrency();
     if (hw == 0) {
       hw = 4;
     }
-    shard_pool_ = std::make_unique<PoolHolder>(static_cast<std::size_t>(hw));
+    std::size_t dag_size = options.dag_pool_size.value_or(static_cast<std::size_t>(hw) * 4);
+    std::size_t shard_size = options.shard_pool_size.value_or(static_cast<std::size_t>(hw) * 2);
+    dag_pool_ = std::make_unique<PoolHolder>(dag_size);
+    shard_pool_ = std::make_unique<PoolHolder>(shard_size);
   }
   expanded_ = expand_operator_sequence_with_subflows(config_);
   graph_ = build_dag(config_, expanded_);
@@ -655,18 +655,16 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   }
 }
 
-// run_dag executes the DAG concurrently: each node runs on its own thread,
-// waits on predecessor completion via shared_futures, and accesses Frame
-// under a shared_mutex (shared lock for reads, unique lock for apply_output).
-// On the first fatal exception, all unstarted nodes observe `cancelled` and
-// bail out; the captured exception is rethrown by the caller.
-// Mirrors pine-go internal/runtime/scheduler.go (per-node goroutines, done
-// channels, fatalOnce + context cancel).
+// run_dag executes the DAG using a ready-queue scheduler: only nodes whose
+// predecessors have all completed are submitted to the DAG thread pool.
+// When a node finishes, it decrements the in-degree of its successors and
+// submits any that become ready. The pool never holds blocked tasks.
 std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
                              const std::map<std::string, std::unique_ptr<Operator>>& operators,
                              const std::map<std::string, InputFieldSpec>& input_specs, Frame& frame,
                              bool collect_traces, std::atomic<int64_t>* peak_concurrency = nullptr,
-                             Engine::EngineMetrics* em = nullptr, runtime::ThreadPool* shard_pool = nullptr,
+                             Engine::EngineMetrics* em = nullptr, runtime::ThreadPool* dag_pool = nullptr,
+                             runtime::ThreadPool* shard_pool = nullptr,
                              std::stop_token external_cancel = std::stop_token{}) {
   const std::size_t n = graph.nodes.size();
 
@@ -676,57 +674,18 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
   auto dag_start = std::chrono::steady_clock::now();
   std::atomic<int64_t> ops_executed{0};
 
-  // NodeSignal replaces std::promise/shared_future so that a fail() can
-  // interrupt waits on still-pending predecessors through a stop_token,
-  // rather than the old "wait until predecessor self-terminates" pattern
-  // which forced every sibling to block until its own predecessors
-  // finished). condition_variable_any::wait(lock, stop_token,
-  // pred) is C++20 P0660 — it returns immediately when stop is requested.
-  struct NodeSignal {
-    std::mutex mu;
-    std::condition_variable_any cv;
-    bool done = false;
-  };
-  std::vector<std::unique_ptr<NodeSignal>> signals;
-  signals.reserve(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    signals.emplace_back(std::make_unique<NodeSignal>());
-  }
-
   std::vector<OpTrace> traces;
   if (collect_traces) {
     traces.assign(n, OpTrace{});
   }
 
-  // Frame concurrency is managed by ColumnFrame's internal
-  // shared_mutex (column_frame.hpp:79). The DAG topology guarantees
-  // predecessor-successor ordering through NodeSignal, and parallel_execute
-  // shards copy items out before mutating, so siblings on the same DAG
-  // level only ever issue concurrent reads. We removed the redundant
-  // engine-level frame_mu — the inner lock is the source of truth.
   std::mutex fatal_mu;
   std::exception_ptr fatal_err;
   std::atomic<int64_t> active_ops{0};
 
-  // stop_source broadcasts cancellation to every node waiting on a
-  // predecessor via cv.wait(lock, stop_token, pred). Replacing the
-  // old `std::atomic<bool> cancelled` with stop_token lets the cv
-  // implementation interrupt the wait directly — no polling, no
-  // sleep_for.
   std::stop_source cancel_source;
   auto stop_token = cancel_source.get_token();
 
-  // Bridge the caller-supplied external cancel token (e.g. client disconnect
-  // signal from server.cpp) into the engine-internal cancel_source. The
-  // callback fires once when external_cancel.request_stop() is called and
-  // forwards it to cancel_source so every cv.wait(lock, stop_token, pred)
-  // currently parked in this DAG returns immediately. Mirrors pine-go's
-  // Execute(ctx, req) flow where the scheduler watches ctx.Done() at
-  // every wait.
-  //
-  // RAII ordering: declared after cancel_source so it destructs first —
-  // the callback is unregistered before cancel_source's stop_state is
-  // destroyed, avoiding any use-after-free across threads.
   std::optional<std::stop_callback<std::function<void()>>> external_link;
   if (external_cancel.stop_possible()) {
     external_link.emplace(external_cancel,
@@ -741,17 +700,6 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     }
   };
 
-  auto mark_done = [&](std::size_t idx) {
-    auto& s = *signals[idx];
-    {
-      std::lock_guard<std::mutex> lk(s.mu);
-      s.done = true;
-    }
-    s.cv.notify_all();
-  };
-
-  // CAS-update the cumulative peak to at least n_current.
-  // Mirrors pine-go internal/runtime/stats.go Stats.RecordConcurrency.
   auto record_peak = [&](int64_t n_current) {
     if (!peak_concurrency) {
       return;
@@ -767,180 +715,188 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     }
   };
 
-  std::vector<std::thread> threads;
-  threads.reserve(n);
+  // In-degree tracking: each entry starts at the number of predecessors.
+  // When a predecessor completes, it atomically decrements successors'
+  // in-degree; reaching zero means the node is ready to run.
+  auto in_degree = std::make_unique<std::atomic<int>[]>(n);
   for (std::size_t i = 0; i < n; ++i) {
-    threads.emplace_back([&, i]() {
-      // RAII: always notify successors, even on early return / exception.
-      struct Notifier {
-        std::function<void()> fn;
-        ~Notifier() {
+    in_degree[i].store(static_cast<int>(graph.nodes[i].preds.size()), std::memory_order_relaxed);
+  }
+
+  // Completion latch: counts down from n. When it reaches 0, all nodes
+  // have finished (either executed or skipped due to cancellation).
+  std::atomic<std::size_t> remaining{n};
+  std::mutex done_mu;
+  std::condition_variable done_cv;
+
+  std::function<void(std::size_t)> node_body;
+
+  // propagate_and_signal: after a node finishes (success, skip, or cancel),
+  // decrement successors' in-degree and submit newly-ready ones, then
+  // decrement `remaining` and notify the main thread if we're the last.
+  auto propagate_and_signal = [&](std::size_t i) {
+    for (int succ : graph.nodes[i].succs) {
+      auto su = static_cast<std::size_t>(succ);
+      int prev = in_degree[su].fetch_sub(1, std::memory_order_acq_rel);
+      if (prev == 1) {
+        if (dag_pool) {
           try {
-            fn();
+            dag_pool->submit([&, su]() { node_body(su); });
           } catch (...) {
+            node_body(su);
           }
-        }
-      } notifier{[&, i] { mark_done(i); }};
-      (void)notifier;
-
-      const auto& node = graph.nodes[i];
-      const auto& op = config.operators.at(node.name);
-
-      // Wait on every predecessor's done flag; cv.wait with stop_token
-      // returns false when fail() requests stop, letting us bail out
-      // without serializing through still-running siblings.
-      for (int pred : node.preds) {
-        auto& s = *signals[static_cast<std::size_t>(pred)];
-        std::unique_lock<std::mutex> lk(s.mu);
-        bool got_pred = s.cv.wait(lk, stop_token, [&] { return s.done; });
-        if (!got_pred) {
-          return;  // stop requested
+        } else {
+          node_body(su);
         }
       }
-      if (stop_token.stop_requested()) {
+    }
+    if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      std::lock_guard<std::mutex> lk(done_mu);
+      done_cv.notify_all();
+    }
+  };
+
+  node_body = [&](std::size_t i) {
+    if (stop_token.stop_requested()) {
+      propagate_and_signal(i);
+      return;
+    }
+
+    const auto& node = graph.nodes[i];
+    const auto& op = config.operators.at(node.name);
+
+    int64_t cur_active = active_ops.fetch_add(1, std::memory_order_relaxed) + 1;
+    record_peak(cur_active);
+    if (em && em->active_ops) {
+      em->active_ops->set(static_cast<double>(cur_active));
+    }
+
+    OpTrace trace;
+    if (collect_traces) {
+      trace.name = op.name;
+      trace.start_time_us = now_us();
+    }
+    auto start = std::chrono::steady_clock::now();
+
+    OperatorOutput out;
+
+    try {
+      bool skip = should_skip(frame, op);
+      if (skip) {
+        if (em && em->op_skip_total) {
+          em->op_skip_total->with({op.name})->inc();
+        }
+        if (collect_traces) {
+          auto end = std::chrono::steady_clock::now();
+          trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+          trace.skipped = true;
+          traces[i] = std::move(trace);
+        }
+        int64_t after = active_ops.fetch_sub(1, std::memory_order_relaxed) - 1;
+        if (em && em->active_ops) {
+          em->active_ops->set(static_cast<double>(after));
+        }
+        propagate_and_signal(i);
         return;
       }
 
-      // Track active concurrency (mirrors pine-go scheduler activeOps + RecordConcurrency).
-      // Gauge must be updated on both increment AND decrement.
-      // The earlier guard only fetch_sub'd the atomic without touching
-      // the Prometheus handle, leaving pine_operator_active monotonic-
-      // increasing and meaningless for monitoring.
-      struct ActiveGuard {
-        std::atomic<int64_t>& counter;
-        metrics::Gauge* gauge;
-        ~ActiveGuard() {
-          int64_t after = counter.fetch_sub(1, std::memory_order_relaxed) - 1;
-          if (gauge) {
-            gauge->set(static_cast<double>(after));
-          }
-        }
-      };
-      int64_t cur_active = active_ops.fetch_add(1, std::memory_order_relaxed) + 1;
-      ActiveGuard active_guard{active_ops, em ? em->active_ops : nullptr};
-      record_peak(cur_active);
-      if (em && em->active_ops) {
-        em->active_ops->set(static_cast<double>(cur_active));
+      if (collect_traces && op.debug.value_or(false)) {
+        trace.input_snapshot = snapshot_input(frame, op);
+        trace.has_input_snapshot = true;
       }
+      parallel_execute(frame, op, operators, out, input_specs.at(op.name), shard_pool);
+      if (collect_traces && op.debug.value_or(false)) {
+        trace.output_snapshot = snapshot_output(out);
+        trace.has_output_snapshot = true;
+      }
+      validate_output_against_type(op.name, op.operator_type, out);
 
-      OpTrace trace;
+      if (op.debug.value_or(false)) {
+        auto dur = std::chrono::steady_clock::now() - start;
+        auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
+        std::string dur_str;
+        if (nanos < 1'000'000) {
+          dur_str = std::to_string(nanos / 1000.0) + "µs";
+        } else {
+          dur_str = std::to_string(nanos / 1'000'000.0) + "ms";
+        }
+        std::size_t input_size = frame.item_count();
+        std::size_t output_size = input_size + out.added_items().size() - out.removed_items().size();
+        std::string in_json =
+            trace.has_input_snapshot ? dump_json(trace.input_snapshot, 0) : std::string("{}");
+        std::string out_json =
+            trace.has_output_snapshot ? dump_json(trace.output_snapshot, 0) : std::string("{}");
+        while (!in_json.empty() && in_json.back() == '\n') {
+          in_json.pop_back();
+        }
+        while (!out_json.empty() && out_json.back() == '\n') {
+          out_json.pop_back();
+        }
+        std::cerr << "[pine-debug] operator=\"" << op.name << "\" duration=" << dur_str
+                  << " input_size=" << input_size << " output_size=" << output_size << " input=" << in_json
+                  << " output=" << out_json << "\n";
+      }
+      frame.apply_output(out, op.name, op.operator_type == "recall");
+      auto end = std::chrono::steady_clock::now();
+      auto dur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+      if (em) {
+        if (em->op_exec_total) {
+          em->op_exec_total->with({op.name})->inc();
+        }
+        if (em->op_exec_duration) {
+          em->op_exec_duration->with({op.name})->observe(metrics::duration_seconds(dur_ns));
+        }
+      }
+      ops_executed.fetch_add(1, std::memory_order_relaxed);
       if (collect_traces) {
-        trace.name = op.name;
-        trace.start_time_us = now_us();
+        trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        traces[i] = std::move(trace);
       }
-      auto start = std::chrono::steady_clock::now();
-
-      // Hoisted so the catch block below can salvage the operator's
-      // pre-failure warning.
-      OperatorOutput out;
-
-      try {
-        bool skip = should_skip(frame, op);
-        if (skip) {
-          if (em && em->op_skip_total) {
-            em->op_skip_total->with({op.name})->inc();
-          }
-          if (collect_traces) {
-            auto end = std::chrono::steady_clock::now();
-            trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-            trace.skipped = true;
-            traces[i] = std::move(trace);
-          }
-          return;
-        }
-
-        if (collect_traces && op.debug.value_or(false)) {
-          trace.input_snapshot = snapshot_input(frame, op);
-          trace.has_input_snapshot = true;
-        }
-        parallel_execute(frame, op, operators, out, input_specs.at(op.name), shard_pool);
-        if (collect_traces && op.debug.value_or(false)) {
-          trace.output_snapshot = snapshot_output(out);
-          trace.has_output_snapshot = true;
-        }
-        // Type-constraint check (pine-go scheduler.go:171). Run before
-        // apply_output so a violation aborts the operator without
-        // mutating the master frame. The bare-message ExecutionError
-        // here gets the standard `pine: execution error in operator
-        // "X": ...` prefix added by the outer run_dag catch block.
-        validate_output_against_type(op.name, op.operator_type, out);
-
-        // [pine-debug] log line for op.debug operators. Mirrors
-        // pine-go scheduler.go:231 and pine-java Engine.java:448.
-        // Emit on stderr, with Java-style duration formatting
-        // (µs below 1ms, ms above). Done before apply_output so
-        // the snapshot reflects the inputs that produced this
-        // output.
-        if (op.debug.value_or(false)) {
-          auto dur = std::chrono::steady_clock::now() - start;
-          auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
-          std::string dur_str;
-          if (nanos < 1'000'000) {
-            dur_str = std::to_string(nanos / 1000.0) + "µs";
-          } else {
-            dur_str = std::to_string(nanos / 1'000'000.0) + "ms";
-          }
-          std::size_t input_size = frame.item_count();
-          std::size_t output_size = input_size + out.added_items().size() - out.removed_items().size();
-          std::string in_json =
-              trace.has_input_snapshot ? dump_json(trace.input_snapshot, 0) : std::string("{}");
-          std::string out_json =
-              trace.has_output_snapshot ? dump_json(trace.output_snapshot, 0) : std::string("{}");
-          // R13-1: compact mode used above; no trailing newline
-          // to strip. Old code stripped trailing '\n' from the
-          // indented form — kept the loop as defensive no-op so
-          // any future formatting drift still keeps the log line
-          // single-line.
-          while (!in_json.empty() && in_json.back() == '\n') {
-            in_json.pop_back();
-          }
-          while (!out_json.empty() && out_json.back() == '\n') {
-            out_json.pop_back();
-          }
-          std::cerr << "[pine-debug] operator=\"" << op.name << "\" duration=" << dur_str
-                    << " input_size=" << input_size << " output_size=" << output_size << " input=" << in_json
-                    << " output=" << out_json << "\n";
-        }
-        frame.apply_output(out, op.name, op.operator_type == "recall");
-        auto end = std::chrono::steady_clock::now();
-        auto dur_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-        if (em) {
-          if (em->op_exec_total) {
-            em->op_exec_total->with({op.name})->inc();
-          }
-          if (em->op_exec_duration) {
-            em->op_exec_duration->with({op.name})->observe(metrics::duration_seconds(dur_ns));
-          }
-        }
-        ops_executed.fetch_add(1, std::memory_order_relaxed);
-        if (collect_traces) {
-          trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-          traces[i] = std::move(trace);
-        }
-      } catch (...) {
-        if (em && em->op_error_total) {
-          em->op_error_total->with({op.name})->inc();
-        }
-        // If the operator managed to attach a warning to its
-        // OperatorOutput before throwing (e.g. "Redis unreachable,
-        // falling back to cache-miss"), surface it via the frame so
-        // the diagnostic survives the failure path. The frame
-        // serializes warnings into the response /execute envelope
-        // even when the request ultimately errors.
-        if (out.has_warning()) {
-          try {
-            frame.push_warning(std::string("operator \"") + op.name + "\": " + out.warning());
-          } catch (...) {
-            // Ignore — fail() below carries the original error.
-          }
-        }
-        fail(std::current_exception());
+    } catch (...) {
+      if (em && em->op_error_total) {
+        em->op_error_total->with({op.name})->inc();
       }
-    });
+      if (out.has_warning()) {
+        try {
+          frame.push_warning(std::string("operator \"") + op.name + "\": " + out.warning());
+        } catch (...) {
+        }
+      }
+      fail(std::current_exception());
+    }
+    // Decrement active ops BEFORE signaling completion — after
+    // propagate_and_signal, run_dag may return and destroy locals.
+    {
+      int64_t after = active_ops.fetch_sub(1, std::memory_order_relaxed) - 1;
+      if (em && em->active_ops) {
+        em->active_ops->set(static_cast<double>(after));
+      }
+    }
+    propagate_and_signal(i);
+  };
+
+  // Seed the ready queue with all root nodes (in-degree == 0).
+  // Use graph.nodes[i].preds.size() (immutable) instead of in_degree[i]
+  // (mutable atomic) — pool workers may have already decremented in_degree
+  // for non-root nodes by the time this loop reaches them.
+  for (std::size_t i = 0; i < n; ++i) {
+    if (graph.nodes[i].preds.empty()) {
+      if (dag_pool) {
+        try {
+          dag_pool->submit([&, i]() { node_body(i); });
+        } catch (...) {
+          node_body(i);
+        }
+      } else {
+        node_body(i);
+      }
+    }
   }
 
-  for (auto& t : threads) {
-    t.join();
+  // Wait for all nodes to complete.
+  {
+    std::unique_lock<std::mutex> lk(done_mu);
+    done_cv.wait(lk, [&] { return remaining.load(std::memory_order_acquire) == 0; });
   }
 
   auto dag_end = std::chrono::steady_clock::now();
@@ -961,9 +917,6 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     std::rethrow_exception(fatal_err);
   }
 
-  // Filter out pre-allocated trace slots that never got populated — Go
-  // does the same at scheduler.go:285. Empty .name means the node was
-  // never reached (DAG aborted before reaching this slot).
   std::vector<OpTrace> filtered;
   filtered.reserve(traces.size());
   for (auto& t : traces) {
@@ -1022,6 +975,7 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
   try {
     out->trace = run_dag(config_, graph_, operators_, input_specs_, frame, /*collect_traces=*/true,
                          peak_concurrency_.get(), engine_metrics_.get(),
+                         dag_pool_ ? &dag_pool_->pool : nullptr,
                          shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel);
   } catch (...) {
     run_err = std::current_exception();

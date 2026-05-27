@@ -410,6 +410,10 @@ struct EngineOptions {
   // Optional metrics provider. Defaults to metrics::nop_provider().
   // Mirrors Go's pine.WithMetrics.
   metrics::Provider* metrics_provider = nullptr;
+  // DAG scheduler thread pool size. Default: nproc * 4.
+  std::optional<std::size_t> dag_pool_size;
+  // data_parallel shard thread pool size. Default: nproc * 2.
+  std::optional<std::size_t> shard_pool_size;
 };
 
 // Forward declaration: ColumnFrame is defined in pine/column_frame.hpp.
@@ -498,10 +502,8 @@ class Engine {
   std::unique_ptr<std::atomic<int64_t>> peak_concurrency_;
   metrics::Provider* metrics_provider_ = nullptr;
   std::unique_ptr<EngineMetrics> engine_metrics_;
-  // Shared worker pool for data-parallel shards. Constructed in Engine
-  // ctor body (engine.cpp) so this header stays free of the pool
-  // implementation.
   struct PoolHolder;
+  std::unique_ptr<PoolHolder> dag_pool_;
   std::unique_ptr<PoolHolder> shard_pool_;
 };
 
