@@ -29,12 +29,12 @@ public class RecallStatic extends AbstractOperator implements page.liam.pine.Add
             throw new IllegalArgumentException("recall_static: missing required param 'items'");
         }
         if (!(raw instanceof List)) {
-            throw new IllegalArgumentException("recall_static: 'items' must be a JSON array, got " + raw.getClass().getSimpleName());
+            throw new IllegalArgumentException("recall_static: 'items' must be a JSON array, got " + goTypeName(raw));
         }
         List<?> list = (List<?>) raw;
         for (int i = 0; i < list.size(); i++) {
             if (!(list.get(i) instanceof Map)) {
-                throw new IllegalArgumentException("recall_static: items[" + i + "] must be an object, got " + (list.get(i) == null ? "null" : list.get(i).getClass().getSimpleName()));
+                throw new IllegalArgumentException("recall_static: items[" + i + "] must be an object, got " + goTypeName(list.get(i)));
             }
         }
         items = new java.util.ArrayList<>(list.size());
@@ -49,5 +49,15 @@ public class RecallStatic extends AbstractOperator implements page.liam.pine.Add
             Map<String, Object> copy = new HashMap<>(item);
             output.addItem(copy);
         }
+    }
+
+    private static String goTypeName(Object v) {
+        if (v == null) return "<nil>";
+        if (v instanceof Boolean) return "bool";
+        if (v instanceof String) return "string";
+        if (v instanceof Number) return "float64";
+        if (v instanceof java.util.List) return "[]interface {}";
+        if (v instanceof java.util.Map) return "map[string]interface {}";
+        return v.getClass().getSimpleName();
     }
 }
