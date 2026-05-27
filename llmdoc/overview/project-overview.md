@@ -131,7 +131,7 @@ Python DSL 消费这些契约但不重新定义它们。各运行时实现等效
 - `go-bench.sh` / `java-bench.sh` / `python-bench.sh` — 性能基准
 - `go-fuzz.sh` / `java-fuzz.sh` / `python-fuzz.sh` — Fuzz 测试
 - `lint.sh` — 各语言统一 lint（ruff + golangci-lint + checkstyle + C++ `-Werror` 严格构建）
-- `bump-version.sh` — 跨四处同步版本号
+- `bump-version.sh` — 跨五处同步版本号（含 pine-cpp `kVersion`）
 - `tag-release.sh` — 创建双 tag（`vX.Y.Z` + `pine-go/vX.Y.Z`）并推送
 - `bench-generate-fixtures.py` — 生成 small/medium/large 三档 benchmark fixture
 - `cross-engine-bench.py` — HTTP server 模式跨引擎 benchmark（latency + RPS）
