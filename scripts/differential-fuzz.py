@@ -715,7 +715,7 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     storage_mode = rng.choice(["row", "column"])
 
     config: dict[str, Any] = {
-        "_PINEAPPLE_VERSION": "0.6.6",
+        "_PINEAPPLE_VERSION": "0.9.0",
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": pipeline_map,
@@ -884,7 +884,7 @@ def gen_error_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool
         pipeline = ["recall", "sort_empty"]
 
     config: dict[str, Any] = {
-        "_PINEAPPLE_VERSION": "0.6.6",
+        "_PINEAPPLE_VERSION": "0.9.0",
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": {},

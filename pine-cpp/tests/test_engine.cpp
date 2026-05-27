@@ -9,7 +9,7 @@ using namespace pine;
 namespace {
 
 constexpr const char* kCopyConfig = R"({
-  "_PINEAPPLE_VERSION": "0.8.0",
+  "_PINEAPPLE_VERSION": "0.9.0",
   "pipeline_config": {
     "operators": {
       "copy": {
@@ -149,7 +149,7 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
     }
 
     static const char* kBadRecallConfig = R"({
-      "_PINEAPPLE_VERSION": "0.8.0",
+      "_PINEAPPLE_VERSION": "0.9.0",
       "pipeline_config": {
         "operators": {
           "r1": {
@@ -185,7 +185,7 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
 
 TEST_CASE("Engine::execute honors external stop_token") {
     static const char* kCfg = R"({
-      "_PINEAPPLE_VERSION": "0.8.0",
+      "_PINEAPPLE_VERSION": "0.9.0",
       "pipeline_config": {
         "operators": {
           "copy": {
@@ -248,7 +248,7 @@ TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)"
     // 3-node linear DAG (Transform only — Transform allows zero writes,
     // so SlowOp's empty OperatorOutput passes ValidateOutput).
     static const char* kCfg = R"({
-      "_PINEAPPLE_VERSION": "0.8.0",
+      "_PINEAPPLE_VERSION": "0.9.0",
       "pipeline_config": {
         "operators": {
           "s1": {"type_name": "r10_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}},
