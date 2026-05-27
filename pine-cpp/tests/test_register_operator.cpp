@@ -47,8 +47,7 @@ TEST_CASE("register_operator: duplicate throws RegistryError") {
         void execute(const OperatorInput&, OperatorOutput&) override {}
     };
     CHECK_THROWS_AS(
-        register_operator(dup_schema,
-            ([] { return std::make_unique<DupOp>(); })),
+        register_operator_typed<DupOp>(dup_schema),
         RegistryError);
 }
 
@@ -63,8 +62,7 @@ TEST_CASE("register_operator: empty name throws RegistryError") {
         void execute(const OperatorInput&, OperatorOutput&) override {}
     };
     CHECK_THROWS_AS(
-        register_operator(empty_schema,
-            ([] { return std::make_unique<EmptyNameOp>(); })),
+        register_operator_typed<EmptyNameOp>(empty_schema),
         RegistryError);
 }
 
@@ -76,6 +74,6 @@ TEST_CASE("register_operator: null factory throws RegistryError") {
         .params = {},
     };
     CHECK_THROWS_AS(
-        register_operator(null_schema, nullptr),
+        register_operator_with_traits(null_schema, nullptr, false, false, false, false),
         RegistryError);
 }

@@ -38,7 +38,7 @@ const char* op_type_to_schema_string(OpType t) {
 namespace {
 
 // Construct-on-first-use idiom — sidesteps the static initialization order
-// fiasco. PINE_REGISTER_OPERATOR macros in translation units across the
+// fiasco. PINE_REGISTER_OPERATOR_T macros in translation units across the
 // library may fire before any other translation unit, so we cannot rely on
 // file-scope statics being initialized first.
 std::shared_mutex& registry_mu() {
@@ -53,47 +53,6 @@ std::map<std::string, OperatorEntry>& registry_map() {
 
 }  // namespace
 
-void register_operator(OperatorSchema schema, OperatorFactory factory) {
-    if (schema.name.empty()) {
-        throw RegistryError("pine: register_operator called with empty name");
-    }
-    if (schema.description.empty()) {
-        throw RegistryError("pine: operator \"" + schema.name + "\": description is required");
-    }
-    for (const auto& [pname, pschema] : schema.params) {
-        if (pschema.description.empty()) {
-            throw RegistryError("pine: operator \"" + schema.name + "\" param \"" + pname +
-                                "\": description is required");
-        }
-    }
-    if (!factory) {
-        throw RegistryError("pine: operator \"" + schema.name + "\": factory must not be null");
-    }
-
-    // Probe the factory to validate it returns a non-null instance and detect markers.
-    auto probe = factory();
-    if (!probe) {
-        throw RegistryError("pine: operator \"" + schema.name + "\": factory returned nullptr");
-    }
-
-    OperatorEntry entry;
-    entry.schema = std::move(schema);
-    entry.factory = std::move(factory);
-    entry.consumes_row_set         = (dynamic_cast<ConsumesRowSet*>(probe.get()) != nullptr);
-    entry.mutates_row_set          = (dynamic_cast<MutatesRowSet*>(probe.get()) != nullptr);
-    entry.additive_writes_row_set  = (dynamic_cast<AdditiveWritesRowSet*>(probe.get()) != nullptr);
-    entry.concurrent_safe          = (dynamic_cast<ConcurrentSafe*>(probe.get()) != nullptr);
-
-    const std::string name = entry.schema.name;
-
-    std::unique_lock<std::shared_mutex> lk(registry_mu());
-    auto& reg = registry_map();
-    if (reg.count(name)) {
-        throw RegistryError("pine: duplicate operator registration: \"" + name + "\"");
-    }
-    reg.emplace(name, std::move(entry));
-}
-
 void register_operator_with_traits(OperatorSchema schema,
                                    OperatorFactory factory,
                                    bool consumes_row_set,
@@ -101,7 +60,7 @@ void register_operator_with_traits(OperatorSchema schema,
                                    bool additive_writes_row_set,
                                    bool concurrent_safe) {
     if (schema.name.empty()) {
-        throw RegistryError("pine: register_operator called with empty name");
+        throw RegistryError("pine: register_operator_with_traits called with empty name");
     }
     if (schema.description.empty()) {
         throw RegistryError("pine: operator \"" + schema.name + "\": description is required");

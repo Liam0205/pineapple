@@ -43,7 +43,7 @@ void run_test() {
         .description = "mock",
         .params = {},
     };
-    register_operator(std::move(schema1), [] { return std::make_unique<StatsMockOp>(); });
+    register_operator_typed<StatsMockOp>(std::move(schema1));
 
     OperatorSchema schema2{
         .name = "test_empty_stats_mock",
@@ -51,7 +51,7 @@ void run_test() {
         .description = "mock",
         .params = {},
     };
-    register_operator(std::move(schema2), [] { return std::make_unique<EmptyStatsMockOp>(); });
+    register_operator_typed<EmptyStatsMockOp>(std::move(schema2));
 }
 const bool _reg = (run_test(), true);
 

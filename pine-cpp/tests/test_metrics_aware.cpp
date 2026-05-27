@@ -42,16 +42,14 @@ const bool _reg_probe = [] {
         .description = "metrics-aware probe",
         .params = {},
     };
-    register_operator(std::move(schema),
-        ([] { return std::make_unique<ProbeOp>(); }));
+    register_operator_typed<ProbeOp>(std::move(schema));
     OperatorSchema schema2{
         .name = "test_metrics_nonaware",
         .type = OpType::Recall,
         .description = "non-aware probe",
         .params = {},
     };
-    register_operator(std::move(schema2),
-        ([] { return std::make_unique<NonAwareOp>(); }));
+    register_operator_typed<NonAwareOp>(std::move(schema2));
     return true;
 }();
 
