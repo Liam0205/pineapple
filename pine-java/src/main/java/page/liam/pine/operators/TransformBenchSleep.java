@@ -20,11 +20,14 @@ public class TransformBenchSleep extends AbstractOperator implements ConcurrentS
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+        if (token.isCancelled()) return;
         try {
             Thread.sleep(delayMs);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            return;
         }
+        if (token.isCancelled()) return;
         int n = input.itemCount();
         for (int i = 0; i < n; i++) {
             output.setItem(i, "_bench_slept", true);

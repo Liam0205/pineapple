@@ -11,7 +11,7 @@ func init() {
 	pine.Register(pine.OperatorSchema{
 		Name:        "transform_bench_sleep",
 		Type:        pine.OpTypeTransform,
-		Description: "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation.",
+		Description: "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. Not available in pine-python.",
 		Params: map[string]pine.ParamSpec{
 			"delay_ms": {Type: "int64", Required: false, Default: int64(5), Description: "Milliseconds to sleep per operator invocation."},
 		},

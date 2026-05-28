@@ -284,7 +284,7 @@ public class AllOperators {
                 new OperatorSchema(
                         "transform_bench_cpu",
                         OperatorType.TRANSFORM,
-                        "Benchmark-only CPU-bound operator. Computes iterative fib per item.",
+                        "Benchmark-only CPU-bound operator. Computes iterative fib per item. Not available in pine-python.",
                         Map.of(
                                 "iterations", ParamSpec.optional("int", 100,
                                         "Number of fib(32) computations per item.")
@@ -296,7 +296,7 @@ public class AllOperators {
                 new OperatorSchema(
                         "transform_bench_sleep",
                         OperatorType.TRANSFORM,
-                        "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation.",
+                        "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. Not available in pine-python.",
                         Map.of(
                                 "delay_ms", ParamSpec.optional("int", 5,
                                         "Milliseconds to sleep per operator invocation.")

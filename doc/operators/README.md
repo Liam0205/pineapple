@@ -41,8 +41,8 @@
 
 | Operator | Description |
 |----------|-------------|
-| [transform_bench_cpu](transform_bench_cpu.md) | Benchmark-only CPU-bound operator. Computes iterative fib per item. |
-| [transform_bench_sleep](transform_bench_sleep.md) | Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. |
+| [transform_bench_cpu](transform_bench_cpu.md) | Benchmark-only CPU-bound operator. Computes iterative fib per item. Not available in pine-python. |
+| [transform_bench_sleep](transform_bench_sleep.md) | Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. Not available in pine-python. |
 | [transform_by_lua](transform_by_lua.md) | Executes a Lua script for per-item or per-common computation. |
 | [transform_by_remote_pineapple](transform_by_remote_pineapple.md) | Calls a downstream Pineapple service and maps response fields back to the local frame. |
 | [transform_copy](transform_copy.md) | Copies field values between common and item dimensions. |

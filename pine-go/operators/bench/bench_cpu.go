@@ -10,7 +10,7 @@ func init() {
 	pine.Register(pine.OperatorSchema{
 		Name:        "transform_bench_cpu",
 		Type:        pine.OpTypeTransform,
-		Description: "Benchmark-only CPU-bound operator. Computes iterative fib per item.",
+		Description: "Benchmark-only CPU-bound operator. Computes iterative fib per item. Not available in pine-python.",
 		Params: map[string]pine.ParamSpec{
 			"iterations": {Type: "int64", Required: false, Default: int64(100), Description: "Number of fib(32) computations per item."},
 		},
