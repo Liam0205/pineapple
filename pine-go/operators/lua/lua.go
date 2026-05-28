@@ -300,10 +300,12 @@ func fromLua(v glua.LValue) (any, error) {
 			return nil, iterErr
 		}
 		if len(m) == 0 {
+			// Lua empty table → empty array (cross-runtime convention)
 			return []any{}, nil
 		}
 		return m, nil
 	default:
+		// reflect.Kind not supported (struct, chan, func, etc.), fallback to string
 		return v.String(), nil
 	}
 }
