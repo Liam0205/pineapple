@@ -91,6 +91,10 @@ LUA_ITEM_FUNCTIONS = [
     ("function compute()\n  return item_score * 1e-10 + 1e-10\nend", ["item_score"], ["item_result"]),
     ("function compute()\n  return item_score * item_score * item_score\nend", ["item_score"], ["item_result"]),
     ("function compute()\n  return (item_score - 0.3) * 1000000\nend", ["item_score"], ["item_result"]),
+    # Table input/output cases
+    ("function compute()\n  return #item_tags\nend", ["item_tags"], ["item_result"]),
+    ("function compute()\n  local s = 0\n  for i = 1, #item_vals do s = s + item_vals[i] end\n  return s\nend", ["item_vals"], ["item_result"]),
+    ("function compute()\n  return {item_score * 2, item_score * 3}\nend", ["item_score"], ["item_result"]),
 ]
 
 LUA_COMMON_FUNCTIONS = [
@@ -154,6 +158,12 @@ def random_items(rng: random.Random, fields: list[str], count: int, edge_weight:
                 item[f] = random_numeric(rng, edge_weight)
             elif "count" in f or "level" in f:
                 item[f] = rng.randint(0, 100)
+            elif f == "item_tags":
+                n = rng.randint(0, 5)
+                item[f] = [rng.choice(["a", "b", "c", "d", "e"]) for _ in range(n)]
+            elif f == "item_vals":
+                n = rng.randint(1, 5)
+                item[f] = [random_numeric(rng, edge_weight) for _ in range(n)]
             elif "tag" in f or "name" in f:
                 if rng.random() < edge_weight:
                     item[f] = rng.choice(["", "café", "🎉", "a\"b", "x\ny", None])
