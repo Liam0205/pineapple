@@ -41,8 +41,8 @@ class LuaVM {
   }
 
  private:
-  void push_value(const JsonValue& value);
-  JsonValue to_value(int index);
+  void to_lua(const JsonValue& value);
+  JsonValue from_lua(int index);
   lua_State* L_;
 };
 
