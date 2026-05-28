@@ -152,7 +152,11 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 
 		// Collect return values (stack has them in order, first return at bottom)
 		for j := 0; j < nret; j++ {
-			val := fromLua(L.Get(-(nret - j)))
+			val, err := fromLua(L.Get(-(nret - j)))
+			if err != nil {
+				L.Pop(nret)
+				return fmt.Errorf("lua: item[%d]: %w", i, err)
+			}
 			out.SetItem(i, o.ItemOutput[j], val)
 		}
 		L.Pop(nret)
@@ -192,7 +196,11 @@ func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pi
 
 	// Collect return values positionally
 	for j := 0; j < nret; j++ {
-		val := fromLua(L.Get(-(nret - j)))
+		val, err := fromLua(L.Get(-(nret - j)))
+		if err != nil {
+			L.Pop(nret)
+			return err
+		}
 		out.SetCommon(o.CommonOutput[j], val)
 	}
 	L.Pop(nret)
@@ -247,35 +255,56 @@ func toLua(L *glua.LState, v any) glua.LValue {
 	}
 }
 
-func fromLua(v glua.LValue) any {
+func fromLua(v glua.LValue) (any, error) {
 	switch x := v.(type) {
 	case *glua.LNilType:
-		return nil
+		return nil, nil
 	case glua.LBool:
-		return bool(x)
+		return bool(x), nil
 	case glua.LNumber:
-		return float64(x)
+		return float64(x), nil
 	case glua.LString:
-		return string(x)
+		return string(x), nil
 	case *glua.LTable:
 		maxN := x.MaxN()
 		if maxN > 0 {
 			arr := make([]any, 0, maxN)
 			for i := 1; i <= maxN; i++ {
-				arr = append(arr, fromLua(x.RawGetInt(i)))
+				elem, err := fromLua(x.RawGetInt(i))
+				if err != nil {
+					return nil, err
+				}
+				arr = append(arr, elem)
 			}
-			return arr
+			return arr, nil
 		}
 		m := make(map[string]any)
+		var iterErr error
 		x.ForEach(func(key, val glua.LValue) {
-			m[fmt.Sprint(fromLua(key))] = fromLua(val)
+			if iterErr != nil {
+				return
+			}
+			strKey, ok := key.(glua.LString)
+			if !ok {
+				iterErr = fmt.Errorf("lua: table has non-string key of type %q", key.Type().String())
+				return
+			}
+			converted, err := fromLua(val)
+			if err != nil {
+				iterErr = err
+				return
+			}
+			m[string(strKey)] = converted
 		})
-		if len(m) == 0 {
-			return []any{}
+		if iterErr != nil {
+			return nil, iterErr
 		}
-		return m
+		if len(m) == 0 {
+			return []any{}, nil
+		}
+		return m, nil
 	default:
-		return v.String()
+		return v.String(), nil
 	}
 }
 
