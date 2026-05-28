@@ -7,7 +7,7 @@ on:
     inputs:
       sizes:
         description: "DAG sizes (comma-separated)"
-        default: "5,50,100,500"
+        default: "5,50,100,200"
       modes:
         description: "Storage modes (comma-separated)"
         default: "row,column"
@@ -87,7 +87,7 @@ jobs:
 
       - name: Run cross-runtime benchmark
         run: |
-          SIZES="${{ inputs.sizes || '5,50,100,500' }}"
+          SIZES="${{ inputs.sizes || '5,50,100,200' }}"
           MODES="${{ inputs.modes || 'row,column' }}"
           PARALLELISM="${{ inputs.parallelism || '' }}"
           OPS="${{ inputs.ops || 'cpu,io,mixed' }}"
