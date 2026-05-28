@@ -233,6 +233,16 @@ def _to_lua(runtime: "LuaRuntime", v: Any) -> Any:
         return float(v)
     if isinstance(v, str):
         return v
+    if isinstance(v, (list, tuple)):
+        tbl = runtime.table()
+        for i, elem in enumerate(v, 1):
+            tbl[i] = _to_lua(runtime, elem)
+        return tbl
+    if isinstance(v, dict):
+        tbl = runtime.table()
+        for k, val in v.items():
+            tbl[str(k)] = _to_lua(runtime, val)
+        return tbl
     return str(v)
 
 
@@ -253,7 +263,27 @@ def _to_python(v: Any) -> Any:
         return v
     if isinstance(v, str):
         return v
-    # lupa table objects
+    # lupa table objects — check for table-like interface
+    if hasattr(v, "__len__") and hasattr(v, "__getitem__"):
+        try:
+            length = len(v)
+        except Exception:
+            length = 0
+        if length > 0:
+            arr = []
+            for i in range(1, length + 1):
+                arr.append(_to_python(v[i]))
+            return arr
+        # String-keyed table
+        m: dict[str, Any] = {}
+        try:
+            for k, val in v.items():
+                m[str(_to_python(k))] = _to_python(val)
+        except Exception:
+            pass
+        if not m:
+            return []
+        return m
     return str(v)
 
 
