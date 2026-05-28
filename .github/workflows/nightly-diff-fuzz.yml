@@ -36,8 +36,8 @@ jobs:
 
       - name: Install C++ build deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          timeout 300 sudo apt-get update
+          timeout 300 sudo apt-get install -y --no-install-recommends \
             cmake ninja-build g++-13 libluajit-5.1-dev libcurl4-openssl-dev
 
       - name: Build Go binary
@@ -183,7 +183,7 @@ jobs:
           )"
 
       - name: Open issue on workflow failure
-        if: failure()
+        if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
