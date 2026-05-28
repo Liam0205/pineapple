@@ -1,0 +1,34 @@
+{
+  "name": "Lua fromLua rejects non-string table keys across all engines",
+  "description": "When a Lua function returns a table with non-string keys (e.g. {[10]=1}), all engines must raise an execution error containing the diagnostic message. This locks the cross-runtime convention that only string-keyed tables are valid maps.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "lua_mixed_key": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function f() local t = {}; t[true] = 'bad'; return t end",
+          "function_for_item": "f",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["result"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["lua_mixed_key"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["result"]
+    }
+  },
+  "request": {"common": {}, "items": [{"x": 1}]},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "lua: table has non-string key of type \"boolean\""
+  }
+}
