@@ -75,7 +75,7 @@ public class ColumnFrame implements Frame {
                 Object v = common.get(field);
                 if (!common.containsKey(field) || v == null) {
                     throw new PineErrors.OperatorException(
-                            "operator \"" + opName + "\": required field \"" + field + "\" is nil in common");
+                            "required field \"" + field + "\" is nil in common");
                 }
                 cs.put(field, v);
             }
@@ -92,7 +92,7 @@ public class ColumnFrame implements Frame {
             for (String field : spec.nullableCommon) {
                 if (!common.containsKey(field)) {
                     throw new PineErrors.OperatorException(
-                            "operator \"" + opName + "\": required field \"" + field + "\" is missing in common");
+                            "required field \"" + field + "\" is missing in common");
                 }
                 cs.put(field, common.get(field));
             }
@@ -107,7 +107,7 @@ public class ColumnFrame implements Frame {
                     BitSet bits = presenceByField.get(field);
                     if (col == null || bits == null || !bits.get(i) || col[i] == null) {
                         throw new PineErrors.OperatorException(
-                                "operator \"" + opName + "\": required field \"" + field + "\" is nil on item[" + i + "]");
+                                "required field \"" + field + "\" is nil on item[" + i + "]");
                     }
                     row.put(field, col[i]);
                 }
@@ -127,7 +127,7 @@ public class ColumnFrame implements Frame {
                     BitSet bits = presenceByField.get(field);
                     if (col == null || bits == null || !bits.get(i)) {
                         throw new PineErrors.OperatorException(
-                                "operator \"" + opName + "\": required field \"" + field + "\" is missing on item[" + i + "]");
+                                "required field \"" + field + "\" is missing on item[" + i + "]");
                     }
                     row.put(field, col[i]);
                 }
