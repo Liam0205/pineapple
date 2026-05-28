@@ -2,7 +2,7 @@
 
 **Type**: Transform
 
-Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation.
+Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. Not available in pine-python.
 
 ## Parameters
 

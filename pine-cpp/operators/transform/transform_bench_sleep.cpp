@@ -14,7 +14,6 @@ class TransformBenchSleepOp : public Operator, public ConcurrentSafe {
     if (it != cfg.params.as_object().end() && it->second.is_number()) {
       delay_ms_ = static_cast<int>(it->second.as_number());
     }
-    item_output_ = cfg.metadata.item_output;
   }
 
   void execute(const OperatorInput& input, OperatorOutput& out) override {
@@ -26,13 +25,14 @@ class TransformBenchSleepOp : public Operator, public ConcurrentSafe {
 
  private:
   int delay_ms_ = 5;
-  std::vector<std::string> item_output_;
 };
 
 static const OperatorSchema k_transform_bench_sleep_schema{
     .name = "transform_bench_sleep",
     .type = OpType::Transform,
-    .description = "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation.",
+    .description =
+        "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. Not available in "
+        "pine-python.",
     .params =
         {
             {"delay_ms",

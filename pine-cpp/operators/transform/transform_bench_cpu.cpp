@@ -39,7 +39,6 @@ class TransformBenchCpuOp : public Operator, public ConcurrentSafe {
     if (it != cfg.params.as_object().end() && it->second.is_number()) {
       iterations_ = static_cast<int>(it->second.as_number());
     }
-    item_output_ = cfg.metadata.item_output;
   }
 
   void execute(const OperatorInput& input, OperatorOutput& out) override {
@@ -51,13 +50,13 @@ class TransformBenchCpuOp : public Operator, public ConcurrentSafe {
 
  private:
   int iterations_ = 100;
-  std::vector<std::string> item_output_;
 };
 
 static const OperatorSchema k_transform_bench_cpu_schema{
     .name = "transform_bench_cpu",
     .type = OpType::Transform,
-    .description = "Benchmark-only CPU-bound operator. Computes iterative fib per item.",
+    .description =
+        "Benchmark-only CPU-bound operator. Computes iterative fib per item. Not available in pine-python.",
     .params =
         {
             {"iterations",

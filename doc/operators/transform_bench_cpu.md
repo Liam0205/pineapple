@@ -2,7 +2,7 @@
 
 **Type**: Transform
 
-Benchmark-only CPU-bound operator. Computes iterative fib per item.
+Benchmark-only CPU-bound operator. Computes iterative fib per item. Not available in pine-python.
 
 ## Parameters
 

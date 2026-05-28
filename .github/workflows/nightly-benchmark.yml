@@ -120,7 +120,7 @@ jobs:
             if [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
               echo "#### Delta vs previous run"
               echo '```text'
-              head -50 /tmp/bench_cross_runtime/comparison.txt
+              cat /tmp/bench_cross_runtime/comparison.txt
               echo '```'
               echo ""
             fi

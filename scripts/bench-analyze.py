@@ -146,13 +146,9 @@ def section_summary(rows: list[dict]) -> str:
     lines = ["## Key Takeaways", ""]
     runtimes = sorted(set(r["runtime"] for r in rows))
     ops = sorted(set(r["op"] for r in rows))
-    nodes_list = sorted(set(r["nodes"] for r in rows))
 
     for op in ops:
         wins: dict[str, int] = defaultdict(int)
-        for r in rows:
-            if r["op"] != op:
-                continue
         by_config = defaultdict(list)
         for r in rows:
             if r["op"] != op:
