@@ -37,8 +37,8 @@
 
 另有独立 nightly workflow：
 
-- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行四引擎差异比对；平日 10000 轮，**周六自动升级到 100000 轮 + `--shrink` 最小复现**（复用同一 workflow，通过 `date -u +%u` 判断星期）；发现分歧时自动创建 GitHub issue
-- **Nightly cross-runtime benchmark**（`.github/workflows/nightly-benchmark.yml`）：每日 22:30 UTC+8 运行 `scripts/bench-cross-runtime.sh`，对比四运行时（Go/Java/Python/C++）在 6 档 DAG 规模（5-500 节点）下的性能表现（三阶段：顺序延迟、固定 QPS=500、最大吞吐）。自动下载上次成功运行的 artifact，通过 `scripts/bench-compare.py` 生成 delta 报告。完成后通过 Bark 推送通知。运行前停止 runner 上非必要服务以提升隔离性
+- **Nightly differential-fuzz**（`.github/workflows/nightly-diff-fuzz.yml`）：nightly 运行四引擎差异比对，固定 10000 轮（手动触发可通过 `inputs.rounds` 覆盖）；不再按工作日/周末分流，CI 通过 shell `timeout` 在 340min 处保护 step 流程，发现分歧或 cancelled 时均会自动创建 GitHub issue
+- **Nightly cross-runtime benchmark**（`.github/workflows/nightly-benchmark.yml`）：每日 22:30 UTC+8 运行 `scripts/bench-cross-runtime.sh`，对比 Go/Java/C++ 三运行时（pine-python 因吞吐显著低且开销稀释结论已被收编入复盘，nightly 默认不参与）在多维矩阵下的最大吞吐：DAG 规模（默认 `5,50,100,200`）× 存储模式（`row,column`）× 算子类型（`cpu,io,mixed`，对应新增的 `transform_bench_cpu` / `transform_bench_sleep` 与 lua 混合管道）× 可选 fan-out 并行度。仅运行最大吞吐阶段（不再有顺序延迟与固定 QPS=500 阶段）。Job 超时提升为 90min，自动下载上次成功 artifact 并通过 `scripts/bench-compare.py` 生成 delta 报告，`scripts/bench-analyze.py` 提供单次运行的多维度分析（runtime ranking / parallelism effect / storage effect）。完成后通过 Bark 推送通知，运行前停止 runner 上非必要服务以提升隔离性
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
 
@@ -130,11 +130,11 @@ CI 中 Hypothesis 使用默认 settings profile（200 examples），依赖 `pine
 `scripts/differential-fuzz.py` 生成随机管道配置，**Go/Java/Python/C++ 四引擎**执行并比对输出（R3-X4 接入 C++）：
 
 - CI 模式：100 轮，发现分歧则 job 失败
-- **Nightly 模式**（`.github/workflows/nightly-diff-fuzz.yml`）：**10000 轮**，4 引擎 6 pairs 比对，发现分歧时自动创建 GitHub issue 附带复现 fixture
-- **Weekend 深度模式**（nightly workflow 内置，周六 `date -u +%u == 6` 自动升级）：**100000 轮** + `--shrink` 启用最小复现，30 天 artifact 保留
+- **Nightly 模式**（`.github/workflows/nightly-diff-fuzz.yml`）：固定 **10000 轮**，4 引擎 6 pairs 比对，发现分歧时自动创建 GitHub issue 附带复现 fixture（手动触发可通过 `inputs.rounds` 覆盖；周末自动升级模式已移除，统一由 `inputs.rounds` 显式控制）
 - 分歧产物保存为 CI artifact，可直接下载复现
 - Stability runs：每个配置执行 3 次以排除非确定性差异
 - **15 个算子类型**（R3-X5 从 10 扩展）：filter_truncate, filter_condition, filter_paginate, recall_static, recall_resource, reorder_sort, reorder_shuffle_by_salt, merge_dedup, transform_by_lua, transform_copy（4 方向）, transform_dispatch, transform_size, transform_normalize, transform_resource_lookup, observe_log
+- **Lua table-aware 用例**：`LUA_ITEM_FUNCTIONS` 覆盖 array input（`#item_tags`）、array 累加（`for i=1,#item_vals`）、array return（`return {a, b}`）三种 host ↔ Lua 复合类型路径，由 `random_items` 生成 `item_tags`/`item_vals` 数据
 - **11 个随机化维度**：pipeline 拓扑 / 算子参数 / 数据形状 / 边界值 / data_parallel / storage_mode（50/50 row/column）/ SubFlow / skip / sources（显式 DAG 边）/ common_defaults+item_defaults / debug+_return_trace / 请求直接提供 items / 稀疏 items（部分行缺字段）/ 嵌套 dict/array 值
 - **跨存储模式比较**：每个 fixture 自动在 row 和 column 两种 storage_mode 下执行，输出在同一引擎内进行 row-vs-column 等价比较
 - **Stabilize sort 条件收紧**：仅在 operator 有非 skip 的 `common_input` 时才附加 skip 字段，避免不必要的 skip 导致非确定性
@@ -273,6 +273,6 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Cross-validate metrics-parity section：`scripts/cross-validate/13-metrics-parity.sh`
 - Cross-validate pine-cpp 预构建：`scripts/cross-validate/_prebuild.sh`
 - 跨引擎 benchmark：`scripts/cross-engine-bench.py`、`scripts/cross-engine-bench-cli.sh`、`scripts/bench-generate-fixtures.py`
-- 跨运行时 benchmark（nightly）：`scripts/bench-cross-runtime.sh`、`scripts/bench-compare.py`、`scripts/bench-dag-scheduler.sh`
+- 跨运行时 benchmark（nightly）：`scripts/bench-cross-runtime.sh`、`scripts/bench-compare.py`、`scripts/bench-analyze.py`、`scripts/bench-dag-scheduler.sh`
 - Tag release：`scripts/tag-release.sh`
 - Server stress 入口：`pine-go/pkg/server/server_test.go`
