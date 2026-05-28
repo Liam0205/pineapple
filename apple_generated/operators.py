@@ -333,6 +333,80 @@ class ReorderSortOp(BaseOp):
             name=name or "",
         )
 
+class TransformBenchCpuOp(BaseOp):
+    """Operator: transform_bench_cpu"""
+    _name = "transform_bench_cpu"
+    _params_schema = {
+        "iterations": {"type": "int64", "required": False, "default": 100},
+    }
+
+    def __call__(
+        self,
+        *,
+        iterations: int = 100,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformBenchCpuOp":
+        _params = {
+            "iterations": iterations,
+        }
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformBenchSleepOp(BaseOp):
+    """Operator: transform_bench_sleep"""
+    _name = "transform_bench_sleep"
+    _params_schema = {
+        "delay_ms": {"type": "int64", "required": False, "default": 5},
+    }
+
+    def __call__(
+        self,
+        *,
+        delay_ms: int = 5,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformBenchSleepOp":
+        _params = {
+            "delay_ms": delay_ms,
+        }
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
 class TransformByLuaOp(BaseOp):
     """Operator: transform_by_lua"""
     _name = "transform_by_lua"
