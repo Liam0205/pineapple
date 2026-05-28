@@ -295,6 +295,7 @@ def _from_lua(v: Any) -> Any:
                 )
             m[k] = _from_lua(val)
         if not m:
+            # Lua empty table → empty array (cross-runtime convention)
             return []
         return m
     return str(v)
