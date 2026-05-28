@@ -112,10 +112,10 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - marker 类型 `ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` / `ConcurrentSafe`
   - `OperatorTraits<T>` 编译期 `std::is_base_of_v` 标记检查
   - `register_operator_with_traits(schema, factory, ...)` 底层 API + `register_operator_typed<T>(schema)` 模板 + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
-  - 17 个内置算子均使用 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`
+  - 内置算子均使用 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`（具体清单见 `pine-cpp/CMakeLists.txt`，含 `transform_bench_cpu` / `transform_bench_sleep` 两个仅供 benchmark 用的算子，pine-python 不实现这两个算子）
   - `observe_log` 完整实现（R3-L8）：init 读取 metadata 字段列表和 `log_prefix`，execute 构造 `{common, items}` snapshot 后 `dump_json(value, 0)` 紧凑输出到 stderr。`dump_json(value, 0)` 紧凑模式（R13-1）抑制所有 `\n` / 缩进 / 冒号后空格，与 Go `json.Marshal` 格式对齐
   - `[pine-debug]` stderr 日志（R3-L6）：debug=true 的算子在 execute 后、apply_output 前输出 `operator/duration/input_size/output_size/input/output` 单行日志
-  - `inline constexpr const char* kVersion = "0.9.2"`（R3-L2）：编译期版本常量，对齐 Go `const Version`
+  - `inline constexpr const char* kVersion`（R3-L2）：编译期版本常量，对齐 Go `const Version`，由 `scripts/bump-version.sh` 同步
   - warning operator-name 前缀（`{op_name}: ...`）由框架在 `apply_output` 阶段统一加上
 - **错误体系**
   - `ConfigError` / `ValidationError` / `RegistryError` 在构造时自动加 `pine: <kind> error: ...` 前缀，与 pine-go `types/errors.go` 字节级一致

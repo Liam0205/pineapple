@@ -16,7 +16,7 @@
 
 ### Pine-Java 对等实现
 
-Pine-Java 完整实现了全部 18 个内置算子，位于 `pine-java/src/.../operators/`。Java 侧的对等文件为：
+Pine-Java 完整实现了全部内置算子（清单见 `pine-java/.../operators/AllOperators.java`），位于 `pine-java/src/.../operators/`。Java 侧的对等文件为：
 
 - `pine-java/src/.../Operator.java` — 算子接口
 - `pine-java/src/.../OperatorInput.java` / `OperatorOutput.java` — IO 类型
@@ -26,6 +26,8 @@ Pine-Java 完整实现了全部 18 个内置算子，位于 `pine-java/src/.../o
 - `pine-java/src/.../operators/AllOperators.java` — 全量注册入口（18 算子含完整 ParamSpec 声明）
 
 Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.register(OperatorSchema, Supplier<Operator>)`。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON，供 CI 交叉验证。`validateAndExtractParams()` 执行与 Go 等效的严格校验：过滤保留键、检查必填参数、注入默认值、拒绝未声明参数。
+
+`AllOperators.java` 中的注册清单含两个 benchmark 专用算子（`transform_bench_cpu` / `transform_bench_sleep`），与 pine-go `pine-go/operators/bench/` 对齐；pine-python 不实现这两个算子（其 `Description` 显式标注 "Not available in pine-python"）。
 
 ## 算子生命周期
 
@@ -66,7 +68,7 @@ C++ 侧提供注册路径：
 
 校验逻辑：空 name、空 description、空 param description、null factory、重复 name 均 throw `RegistryError`。
 
-17 个内置算子均使用 `PINE_REGISTER_OPERATOR_T`。新增 C++ 算子使用此宏。
+内置算子均使用 `PINE_REGISTER_OPERATOR_T`。新增 C++ 算子使用此宏。
 
 ## 注册契约
 
@@ -388,6 +390,19 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - `Borrow()` 对 nil state 优雅处理
 
 此保护避免 hot-reload teardown 过程中创建的 state 泄漏到已关闭的 pool。
+
+### Lua Bridge 跨运行时数据转换约定
+
+`transform_by_lua` 算子在 Go/Java/Python/C++ 四运行时之间通过 Lua bridge 完成 host ↔ Lua 的双向转换。统一的命名与语义：
+
+- **`toLua(host)` ↔ `fromLua(lua)`**：四运行时使用对称命名（pine-go `toLua`/`fromLua`、pine-java `toLua`/`fromLua`、pine-python `_to_lua`/`_from_lua`、pine-cpp `to_lua`/`from_lua`）。历史命名（`goToLua`/`luaToGo`、`toJava`、`push_value`/`to_value`、`_to_python`）已统一收敛。
+- **复合类型双向支持**：host slice/list/array → Lua array table（1-indexed），host map/dict → Lua hash table。Lua table 在 `fromLua` 时按"数字键 1..N 连续"判定为 array，否则为 map。
+- **非字符串 key 拒绝**：Lua table 含非 string key（如 `{[10]=1}` 或 `{[true]='bad'}`）时，`fromLua` 返回 `lua: table has non-string key of type "<type>"` 错误。各运行时的报错文案在字节级一致，由 `fixtures/errors/runtime_lua_non_string_table_key.json` 锁定。
+- **空表约定**：Lua 空 table 在四运行时一致编码为空 array `[]`（而非空 map `{}`），避免跨运行时 JSON 序列化产生差异。
+- **Sequence 检测严格性**（pine-go）：`fromLua` 要求 `1..N` 严格连续才识别为 array，遇到 `nil` 中断即降级为 map（避免误判稀疏数组）。
+- **错误前缀去重**（pine-go）：`fromLua` 的内部错误已带 `lua:` 前缀，外层 `executeForItem` / `executeForCommon` 不再二次包裹。
+
+`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。
 
 ## 元数据契约注释与生成文档
 
