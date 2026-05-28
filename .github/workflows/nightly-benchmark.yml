@@ -7,7 +7,16 @@ on:
     inputs:
       sizes:
         description: "DAG sizes (comma-separated)"
-        default: "5,15,50,100,200,500"
+        default: "5,50,100,500"
+      modes:
+        description: "Storage modes (comma-separated)"
+        default: "row,column"
+      parallelism:
+        description: "DAG fan-out widths (comma-separated)"
+        default: ""
+      ops:
+        description: "Operator types (comma-separated)"
+        default: "cpu,io,mixed"
       skip:
         description: "Runtimes to skip (comma-separated)"
         default: ""
@@ -18,7 +27,7 @@ permissions:
 jobs:
   cross-runtime-benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -35,10 +44,6 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -47,9 +52,6 @@ jobs:
 
       - name: Install hey
         run: go install github.com/rakyll/hey@latest
-
-      - name: Install pine-python
-        run: pip install -e pine-python/
 
       - name: Stop unneeded services for isolation
         run: |
@@ -76,7 +78,6 @@ jobs:
             fi
             if [ -f /tmp/bench_prev/report.txt ]; then
               echo "found=true" >> "$GITHUB_OUTPUT"
-              echo "run_id=$PREV_RUN_ID" >> "$GITHUB_OUTPUT"
             else
               echo "found=false" >> "$GITHUB_OUTPUT"
             fi
@@ -86,9 +87,15 @@ jobs:
 
       - name: Run cross-runtime benchmark
         run: |
-          SIZES="${{ inputs.sizes || '5,15,50,100,200,500' }}"
+          SIZES="${{ inputs.sizes || '5,50,100,500' }}"
+          MODES="${{ inputs.modes || 'row,column' }}"
+          PARALLELISM="${{ inputs.parallelism || '' }}"
+          OPS="${{ inputs.ops || 'cpu,io,mixed' }}"
           SKIP="${{ inputs.skip || '' }}"
-          ARGS="--sizes $SIZES"
+          ARGS="--sizes $SIZES --modes $MODES --ops $OPS"
+          if [ -n "$PARALLELISM" ]; then
+            ARGS="$ARGS --parallelism $PARALLELISM"
+          fi
           if [ -n "$SKIP" ]; then
             ARGS="$ARGS --skip $SKIP"
           fi
@@ -113,7 +120,7 @@ jobs:
             if [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
               echo "#### Delta vs previous run"
               echo '```text'
-              cat /tmp/bench_cross_runtime/comparison.txt
+              head -50 /tmp/bench_cross_runtime/comparison.txt
               echo '```'
               echo ""
             fi
@@ -131,7 +138,7 @@ jobs:
           path: |
             /tmp/bench_cross_runtime/report.txt
             /tmp/bench_cross_runtime/comparison.txt
-            /tmp/bench_cross_runtime/phase*.csv
+            /tmp/bench_cross_runtime/*.csv
           retention-days: 30
 
       - name: Notify via Bark
@@ -147,8 +154,7 @@ jobs:
           if [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
             BODY=$(head -20 /tmp/bench_cross_runtime/comparison.txt)
           elif [ -f /tmp/bench_cross_runtime/report.txt ]; then
-            BODY=$(grep -A 100 "Phase 3: Max throughput" /tmp/bench_cross_runtime/report.txt \
-              | grep -E "^\s+(go|java|python|cpp)" | head -8)
+            BODY=$(grep -E "^\s+(go|java|cpp)" /tmp/bench_cross_runtime/report.txt | head -12)
           else
             BODY="No report generated. Check logs."
           fi

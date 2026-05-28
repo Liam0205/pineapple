@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Cross-runtime benchmark: pine-{go,java,python,cpp}
+# Cross-runtime benchmark: pine-{go,java,cpp}
 #
-# Compares all four runtimes across multiple DAG sizes on:
-#   1. Single-request latency (sequential, 1000 reqs per size)
-#   2. Fixed-QPS latency under load (QPS=500, 15000 reqs, ~30s per size)
-#   3. Max throughput (saturate with 50 concurrent connections)
+# Dimensions:
+#   - DAG size: 5, 50, 100, 500 nodes
+#   - Storage mode: row, column
+#   - Parallelism (DAG fan-out): 1, nproc/2, nproc, 2*nproc, 4*nproc
+#   - Operator type: cpu, io, mixed
 #
-# DAG sizes: 5, 15, 50, 100, 200, 500 nodes (observe_log no-ops)
+# Only runs max-throughput phase (50 concurrent, 10000 requests).
 #
 # Prerequisites:
-#   - hey (HTTP load generator): go install github.com/rakyll/hey@latest
-#   - Go, Java 21, Python 3.13, cmake + build-essential + libluajit
+#   - hey: go install github.com/rakyll/hey@latest
+#   - Go, Java 21, cmake + build-essential + libluajit
 #
 # Usage:
-#   ./scripts/bench-cross-runtime.sh [--skip go,python] [--sizes "5,50,200"]
+#   ./scripts/bench-cross-runtime.sh [--skip go] [--sizes "5,50"] [--modes "row"]
+#       [--parallelism "1,4,8"] [--ops "cpu,io"] [--requests 10000] [--concurrency 50]
 #
-# Output: /tmp/bench_cross_runtime/report.txt (+ raw hey output per phase)
+# Output: /tmp/bench_cross_runtime/report.txt
 
 set -euo pipefail
 
@@ -24,15 +26,26 @@ WORK_DIR="/tmp/bench_cross_runtime"
 FIXTURE_DIR="$WORK_DIR/fixtures"
 REPORT="$WORK_DIR/report.txt"
 
+NPROC=$(nproc)
 SKIP_RUNTIMES=""
-RUNTIMES=(go java python cpp)
-DAG_SIZES=(5 15 50 100 200 500)
+RUNTIMES=(go java cpp)
+DAG_SIZES=(5 50 100 500)
+STORAGE_MODES=(row column)
+PARALLELISMS=(1 $((NPROC / 2)) $NPROC $((NPROC * 2)) $((NPROC * 4)))
+OP_TYPES=(cpu io mixed)
+NUM_REQUESTS=10000
+CONCURRENCY=50
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skip)  SKIP_RUNTIMES="$2"; shift 2 ;;
-    --sizes) IFS=',' read -ra DAG_SIZES <<< "$2"; shift 2 ;;
-    *)       echo "Unknown arg: $1" >&2; exit 1 ;;
+    --skip)        SKIP_RUNTIMES="$2"; shift 2 ;;
+    --sizes)       IFS=',' read -ra DAG_SIZES <<< "$2"; shift 2 ;;
+    --modes)       IFS=',' read -ra STORAGE_MODES <<< "$2"; shift 2 ;;
+    --parallelism) IFS=',' read -ra PARALLELISMS <<< "$2"; shift 2 ;;
+    --ops)         IFS=',' read -ra OP_TYPES <<< "$2"; shift 2 ;;
+    --requests)    NUM_REQUESTS="$2"; shift 2 ;;
+    --concurrency) CONCURRENCY="$2"; shift 2 ;;
+    *)             echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 
@@ -52,15 +65,18 @@ if ! command -v hey >/dev/null 2>&1; then
   exit 1
 fi
 
-# ─── Generate synthetic DAG fixtures ──────────────────────────────────
-info "Generating synthetic DAG fixtures (sizes: ${DAG_SIZES[*]})..."
+# ─── Generate fixtures ────────────────────────────────────────────────
+info "Generating fixtures..."
+info "  Sizes: ${DAG_SIZES[*]}"
+info "  Storage: ${STORAGE_MODES[*]}"
+info "  Parallelism: ${PARALLELISMS[*]}"
+info "  Op types: ${OP_TYPES[*]}"
 
-python3 - "$FIXTURE_DIR" "${DAG_SIZES[@]}" << 'PYEOF'
-import json, math, sys
+python3 - "$FIXTURE_DIR" "${DAG_SIZES[*]}" "${STORAGE_MODES[*]}" "${PARALLELISMS[*]}" "${OP_TYPES[*]}" << 'PYEOF'
+import json, sys
 
-def gen_fixture(n_nodes, output_dir):
-    """Generate a diamond-shaped DAG of observe_log operators (true no-ops)."""
-    width = max(2, int(math.sqrt(n_nodes)))
+def gen_fixture(n_nodes, storage_mode, fan_out, op_type, output_dir):
+    """Generate a DAG with controlled fan-out width and operator type."""
     operators = {}
     all_names = []
 
@@ -78,34 +94,73 @@ def gen_fixture(n_nodes, output_dir):
     prev_layer = ["root_recall"]
     stage = 0
 
-    while node_count < n_nodes:
-        stage += 1
-        actual_width = min(width, n_nodes - node_count)
-        if actual_width <= 0:
-            break
-
-        layer = []
-        for i in range(actual_width):
-            if node_count >= n_nodes:
-                break
-            name = f"obs_s{stage}_{i}"
-            operators[name] = {
-                "type_name": "observe_log",
+    def make_op(name, op_type, stage_idx, node_idx):
+        """Create operator config based on type."""
+        if op_type == "cpu":
+            return {
+                "type_name": "transform_bench_cpu",
                 "sources": prev_layer,
+                "iterations": 100,
                 "$metadata": {
                     "common_input": [], "common_output": [],
                     "item_input": ["item_id", "score"],
-                    "item_output": ["item_id", "score"]
+                    "item_output": ["item_id", "score", "_bench_result"]
                 }
             }
+        elif op_type == "io":
+            return {
+                "type_name": "transform_bench_sleep",
+                "sources": prev_layer,
+                "delay_ms": 5,
+                "$metadata": {
+                    "common_input": [], "common_output": [],
+                    "item_input": ["item_id", "score"],
+                    "item_output": ["item_id", "score", "_bench_slept"]
+                }
+            }
+        else:  # mixed: alternate cpu and io
+            if (stage_idx + node_idx) % 2 == 0:
+                return {
+                    "type_name": "transform_bench_cpu",
+                    "sources": prev_layer,
+                    "iterations": 100,
+                    "$metadata": {
+                        "common_input": [], "common_output": [],
+                        "item_input": ["item_id", "score"],
+                        "item_output": ["item_id", "score", "_bench_result"]
+                    }
+                }
+            else:
+                return {
+                    "type_name": "transform_bench_sleep",
+                    "sources": prev_layer,
+                    "delay_ms": 5,
+                    "$metadata": {
+                        "common_input": [], "common_output": [],
+                        "item_input": ["item_id", "score"],
+                        "item_output": ["item_id", "score", "_bench_slept"]
+                    }
+                }
+
+    while node_count < n_nodes:
+        stage += 1
+        width = min(fan_out, n_nodes - node_count)
+        if width <= 0:
+            break
+        layer = []
+        for i in range(width):
+            if node_count >= n_nodes:
+                break
+            name = f"op_s{stage}_{i}"
+            operators[name] = make_op(name, op_type, stage, i)
             all_names.append(name)
             layer.append(name)
             node_count += 1
-
         prev_layer = layer
 
     config = {
-        "_PINEAPPLE_VERSION": "0.9.1",
+        "_PINEAPPLE_VERSION": "0.9.2",
+        "storage_mode": storage_mode,
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": {"bench": {"pipeline": all_names}}
@@ -118,20 +173,31 @@ def gen_fixture(n_nodes, output_dir):
     }
     request = {"common": {}, "items": []}
 
-    with open(f"{output_dir}/dag_{n_nodes}_config.json", 'w') as f:
+    tag = f"n{n_nodes}_s{storage_mode}_p{fan_out}_{op_type}"
+    with open(f"{output_dir}/{tag}_config.json", 'w') as f:
         json.dump(config, f)
-    with open(f"{output_dir}/dag_{n_nodes}_request.json", 'w') as f:
+    with open(f"{output_dir}/{tag}_request.json", 'w') as f:
         json.dump(request, f)
-    print(f"    {n_nodes:>3} nodes ({len(operators)} ops, {stage} stages)")
 
 out_dir = sys.argv[1]
-for n_str in sys.argv[2:]:
-    gen_fixture(int(n_str), out_dir)
+sizes = [int(x) for x in sys.argv[2].split()]
+modes = sys.argv[3].split()
+pars = [int(x) for x in sys.argv[4].split()]
+ops = sys.argv[5].split()
+
+count = 0
+for n in sizes:
+    for mode in modes:
+        for p in pars:
+            for op in ops:
+                gen_fixture(n, mode, p, op, out_dir)
+                count += 1
+print(f"  Generated {count} fixture pairs")
 PYEOF
 
-ok "Fixtures generated in $FIXTURE_DIR"
+ok "Fixtures generated"
 
-# ─── Build all runtimes ───────────────────────────────────────────────
+# ─── Build runtimes ───────────────────────────────────────────────────
 info "Building runtimes..."
 
 JAVA_CP=""
@@ -149,23 +215,17 @@ if ! should_skip java; then
   ok "Java built"
 fi
 
-if ! should_skip python; then
-  info "  Installing Python deps..."
-  pip install -q -e "$REPO_ROOT/pine-python/" 2>/dev/null || true
-  ok "Python ready"
-fi
-
 if ! should_skip cpp; then
   info "  Building C++..."
   CPP_BUILD="$REPO_ROOT/pine-cpp/build"
   mkdir -p "$CPP_BUILD"
-  (cd "$CPP_BUILD" && cmake .. -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1 \
+  (cd "$CPP_BUILD" && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null 2>&1 \
     && cmake --build . -j2 --target pineapple-server 2>&1 | tail -1)
   cp "$CPP_BUILD/pineapple-server" "$WORK_DIR/server-cpp"
   ok "C++ built"
 fi
 
-# ─── Helper functions ─────────────────────────────────────────────────
+# ─── Server helpers ───────────────────────────────────────────────────
 BASE_PORT=19100
 PORT_IDX=0
 
@@ -174,31 +234,18 @@ next_port() { PORT_IDX=$((PORT_IDX + 1)); echo $((BASE_PORT + PORT_IDX)); }
 start_server() {
   local runtime="$1" port="$2" config="$3"
   local pid_file="$WORK_DIR/${runtime}.pid"
-
   case "$runtime" in
-    java)
-      java -cp "$JAVA_CP" -Dpine.config="$config" -Dpine.port="$port" \
-        page.liam.pine.PineServer >"$WORK_DIR/${runtime}.log" 2>&1 &
-      ;;
-    go)
-      "$WORK_DIR/server-go" -config "$config" -addr ":$port" >"$WORK_DIR/${runtime}.log" 2>&1 &
-      ;;
-    cpp)
-      "$WORK_DIR/server-cpp" -config "$config" -addr ":$port" >"$WORK_DIR/${runtime}.log" 2>&1 &
-      ;;
-    python)
-      python3 -m pine.cli.server -config "$config" -addr ":$port" >"$WORK_DIR/${runtime}.log" 2>&1 &
-      ;;
+    java) java -cp "$JAVA_CP" -Dpine.config="$config" -Dpine.port="$port" \
+      page.liam.pine.PineServer >"$WORK_DIR/${runtime}.log" 2>&1 & ;;
+    go) "$WORK_DIR/server-go" -config "$config" -addr ":$port" >"$WORK_DIR/${runtime}.log" 2>&1 & ;;
+    cpp) "$WORK_DIR/server-cpp" -config "$config" -addr ":$port" >"$WORK_DIR/${runtime}.log" 2>&1 & ;;
   esac
   echo $! > "$pid_file"
-
   for _ in $(seq 1 40); do
-    if curl -sf "http://localhost:$port/health" >/dev/null 2>&1; then
-      return 0
-    fi
+    curl -sf "http://localhost:$port/health" >/dev/null 2>&1 && return 0
     sleep 0.25
   done
-  err "$runtime server failed to start on :$port (config: $config)"
+  err "$runtime server failed to start on :$port"
   tail -20 "$WORK_DIR/${runtime}.log" >&2
   return 1
 }
@@ -206,25 +253,16 @@ start_server() {
 stop_server() {
   local runtime="$1"
   local pid_file="$WORK_DIR/${runtime}.pid"
-  if [[ -f "$pid_file" ]]; then
-    local pid
-    pid=$(cat "$pid_file")
-    kill -TERM "$pid" 2>/dev/null || true
-    for _ in 1 2 3 4 5; do
-      kill -0 "$pid" 2>/dev/null || break
-      sleep 0.5
-    done
-    kill -KILL "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-    rm -f "$pid_file"
-  fi
+  [[ -f "$pid_file" ]] || return 0
+  local pid; pid=$(cat "$pid_file")
+  kill -TERM "$pid" 2>/dev/null || true
+  for _ in 1 2 3 4 5; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -f "$pid_file"
 }
 
-cleanup() {
-  for rt in "${RUNTIMES[@]}"; do
-    stop_server "$rt"
-  done
-}
+cleanup() { for rt in "${RUNTIMES[@]}"; do stop_server "$rt"; done; }
 trap cleanup EXIT INT TERM
 
 parse_hey() {
@@ -253,148 +291,75 @@ print(f'{qps:.4f}|{mean:.6f}|{stddev:.6f}|{p50:.6f}|{p90:.6f}|{p99:.6f}')
 " "$csv_file" 2>/dev/null || echo "N/A|N/A|N/A|N/A|N/A|N/A"
 }
 
-TABLE_HEADER="  %-8s %6s %10s %10s %10s %10s %10s %10s\n"
-TABLE_SEP="  %-8s %6s %10s %10s %10s %10s %10s %10s\n"
-
-print_table_header() {
-  printf "$TABLE_HEADER" "Runtime" "Nodes" "QPS" "Mean" "Stddev" "P50" "P90" "P99"
-  printf "$TABLE_SEP" "-------" "-----" "----------" "----------" "----------" "----------" "----------" "----------"
-}
-
-# ─── Report header ───────────────────────────────────────────────────
+# ─── Report header ────────────────────────────────────────────────────
 {
   echo "═══════════════════════════════════════════════════════════════════"
-  echo " Cross-Runtime Benchmark: pine-{go,java,python,cpp}"
+  echo " Cross-Runtime Benchmark: pine-{go,java,cpp}"
   echo " Date: $(date -Iseconds)"
-  echo " DAG sizes: ${DAG_SIZES[*]}"
-  echo " Machine: $(uname -n) ($(nproc) cores)"
+  echo " Machine: $(uname -n) (${NPROC} cores)"
+  echo " Dimensions: sizes=${DAG_SIZES[*]} storage=${STORAGE_MODES[*]}"
+  echo "   parallelism=${PARALLELISMS[*]} ops=${OP_TYPES[*]}"
+  echo " Load: ${NUM_REQUESTS} requests, ${CONCURRENCY} concurrent"
   echo " Skipped: ${SKIP_RUNTIMES:-none}"
   echo "═══════════════════════════════════════════════════════════════════"
   echo
 } > "$REPORT"
 
-# PLACEHOLDER_PHASES
+# ─── Benchmark loop ──────────────────────────────────────────────────
+TOTAL_COMBOS=$(( ${#DAG_SIZES[@]} * ${#STORAGE_MODES[@]} * ${#PARALLELISMS[@]} * ${#OP_TYPES[@]} * ${#RUNTIMES[@]} ))
+COMBO_IDX=0
 
-# ─── Phase 1: Single-request latency (sequential, 1000 reqs) ─────────
-info "Phase 1: Single-request latency (1000 sequential requests per size)..."
+TABLE_HEADER="  %-8s %5s %7s %4s %6s %10s %10s %10s %10s %10s %10s\n"
+
 {
-  echo "── Phase 1: Single-request latency ──"
-  echo "   1000 sequential requests (concurrency=1) per DAG size"
-  echo
-  print_table_header
+  printf "$TABLE_HEADER" "Runtime" "Nodes" "Storage" "Par" "OpType" "QPS" "Mean" "Stddev" "P50" "P90" "P99"
+  printf "$TABLE_HEADER" "-------" "-----" "-------" "---" "------" "----------" "----------" "----------" "----------" "----------" "----------"
 } >> "$REPORT"
 
 for n in "${DAG_SIZES[@]}"; do
-  cfg="$FIXTURE_DIR/dag_${n}_config.json"
-  req="$FIXTURE_DIR/dag_${n}_request.json"
-  REQ_BODY=$(cat "$req")
+  for mode in "${STORAGE_MODES[@]}"; do
+    for par in "${PARALLELISMS[@]}"; do
+      for op in "${OP_TYPES[@]}"; do
+        tag="n${n}_s${mode}_p${par}_${op}"
+        cfg="$FIXTURE_DIR/${tag}_config.json"
+        req="$FIXTURE_DIR/${tag}_request.json"
+        [[ -f "$cfg" ]] || continue
+        REQ_BODY=$(cat "$req")
 
-  for rt in "${RUNTIMES[@]}"; do
-    should_skip "$rt" && continue
-    port=$(next_port)
-    echo "    $rt / $n nodes on :$port..."
+        for rt in "${RUNTIMES[@]}"; do
+          should_skip "$rt" && continue
+          COMBO_IDX=$((COMBO_IDX + 1))
+          port=$(next_port)
+          echo "  [$COMBO_IDX/$TOTAL_COMBOS] $rt $tag on :$port..."
 
-    if ! start_server "$rt" "$port" "$cfg"; then continue; fi
+          if ! start_server "$rt" "$port" "$cfg"; then continue; fi
 
-    HEY_OUT=$(hey -n 1000 -c 1 -m POST \
-      -H "Content-Type: application/json" \
-      -d "$REQ_BODY" \
-      -o csv \
-      "http://localhost:$port/execute" 2>&1)
+          # Warmup
+          hey -n 200 -c 10 -m POST -H "Content-Type: application/json" \
+            -d "$REQ_BODY" -o csv "http://localhost:$port/execute" > /dev/null 2>&1
 
-    echo "$HEY_OUT" > "$WORK_DIR/phase1_${rt}_${n}.csv"
-    METRICS=$(parse_hey "$WORK_DIR/phase1_${rt}_${n}.csv")
-    IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
-    printf "  %-8s %6d %10s %10s %10s %10s %10s %10s\n" \
-      "$rt" "$n" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
+          # Benchmark
+          hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
+            -H "Content-Type: application/json" \
+            -d "$REQ_BODY" -o csv \
+            "http://localhost:$port/execute" > "$WORK_DIR/${tag}_${rt}.csv" 2>&1
 
-    stop_server "$rt"
-    sleep 0.2
+          METRICS=$(parse_hey "$WORK_DIR/${tag}_${rt}.csv")
+          IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
+          printf "  %-8s %5d %7s %4d %6s %10s %10s %10s %10s %10s %10s\n" \
+            "$rt" "$n" "$mode" "$par" "$op" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
+
+          stop_server "$rt"
+          sleep 0.2
+        done
+      done
+    done
   done
 done
+
 echo >> "$REPORT"
-
-# ─── Phase 2: Fixed QPS=500 latency (15000 reqs, ~30s) ───────────────
-info "Phase 2: Fixed QPS=500 latency (15000 requests per size, ~30s each)..."
 {
-  echo "── Phase 2: Fixed QPS=500 latency ──"
-  echo "   15000 requests at QPS=500 (~30s) per DAG size"
-  echo
-  print_table_header
-} >> "$REPORT"
-
-for n in "${DAG_SIZES[@]}"; do
-  cfg="$FIXTURE_DIR/dag_${n}_config.json"
-  req="$FIXTURE_DIR/dag_${n}_request.json"
-  REQ_BODY=$(cat "$req")
-
-  for rt in "${RUNTIMES[@]}"; do
-    should_skip "$rt" && continue
-    port=$(next_port)
-    echo "    $rt / $n nodes on :$port..."
-
-    if ! start_server "$rt" "$port" "$cfg"; then continue; fi
-
-    HEY_OUT=$(hey -n 15000 -q 10 -c 50 -m POST \
-      -H "Content-Type: application/json" \
-      -d "$REQ_BODY" \
-      -o csv \
-      "http://localhost:$port/execute" 2>&1)
-
-    echo "$HEY_OUT" > "$WORK_DIR/phase2_${rt}_${n}.csv"
-    METRICS=$(parse_hey "$WORK_DIR/phase2_${rt}_${n}.csv")
-    IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
-    printf "  %-8s %6d %10s %10s %10s %10s %10s %10s\n" \
-      "$rt" "$n" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
-
-    stop_server "$rt"
-    sleep 0.2
-  done
-done
-echo >> "$REPORT"
-
-# ─── Phase 3: Max throughput (saturate) ───────────────────────────────
-info "Phase 3: Max throughput (50 concurrent, 10000 requests per size)..."
-{
-  echo "── Phase 3: Max throughput ──"
-  echo "   10000 requests, 50 concurrent connections per DAG size"
-  echo
-  print_table_header
-} >> "$REPORT"
-
-for n in "${DAG_SIZES[@]}"; do
-  cfg="$FIXTURE_DIR/dag_${n}_config.json"
-  req="$FIXTURE_DIR/dag_${n}_request.json"
-  REQ_BODY=$(cat "$req")
-
-  for rt in "${RUNTIMES[@]}"; do
-    should_skip "$rt" && continue
-    port=$(next_port)
-    echo "    $rt / $n nodes on :$port..."
-
-    if ! start_server "$rt" "$port" "$cfg"; then continue; fi
-
-    HEY_OUT=$(hey -n 10000 -c 50 -m POST \
-      -H "Content-Type: application/json" \
-      -d "$REQ_BODY" \
-      -o csv \
-      "http://localhost:$port/execute" 2>&1)
-
-    echo "$HEY_OUT" > "$WORK_DIR/phase3_${rt}_${n}.csv"
-    METRICS=$(parse_hey "$WORK_DIR/phase3_${rt}_${n}.csv")
-    IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
-    printf "  %-8s %6d %10s %10s %10s %10s %10s %10s\n" \
-      "$rt" "$n" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
-
-    stop_server "$rt"
-    sleep 0.2
-  done
-done
-echo >> "$REPORT"
-
-# ─── Summary ──────────────────────────────────────────────────────────
-{
-  echo "Raw CSV data: $WORK_DIR/phase{1,2,3}_<runtime>_<nodes>.csv"
+  echo "Raw CSV data: $WORK_DIR/<tag>_<runtime>.csv"
 } >> "$REPORT"
 
 info "Done. Report:"

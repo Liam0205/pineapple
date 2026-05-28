@@ -278,5 +278,29 @@ public class AllOperators {
                                         "Prefix prepended to each log line.")
                         )),
                 ObserveLog::new);
+
+        // 19. transform_bench_cpu
+        Registry.registerGlobal(
+                new OperatorSchema(
+                        "transform_bench_cpu",
+                        OperatorType.TRANSFORM,
+                        "Benchmark-only CPU-bound operator. Computes iterative fib per item.",
+                        Map.of(
+                                "iterations", ParamSpec.optional("int", 100,
+                                        "Number of fib(32) computations per item.")
+                        )),
+                TransformBenchCpu::new);
+
+        // 20. transform_bench_sleep
+        Registry.registerGlobal(
+                new OperatorSchema(
+                        "transform_bench_sleep",
+                        OperatorType.TRANSFORM,
+                        "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation.",
+                        Map.of(
+                                "delay_ms", ParamSpec.optional("int", 5,
+                                        "Milliseconds to sleep per operator invocation.")
+                        )),
+                TransformBenchSleep::new);
     }
 }

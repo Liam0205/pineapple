@@ -5,6 +5,7 @@
 package operators
 
 import (
+	_ "github.com/Liam0205/pineapple/pine-go/operators/bench"
 	_ "github.com/Liam0205/pineapple/pine-go/operators/transform"
 	_ "github.com/Liam0205/pineapple/pine-go/operators/filter"
 	_ "github.com/Liam0205/pineapple/pine-go/operators/lua"
