@@ -262,6 +262,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 }
                 map.put(k.tojstring(), fromLua(n.arg(2)));
             }
+            // Lua empty table → empty array (cross-runtime convention)
             if (map.isEmpty()) return new ArrayList<>();
             return map;
         }
