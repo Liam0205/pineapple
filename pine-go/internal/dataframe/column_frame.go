@@ -93,7 +93,7 @@ func (f *ColumnFrame) BuildInput(
 	for _, field := range spec.StrictCommon {
 		v, exists := f.common[field]
 		if !exists || v == nil {
-			return nil, fmt.Errorf("operator %q: required field %q is nil in common", opName, field)
+			return nil, fmt.Errorf("required field %q is nil in common", field)
 		}
 		cs[field] = v
 	}
@@ -110,7 +110,7 @@ func (f *ColumnFrame) BuildInput(
 	for _, field := range spec.NullableCommon {
 		v, exists := f.common[field]
 		if !exists {
-			return nil, fmt.Errorf("operator %q: required field %q is missing in common", opName, field)
+			return nil, fmt.Errorf("required field %q is missing in common", field)
 		}
 		cs[field] = v
 	}
@@ -124,7 +124,7 @@ func (f *ColumnFrame) BuildInput(
 		for _, field := range spec.StrictItem {
 			col, colExists := f.columns[field]
 			if !colExists || !f.present[field][i] || col[i] == nil {
-				return nil, fmt.Errorf("operator %q: required field %q is nil on item[%d]", opName, field, i)
+				return nil, fmt.Errorf("required field %q is nil on item[%d]", field, i)
 			}
 			row[field] = col[i]
 		}
@@ -141,7 +141,7 @@ func (f *ColumnFrame) BuildInput(
 		for _, field := range spec.NullableItem {
 			col, colExists := f.columns[field]
 			if !colExists || !f.present[field][i] {
-				return nil, fmt.Errorf("operator %q: required field %q is missing on item[%d]", opName, field, i)
+				return nil, fmt.Errorf("required field %q is missing on item[%d]", field, i)
 			}
 			row[field] = col[i]
 		}
