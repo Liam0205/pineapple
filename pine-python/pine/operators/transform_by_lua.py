@@ -246,6 +246,17 @@ def _to_lua(runtime: "LuaRuntime", v: Any) -> Any:
     return str(v)
 
 
+def _lua_type_name(v: Any) -> str:
+    """Map a lupa-returned key to its Lua type name."""
+    if isinstance(v, bool):
+        return "boolean"
+    if isinstance(v, (int, float)):
+        return "number"
+    if hasattr(v, "__len__") and hasattr(v, "__getitem__"):
+        return "table"
+    return "userdata"
+
+
 def _from_lua(v: Any) -> Any:
     """Convert Lua value to Python value."""
     if v is None:
@@ -276,11 +287,13 @@ def _from_lua(v: Any) -> Any:
             return arr
         # String-keyed table
         m: dict[str, Any] = {}
-        try:
-            for k, val in v.items():
-                m[str(_from_lua(k))] = _from_lua(val)
-        except Exception:
-            pass
+        for k, val in v.items():
+            if not isinstance(k, str):
+                lua_type_name = _lua_type_name(k)
+                raise OperatorException(
+                    f'lua: table has non-string key of type "{lua_type_name}"'
+                )
+            m[k] = _from_lua(val)
         if not m:
             return []
         return m
