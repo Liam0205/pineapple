@@ -256,7 +256,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             while (true) {
                 Varargs n = tbl.next(k);
                 if ((k = n.arg1()).isnil()) break;
-                if (!k.isstring()) {
+                if (k.type() != LuaValue.TSTRING) {
                     throw new PineErrors.OperatorException(
                             "lua: table has non-string key of type \"" + k.typename() + "\"");
                 }
