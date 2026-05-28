@@ -230,7 +230,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         return LuaValue.valueOf(String.valueOf(v));
     }
 
-    private static Object fromLua(LuaValue v) {
+    private static Object fromLua(LuaValue v) throws PineErrors.OperatorException {
         if (v.isnil()) return null;
         if (v.isboolean()) return v.toboolean();
         if (v.isnumber()) {
@@ -256,6 +256,10 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             while (true) {
                 Varargs n = tbl.next(k);
                 if ((k = n.arg1()).isnil()) break;
+                if (!k.isstring()) {
+                    throw new PineErrors.OperatorException(
+                            "lua: table has non-string key of type \"" + k.typename() + "\"");
+                }
                 map.put(k.tojstring(), fromLua(n.arg(2)));
             }
             if (map.isEmpty()) return new ArrayList<>();
