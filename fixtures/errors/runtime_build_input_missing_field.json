@@ -1,0 +1,36 @@
+{
+  "name": "BuildInput error: required common field missing at runtime",
+  "description": "When an operator declares a strict common_input field but the upstream pipeline never produces it, BuildInput must raise an ExecutionError. This fixture locks the full error message format including the wrapping prefix, catching any operator-name duplication.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "lua_needs_field": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function f() return x end",
+          "function_for_item": "f",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": ["missing_field"],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["y"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["lua_needs_field"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["x"],
+      "common_output": [],
+      "item_output": ["y"]
+    }
+  },
+  "request": {"common": {}, "items": [{"x": 1}]},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "required field \"missing_field\" is missing in common",
+    "wrapping_exact": "pine: execution error in operator \"lua_needs_field\": required field \"missing_field\" is missing in common",
+    "wrapping_exact_engines": ["go", "java", "cpp"]
+  }
+}
