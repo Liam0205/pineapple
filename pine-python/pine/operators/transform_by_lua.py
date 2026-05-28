@@ -153,18 +153,18 @@ class TransformByLua(
                 raise OperatorException(f"lua: item[{i}]: {e}") from e
 
             if nret == 1:
-                val = _to_python(results)
+                val = _from_lua(results)
                 if val is not None:
                     output.set_item(i, self.item_output()[0], val)
             elif nret > 1:
                 # Multiple returns come as a tuple
                 if isinstance(results, tuple):
                     for j in range(min(nret, len(results))):
-                        val = _to_python(results[j])
+                        val = _from_lua(results[j])
                         if val is not None:
                             output.set_item(i, self.item_output()[j], val)
                 else:
-                    val = _to_python(results)
+                    val = _from_lua(results)
                     if val is not None:
                         output.set_item(i, self.item_output()[0], val)
 
@@ -200,13 +200,13 @@ class TransformByLua(
         results = fn()
 
         if nret == 1:
-            output.set_common(self.common_output()[0], _to_python(results))
+            output.set_common(self.common_output()[0], _from_lua(results))
         elif nret > 1:
             if isinstance(results, tuple):
                 for j in range(min(nret, len(results))):
-                    output.set_common(self.common_output()[j], _to_python(results[j]))
+                    output.set_common(self.common_output()[j], _from_lua(results[j]))
             else:
-                output.set_common(self.common_output()[0], _to_python(results))
+                output.set_common(self.common_output()[0], _from_lua(results))
 
 
 def _create_lua_runtime() -> "LuaRuntime":
@@ -246,7 +246,7 @@ def _to_lua(runtime: "LuaRuntime", v: Any) -> Any:
     return str(v)
 
 
-def _to_python(v: Any) -> Any:
+def _from_lua(v: Any) -> Any:
     """Convert Lua value to Python value."""
     if v is None:
         return None
@@ -272,13 +272,13 @@ def _to_python(v: Any) -> Any:
         if length > 0:
             arr = []
             for i in range(1, length + 1):
-                arr.append(_to_python(v[i]))
+                arr.append(_from_lua(v[i]))
             return arr
         # String-keyed table
         m: dict[str, Any] = {}
         try:
             for k, val in v.items():
-                m[str(_to_python(k))] = _to_python(val)
+                m[str(_from_lua(k))] = _from_lua(val)
         except Exception:
             pass
         if not m:
