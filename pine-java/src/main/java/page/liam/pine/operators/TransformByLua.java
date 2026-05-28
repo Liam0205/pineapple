@@ -156,7 +156,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 throw new Exception("lua: item[" + i + "]: " + e.getMessage(), e);
             }
             for (int j = 0; j < nret; j++) {
-                Object val = toJava(results.arg(j + 1));
+                Object val = fromLua(results.arg(j + 1));
                 output.setItem(i, itemOutput().get(j), val);
             }
         }
@@ -188,7 +188,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         int nret = commonOutput().size();
         Varargs results = fn.invoke(LuaValue.NONE);
         for (int j = 0; j < nret; j++) {
-            Object val = toJava(results.arg(j + 1));
+            Object val = fromLua(results.arg(j + 1));
             output.setCommon(commonOutput().get(j), val);
         }
     }
@@ -230,7 +230,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         return LuaValue.valueOf(String.valueOf(v));
     }
 
-    private static Object toJava(LuaValue v) {
+    private static Object fromLua(LuaValue v) {
         if (v.isnil()) return null;
         if (v.isboolean()) return v.toboolean();
         if (v.isnumber()) {
@@ -247,7 +247,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             if (len > 0) {
                 List<Object> arr = new ArrayList<>(len);
                 for (int i = 1; i <= len; i++) {
-                    arr.add(toJava(tbl.get(i)));
+                    arr.add(fromLua(tbl.get(i)));
                 }
                 return arr;
             }
@@ -256,7 +256,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             while (true) {
                 Varargs n = tbl.next(k);
                 if ((k = n.arg1()).isnil()) break;
-                map.put(k.tojstring(), toJava(n.arg(2)));
+                map.put(k.tojstring(), fromLua(n.arg(2)));
             }
             if (map.isEmpty()) return new ArrayList<>();
             return map;
