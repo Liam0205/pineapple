@@ -23,6 +23,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
@@ -215,8 +216,35 @@ func goToLua(L *glua.LState, v any) glua.LValue {
 		return glua.LNumber(float64(x))
 	case string:
 		return glua.LString(x)
+	case []any:
+		tbl := L.NewTable()
+		for _, elem := range x {
+			tbl.Append(goToLua(L, elem))
+		}
+		return tbl
+	case map[string]any:
+		tbl := L.NewTable()
+		for k, val := range x {
+			L.SetField(tbl, k, goToLua(L, val))
+		}
+		return tbl
 	default:
-		return glua.LString(fmt.Sprintf("%v", x))
+		rv := reflect.ValueOf(v)
+		switch rv.Kind() {
+		case reflect.Slice, reflect.Array:
+			tbl := L.NewTable()
+			for i := 0; i < rv.Len(); i++ {
+				tbl.Append(goToLua(L, rv.Index(i).Interface()))
+			}
+			return tbl
+		case reflect.Map:
+			tbl := L.NewTable()
+			for _, k := range rv.MapKeys() {
+				L.SetField(tbl, fmt.Sprint(k.Interface()), goToLua(L, rv.MapIndex(k).Interface()))
+			}
+			return tbl
+		}
+		return glua.LString(fmt.Sprintf("%v", v))
 	}
 }
 
@@ -231,6 +259,23 @@ func luaToGo(v glua.LValue) any {
 		return float64(x)
 	case glua.LString:
 		return string(x)
+	case *glua.LTable:
+		maxN := x.MaxN()
+		if maxN > 0 {
+			arr := make([]any, 0, maxN)
+			for i := 1; i <= maxN; i++ {
+				arr = append(arr, luaToGo(x.RawGetInt(i)))
+			}
+			return arr
+		}
+		m := make(map[string]any)
+		x.ForEach(func(key, val glua.LValue) {
+			m[fmt.Sprint(luaToGo(key))] = luaToGo(val)
+		})
+		if len(m) == 0 {
+			return []any{}
+		}
+		return m
 	default:
 		return v.String()
 	}
