@@ -234,6 +234,7 @@ JsonValue LuaVM::from_lua(int index) {
         lua_pop(L_, 1);
       }
       if (obj.empty()) {
+        // Lua empty table → empty array (cross-runtime convention)
         return JsonValue(std::vector<JsonValue>{});
       }
       return JsonValue(std::move(obj));
