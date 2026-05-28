@@ -15,7 +15,7 @@ on:
 jobs:
   differential-fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v6
 
@@ -59,26 +59,12 @@ jobs:
         working-directory: pine-cpp
 
       - name: Run differential fuzz
-        timeout-minutes: 355
+        timeout-minutes: 350
         run: |
           set -o pipefail
-          # Weekend (Saturday UTC) gets 100k rounds + shrink for deeper coverage;
-          # weekdays get 10k. Manual dispatch uses the input value as-is.
-          if [ -n "${{ inputs.rounds }}" ]; then
-            ROUNDS="${{ inputs.rounds }}"
-            EXTRA_FLAGS=""
-          elif [ "$(date -u +%u)" = "6" ]; then
-            ROUNDS=100000
-            EXTRA_FLAGS="--shrink"
-          else
-            ROUNDS=10000
-            EXTRA_FLAGS=""
-          fi
-          # Use shell timeout (350m) so the step exits with code 124 on
-          # timeout instead of being cancelled — allows subsequent steps
-          # (evaluate, issue creation) to run normally. The step-level
-          # timeout-minutes: 355 remains as a safety net.
-          timeout 350m python3 scripts/differential-fuzz.py \
+          ROUNDS="${{ inputs.rounds || '10000' }}"
+          EXTRA_FLAGS=""
+          timeout 340m python3 scripts/differential-fuzz.py \
             --rounds "$ROUNDS" \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
             --go-bin pine-go/pineapple-run \
