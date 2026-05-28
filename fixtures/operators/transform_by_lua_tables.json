@@ -1,0 +1,157 @@
+{
+  "operator": "transform_by_lua",
+  "cases": [
+    {
+      "name": "item function receives array and returns its length",
+      "params": {
+        "lua_script": "function f() return #tags end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["tags"],
+        "common_output": [],
+        "item_output": ["tag_count"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "tags": ["a", "b", "c"] },
+          { "tags": ["x"] },
+          { "tags": [] }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "tag_count": 3 },
+          { "tag_count": 1 },
+          { "tag_count": 0 }
+        ]
+      }
+    },
+    {
+      "name": "item function indexes into array",
+      "params": {
+        "lua_script": "function f() return scores[2] end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["scores"],
+        "common_output": [],
+        "item_output": ["second_score"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "scores": [10.0, 20.0, 30.0] }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "second_score": 20.0 }
+        ]
+      }
+    },
+    {
+      "name": "item function receives map and accesses field",
+      "params": {
+        "lua_script": "function f() return meta.color end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["meta"],
+        "common_output": [],
+        "item_output": ["color"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "meta": {"color": "red", "size": "large"} }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "color": "red" }
+        ]
+      }
+    },
+    {
+      "name": "item function returns a constructed array",
+      "params": {
+        "lua_script": "function f() return {item_x * 2, item_x * 3} end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_x"],
+        "common_output": [],
+        "item_output": ["multiples"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_x": 5.0 }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "multiples": [10, 15] }
+        ]
+      }
+    },
+    {
+      "name": "common function receives array via common_input",
+      "params": {
+        "lua_script": "function f()\n  local sum = 0\n  for i = 1, #weights do sum = sum + weights[i] end\n  return sum\nend",
+        "function_for_item": "",
+        "function_for_common": "f"
+      },
+      "metadata": {
+        "common_input": ["weights"],
+        "item_input": [],
+        "common_output": ["total_weight"],
+        "item_output": []
+      },
+      "input": {
+        "common": { "weights": [1.5, 2.5, 3.0] },
+        "items": []
+      },
+      "expected": {
+        "common": {
+          "total_weight": 7.0
+        }
+      }
+    },
+    {
+      "name": "item function returns a map",
+      "params": {
+        "lua_script": "function f() return {name=item_name, len=string.len(item_name)} end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["item_name"],
+        "common_output": [],
+        "item_output": ["info"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_name": "hello" }
+        ]
+      },
+      "expected": {
+        "items": [
+          { "info": {"name": "hello", "len": 5} }
+        ]
+      }
+    }
+  ]
+}
