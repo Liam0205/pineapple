@@ -165,7 +165,7 @@ void LuaVM::load_script(const std::string& code, const std::string& op_name) {
   }
 }
 
-void LuaVM::push_value(const JsonValue& value) {
+void LuaVM::to_lua(const JsonValue& value) {
   if (value.is_null()) {
     lua_pushnil(L_);
   } else if (value.is_bool()) {
@@ -179,7 +179,7 @@ void LuaVM::push_value(const JsonValue& value) {
     const auto& arr = value.as_array();
     lua_createtable(L_, static_cast<int>(arr.size()), 0);
     for (std::size_t i = 0; i < arr.size(); ++i) {
-      push_value(arr[i]);
+      to_lua(arr[i]);
       lua_rawseti(L_, -2, static_cast<int>(i + 1));
     }
   } else if (value.is_object()) {
@@ -187,13 +187,13 @@ void LuaVM::push_value(const JsonValue& value) {
     lua_createtable(L_, 0, static_cast<int>(obj.size()));
     for (const auto& [k, v] : obj) {
       lua_pushlstring(L_, k.c_str(), k.size());
-      push_value(v);
+      to_lua(v);
       lua_rawset(L_, -3);
     }
   }
 }
 
-JsonValue LuaVM::to_value(int index) {
+JsonValue LuaVM::from_lua(int index) {
   int t = lua_type(L_, index);
   switch (t) {
     case LUA_TNIL:
@@ -215,7 +215,7 @@ JsonValue LuaVM::to_value(int index) {
         arr.reserve(static_cast<std::size_t>(len));
         for (int i = 1; i <= len; ++i) {
           lua_rawgeti(L_, abs_idx, i);
-          arr.push_back(to_value(-1));
+          arr.push_back(from_lua(-1));
           lua_pop(L_, 1);
         }
         return JsonValue(std::move(arr));
@@ -225,7 +225,7 @@ JsonValue LuaVM::to_value(int index) {
       while (lua_next(L_, abs_idx) != 0) {
         if (lua_type(L_, -2) == LUA_TSTRING) {
           std::string key = lua_tostring(L_, -2);
-          obj[key] = to_value(-1);
+          obj[key] = from_lua(-1);
         }
         lua_pop(L_, 1);
       }
@@ -240,14 +240,14 @@ JsonValue LuaVM::to_value(int index) {
 }
 
 void LuaVM::set_global(const std::string& name, const JsonValue& value) {
-  push_value(value);
+  to_lua(value);
   lua_setglobal(L_, name.c_str());
 }
 
 void LuaVM::set_global_table(const std::string& name, const std::vector<JsonValue>& values) {
   lua_createtable(L_, static_cast<int>(values.size()), 0);
   for (std::size_t i = 0; i < values.size(); ++i) {
-    push_value(values[i]);
+    to_lua(values[i]);
     lua_rawseti(L_, -2, static_cast<int>(i + 1));
   }
   lua_setglobal(L_, name.c_str());
@@ -276,7 +276,7 @@ std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nr
         throw ExecutionError(op_name, "lua returned NaN");
       }
     }
-    results.push_back(to_value(idx));
+    results.push_back(from_lua(idx));
   }
   lua_pop(L_, nret);
   return results;
