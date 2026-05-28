@@ -223,10 +223,14 @@ JsonValue LuaVM::from_lua(int index) {
       std::map<std::string, JsonValue> obj;
       lua_pushnil(L_);
       while (lua_next(L_, abs_idx) != 0) {
-        if (lua_type(L_, -2) == LUA_TSTRING) {
-          std::string key = lua_tostring(L_, -2);
-          obj[key] = from_lua(-1);
+        if (lua_type(L_, -2) != LUA_TSTRING) {
+          const char* key_type = lua_typename(L_, lua_type(L_, -2));
+          lua_pop(L_, 2);
+          throw ExecutionError(std::string("lua: table has non-string key of type \"") + key_type + "\"");
         }
+        std::size_t klen;
+        const char* ks = lua_tolstring(L_, -2, &klen);
+        obj[std::string(ks, klen)] = from_lua(-1);
         lua_pop(L_, 1);
       }
       if (obj.empty()) {
