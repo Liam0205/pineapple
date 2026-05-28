@@ -129,7 +129,7 @@ func (o *LuaOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.O
 func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	// Set common globals once
 	for _, field := range o.CommonInput {
-		L.SetGlobal(field, goToLua(L, in.Common(field)))
+		L.SetGlobal(field, toLua(L, in.Common(field)))
 	}
 
 	fn := L.GetGlobal(o.funcName)
@@ -143,7 +143,7 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 	for i := 0; i < n; i++ {
 		// Set item globals for this item
 		for _, field := range o.ItemInput {
-			L.SetGlobal(field, goToLua(L, in.Item(i, field)))
+			L.SetGlobal(field, toLua(L, in.Item(i, field)))
 		}
 
 		if err := L.CallByParam(glua.P{Fn: fn, NRet: nret, Protect: true}); err != nil {
@@ -152,7 +152,7 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 
 		// Collect return values (stack has them in order, first return at bottom)
 		for j := 0; j < nret; j++ {
-			val := luaToGo(L.Get(-(nret - j)))
+			val := fromLua(L.Get(-(nret - j)))
 			out.SetItem(i, o.ItemOutput[j], val)
 		}
 		L.Pop(nret)
@@ -167,7 +167,7 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	// Set common globals as scalars
 	for _, field := range o.CommonInput {
-		L.SetGlobal(field, goToLua(L, in.Common(field)))
+		L.SetGlobal(field, toLua(L, in.Common(field)))
 	}
 
 	// Set item fields as Lua tables (1-indexed arrays)
@@ -175,7 +175,7 @@ func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pi
 	for _, field := range o.ItemInput {
 		tbl := L.NewTable()
 		for i := 0; i < n; i++ {
-			tbl.Append(goToLua(L, in.Item(i, field)))
+			tbl.Append(toLua(L, in.Item(i, field)))
 		}
 		L.SetGlobal(field, tbl)
 	}
@@ -192,7 +192,7 @@ func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pi
 
 	// Collect return values positionally
 	for j := 0; j < nret; j++ {
-		val := luaToGo(L.Get(-(nret - j)))
+		val := fromLua(L.Get(-(nret - j)))
 		out.SetCommon(o.CommonOutput[j], val)
 	}
 	L.Pop(nret)
@@ -200,8 +200,7 @@ func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pi
 	return nil
 }
 
-// goToLua converts a Go value to a Lua value.
-func goToLua(L *glua.LState, v any) glua.LValue {
+func toLua(L *glua.LState, v any) glua.LValue {
 	if v == nil {
 		return glua.LNil
 	}
@@ -219,13 +218,13 @@ func goToLua(L *glua.LState, v any) glua.LValue {
 	case []any:
 		tbl := L.NewTable()
 		for _, elem := range x {
-			tbl.Append(goToLua(L, elem))
+			tbl.Append(toLua(L, elem))
 		}
 		return tbl
 	case map[string]any:
 		tbl := L.NewTable()
 		for k, val := range x {
-			L.SetField(tbl, k, goToLua(L, val))
+			L.SetField(tbl, k, toLua(L, val))
 		}
 		return tbl
 	default:
@@ -234,13 +233,13 @@ func goToLua(L *glua.LState, v any) glua.LValue {
 		case reflect.Slice, reflect.Array:
 			tbl := L.NewTable()
 			for i := 0; i < rv.Len(); i++ {
-				tbl.Append(goToLua(L, rv.Index(i).Interface()))
+				tbl.Append(toLua(L, rv.Index(i).Interface()))
 			}
 			return tbl
 		case reflect.Map:
 			tbl := L.NewTable()
 			for _, k := range rv.MapKeys() {
-				L.SetField(tbl, fmt.Sprint(k.Interface()), goToLua(L, rv.MapIndex(k).Interface()))
+				L.SetField(tbl, fmt.Sprint(k.Interface()), toLua(L, rv.MapIndex(k).Interface()))
 			}
 			return tbl
 		}
@@ -248,8 +247,7 @@ func goToLua(L *glua.LState, v any) glua.LValue {
 	}
 }
 
-// luaToGo converts a Lua value to a Go value.
-func luaToGo(v glua.LValue) any {
+func fromLua(v glua.LValue) any {
 	switch x := v.(type) {
 	case *glua.LNilType:
 		return nil
@@ -264,13 +262,13 @@ func luaToGo(v glua.LValue) any {
 		if maxN > 0 {
 			arr := make([]any, 0, maxN)
 			for i := 1; i <= maxN; i++ {
-				arr = append(arr, luaToGo(x.RawGetInt(i)))
+				arr = append(arr, fromLua(x.RawGetInt(i)))
 			}
 			return arr
 		}
 		m := make(map[string]any)
 		x.ForEach(func(key, val glua.LValue) {
-			m[fmt.Sprint(luaToGo(key))] = luaToGo(val)
+			m[fmt.Sprint(fromLua(key))] = fromLua(val)
 		})
 		if len(m) == 0 {
 			return []any{}
