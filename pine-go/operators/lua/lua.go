@@ -268,15 +268,25 @@ func fromLua(v glua.LValue) (any, error) {
 	case *glua.LTable:
 		maxN := x.MaxN()
 		if maxN > 0 {
-			arr := make([]any, 0, maxN)
+			// Verify it's a contiguous sequence 1..maxN (no holes)
+			contiguous := true
 			for i := 1; i <= maxN; i++ {
-				elem, err := fromLua(x.RawGetInt(i))
-				if err != nil {
-					return nil, err
+				if x.RawGetInt(i) == glua.LNil {
+					contiguous = false
+					break
 				}
-				arr = append(arr, elem)
 			}
-			return arr, nil
+			if contiguous {
+				arr := make([]any, 0, maxN)
+				for i := 1; i <= maxN; i++ {
+					elem, err := fromLua(x.RawGetInt(i))
+					if err != nil {
+						return nil, err
+					}
+					arr = append(arr, elem)
+				}
+				return arr, nil
+			}
 		}
 		m := make(map[string]any)
 		var iterErr error
