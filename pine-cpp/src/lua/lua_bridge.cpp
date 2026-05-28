@@ -207,6 +207,33 @@ JsonValue LuaVM::to_value(int index) {
       const char* s = lua_tolstring(L_, index, &len);
       return JsonValue(std::string(s, len));
     }
+    case LUA_TTABLE: {
+      int abs_idx = (index > 0) ? index : lua_gettop(L_) + index + 1;
+      int len = static_cast<int>(lua_objlen(L_, abs_idx));
+      if (len > 0) {
+        std::vector<JsonValue> arr;
+        arr.reserve(static_cast<std::size_t>(len));
+        for (int i = 1; i <= len; ++i) {
+          lua_rawgeti(L_, abs_idx, i);
+          arr.push_back(to_value(-1));
+          lua_pop(L_, 1);
+        }
+        return JsonValue(std::move(arr));
+      }
+      std::map<std::string, JsonValue> obj;
+      lua_pushnil(L_);
+      while (lua_next(L_, abs_idx) != 0) {
+        if (lua_type(L_, -2) == LUA_TSTRING) {
+          std::string key = lua_tostring(L_, -2);
+          obj[key] = to_value(-1);
+        }
+        lua_pop(L_, 1);
+      }
+      if (obj.empty()) {
+        return JsonValue(std::vector<JsonValue>{});
+      }
+      return JsonValue(std::move(obj));
+    }
     default:
       return JsonValue();
   }
