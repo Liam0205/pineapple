@@ -88,6 +88,8 @@ add_library(pine_cpp_core OBJECT
     operators/recall/recall_static.cpp
     operators/reorder/reorder_shuffle_by_salt.cpp
     operators/reorder/reorder_sort.cpp
+    operators/transform/transform_bench_cpu.cpp
+    operators/transform/transform_bench_sleep.cpp
     operators/transform/transform_by_lua.cpp
     operators/transform/transform_copy.cpp
     operators/transform/transform_dispatch.cpp

@@ -6,44 +6,33 @@ import sys
 from pathlib import Path
 
 
-def parse_report(text: str) -> dict[str, dict[tuple[str, int], dict[str, float]]]:
-    """Parse report into {phase: {(runtime, nodes): {metric: value}}}."""
-    phases: dict[str, dict[tuple[str, int], dict[str, float]]] = {}
-    current_phase = None
+def parse_report(text: str) -> dict[tuple, dict[str, float]]:
+    """Parse report into {(runtime, nodes, storage, par, op): {metric: value}}."""
+    data: dict[tuple, dict[str, float]] = {}
 
     for line in text.splitlines():
-        if line.strip().startswith("── Phase"):
-            m = re.search(r"Phase (\d+):", line)
-            if m:
-                current_phase = f"phase{m.group(1)}"
-                phases[current_phase] = {}
-            continue
-
-        if current_phase is None:
-            continue
-
-        # Data lines: "  runtime  nodes  qps  mean  stddev  p50  p90  p99"
         parts = line.split()
-        if len(parts) == 8:
+        if len(parts) == 11:
             runtime = parts[0]
             try:
                 nodes = int(parts[1])
-                qps = float(parts[2])
-                mean = float(parts[3])
-                p50 = float(parts[5])
-                p90 = float(parts[6])
-                p99 = float(parts[7])
+                storage = parts[2]
+                par = int(parts[3])
+                op = parts[4]
+                qps = float(parts[5])
+                mean = float(parts[6])
+                stddev = float(parts[7])
+                p50 = float(parts[8])
+                p90 = float(parts[9])
+                p99 = float(parts[10])
             except (ValueError, IndexError):
                 continue
-            phases[current_phase][(runtime, nodes)] = {
-                "qps": qps,
-                "mean": mean,
-                "p50": p50,
-                "p90": p90,
-                "p99": p99,
+            data[(runtime, nodes, storage, par, op)] = {
+                "qps": qps, "mean": mean, "stddev": stddev,
+                "p50": p50, "p90": p90, "p99": p99,
             }
 
-    return phases
+    return data
 
 
 def pct_change(old: float, new: float) -> str:
@@ -56,37 +45,36 @@ def pct_change(old: float, new: float) -> str:
 
 def format_comparison(prev: dict, curr: dict) -> str:
     lines = []
-    phase_names = {"phase1": "Single-request latency", "phase2": "QPS=500 latency", "phase3": "Max throughput"}
+    common_keys = sorted(
+        set(prev.keys()) & set(curr.keys()),
+        key=lambda k: (k[4], k[1], k[3], k[2], k[0]),  # op, nodes, par, storage, runtime
+    )
 
-    for phase_key in sorted(set(prev.keys()) | set(curr.keys())):
-        phase_label = phase_names.get(phase_key, phase_key)
-        prev_data = prev.get(phase_key, {})
-        curr_data = curr.get(phase_key, {})
+    if not common_keys:
+        return "No comparable data found between runs."
 
-        all_keys = sorted(set(prev_data.keys()) | set(curr_data.keys()), key=lambda k: (k[0], k[1]))
-        if not all_keys:
-            continue
+    lines.append("── Delta: current vs previous (QPS: higher=better, latency: lower=better) ──")
+    lines.append(
+        f"  {'Runtime':<8} {'Nodes':>5} {'Stor':>6} {'Par':>4} {'Op':>6}"
+        f"  {'QPS Δ':>10}  {'Mean Δ':>10}  {'P50 Δ':>10}  {'P99 Δ':>10}"
+    )
+    lines.append(
+        f"  {'-------':<8} {'-----':>5} {'------':>6} {'---':>4} {'------':>6}"
+        f"  {'----------':>10}  {'----------':>10}  {'----------':>10}  {'----------':>10}"
+    )
 
-        lines.append(f"── {phase_label} (QPS: higher=better, latency: lower=better) ──")
-        lines.append(f"  {'Runtime':<8} {'Nodes':>5}  {'QPS Δ':>10}  {'Mean Δ':>10}  {'P50 Δ':>10}  {'P99 Δ':>10}")
-        lines.append(f"  {'-------':<8} {'-----':>5}  {'----------':>10}  {'----------':>10}  {'----------':>10}  {'----------':>10}")
-
-        for key in all_keys:
-            runtime, nodes = key
-            if key not in prev_data or key not in curr_data:
-                continue
-            p = prev_data[key]
-            c = curr_data[key]
-            qps_d = pct_change(p["qps"], c["qps"])
-            mean_d = pct_change(p["mean"], c["mean"])
-            p50_d = pct_change(p["p50"], c["p50"])
-            p99_d = pct_change(p["p99"], c["p99"])
-            lines.append(f"  {runtime:<8} {nodes:>5}  {qps_d:>10}  {mean_d:>10}  {p50_d:>10}  {p99_d:>10}")
-
-        lines.append("")
-
-    if not lines:
-        lines.append("No comparable data found between runs.")
+    for key in common_keys:
+        runtime, nodes, storage, par, op = key
+        p = prev[key]
+        c = curr[key]
+        qps_d = pct_change(p["qps"], c["qps"])
+        mean_d = pct_change(p["mean"], c["mean"])
+        p50_d = pct_change(p["p50"], c["p50"])
+        p99_d = pct_change(p["p99"], c["p99"])
+        lines.append(
+            f"  {runtime:<8} {nodes:>5} {storage:>6} {par:>4} {op:>6}"
+            f"  {qps_d:>10}  {mean_d:>10}  {p50_d:>10}  {p99_d:>10}"
+        )
 
     return "\n".join(lines)
 
