@@ -213,6 +213,20 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         if (v instanceof Boolean) return LuaValue.valueOf((Boolean) v);
         if (v instanceof Number) return LuaValue.valueOf(((Number) v).doubleValue());
         if (v instanceof String) return LuaValue.valueOf((String) v);
+        if (v instanceof List<?> list) {
+            LuaTable tbl = new LuaTable();
+            for (int i = 0; i < list.size(); i++) {
+                tbl.set(i + 1, toLua(list.get(i)));
+            }
+            return tbl;
+        }
+        if (v instanceof Map<?, ?> map) {
+            LuaTable tbl = new LuaTable();
+            for (Map.Entry<?, ?> e : map.entrySet()) {
+                tbl.set(String.valueOf(e.getKey()), toLua(e.getValue()));
+            }
+            return tbl;
+        }
         return LuaValue.valueOf(String.valueOf(v));
     }
 
@@ -227,6 +241,26 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             return d;
         }
         if (v.isstring()) return v.tojstring();
+        if (v.istable()) {
+            LuaTable tbl = v.checktable();
+            int len = tbl.length();
+            if (len > 0) {
+                List<Object> arr = new ArrayList<>(len);
+                for (int i = 1; i <= len; i++) {
+                    arr.add(toJava(tbl.get(i)));
+                }
+                return arr;
+            }
+            Map<String, Object> map = new LinkedHashMap<>();
+            LuaValue k = LuaValue.NIL;
+            while (true) {
+                Varargs n = tbl.next(k);
+                if ((k = n.arg1()).isnil()) break;
+                map.put(k.tojstring(), toJava(n.arg(2)));
+            }
+            if (map.isEmpty()) return new ArrayList<>();
+            return map;
+        }
         return v.tojstring();
     }
 
