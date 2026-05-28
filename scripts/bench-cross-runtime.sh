@@ -33,8 +33,8 @@ DAG_SIZES=(5 50 100 500)
 STORAGE_MODES=(row column)
 PARALLELISMS=(1 $((NPROC / 2)) $NPROC $((NPROC * 2)) $((NPROC * 4)))
 OP_TYPES=(cpu io mixed)
-NUM_REQUESTS=10000
-CONCURRENCY=50
+NUM_REQUESTS=1000
+CONCURRENCY=20
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
