@@ -155,7 +155,7 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 			val, err := fromLua(L.Get(-(nret - j)))
 			if err != nil {
 				L.Pop(nret)
-				return fmt.Errorf("lua: item[%d]: %w", i, err)
+				return fmt.Errorf("item[%d]: %w", i, err)
 			}
 			out.SetItem(i, o.ItemOutput[j], val)
 		}
