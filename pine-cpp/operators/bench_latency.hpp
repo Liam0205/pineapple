@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <random>
 #include <thread>
 
@@ -18,10 +19,55 @@ struct LatencyProfile {
   int64_t iterations = 0; // calibrated mode: base iteration count for p50_mean
 };
 
+// Fast RNG: xoshiro256+ (same family as Go's math/rand source)
+class FastRng {
+ public:
+  explicit FastRng(uint64_t seed) {
+    s_[0] = splitmix(seed);
+    s_[1] = splitmix(s_[0]);
+    s_[2] = splitmix(s_[1]);
+    s_[3] = splitmix(s_[2]);
+  }
+
+  double float64() {
+    return static_cast<double>(next() >> 11) * (1.0 / (1ULL << 53));
+  }
+
+  double norm_float64() {
+    // Box-Muller transform
+    double u1 = float64();
+    double u2 = float64();
+    if (u1 < 1e-300) u1 = 1e-300;
+    return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * M_PI * u2);
+  }
+
+ private:
+  uint64_t s_[4];
+
+  uint64_t next() {
+    uint64_t result = s_[0] + s_[3];
+    uint64_t t = s_[1] << 17;
+    s_[2] ^= s_[0];
+    s_[3] ^= s_[1];
+    s_[1] ^= s_[2];
+    s_[0] ^= s_[3];
+    s_[2] ^= t;
+    s_[3] = (s_[3] << 45) | (s_[3] >> 19);
+    return result;
+  }
+
+  static uint64_t splitmix(uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+  }
+};
+
 class LatencySampler {
  public:
   explicit LatencySampler(LatencyProfile profile)
-      : profile_(profile), rng_(std::random_device{}()), dist_(0.0, 1.0), uniform_(0.0, 1.0) {}
+      : profile_(profile), rng_(std::random_device{}()) {}
 
   double apply() {
     auto d = sample();
@@ -42,11 +88,11 @@ class LatencySampler {
     auto deadline = std::chrono::steady_clock::now() + d;
     double acc = 1.0;
     while (std::chrono::steady_clock::now() < deadline) {
-      double a = uniform_(rng_) * 1000.0 + 1.0;
-      double b = uniform_(rng_) * 1000.0 + 1.0;
+      double a = rng_.float64() * 1000.0 + 1.0;
+      double b = rng_.float64() * 1000.0 + 1.0;
       acc += a / b;
-      a = uniform_(rng_) * 1000.0 + 1.0;
-      b = uniform_(rng_) * 1000.0 + 1.0;
+      a = rng_.float64() * 1000.0 + 1.0;
+      b = rng_.float64() * 1000.0 + 1.0;
       acc -= a / b;
     }
     return acc;
@@ -56,11 +102,11 @@ class LatencySampler {
   double cpu_work(int64_t n) {
     double acc = 1.0;
     for (int64_t i = 0; i < n; ++i) {
-      double a = uniform_(rng_) * 1000.0 + 1.0;
-      double b = uniform_(rng_) * 1000.0 + 1.0;
+      double a = rng_.float64() * 1000.0 + 1.0;
+      double b = rng_.float64() * 1000.0 + 1.0;
       acc += a / b;
-      a = uniform_(rng_) * 1000.0 + 1.0;
-      b = uniform_(rng_) * 1000.0 + 1.0;
+      a = rng_.float64() * 1000.0 + 1.0;
+      b = rng_.float64() * 1000.0 + 1.0;
       acc -= a / b;
     }
     return acc;
@@ -71,7 +117,7 @@ class LatencySampler {
       return std::chrono::microseconds(0);
     }
 
-    double jitter = uniform_(rng_);
+    double jitter = rng_.float64();
     double p50 = profile_.p50_mean + jitter * (profile_.p50_max - profile_.p50_mean);
     double p99 = profile_.p99_mean + jitter * (profile_.p99_max - profile_.p99_mean);
 
@@ -82,7 +128,7 @@ class LatencySampler {
     double sigma = (std::log(p99) - mu) / 2.326;
     if (sigma <= 0) sigma = 0.1;
 
-    double s = std::exp(mu + sigma * dist_(rng_));
+    double s = std::exp(mu + sigma * rng_.norm_float64());
 
     double cap = p99 * 1.5;
     if (s > cap) s = cap;
@@ -92,9 +138,7 @@ class LatencySampler {
   }
 
   LatencyProfile profile_;
-  std::mt19937 rng_;
-  std::normal_distribution<double> dist_;
-  std::uniform_real_distribution<double> uniform_;
+  FastRng rng_;
 };
 
 inline std::unique_ptr<LatencySampler> parse_bench_profile(const JsonValue& params) {
