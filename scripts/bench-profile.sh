@@ -2,8 +2,18 @@
 # Profile pine-cpp with a realistic fixture using perf or heaptrack.
 #
 # Usage:
-#   ./scripts/bench-profile.sh [--fixture realistic_for_you] [--requests 5000]
-#       [--concurrency 20] [--tool perf|heaptrack] [--output /tmp/profile]
+#   ./scripts/bench-profile.sh [--fixture realistic_for_you_calibrated]
+#       [--requests 3000] [--concurrency 50] [--tool perf|heaptrack]
+#       [--output /tmp/bench_profile] [--config path] [--request path]
+#
+# Options:
+#   --fixture     Fixture name (looks for {name}_config.json / {name}_request.json)
+#   --config      Override config path directly (skips fixture lookup)
+#   --request     Override request path directly (skips fixture lookup)
+#   --requests    Number of requests to send (default: 3000)
+#   --concurrency Concurrent connections (default: 50)
+#   --tool        perf or heaptrack (default: perf)
+#   --output      Output directory (default: /tmp/bench_profile)
 #
 # Prerequisites:
 #   - perf (linux-tools-$(uname -r)) or heaptrack
@@ -19,10 +29,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE_SRC="$REPO_ROOT/fixtures/benchmarks"
 OUTPUT_DIR="/tmp/bench_profile"
-FIXTURE_NAME="realistic_for_you"
-NUM_REQUESTS=5000
-CONCURRENCY=20
+FIXTURE_NAME="realistic_for_you_calibrated"
+NUM_REQUESTS=3000
+CONCURRENCY=50
 TOOL="perf"
+CUSTOM_CFG=""
+CUSTOM_REQ=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,12 +43,18 @@ while [[ $# -gt 0 ]]; do
     --concurrency) CONCURRENCY="$2"; shift 2 ;;
     --tool)        TOOL="$2"; shift 2 ;;
     --output)      OUTPUT_DIR="$2"; shift 2 ;;
+    --config)      CUSTOM_CFG="$2"; shift 2 ;;
+    --request)     CUSTOM_REQ="$2"; shift 2 ;;
     *)             echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 
-CFG="$FIXTURE_SRC/${FIXTURE_NAME}_config.json"
-REQ="$FIXTURE_SRC/${FIXTURE_NAME}_request.json"
+CFG="${CUSTOM_CFG:-$FIXTURE_SRC/${FIXTURE_NAME}_config.json}"
+REQ="${CUSTOM_REQ:-$FIXTURE_SRC/${FIXTURE_NAME}_request.json}"
+
+# Resolve to absolute paths
+[[ "$CFG" != /* ]] && CFG="$REPO_ROOT/$CFG"
+[[ "$REQ" != /* ]] && REQ="$REPO_ROOT/$REQ"
 
 if [[ ! -f "$CFG" ]]; then
   echo "Error: fixture config not found: $CFG" >&2
@@ -78,50 +96,81 @@ if ! curl -sf "http://localhost:$PORT/health" >/dev/null 2>&1; then
 fi
 echo "  ✓ Server ready (PID $SERVER_PID)"
 
-# ─── Prepare request body ─────────────────────────────────────────────
-if [[ -f "$REQ" ]]; then
-  REQ_BODY=$(cat "$REQ")
-else
-  REQ_BODY='{"common":{},"items":[]}'
+# ─── Validate request file ────────────────────────────────────────────
+if [[ ! -f "$REQ" ]]; then
+  echo "Error: request file not found: $REQ" >&2
+  exit 1
 fi
 
 # ─── Warmup ──────────────────────────────────────────────────────────
 echo "==> Warmup (200 requests)..."
 hey -n 200 -c 10 -m POST -H "Content-Type: application/json" \
-  -d "$REQ_BODY" "http://localhost:$PORT/execute" > /dev/null 2>&1
+  -D "$REQ" "http://localhost:$PORT/execute" > /dev/null 2>&1
 
 # ─── Profile ─────────────────────────────────────────────────────────
 case "$TOOL" in
   perf)
     echo "==> Profiling with perf (${NUM_REQUESTS} requests, ${CONCURRENCY} concurrent)..."
-    perf record -g -p "$SERVER_PID" -o "$OUTPUT_DIR/perf.data" -- \
-      sleep 0 &
-    PERF_PID=$!
+    PERF_DURATION=$(( NUM_REQUESTS / CONCURRENCY + 30 ))
+    rm -f "$OUTPUT_DIR/perf.data"
 
-    # Actually attach perf to the server while hey sends load
-    perf record -g -p "$SERVER_PID" -o "$OUTPUT_DIR/perf.data" &
+    perf record -g -F 997 -e cpu-clock -p "$SERVER_PID" \
+      -o "$OUTPUT_DIR/perf.data" -- sleep "$PERF_DURATION" &
     PERF_PID=$!
-    sleep 0.5
+    sleep 1
 
     hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
       -H "Content-Type: application/json" \
-      -d "$REQ_BODY" "http://localhost:$PORT/execute" > "$OUTPUT_DIR/hey.txt" 2>&1
+      -D "$REQ" "http://localhost:$PORT/execute" > "$OUTPUT_DIR/hey.txt" 2>&1
 
-    kill -INT "$PERF_PID" 2>/dev/null || true
+    kill "$PERF_PID" 2>/dev/null || true
     wait "$PERF_PID" 2>/dev/null || true
 
     echo "  ✓ perf.data written to $OUTPUT_DIR/perf.data"
+    echo
 
-    # Generate flamegraph if stackcollapse-perf.pl is available
+    # Analysis section — disable pipefail since head/grep may close pipes early
+    set +o pipefail
+
+    # Top symbols summary
+    echo "==> Top 25 symbols (self time):"
+    perf report -i "$OUTPUT_DIR/perf.data" --no-children --stdio -g none 2>/dev/null \
+      | grep -E "^\s+[0-9]+\.[0-9]+%" | head -25 \
+      | sed 's/pineapple-serve  //' \
+      | tee "$OUTPUT_DIR/top_symbols.txt"
+    echo
+
+    # Category breakdown
+    echo "==> Category breakdown:"
+    PERF_LINES=$(perf report -i "$OUTPUT_DIR/perf.data" --no-children --stdio -g none 2>/dev/null \
+      | grep -E "^\s+[0-9]+\.[0-9]+%") || true
+    _sum_pct() {
+      echo "$PERF_LINES" | { grep -iE "$1" || true; } \
+        | awk '{gsub(/%/,"",$1); sum+=$1} END{printf "%.2f%%", sum+0}'
+    }
+    printf "  std::map (Rb_tree):     %s\n" "$(_sum_pct '_Rb_tree')"
+    printf "  JSON serialization:     %s\n" "$(_sum_pct 'write_json_value|write_go_string|rapidjson::Writer|go_format_json')"
+    printf "  locking (pthread_rw/m): %s\n" "$(_sum_pct 'pthread_rwlock|pthread_mutex')"
+    printf "  allocator (jemalloc):   %s\n" "$(_sum_pct 'jemalloc|operator new|operator delete')"
+    printf "  variant ops:            %s\n" "$(_sum_pct 'Variant_storage.*_M_reset|variant.*copy_assign|is_null')"
+    echo
+
+    set -o pipefail
+
+    # hey benchmark summary
+    echo "==> Benchmark results:"
+    grep -E "Requests/sec|Total:|50%|99%" "$OUTPUT_DIR/hey.txt" | sed 's/^/  /'
+    echo
     if command -v stackcollapse-perf.pl >/dev/null 2>&1; then
       perf script -i "$OUTPUT_DIR/perf.data" | stackcollapse-perf.pl | \
         flamegraph.pl > "$OUTPUT_DIR/flamegraph.svg"
       echo "  ✓ Flamegraph: $OUTPUT_DIR/flamegraph.svg"
-    elif command -v perf >/dev/null 2>&1; then
-      perf report -i "$OUTPUT_DIR/perf.data" --stdio > "$OUTPUT_DIR/perf_report.txt" 2>/dev/null
-      echo "  ✓ perf report: $OUTPUT_DIR/perf_report.txt"
-      echo "  (Install FlameGraph tools for SVG output)"
     fi
+
+    # Caller-graph report for deeper analysis
+    perf report -i "$OUTPUT_DIR/perf.data" --no-children --stdio -g caller 2>/dev/null \
+      > "$OUTPUT_DIR/perf_report_callers.txt"
+    echo "  ✓ Caller report: $OUTPUT_DIR/perf_report_callers.txt"
     ;;
 
   heaptrack)
@@ -141,7 +190,7 @@ case "$TOOL" in
 
     hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
       -H "Content-Type: application/json" \
-      -d "$REQ_BODY" "http://localhost:$PORT/execute" > "$OUTPUT_DIR/hey.txt" 2>&1
+      -D "$REQ" "http://localhost:$PORT/execute" > "$OUTPUT_DIR/hey.txt" 2>&1
 
     kill -TERM "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
