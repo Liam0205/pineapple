@@ -5,21 +5,19 @@ on:
     - cron: "30 14 * * *"  # 22:30 UTC+8, after diff-fuzz starts
   workflow_dispatch:
     inputs:
-      sizes:
-        description: "DAG sizes (comma-separated)"
-        default: "5,50,100,200"
       modes:
-        description: "Storage modes (comma-separated)"
-        default: "row,column"
-      parallelism:
-        description: "DAG fan-out widths (comma-separated)"
+        description: "Storage modes override (comma-separated, empty = use fixture default)"
         default: ""
-      ops:
-        description: "Operator types (comma-separated)"
-        default: "cpu,io,mixed"
+      filter:
+        description: "Only run fixtures matching this substring"
+        default: ""
       skip:
         description: "Runtimes to skip (comma-separated)"
         default: ""
+      generate:
+        description: "Also generate synthetic fixtures"
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -87,17 +85,22 @@ jobs:
 
       - name: Run cross-runtime benchmark
         run: |
-          SIZES="${{ inputs.sizes || '5,50,100,200' }}"
-          MODES="${{ inputs.modes || 'row,column' }}"
-          PARALLELISM="${{ inputs.parallelism || '' }}"
-          OPS="${{ inputs.ops || 'cpu,io,mixed' }}"
+          ARGS=""
+          MODES="${{ inputs.modes || '' }}"
+          FILTER="${{ inputs.filter || '' }}"
           SKIP="${{ inputs.skip || '' }}"
-          ARGS="--sizes $SIZES --modes $MODES --ops $OPS"
-          if [ -n "$PARALLELISM" ]; then
-            ARGS="$ARGS --parallelism $PARALLELISM"
+          GENERATE="${{ inputs.generate || 'false' }}"
+          if [ -n "$MODES" ]; then
+            ARGS="$ARGS --modes $MODES"
+          fi
+          if [ -n "$FILTER" ]; then
+            ARGS="$ARGS --filter $FILTER"
           fi
           if [ -n "$SKIP" ]; then
             ARGS="$ARGS --skip $SKIP"
+          fi
+          if [ "$GENERATE" = "true" ]; then
+            ARGS="$ARGS --generate"
           fi
           bash scripts/bench-cross-runtime.sh $ARGS \
             2>&1 | tee bench-output.log
