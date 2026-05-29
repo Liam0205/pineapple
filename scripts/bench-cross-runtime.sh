@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # Cross-runtime benchmark: pine-{go,java,cpp}
 #
-# Dimensions:
-#   - DAG size: 5, 50, 100, 500 nodes
-#   - Storage mode: row, column
-#   - Parallelism (DAG fan-out): 1, nproc/2, nproc, 2*nproc, 4*nproc
-#   - Operator type: cpu, io, mixed
-#
-# Only runs max-throughput phase (50 concurrent, 10000 requests).
+# Fixture-driven: loads all *_config.json from fixtures/benchmarks/ by default.
+# Each fixture is self-describing (DAG topology, operator mix, storage mode).
 #
 # Prerequisites:
 #   - hey: go install github.com/rakyll/hey@latest
 #   - Go, Java 21, cmake + build-essential + libluajit
 #
 # Usage:
-#   ./scripts/bench-cross-runtime.sh [--skip go] [--sizes "5,50"] [--modes "row"]
-#       [--parallelism "1,4,8"] [--ops "cpu,io"] [--requests 10000] [--concurrency 50]
+#   ./scripts/bench-cross-runtime.sh [--skip go] [--modes "row,column"]
+#       [--requests 1000] [--concurrency 20] [--generate] [--filter "realistic"]
+#
+# Options:
+#   --skip        Runtimes to skip (comma-separated)
+#   --modes       Override storage_mode for fixtures that support it (comma-separated)
+#   --requests    Number of requests per benchmark run (default: 1000)
+#   --concurrency Concurrent connections (default: 20)
+#   --generate    Also generate synthetic fixtures via bench-generate-fixtures.py
+#   --filter      Only run fixtures whose name matches this substring
 #
 # Output: /tmp/bench_cross_runtime/report.txt
 
@@ -23,33 +26,32 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="/tmp/bench_cross_runtime"
-FIXTURE_DIR="$WORK_DIR/fixtures"
 REPORT="$WORK_DIR/report.txt"
+FIXTURE_SRC="$REPO_ROOT/fixtures/benchmarks"
 
 NPROC=$(nproc)
 SKIP_RUNTIMES=""
 RUNTIMES=(go java cpp)
-DAG_SIZES=(5 50 100 500)
-STORAGE_MODES=(row column)
-PARALLELISMS=(1 $((NPROC / 2)) $NPROC $((NPROC * 2)) $((NPROC * 4)))
-OP_TYPES=(cpu io mixed)
+STORAGE_MODES=()
 NUM_REQUESTS=1000
 CONCURRENCY=20
+GENERATE=false
+FILTER=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip)        SKIP_RUNTIMES="$2"; shift 2 ;;
-    --sizes)       IFS=',' read -ra DAG_SIZES <<< "$2"; shift 2 ;;
     --modes)       IFS=',' read -ra STORAGE_MODES <<< "$2"; shift 2 ;;
-    --parallelism) IFS=',' read -ra PARALLELISMS <<< "$2"; shift 2 ;;
-    --ops)         IFS=',' read -ra OP_TYPES <<< "$2"; shift 2 ;;
     --requests)    NUM_REQUESTS="$2"; shift 2 ;;
     --concurrency) CONCURRENCY="$2"; shift 2 ;;
+    --generate)    GENERATE=true; shift ;;
+    --filter)      FILTER="$2"; shift 2 ;;
     *)             echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
+# PLACEHOLDER_SCRIPT_BODY
 
-mkdir -p "$WORK_DIR" "$FIXTURE_DIR"
+mkdir -p "$WORK_DIR"
 
 # ─── Colors ───────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -65,137 +67,31 @@ if ! command -v hey >/dev/null 2>&1; then
   exit 1
 fi
 
-# ─── Generate fixtures ────────────────────────────────────────────────
-info "Generating fixtures..."
-info "  Sizes: ${DAG_SIZES[*]}"
-info "  Storage: ${STORAGE_MODES[*]}"
-info "  Parallelism: ${PARALLELISMS[*]}"
-info "  Op types: ${OP_TYPES[*]}"
+# ─── Generate synthetic fixtures (optional) ──────────────────────────
+if [[ "$GENERATE" == "true" ]]; then
+  info "Generating synthetic fixtures..."
+  python3 "$REPO_ROOT/scripts/bench-generate-fixtures.py"
+  ok "Synthetic fixtures generated"
+fi
 
-python3 - "$FIXTURE_DIR" "${DAG_SIZES[*]}" "${STORAGE_MODES[*]}" "${PARALLELISMS[*]}" "${OP_TYPES[*]}" << 'PYEOF'
-import json, sys
+# ─── Collect fixture list ─────────────────────────────────────────────
+FIXTURES=()
+for cfg in "$FIXTURE_SRC"/*_config.json; do
+  [[ -f "$cfg" ]] || continue
+  name=$(basename "$cfg" _config.json)
+  if [[ -n "$FILTER" ]] && [[ "$name" != *"$FILTER"* ]]; then
+    continue
+  fi
+  FIXTURES+=("$name")
+done
 
-def gen_fixture(n_nodes, storage_mode, fan_out, op_type, output_dir):
-    """Generate a DAG with controlled fan-out width and operator type."""
-    operators = {}
-    all_names = []
+if [[ ${#FIXTURES[@]} -eq 0 ]]; then
+  err "No fixtures found in $FIXTURE_SRC (filter: '${FILTER:-none}')"
+  exit 1
+fi
 
-    operators["root_recall"] = {
-        "type_name": "recall_static",
-        "recall": True,
-        "items": [{"item_id": f"item_{i}", "score": float(i)} for i in range(20)],
-        "$metadata": {
-            "common_input": [], "common_output": [],
-            "item_input": [], "item_output": ["item_id", "score"]
-        }
-    }
-    all_names.append("root_recall")
-    node_count = 1
-    prev_layer = ["root_recall"]
-    stage = 0
-
-    def make_op(name, op_type, stage_idx, node_idx):
-        """Create operator config based on type."""
-        if op_type == "cpu":
-            return {
-                "type_name": "transform_bench_cpu",
-                "sources": prev_layer,
-                "iterations": 100,
-                "$metadata": {
-                    "common_input": [], "common_output": [],
-                    "item_input": ["item_id", "score"],
-                    "item_output": ["item_id", "score", "_bench_result"]
-                }
-            }
-        elif op_type == "io":
-            return {
-                "type_name": "transform_bench_sleep",
-                "sources": prev_layer,
-                "delay_ms": 5,
-                "$metadata": {
-                    "common_input": [], "common_output": [],
-                    "item_input": ["item_id", "score"],
-                    "item_output": ["item_id", "score", "_bench_slept"]
-                }
-            }
-        else:  # mixed: alternate cpu and io
-            if (stage_idx + node_idx) % 2 == 0:
-                return {
-                    "type_name": "transform_bench_cpu",
-                    "sources": prev_layer,
-                    "iterations": 100,
-                    "$metadata": {
-                        "common_input": [], "common_output": [],
-                        "item_input": ["item_id", "score"],
-                        "item_output": ["item_id", "score", "_bench_result"]
-                    }
-                }
-            else:
-                return {
-                    "type_name": "transform_bench_sleep",
-                    "sources": prev_layer,
-                    "delay_ms": 5,
-                    "$metadata": {
-                        "common_input": [], "common_output": [],
-                        "item_input": ["item_id", "score"],
-                        "item_output": ["item_id", "score", "_bench_slept"]
-                    }
-                }
-
-    while node_count < n_nodes:
-        stage += 1
-        width = min(fan_out, n_nodes - node_count)
-        if width <= 0:
-            break
-        layer = []
-        for i in range(width):
-            if node_count >= n_nodes:
-                break
-            name = f"op_s{stage}_{i}"
-            operators[name] = make_op(name, op_type, stage, i)
-            all_names.append(name)
-            layer.append(name)
-            node_count += 1
-        prev_layer = layer
-
-    config = {
-        "_PINEAPPLE_VERSION": "0.9.2",
-        "storage_mode": storage_mode,
-        "pipeline_config": {
-            "operators": operators,
-            "pipeline_map": {"bench": {"pipeline": all_names}}
-        },
-        "pipeline_group": {"main": {"pipeline": ["bench"]}},
-        "flow_contract": {
-            "common_input": [], "common_output": [],
-            "item_input": [], "item_output": ["item_id", "score"]
-        }
-    }
-    request = {"common": {}, "items": []}
-
-    tag = f"n{n_nodes}_s{storage_mode}_p{fan_out}_{op_type}"
-    with open(f"{output_dir}/{tag}_config.json", 'w') as f:
-        json.dump(config, f)
-    with open(f"{output_dir}/{tag}_request.json", 'w') as f:
-        json.dump(request, f)
-
-out_dir = sys.argv[1]
-sizes = [int(x) for x in sys.argv[2].split()]
-modes = sys.argv[3].split()
-pars = [int(x) for x in sys.argv[4].split()]
-ops = sys.argv[5].split()
-
-count = 0
-for n in sizes:
-    for mode in modes:
-        for p in pars:
-            for op in ops:
-                gen_fixture(n, mode, p, op, out_dir)
-                count += 1
-print(f"  Generated {count} fixture pairs")
-PYEOF
-
-ok "Fixtures generated"
+info "Fixtures to run: ${#FIXTURES[@]}"
+for f in "${FIXTURES[@]}"; do echo "    $f"; done
 
 # ─── Build runtimes ───────────────────────────────────────────────────
 info "Building runtimes..."
@@ -224,6 +120,7 @@ if ! should_skip cpp; then
   cp "$CPP_BUILD/pineapple-server" "$WORK_DIR/server-cpp"
   ok "C++ built"
 fi
+# PLACEHOLDER_SERVER_HELPERS
 
 # ─── Server helpers ───────────────────────────────────────────────────
 BASE_PORT=19100
@@ -291,75 +188,104 @@ print(f'{qps:.4f}|{mean:.6f}|{stddev:.6f}|{p50:.6f}|{p90:.6f}|{p99:.6f}')
 " "$csv_file" 2>/dev/null || echo "N/A|N/A|N/A|N/A|N/A|N/A"
 }
 
+# ─── Determine storage modes per fixture ─────────────────────────────
+# If --modes is specified, override all fixtures. Otherwise, use the
+# storage_mode declared in each fixture's config (default: "row").
+get_storage_modes() {
+  local config_file="$1"
+  if [[ ${#STORAGE_MODES[@]} -gt 0 ]]; then
+    echo "${STORAGE_MODES[*]}"
+    return
+  fi
+  local mode
+  mode=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c.get('storage_mode','row'))" "$config_file" 2>/dev/null || echo "row")
+  echo "$mode"
+}
+# PLACEHOLDER_BENCH_LOOP
+
 # ─── Report header ────────────────────────────────────────────────────
 {
   echo "═══════════════════════════════════════════════════════════════════"
   echo " Cross-Runtime Benchmark: pine-{go,java,cpp}"
   echo " Date: $(date -Iseconds)"
   echo " Machine: $(uname -n) (${NPROC} cores)"
-  echo " Dimensions: sizes=${DAG_SIZES[*]} storage=${STORAGE_MODES[*]}"
-  echo "   parallelism=${PARALLELISMS[*]} ops=${OP_TYPES[*]}"
+  echo " Fixtures: ${#FIXTURES[*]} (filter: '${FILTER:-all}')"
   echo " Load: ${NUM_REQUESTS} requests, ${CONCURRENCY} concurrent"
   echo " Skipped: ${SKIP_RUNTIMES:-none}"
   echo "═══════════════════════════════════════════════════════════════════"
   echo
 } > "$REPORT"
 
-# ─── Benchmark loop ──────────────────────────────────────────────────
-TOTAL_COMBOS=$(( ${#DAG_SIZES[@]} * ${#STORAGE_MODES[@]} * ${#PARALLELISMS[@]} * ${#OP_TYPES[@]} * ${#RUNTIMES[@]} ))
-COMBO_IDX=0
-
-TABLE_HEADER="  %-8s %5s %7s %4s %6s %10s %10s %10s %10s %10s %10s\n"
+TABLE_HEADER="  %-8s %-35s %7s %10s %10s %10s %10s %10s %10s\n"
 
 {
-  printf "$TABLE_HEADER" "Runtime" "Nodes" "Storage" "Par" "OpType" "QPS" "Mean" "Stddev" "P50" "P90" "P99"
-  printf "$TABLE_HEADER" "-------" "-----" "-------" "---" "------" "----------" "----------" "----------" "----------" "----------" "----------"
+  printf "$TABLE_HEADER" "Runtime" "Fixture" "Storage" "QPS" "Mean" "Stddev" "P50" "P90" "P99"
+  printf "$TABLE_HEADER" "-------" "-----------------------------------" "-------" "----------" "----------" "----------" "----------" "----------" "----------"
 } >> "$REPORT"
 
-for n in "${DAG_SIZES[@]}"; do
-  for mode in "${STORAGE_MODES[@]}"; do
-    for par in "${PARALLELISMS[@]}"; do
-      for op in "${OP_TYPES[@]}"; do
-        tag="n${n}_s${mode}_p${par}_${op}"
-        cfg="$FIXTURE_DIR/${tag}_config.json"
-        req="$FIXTURE_DIR/${tag}_request.json"
-        [[ -f "$cfg" ]] || continue
-        REQ_BODY=$(cat "$req")
+# ─── Benchmark loop ──────────────────────────────────────────────────
+TOTAL_RUNS=0
+for fixture in "${FIXTURES[@]}"; do
+  cfg="$FIXTURE_SRC/${fixture}_config.json"
+  req="$FIXTURE_SRC/${fixture}_request.json"
+  [[ -f "$req" ]] || req=""
 
-        for rt in "${RUNTIMES[@]}"; do
-          should_skip "$rt" && continue
-          COMBO_IDX=$((COMBO_IDX + 1))
-          port=$(next_port)
-          echo "  [$COMBO_IDX/$TOTAL_COMBOS] $rt $tag on :$port..."
+  read -ra modes <<< "$(get_storage_modes "$cfg")"
 
-          if ! start_server "$rt" "$port" "$cfg"; then continue; fi
+  for mode in "${modes[@]}"; do
+    for rt in "${RUNTIMES[@]}"; do
+      should_skip "$rt" && continue
+      TOTAL_RUNS=$((TOTAL_RUNS + 1))
+    done
+  done
+done
 
-          # Warmup
-          hey -n 200 -c 10 -m POST -H "Content-Type: application/json" \
-            -d "$REQ_BODY" -o csv "http://localhost:$port/execute" > /dev/null 2>&1
+RUN_IDX=0
+for fixture in "${FIXTURES[@]}"; do
+  cfg="$FIXTURE_SRC/${fixture}_config.json"
+  req="$FIXTURE_SRC/${fixture}_request.json"
 
-          # Benchmark
-          hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
-            -H "Content-Type: application/json" \
-            -d "$REQ_BODY" -o csv \
-            "http://localhost:$port/execute" > "$WORK_DIR/${tag}_${rt}.csv" 2>&1
+  if [[ ! -f "$req" ]]; then
+    req_body='{"common":{},"items":[]}'
+  else
+    req_body=$(cat "$req")
+  fi
 
-          METRICS=$(parse_hey "$WORK_DIR/${tag}_${rt}.csv")
-          IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
-          printf "  %-8s %5d %7s %4d %6s %10s %10s %10s %10s %10s %10s\n" \
-            "$rt" "$n" "$mode" "$par" "$op" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
+  read -ra modes <<< "$(get_storage_modes "$cfg")"
 
-          stop_server "$rt"
-          sleep 0.2
-        done
-      done
+  for mode in "${modes[@]}"; do
+    for rt in "${RUNTIMES[@]}"; do
+      should_skip "$rt" && continue
+      RUN_IDX=$((RUN_IDX + 1))
+      port=$(next_port)
+      info "[$RUN_IDX/$TOTAL_RUNS] $rt | $fixture | $mode on :$port"
+
+      if ! start_server "$rt" "$port" "$cfg"; then continue; fi
+
+      # Warmup
+      hey -n 100 -c 5 -m POST -H "Content-Type: application/json" \
+        -d "$req_body" -o csv "http://localhost:$port/execute" > /dev/null 2>&1
+
+      # Benchmark
+      hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
+        -H "Content-Type: application/json" \
+        -d "$req_body" -o csv \
+        "http://localhost:$port/execute" > "$WORK_DIR/${fixture}_${mode}_${rt}.csv" 2>&1
+
+      METRICS=$(parse_hey "$WORK_DIR/${fixture}_${mode}_${rt}.csv")
+      IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
+      printf "  %-8s %-35s %7s %10s %10s %10s %10s %10s %10s\n" \
+        "$rt" "$fixture" "$mode" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
+
+      stop_server "$rt"
+      sleep 0.2
     done
   done
 done
 
 echo >> "$REPORT"
 {
-  echo "Raw CSV data: $WORK_DIR/<tag>_<runtime>.csv"
+  echo "Raw CSV data: $WORK_DIR/<fixture>_<mode>_<runtime>.csv"
 } >> "$REPORT"
 
 info "Done. Report:"
