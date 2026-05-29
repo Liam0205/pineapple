@@ -101,6 +101,7 @@ add_library(pine_cpp_core OBJECT
     src/http/ssrf.cpp
     operators/transform/transform_resource_lookup.cpp
     operators/transform/transform_size.cpp
+    operators/bench_stubs.cpp
 )
 
 target_include_directories(pine_cpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
