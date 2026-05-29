@@ -302,5 +302,7 @@ public class AllOperators {
                                         "Milliseconds to sleep per operator invocation.")
                         )),
                 TransformBenchSleep::new);
+
+        page.liam.pine.operators.bench.BenchStubs.ensureRegistered();
     }
 }
