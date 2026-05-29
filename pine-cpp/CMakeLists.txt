@@ -60,6 +60,7 @@ message(STATUS "libcurl include: ${CURL_INCLUDE}")
 
 add_library(pine_cpp_core OBJECT
     src/config/json.cpp
+    src/config/json_writer.cpp
     src/config/config.cpp
     src/registry/registry.cpp
     src/dag/dag.cpp
@@ -157,6 +158,19 @@ pine_cpp_target_warnings(pineapple-server)
 add_executable(pineapple-cause-chain-probe cmd/pineapple-cause-chain-probe/main.cpp)
 target_link_libraries(pineapple-cause-chain-probe PRIVATE pine_cpp_core)
 pine_cpp_target_warnings(pineapple-cause-chain-probe)
+
+# --- RapidJSON (header-only, used for JSON serialization) ---
+include(FetchContent)
+FetchContent_Declare(
+    rapidjson
+    GIT_REPOSITORY https://github.com/Tencent/rapidjson.git
+    GIT_TAG v1.1.0
+)
+FetchContent_GetProperties(rapidjson)
+if(NOT rapidjson_POPULATED)
+    FetchContent_Populate(rapidjson)
+endif()
+target_include_directories(pine_cpp_core PUBLIC ${rapidjson_SOURCE_DIR}/include)
 
 # --- Tests ---
 option(PINE_CPP_BUILD_TESTS "Build pine-cpp unit tests" OFF)

@@ -1,5 +1,7 @@
 #include "pine/pine.hpp"
 
+#include "config/json_writer.hpp"
+
 #include <cctype>
 #include <charconv>
 #include <cmath>
@@ -381,6 +383,8 @@ class Parser {
   }
 };
 
+}  // namespace
+
 // go_format_json_number formats a double matching Go's encoding/json byte-for-byte.
 // Go rule (encoding/json/encode.go floatEncoder): for float64, use 'f' format
 // (fixed-point, shortest digits) when 1e-6 <= |x| < 1e21, else 'e' (scientific,
@@ -403,7 +407,7 @@ std::string go_format_json_number(double d) {
   return std::string(buf, ptr);
 }
 
-// dump_impl writes the JSON serialization of `value` into `out`.
+namespace {
 // The earlier signature returned a fresh std::string per call and used
 // std::ostringstream for every array / object, allocating O(depth) extra
 // buffers on deeply nested values. Threading the output `std::string&`
@@ -547,17 +551,7 @@ JsonValue parse_json(const std::string& text) {
   return Parser(text).parse();
 }
 std::string dump_json(const JsonValue& value, int indent) {
-  std::string out;
-  out.reserve(4096);
-  dump_impl(value, indent, 0, out);
-  // R13-1: compact mode suppresses the trailing newline too so a single
-  // dump_json(value, 0) result fits in one line (observe_log / pine-debug
-  // log line filters depend on this). Indented mode keeps the trailing
-  // '\n' for human-readable file output.
-  if (indent != 0) {
-    out.push_back('\n');
-  }
-  return out;
+  return dump_json_fast(value, indent);
 }
 
 }  // namespace pine

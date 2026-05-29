@@ -1,5 +1,6 @@
 #include "server/server.hpp"
 
+#include "config/json_writer.hpp"
 #include "pine/resource.hpp"
 
 #include <sys/stat.h>
@@ -606,8 +607,8 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
     response += "\"common\":null";
     response += ",\"items\":null";
   } else {
-    response += "\"common\":" + map_to_json(exec_result.result.common);
-    response += ",\"items\":" + items_to_json(exec_result.result.items);
+    response += "\"common\":" + result_common_to_json(exec_result.result.common);
+    response += ",\"items\":" + result_items_to_json(exec_result.result.items);
   }
 
   // Warnings
@@ -645,10 +646,10 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
         response += ",\"skipped\":true";
       }
       if (t.has_input_snapshot) {
-        response += ",\"input_snapshot\":" + dump_json(t.input_snapshot, 0);
+        response += ",\"input_snapshot\":" + dump_json_fast(t.input_snapshot, 0);
       }
       if (t.has_output_snapshot) {
-        response += ",\"output_snapshot\":" + dump_json(t.output_snapshot, 0);
+        response += ",\"output_snapshot\":" + dump_json_fast(t.output_snapshot, 0);
       }
       response += "}";
     }
