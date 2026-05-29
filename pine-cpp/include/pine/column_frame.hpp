@@ -29,7 +29,7 @@ namespace pine {
 class ColumnFrame : public Frame {
  public:
   ColumnFrame();
-  ColumnFrame(std::map<std::string, JsonValue> common, std::vector<std::map<std::string, JsonValue>> items);
+  ColumnFrame(JsonValue::object_t common, std::vector<JsonValue::object_t> items);
 
   // Static convenience constructor kept for callers that already know
   // they want a ColumnFrame window view. parallel_execute uses the
@@ -82,7 +82,7 @@ class ColumnFrame : public Frame {
   void write_item_field_locked(std::size_t idx, const std::string& field, const JsonValue& value);
 
   mutable std::shared_mutex mu_;
-  std::map<std::string, JsonValue> common_;
+  JsonValue::object_t common_;
   std::unique_ptr<ColumnStore> items_;
   std::vector<std::string> warnings_;
   const std::map<std::string, JsonValue>* resources_ = nullptr;
@@ -91,7 +91,7 @@ class ColumnFrame : public Frame {
   // the parent's storage with a (offset, count) translation, and all
   // writes throw PanicError. Set only by make_window_view().
   const ColumnStore* view_items_ = nullptr;
-  const std::map<std::string, JsonValue>* view_common_ = nullptr;
+  const JsonValue::object_t* view_common_ = nullptr;
   std::size_t view_offset_ = 0;
   std::size_t view_count_ = 0;
   bool is_window_view() const noexcept {

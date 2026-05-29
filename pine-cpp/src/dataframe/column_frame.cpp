@@ -36,8 +36,8 @@ std::string validate_value(const std::string& field, const JsonValue& value) {
 ColumnFrame::ColumnFrame() : items_(std::make_unique<TypedColumnStore>(0)) {
 }
 
-ColumnFrame::ColumnFrame(std::map<std::string, JsonValue> common,
-                         std::vector<std::map<std::string, JsonValue>> items)
+ColumnFrame::ColumnFrame(JsonValue::object_t common,
+                         std::vector<JsonValue::object_t> items)
     : common_(std::move(common)), items_(std::make_unique<TypedColumnStore>(items.size())) {
   // Collect the union of fields across items, preserving first-seen order.
   std::vector<std::string> field_order;
@@ -379,7 +379,7 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
   }
   r.items.reserve(items_->row_count());
   for (std::size_t i = 0; i < items_->row_count(); ++i) {
-    std::map<std::string, JsonValue> row;
+    JsonValue::object_t row;
     for (const auto& field : item_out) {
       const Column* col = items_->column(field);
       if (col && col->is_present(i)) {

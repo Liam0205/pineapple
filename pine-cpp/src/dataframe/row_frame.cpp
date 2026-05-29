@@ -26,12 +26,12 @@ std::string validate_value_row(const std::string& field, const JsonValue& value)
 
 RowFrame::RowFrame() = default;
 
-RowFrame::RowFrame(std::map<std::string, JsonValue> common,
-                   std::vector<std::map<std::string, JsonValue>> items)
-    : common_(std::make_move_iterator(common.begin()), std::make_move_iterator(common.end())) {
+RowFrame::RowFrame(JsonValue::object_t common,
+                   std::vector<JsonValue::object_t> items)
+    : common_(std::move(common)) {
   items_.reserve(items.size());
   for (auto& row : items) {
-    items_.emplace_back(std::make_move_iterator(row.begin()), std::make_move_iterator(row.end()));
+    items_.emplace_back(std::move(row));
   }
 }
 
@@ -185,7 +185,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
                                           std::to_string(items_.size()) + ")");
       }
     }
-    std::vector<FieldMap<JsonValue>> kept;
+    std::vector<JsonValue::object_t> kept;
     kept.reserve(items_.size() - removed.size());
     for (std::size_t i = 0; i < items_.size(); ++i) {
       if (removed.count(static_cast<int>(i)) == 0) {
@@ -214,7 +214,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
       }
       seen[idx] = true;
     }
-    std::vector<FieldMap<JsonValue>> reordered;
+    std::vector<JsonValue::object_t> reordered;
     reordered.reserve(order.size());
     for (int idx : order) {
       reordered.push_back(std::move(items_[static_cast<std::size_t>(idx)]));
@@ -262,7 +262,7 @@ Result RowFrame::to_result(const std::vector<std::string>& common_out,
   }
   r.items.reserve(items_.size());
   for (const auto& row : items_) {
-    std::map<std::string, JsonValue> out_row;
+    JsonValue::object_t out_row;
     for (const auto& field : item_out) {
       auto it = row.find(field);
       // Keep explicit nulls — pine-go RowFrame.ToResult / projectMap
@@ -333,8 +333,8 @@ std::pair<std::string, int> RowFrame::validate_strict_items(const std::vector<st
 
 // Factory selecting Frame implementation by storage_mode. Unknown
 // values fall back to "column" — mirrors pine-go NewFrame behavior.
-std::unique_ptr<Frame> make_frame(const std::string& storage_mode, std::map<std::string, JsonValue> common,
-                                  std::vector<std::map<std::string, JsonValue>> items) {
+std::unique_ptr<Frame> make_frame(const std::string& storage_mode, JsonValue::object_t common,
+                                  std::vector<JsonValue::object_t> items) {
   if (storage_mode == "row") {
     return std::make_unique<RowFrame>(std::move(common), std::move(items));
   }

@@ -18,8 +18,10 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace pine {
 
@@ -98,8 +100,7 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
 }  // namespace detail
 
 // Write a JsonValue into a RapidJSON Writer.
-// Objects are written in the iteration order of JsonValue::object_t (std::map
-// = sorted). For Result serialization callers control field order externally.
+// Objects keys are sorted lexicographically to match Go's encoding/json output.
 template <typename Writer>
 void write_json_value(Writer& w, const JsonValue& v) {
   if (v.is_null()) {
@@ -133,11 +134,19 @@ void write_json_value(Writer& w, const JsonValue& v) {
     w.EndArray();
     return;
   }
-  // object
+  // object — sort keys for deterministic output (matches Go encoding/json)
+  const auto& obj = v.as_object();
+  std::vector<const std::string*> keys;
+  keys.reserve(obj.size());
+  for (const auto& [k, _] : obj) {
+    keys.push_back(&k);
+  }
+  std::sort(keys.begin(), keys.end(),
+            [](const std::string* a, const std::string* b) { return *a < *b; });
   w.StartObject();
-  for (const auto& [key, val] : v.as_object()) {
-    w.Key(key.c_str(), static_cast<rapidjson::SizeType>(key.size()));
-    write_json_value(w, val);
+  for (const auto* key : keys) {
+    w.Key(key->c_str(), static_cast<rapidjson::SizeType>(key->size()));
+    write_json_value(w, obj.find(*key)->second);
   }
   w.EndObject();
 }
@@ -147,9 +156,9 @@ void write_json_value(Writer& w, const JsonValue& v) {
 std::string dump_json_fast(const JsonValue& value, int indent = 0);
 
 // Serialize a Result's common map to compact JSON.
-std::string result_common_to_json(const std::map<std::string, JsonValue>& common);
+std::string result_common_to_json(const JsonValue::object_t& common);
 
 // Serialize a Result's items array to compact JSON.
-std::string result_items_to_json(const std::vector<std::map<std::string, JsonValue>>& items);
+std::string result_items_to_json(const std::vector<JsonValue::object_t>& items);
 
 }  // namespace pine

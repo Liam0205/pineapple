@@ -413,34 +413,6 @@ std::string jsonvalue_to_string(const JsonValue& v) {
   return "null";
 }
 
-// Build a JSON object string from a map<string, JsonValue>
-std::string map_to_json(const std::map<std::string, JsonValue>& m) {
-  std::string out = "{";
-  bool first = true;
-  for (const auto& [k, v] : m) {
-    if (!first) {
-      out += ",";
-    }
-    first = false;
-    out += "\"" + json_escape(k) + "\":" + jsonvalue_to_string(v);
-  }
-  out += "}";
-  return out;
-}
-
-// Build items JSON array
-std::string items_to_json(const std::vector<std::map<std::string, JsonValue>>& items) {
-  std::string out = "[";
-  for (size_t i = 0; i < items.size(); ++i) {
-    if (i > 0) {
-      out += ",";
-    }
-    out += map_to_json(items[i]);
-  }
-  out += "]";
-  return out;
-}
-
 }  // anonymous namespace
 
 // Public-to-file helper: map a request path to a small set of known buckets
@@ -594,14 +566,22 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
     return_trace = trace_it->second.as_bool();
   }
 
-  // Execute (R10-2: pass client_fd so engine sees client-disconnect cancel)
-  auto exec_result = execute_with_trace(req, return_trace, client_fd);
+  // Execute with per-request arena allocation. All JsonValue containers
+  // (object_t, array_t) allocated during execute + serialization use
+  // bump-pointer allocation; the entire arena is freed at scope exit.
+  std::string response;
+  int status = 200;
+  {
+    RequestArena arena;
+
+    // Execute (R10-2: pass client_fd so engine sees client-disconnect cancel)
+    auto exec_result = execute_with_trace(req, return_trace, client_fd);
 
   // Build response JSON — match Go's executeResponse structure.
   // Go writes resp.Common/Items from result only when result != nil; an
   // engine-level error leaves them as nil maps → JSON `null`. A successful
   // run that produces an empty common/items still serializes as `{}`/`[]`.
-  std::string response = "{";
+  response = "{";
 
   if (!exec_result.has_result) {
     response += "\"common\":null";
@@ -663,10 +643,10 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
 
   response += "}\n";
 
-  int status = 200;
   if (exec_result.has_error) {
     status = exec_result.is_validation_error ? 400 : 500;
   }
+  }  // arena scope ends — all arena-allocated JsonValues freed
 
   send_json(client_fd, status, response);
 }

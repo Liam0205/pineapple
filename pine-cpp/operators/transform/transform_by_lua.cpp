@@ -77,7 +77,7 @@ class TransformByLuaOp : public Operator, public ConcurrentSafe, public StatsPro
         vm.set_global(field, input.common(field));
       }
       for (const auto& field : item_input_) {
-        std::vector<JsonValue> column;
+        JsonValue::array_t column;
         column.reserve(input.item_count());
         for (std::size_t i = 0; i < input.item_count(); ++i) {
           column.push_back(input.item(i, field));
