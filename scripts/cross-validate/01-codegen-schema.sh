@@ -128,15 +128,24 @@ echo "    Comparing Go vs Python schema structure..."
 if python3 -c "
 import json, sys
 
+# Operators intentionally absent from pine-python (Go-only).
+# Add here when a new Go-only operator is registered.
+GO_ONLY_OPERATORS = {
+    'transform_bench_cpu',
+    'transform_bench_sleep',
+}
+
 def normalize_value(v):
     if isinstance(v, (int, float)):
         return float(v)
     return v
 
-def extract_structure(schemas):
+def extract_structure(schemas, skip=set()):
     result = {}
     for op in schemas:
         name = op.get('Name', '')
+        if name in skip:
+            continue
         params = {}
         for pname, pspec in op.get('Params', {}).items():
             params[pname] = {
@@ -150,7 +159,7 @@ def extract_structure(schemas):
 go_data = json.load(open('$WORK_DIR/schema-go.json'))
 py_data = json.load(open('$WORK_DIR/schema-python.json'))
 
-go_struct = extract_structure(go_data)
+go_struct = extract_structure(go_data, skip=GO_ONLY_OPERATORS)
 py_struct = extract_structure(py_data)
 
 if go_struct == py_struct:
@@ -161,7 +170,7 @@ else:
         if op not in go_struct:
             print(f'  Python-only operator: {op}', file=sys.stderr)
         elif op not in py_struct:
-            print(f'  Go-only operator: {op}', file=sys.stderr)
+            print(f'  Go-only operator (unexpected — add to GO_ONLY_OPERATORS if intentional): {op}', file=sys.stderr)
         elif go_struct[op] != py_struct[op]:
             print(f'  Divergence in {op}:', file=sys.stderr)
             for p in sorted(set(go_struct[op]) | set(py_struct[op])):
