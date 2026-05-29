@@ -12,7 +12,7 @@ func init() {
 		Type:        pine.OpTypeTransform,
 		Description: "Benchmark-only CPU-bound operator. Computes iterative fib per item. Not available in pine-python.",
 		Params: map[string]pine.ParamSpec{
-			"iterations": {Type: "int64", Required: false, Default: int64(100), Description: "Number of fib(32) computations per item."},
+			"iterations": {Type: "int", Required: false, Default: int(100), Description: "Number of fib(32) computations per item."},
 		},
 	}, func() pine.Operator {
 		return &BenchCPUOp{}
@@ -28,6 +28,8 @@ type BenchCPUOp struct {
 func (o *BenchCPUOp) Init(params map[string]any) error {
 	if v, ok := params["iterations"]; ok {
 		switch n := v.(type) {
+		case int:
+			o.iterations = n
 		case int64:
 			o.iterations = int(n)
 		case float64:

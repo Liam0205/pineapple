@@ -13,7 +13,7 @@ func init() {
 		Type:        pine.OpTypeTransform,
 		Description: "Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. Not available in pine-python.",
 		Params: map[string]pine.ParamSpec{
-			"delay_ms": {Type: "int64", Required: false, Default: int64(5), Description: "Milliseconds to sleep per operator invocation."},
+			"delay_ms": {Type: "int", Required: false, Default: int(5), Description: "Milliseconds to sleep per operator invocation."},
 		},
 	}, func() pine.Operator {
 		return &BenchSleepOp{}
@@ -29,6 +29,8 @@ type BenchSleepOp struct {
 func (o *BenchSleepOp) Init(params map[string]any) error {
 	if v, ok := params["delay_ms"]; ok {
 		switch n := v.(type) {
+		case int:
+			o.delayMS = n
 		case int64:
 			o.delayMS = int(n)
 		case float64:
