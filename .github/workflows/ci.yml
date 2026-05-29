@@ -421,6 +421,13 @@ jobs:
           redis-server --version
       - name: Cross-validate Go vs Java vs Python vs C++
         run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
+      - name: Fail on any divergence
+        run: |
+          if grep -q "^FAIL:" cross-validate-output.txt; then
+            echo "Cross-validation failures detected:"
+            grep "^FAIL:" cross-validate-output.txt
+            exit 1
+          fi
       - name: Write summary
         if: always()
         shell: bash
