@@ -185,7 +185,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
                                           std::to_string(items_.size()) + ")");
       }
     }
-    std::vector<std::unordered_map<std::string, JsonValue>> kept;
+    std::vector<FieldMap<JsonValue>> kept;
     kept.reserve(items_.size() - removed.size());
     for (std::size_t i = 0; i < items_.size(); ++i) {
       if (removed.count(static_cast<int>(i)) == 0) {
@@ -214,7 +214,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
       }
       seen[idx] = true;
     }
-    std::vector<std::unordered_map<std::string, JsonValue>> reordered;
+    std::vector<FieldMap<JsonValue>> reordered;
     reordered.reserve(order.size());
     for (int idx : order) {
       reordered.push_back(std::move(items_[static_cast<std::size_t>(idx)]));

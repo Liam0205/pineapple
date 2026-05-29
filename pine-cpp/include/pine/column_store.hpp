@@ -6,7 +6,6 @@
 #include <memory>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace pine {
@@ -74,7 +73,7 @@ class TypedColumnStore final : public ColumnStore {
   std::unique_ptr<ColumnStore> clone() const override;
 
  private:
-  std::unordered_map<std::string, std::unique_ptr<Column>> cols_;
+  FieldMap<std::unique_ptr<Column>> cols_;
   std::size_t row_count_ = 0;
 };
 

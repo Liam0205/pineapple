@@ -121,6 +121,14 @@ if(PINE_CPP_WERROR)
     target_compile_options(pine_cpp_core PRIVATE -Werror)
 endif()
 
+option(PINE_USE_HASH_MAP "Use unordered_map for RowFrame/TypedColumnStore field lookups (benchmark A/B)" OFF)
+if(PINE_USE_HASH_MAP)
+    target_compile_definitions(pine_cpp_core PUBLIC PINE_USE_HASH_MAP=1)
+    message(STATUS "pine-cpp: FieldMap = std::unordered_map (PINE_USE_HASH_MAP=ON)")
+else()
+    message(STATUS "pine-cpp: FieldMap = std::map (default)")
+endif()
+
 # Helper to apply per-executable warning flags consistently.
 function(pine_cpp_target_warnings tgt)
     target_compile_options(${tgt} PRIVATE -Wall -Wextra -Wpedantic)
