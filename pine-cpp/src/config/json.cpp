@@ -548,7 +548,7 @@ JsonValue parse_json(const std::string& text) {
 }
 std::string dump_json(const JsonValue& value, int indent) {
   std::string out;
-  out.reserve(64);
+  out.reserve(4096);
   dump_impl(value, indent, 0, out);
   // R13-1: compact mode suppresses the trailing newline too so a single
   // dump_json(value, 0) result fits in one line (observe_log / pine-debug
