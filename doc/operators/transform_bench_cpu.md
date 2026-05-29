@@ -8,7 +8,7 @@ Benchmark-only CPU-bound operator. Computes iterative fib per item. Not availabl
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| iterations | int64 | No | `100` | Number of fib(32) computations per item. |
+| iterations | int | No | `100` | Number of fib(32) computations per item. |
 
 ## Metadata Contract
 

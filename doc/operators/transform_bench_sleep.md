@@ -8,7 +8,7 @@ Benchmark-only I/O-simulating operator. Sleeps for delay_ms per invocation. Not 
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| delay_ms | int64 | No | `5` | Milliseconds to sleep per operator invocation. |
+| delay_ms | int | No | `5` | Milliseconds to sleep per operator invocation. |
 
 ## Metadata Contract
 
