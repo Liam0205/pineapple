@@ -200,6 +200,7 @@ public class PineServer {
 
     private void loadConfig(byte[] configData) throws Exception {
         long start = System.nanoTime();
+        page.liam.pine.operators.AllOperators.ensureRegistered();
         ResourceManager rm = new ResourceManager();
         rm.loadFromConfig(configData);
         try {
