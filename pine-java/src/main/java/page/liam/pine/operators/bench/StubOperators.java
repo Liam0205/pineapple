@@ -5,6 +5,11 @@ import page.liam.pine.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+@SuppressWarnings("unused")
+class BenchSink {
+    static volatile double sink;
+}
+
 class RecallFeedDataStub extends AbstractOperator implements AdditiveWritesRowSet {
     private int itemCount = 3000;
     private LatencySampler latency;
@@ -29,7 +34,7 @@ class RecallFeedDataStub extends AbstractOperator implements AdditiveWritesRowSe
             row.put("created_at", "2026-01-01T00:00:00Z");
             output.addItem(row);
         }
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
 
@@ -47,7 +52,7 @@ class TransformRedisZrangebyscoreStub extends AbstractOperator {
         output.setCommon("impression_ids", java.util.List.of());
         output.setCommon("impression_cache_hit", true);
         output.setCommon("impression_ids_len", 0.0);
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
 
@@ -66,6 +71,6 @@ class TransformHydrateStub extends AbstractOperator implements ConsumesRowSet {
             input.item(i, "type");
             output.setItem(i, "creator_id", (double) (i % 1000));
         }
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
