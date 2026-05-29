@@ -337,7 +337,7 @@ class TransformBenchCpuOp(BaseOp):
     """Operator: transform_bench_cpu"""
     _name = "transform_bench_cpu"
     _params_schema = {
-        "iterations": {"type": "int64", "required": False, "default": 100},
+        "iterations": {"type": "int", "required": False, "default": 100},
     }
 
     def __call__(
@@ -374,7 +374,7 @@ class TransformBenchSleepOp(BaseOp):
     """Operator: transform_bench_sleep"""
     _name = "transform_bench_sleep"
     _params_schema = {
-        "delay_ms": {"type": "int64", "required": False, "default": 5},
+        "delay_ms": {"type": "int", "required": False, "default": 5},
     }
 
     def __call__(
