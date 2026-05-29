@@ -7,6 +7,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace pine {
@@ -62,16 +63,16 @@ class RowFrame : public Frame {
 
  private:
   mutable std::shared_mutex mu_;
-  std::map<std::string, JsonValue> common_;
-  std::vector<std::map<std::string, JsonValue>> items_;
+  std::unordered_map<std::string, JsonValue> common_;
+  std::vector<std::unordered_map<std::string, JsonValue>> items_;
   std::vector<std::string> warnings_;
   const std::map<std::string, JsonValue>* resources_ = nullptr;
 
   // Window-view mode: when set, reads delegate to parent storage with
   // an (offset, count) translation; writes throw. Set only by
   // make_window_view.
-  const std::map<std::string, JsonValue>* view_common_ = nullptr;
-  const std::vector<std::map<std::string, JsonValue>>* view_items_ = nullptr;
+  const std::unordered_map<std::string, JsonValue>* view_common_ = nullptr;
+  const std::vector<std::unordered_map<std::string, JsonValue>>* view_items_ = nullptr;
   std::size_t view_offset_ = 0;
   std::size_t view_count_ = 0;
   bool is_window_view() const noexcept {

@@ -1,5 +1,6 @@
 #include "pine/column_store.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace pine {
@@ -10,6 +11,7 @@ std::vector<std::string> TypedColumnStore::fields() const {
   for (const auto& [k, _] : cols_) {
     out.push_back(k);
   }
+  std::sort(out.begin(), out.end());
   return out;
 }
 

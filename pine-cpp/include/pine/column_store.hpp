@@ -6,6 +6,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace pine {
@@ -47,7 +48,7 @@ class ColumnStore {
   virtual std::unique_ptr<ColumnStore> clone() const = 0;
 };
 
-// TypedColumnStore is the default ColumnStore: an ordered map of
+// TypedColumnStore is the default ColumnStore: an unordered map of
 // std::unique_ptr<Column>. Future Arrow / shared-snapshot variants
 // implement the same interface.
 class TypedColumnStore final : public ColumnStore {
@@ -73,7 +74,7 @@ class TypedColumnStore final : public ColumnStore {
   std::unique_ptr<ColumnStore> clone() const override;
 
  private:
-  std::map<std::string, std::unique_ptr<Column>> cols_;
+  std::unordered_map<std::string, std::unique_ptr<Column>> cols_;
   std::size_t row_count_ = 0;
 };
 

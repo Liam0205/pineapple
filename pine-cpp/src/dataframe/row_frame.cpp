@@ -28,7 +28,11 @@ RowFrame::RowFrame() = default;
 
 RowFrame::RowFrame(std::map<std::string, JsonValue> common,
                    std::vector<std::map<std::string, JsonValue>> items)
-    : common_(std::move(common)), items_(std::move(items)) {
+    : common_(std::make_move_iterator(common.begin()), std::make_move_iterator(common.end())) {
+  items_.reserve(items.size());
+  for (auto& row : items) {
+    items_.emplace_back(std::make_move_iterator(row.begin()), std::make_move_iterator(row.end()));
+  }
 }
 
 JsonValue RowFrame::common(const std::string& field) const {
@@ -66,6 +70,7 @@ std::vector<std::string> RowFrame::common_fields() const {
   for (const auto& [k, _] : src) {
     out.push_back(k);
   }
+  std::sort(out.begin(), out.end());
   return out;
 }
 
@@ -124,6 +129,7 @@ std::vector<std::string> RowFrame::item_fields() const {
       }
     }
   }
+  std::sort(out.begin(), out.end());
   return out;
 }
 
@@ -179,7 +185,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
                                           std::to_string(items_.size()) + ")");
       }
     }
-    std::vector<std::map<std::string, JsonValue>> kept;
+    std::vector<std::unordered_map<std::string, JsonValue>> kept;
     kept.reserve(items_.size() - removed.size());
     for (std::size_t i = 0; i < items_.size(); ++i) {
       if (removed.count(static_cast<int>(i)) == 0) {
@@ -208,7 +214,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
       }
       seen[idx] = true;
     }
-    std::vector<std::map<std::string, JsonValue>> reordered;
+    std::vector<std::unordered_map<std::string, JsonValue>> reordered;
     reordered.reserve(order.size());
     for (int idx : order) {
       reordered.push_back(std::move(items_[static_cast<std::size_t>(idx)]));
@@ -228,7 +234,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
       if (is_recall) {
         row["_source"] = JsonValue(op_name);
       }
-      items_.push_back(std::move(row));
+      items_.emplace_back(std::make_move_iterator(row.begin()), std::make_move_iterator(row.end()));
     }
   }
 
