@@ -15,7 +15,7 @@ class TransformQueryBlockedCreatorsStub extends AbstractOperator {
         input.common("user_id");
         input.common("blocked_creator_ids");
         output.setCommon("blocked_creator_ids", java.util.List.of());
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
 
@@ -38,7 +38,7 @@ class FilterImpressionStub extends AbstractOperator implements ConsumesRowSet, M
                 output.removeItem(i);
             }
         }
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
 
@@ -56,7 +56,7 @@ class FilterBlockedCreatorStub extends AbstractOperator implements ConsumesRowSe
         for (int i = 0; i < input.itemCount(); i++) {
             input.item(i, "creator_id");
         }
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
 
@@ -76,7 +76,7 @@ class ReorderTopnBoostStub extends AbstractOperator implements ConsumesRowSet, M
             input.item(i, "id");
             input.item(i, "created_at");
         }
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
 
@@ -98,7 +98,7 @@ class ObserveDatahubStub extends AbstractOperator {
                 input.item(i, k);
             }
         }
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
 
@@ -118,6 +118,6 @@ class TransformGenerateRequestIdStub extends AbstractOperator {
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         output.setCommon("request_id", prefix + ":550e8400-e29b-41d4-a716-446655440000");
-        if (latency != null) output.setCommon("_bench_cpu_sink", latency.apply());
+        if (latency != null) BenchSink.sink = latency.apply();
     }
 }
