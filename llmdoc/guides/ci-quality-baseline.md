@@ -159,6 +159,8 @@ fuzz 通用策略分两步推进：
 
 `scripts/cross-validate.sh` 运行多 section 跨运行时校验。具体 section 列表以 `scripts/cross-validate/` 目录为准，禁止在本指南中硬编码层数。sections 默认并行执行（`scripts/cross-validate/_parallel.sh` 调度），`--serial` 可回退串行；单 section 内各运行时也并行运行。
 
+CI 中 `cross-validate.sh` 的输出会被捕获到 `cross-validate-output.txt`，随后由独立的 `Fail on any divergence` step 在出现以 `FAIL:` 开头的行时显式 `exit 1`，使 CI job 失败。新增 section 输出格式时若使用其他失败标记，需确认能被该 grep 捕获，避免分歧被静默吞掉。
+
 C++ 端是否参与某次比对取决于该 section 中对 `CPP_RUN` / `CPP_DAG` / `CPP_SERVER` / `CPP_CODEGEN` 的引用，以及 `scripts/cross-validate/_prebuild.sh` 是否成功构建 pine-cpp 二进制（输出到 `$WORK_DIR/pineapple-*-cpp`）。
 
 ### 端口隔离

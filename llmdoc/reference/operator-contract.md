@@ -29,6 +29,8 @@ Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.r
 
 `AllOperators.java` 中的注册清单含两个 benchmark 专用算子（`transform_bench_cpu` / `transform_bench_sleep`），与 pine-go `pine-go/operators/bench/` 对齐；pine-python 不实现这两个算子（其 `Description` 显式标注 "Not available in pine-python"）。
 
+新增 Python 不实现的算子时，必须同步把算子名加入 `scripts/cross-validate/01-codegen-schema.sh` 中的 `PYTHON_UNAVAILABLE_OPERATORS` 集合，否则 Go vs Python schema 结构比对会因 "Go-only operator" 在 CI 失败。错误信息会显式提示 `add to PYTHON_UNAVAILABLE_OPERATORS if intentional`。
+
 ## 算子生命周期
 
 算子实例经历两个阶段。
