@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -142,6 +143,21 @@ class PanicError : public Error, public std::nested_exception {
   std::string value_;
   std::string stack_;  // empty when std::stacktrace unavailable at link time
 };
+
+// FieldMap<V>: internal field-keyed map type used by RowFrame and
+// TypedColumnStore. Controlled at compile time by -DPINE_USE_HASH_MAP:
+//   OFF (default): std::map — sorted, O(log N), low per-entry overhead
+//   ON:            std::unordered_map — O(1) average, higher per-entry overhead
+// For typical pipelines with 5-10 fields, the default std::map is faster
+// due to lower construction/destruction cost. Enable PINE_USE_HASH_MAP
+// only when benchmarking or when field counts are large (>20).
+#ifdef PINE_USE_HASH_MAP
+template <typename V>
+using FieldMap = std::unordered_map<std::string, V>;
+#else
+template <typename V>
+using FieldMap = std::map<std::string, V>;
+#endif
 
 class JsonValue {
  public:
