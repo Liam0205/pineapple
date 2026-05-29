@@ -29,7 +29,7 @@ class OperatorInput {
   JsonValue common(const std::string& field) const;
 
   // item_count returns the number of items.
-  std::size_t item_count() const;
+  std::size_t item_count() const { return cached_item_count_; }
 
   // item returns the value for (index, field), or null if absent.
   // Substitutes defaults for nil values.
@@ -47,6 +47,7 @@ class OperatorInput {
  private:
   const Frame* frame_;
   const InputFieldSpec* spec_;
+  std::size_t cached_item_count_;
 };
 
 // build_operator_input constructs an OperatorInput from a Frame and the

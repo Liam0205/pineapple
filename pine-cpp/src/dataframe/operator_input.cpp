@@ -6,7 +6,8 @@
 
 namespace pine {
 
-OperatorInput::OperatorInput(const Frame& frame, const InputFieldSpec& spec) : frame_(&frame), spec_(&spec) {
+OperatorInput::OperatorInput(const Frame& frame, const InputFieldSpec& spec)
+    : frame_(&frame), spec_(&spec), cached_item_count_(frame.item_count()) {
 }
 
 JsonValue OperatorInput::common(const std::string& field) const {
@@ -22,12 +23,8 @@ JsonValue OperatorInput::common(const std::string& field) const {
   return JsonValue(nullptr);
 }
 
-std::size_t OperatorInput::item_count() const {
-  return frame_->item_count();
-}
-
 JsonValue OperatorInput::item(std::size_t index, const std::string& field) const {
-  if (index >= frame_->item_count()) {
+  if (index >= cached_item_count_) {
     return JsonValue(nullptr);
   }
   JsonValue v = frame_->item(index, field);
