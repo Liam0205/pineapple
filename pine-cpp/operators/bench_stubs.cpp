@@ -66,7 +66,10 @@ class RecallFeedDataStubOp : public Operator, public AdditiveWritesRowSet {
       row["created_at"] = JsonValue("2026-01-01T00:00:00Z");
       out.add_item(std::move(row));
     }
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -105,7 +108,7 @@ class TransformRedisZrangebyscoreStubOp : public Operator {
     out.set_common("impression_ids", JsonValue(JsonValue::array_t{}));
     out.set_common("impression_cache_hit", JsonValue(true));
     out.set_common("impression_ids_len", JsonValue(0.0));
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
   }
 
  private:
@@ -139,7 +142,7 @@ class TransformHydrateStubOp : public Operator, public ConsumesRowSet {
       (void)input.item(i, "type");
       out.set_item(static_cast<int>(i), "creator_id", JsonValue(static_cast<double>(i % 1000)));
     }
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
   }
 
  private:
@@ -168,7 +171,7 @@ class TransformQueryBlockedCreatorsStubOp : public Operator {
     (void)input.common("user_id");
     (void)input.common("blocked_creator_ids");
     out.set_common("blocked_creator_ids", JsonValue(JsonValue::array_t{}));
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
   }
 
  private:
@@ -203,7 +206,10 @@ class FilterImpressionStubOp : public Operator, public ConsumesRowSet, public Mu
         out.remove_item(static_cast<int>(i));
       }
     }
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -235,7 +241,10 @@ class FilterBlockedCreatorStubOp : public Operator, public ConsumesRowSet, publi
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       (void)input.item(i, "creator_id");
     }
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -273,7 +282,10 @@ class ReorderTopnBoostStubOp : public Operator, public ConsumesRowSet, public Mu
       (void)input.item(i, "id");
       (void)input.item(i, "created_at");
     }
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -311,7 +323,10 @@ class ObserveDatahubStubOp : public Operator {
         (void)input.item(i, k);
       }
     }
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -347,7 +362,7 @@ class TransformGenerateRequestIdStubOp : public Operator {
 
   void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
     out.set_common("request_id", JsonValue(prefix_ + ":550e8400-e29b-41d4-a716-446655440000"));
-    if (latency_) out.set_common("_bench_cpu_sink", JsonValue(latency_->apply()));
+    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
   }
 
  private:
