@@ -11,7 +11,7 @@ using namespace pine;
 namespace {
 
 ColumnFrame make_frame() {
-  std::vector<std::map<std::string, JsonValue>> items;
+  std::vector<JsonValue::object_t> items;
   items.push_back({{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}});
   items.push_back({{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}});
   items.push_back({{"id", JsonValue(3.0)}, {"score", JsonValue(30.0)}});
@@ -240,7 +240,7 @@ TEST_CASE("ColumnFrame: apply_output rejects Inf in item writes") {
 TEST_CASE("ColumnFrame: apply_output rejects NaN in additions") {
   auto frame = make_frame();
   OperatorOutput out;
-  std::map<std::string, JsonValue> row;
+  JsonValue::object_t row;
   row["bad"] = JsonValue(std::numeric_limits<double>::quiet_NaN());
   out.add_item(row);
   try {

@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
     }
     if (auto it = root.find("items"); it != root.end()) {
       for (const auto& item : it->second.as_array()) {
-        std::map<std::string, pine::JsonValue> row;
+        pine::JsonValue::object_t row;
         for (const auto& [key, value] : item.as_object()) {
           row[key] = value;
         }
@@ -120,6 +120,7 @@ int main(int argc, char** argv) {
   }
 
   try {
+    pine::RequestArena arena;
     std::cout << pine::result_to_json(engine->execute(request, resources));
     if (resource_manager) {
       resource_manager->stop();

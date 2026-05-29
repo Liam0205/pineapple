@@ -150,8 +150,8 @@ std::unique_ptr<pine::Operator> create_op() {
 }
 
 pine::ColumnFrame build_frame() {
-  std::map<std::string, pine::JsonValue> common{{"a", pine::JsonValue("hello")}};
-  std::vector<std::map<std::string, pine::JsonValue>> items{
+  pine::JsonValue::object_t common{{"a", pine::JsonValue("hello")}};
+  std::vector<pine::JsonValue::object_t> items{
       {{"x", pine::JsonValue("v1")}},
       {{"x", pine::JsonValue("v2")}},
   };

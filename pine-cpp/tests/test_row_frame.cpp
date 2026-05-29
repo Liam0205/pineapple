@@ -12,12 +12,12 @@ using namespace pine;
 namespace {
 
 std::unique_ptr<RowFrame> make_row_frame() {
-  std::vector<std::map<std::string, JsonValue>> items;
+  std::vector<JsonValue::object_t> items;
   items.push_back({{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}});
   items.push_back({{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}});
   items.push_back({{"id", JsonValue(3.0)}, {"score", JsonValue(30.0)}});
   return std::make_unique<RowFrame>(
-      std::map<std::string, JsonValue>{{"region", JsonValue(std::string("us"))}}, std::move(items));
+      JsonValue::object_t{{"region", JsonValue(std::string("us"))}}, std::move(items));
 }
 
 }  // namespace
@@ -68,8 +68,8 @@ TEST_CASE("RowFrame: window view + bounds check") {
 }
 
 TEST_CASE("make_frame factory selects implementation by storage_mode") {
-  std::map<std::string, JsonValue> common{{"r", JsonValue(std::string("v"))}};
-  std::vector<std::map<std::string, JsonValue>> items{{{"id", JsonValue(1.0)}}};
+  JsonValue::object_t common{{"r", JsonValue(std::string("v"))}};
+  std::vector<JsonValue::object_t> items{{{"id", JsonValue(1.0)}}};
   auto col = make_frame("column", common, items);
   auto row = make_frame("row", common, items);
   auto fallback = make_frame("", common, items);

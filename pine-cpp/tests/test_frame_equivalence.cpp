@@ -30,7 +30,7 @@ struct Pair {
   std::unique_ptr<ColumnFrame> col;
 };
 
-Pair make_pair(std::map<std::string, JsonValue> common, std::vector<std::map<std::string, JsonValue>> items) {
+Pair make_pair(JsonValue::object_t common, std::vector<JsonValue::object_t> items) {
   return {std::make_unique<RowFrame>(common, items), std::make_unique<ColumnFrame>(common, items)};
 }
 
@@ -123,7 +123,7 @@ OperatorOutput rand_output(std::mt19937& rng, std::size_t n_items) {
   // tested separately below)
   int n_ad = rng() % 3;
   for (int i = 0; i < n_ad; ++i) {
-    std::map<std::string, JsonValue> row;
+    JsonValue::object_t row;
     int n_f = 1 + (rng() % 3);
     for (int j = 0; j < n_f; ++j) {
       row["f" + std::to_string(rng() % 5)] = rand_value(rng);
@@ -136,7 +136,7 @@ OperatorOutput rand_output(std::mt19937& rng, std::size_t n_items) {
 }  // namespace
 
 TEST_CASE("Row/Column initial-state projection equivalence") {
-  std::vector<std::map<std::string, JsonValue>> items;
+  std::vector<JsonValue::object_t> items;
   items.push_back({{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}});
   items.push_back({{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}});
   auto p = make_pair({{"region", JsonValue(std::string("us"))}}, items);
@@ -167,7 +167,7 @@ TEST_CASE("Row/Column item writes equivalence") {
 }
 
 TEST_CASE("Row/Column remove equivalence") {
-  std::vector<std::map<std::string, JsonValue>> items;
+  std::vector<JsonValue::object_t> items;
   for (int i = 0; i < 5; ++i) {
     items.push_back({{"id", JsonValue(static_cast<double>(i))}});
   }
@@ -202,7 +202,7 @@ TEST_CASE("Row/Column additions + recall _source stamp equivalence") {
 }
 
 TEST_CASE("Row/Column five-stage ordering equivalence") {
-  std::vector<std::map<std::string, JsonValue>> items;
+  std::vector<JsonValue::object_t> items;
   for (int i = 0; i < 4; ++i) {
     items.push_back(
         {{"id", JsonValue(static_cast<double>(i))}, {"score", JsonValue(static_cast<double>(i * 10))}});
@@ -266,13 +266,13 @@ TEST_CASE("Row/Column differential fuzz") {
   for (int seed = 0; seed < 100; ++seed) {
     std::mt19937 rng(static_cast<std::uint32_t>(seed));
     std::size_t n_items = rng() % 7;
-    std::map<std::string, JsonValue> common;
+    JsonValue::object_t common;
     for (int i = 0, n = rng() % 4; i < n; ++i) {
       common["c" + std::to_string(i)] = rand_value(rng);
     }
-    std::vector<std::map<std::string, JsonValue>> items;
+    std::vector<JsonValue::object_t> items;
     for (std::size_t i = 0; i < n_items; ++i) {
-      std::map<std::string, JsonValue> row;
+      JsonValue::object_t row;
       int n_f = 1 + static_cast<int>(rng() % 4);
       for (int j = 0; j < n_f; ++j) {
         row["f" + std::to_string(j)] = rand_value(rng);

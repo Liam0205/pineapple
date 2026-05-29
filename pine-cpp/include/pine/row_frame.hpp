@@ -26,7 +26,7 @@ namespace pine {
 class RowFrame : public Frame {
  public:
   RowFrame();
-  RowFrame(std::map<std::string, JsonValue> common, std::vector<std::map<std::string, JsonValue>> items);
+  RowFrame(JsonValue::object_t common, std::vector<JsonValue::object_t> items);
 
   // ---- Frame interface ----
   JsonValue common(const std::string& field) const override;
@@ -62,16 +62,16 @@ class RowFrame : public Frame {
 
  private:
   mutable std::shared_mutex mu_;
-  FieldMap<JsonValue> common_;
-  std::vector<FieldMap<JsonValue>> items_;
+  JsonValue::object_t common_;
+  std::vector<JsonValue::object_t> items_;
   std::vector<std::string> warnings_;
   const std::map<std::string, JsonValue>* resources_ = nullptr;
 
   // Window-view mode: when set, reads delegate to parent storage with
   // an (offset, count) translation; writes throw. Set only by
   // make_window_view.
-  const FieldMap<JsonValue>* view_common_ = nullptr;
-  const std::vector<FieldMap<JsonValue>>* view_items_ = nullptr;
+  const JsonValue::object_t* view_common_ = nullptr;
+  const std::vector<JsonValue::object_t>* view_items_ = nullptr;
   std::size_t view_offset_ = 0;
   std::size_t view_count_ = 0;
   bool is_window_view() const noexcept {

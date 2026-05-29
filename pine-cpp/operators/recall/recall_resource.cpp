@@ -36,7 +36,7 @@ class RecallResourceOp : public Operator, public AdditiveWritesRowSet {
         throw ExecutionError("recall_resource: items[" + std::to_string(i) + "] is " +
                              pine::operators::json_type_name(elem) + ", want map[string]any");
       }
-      std::map<std::string, JsonValue> row;
+      JsonValue::object_t row;
       for (const auto& [key, value] : elem.as_object()) {
         row[key] = value;
       }

@@ -211,7 +211,7 @@ JsonValue LuaVM::from_lua(int index) {
       int abs_idx = (index > 0) ? index : lua_gettop(L_) + index + 1;
       int len = static_cast<int>(lua_objlen(L_, abs_idx));
       if (len > 0) {
-        std::vector<JsonValue> arr;
+        JsonValue::array_t arr;
         arr.reserve(static_cast<std::size_t>(len));
         for (int i = 1; i <= len; ++i) {
           lua_rawgeti(L_, abs_idx, i);
@@ -220,7 +220,7 @@ JsonValue LuaVM::from_lua(int index) {
         }
         return JsonValue(std::move(arr));
       }
-      std::map<std::string, JsonValue> obj;
+      JsonValue::object_t obj;
       lua_pushnil(L_);
       while (lua_next(L_, abs_idx) != 0) {
         if (lua_type(L_, -2) != LUA_TSTRING) {
@@ -235,7 +235,7 @@ JsonValue LuaVM::from_lua(int index) {
       }
       if (obj.empty()) {
         // Lua empty table → empty array (cross-runtime convention)
-        return JsonValue(std::vector<JsonValue>{});
+        return JsonValue(JsonValue::array_t{});
       }
       return JsonValue(std::move(obj));
     }
@@ -249,7 +249,7 @@ void LuaVM::set_global(const std::string& name, const JsonValue& value) {
   lua_setglobal(L_, name.c_str());
 }
 
-void LuaVM::set_global_table(const std::string& name, const std::vector<JsonValue>& values) {
+void LuaVM::set_global_table(const std::string& name, const JsonValue::array_t& values) {
   lua_createtable(L_, static_cast<int>(values.size()), 0);
   for (std::size_t i = 0; i < values.size(); ++i) {
     to_lua(values[i]);
@@ -258,7 +258,7 @@ void LuaVM::set_global_table(const std::string& name, const std::vector<JsonValu
   lua_setglobal(L_, name.c_str());
 }
 
-std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nret,
+JsonValue::array_t LuaVM::call_function(const std::string& func_name, int nret,
                                             const std::string& op_name) {
   lua_getglobal(L_, func_name.c_str());
   if (lua_type(L_, -1) != LUA_TFUNCTION) {
@@ -270,7 +270,7 @@ std::vector<JsonValue> LuaVM::call_function(const std::string& func_name, int nr
     lua_pop(L_, 1);
     throw ExecutionError(op_name, "lua: " + err);
   }
-  std::vector<JsonValue> results;
+  JsonValue::array_t results;
   results.reserve(static_cast<std::size_t>(nret));
   for (int j = 0; j < nret; ++j) {
     int idx = -(nret - j);

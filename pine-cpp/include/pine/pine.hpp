@@ -2,6 +2,8 @@
 
 #include "pine/metrics.hpp"
 
+#include "pine/arena.hpp"
+
 #include <atomic>
 #include <exception>
 #include <map>
@@ -144,25 +146,12 @@ class PanicError : public Error, public std::nested_exception {
   std::string stack_;  // empty when std::stacktrace unavailable at link time
 };
 
-// FieldMap<V>: internal field-keyed map type used by RowFrame and
-// TypedColumnStore. Controlled at compile time by -DPINE_USE_HASH_MAP:
-//   OFF (default): std::map — sorted, O(log N), low per-entry overhead
-//   ON:            std::unordered_map — O(1) average, higher per-entry overhead
-// For typical pipelines with 5-10 fields, the default std::map is faster
-// due to lower construction/destruction cost. Enable PINE_USE_HASH_MAP
-// only when benchmarking or when field counts are large (>20).
-#ifdef PINE_USE_HASH_MAP
-template <typename V>
-using FieldMap = std::unordered_map<std::string, V>;
-#else
-template <typename V>
-using FieldMap = std::map<std::string, V>;
-#endif
-
 class JsonValue {
  public:
-  using object_t = std::map<std::string, JsonValue>;
-  using array_t = std::vector<JsonValue>;
+  using object_t = std::unordered_map<std::string, JsonValue, std::hash<std::string>,
+                                      std::equal_to<std::string>,
+                                      ArenaAllocator<std::pair<const std::string, JsonValue>>>;
+  using array_t = std::vector<JsonValue, ArenaAllocator<JsonValue>>;
   using value_t = std::variant<std::nullptr_t, bool, double, std::string, array_t, object_t>;
 
   JsonValue();
@@ -328,13 +317,13 @@ std::string render_collapsed_dot(const Graph& graph, int level);
 std::string render_collapsed_mermaid(const Graph& graph, int level);
 
 struct Request {
-  std::map<std::string, JsonValue> common;
-  std::vector<std::map<std::string, JsonValue>> items;
+  JsonValue::object_t common;
+  std::vector<JsonValue::object_t> items;
 };
 
 struct Result {
-  std::map<std::string, JsonValue> common;
-  std::vector<std::map<std::string, JsonValue>> items;
+  JsonValue::object_t common;
+  std::vector<JsonValue::object_t> items;
 };
 
 // OperatorOutput collects writes from an operator, applied to the DataFrame by
@@ -358,18 +347,18 @@ class OperatorOutput {
 
   void set_common(const std::string& field, JsonValue value);
   void set_item(int index, const std::string& field, JsonValue value);
-  void add_item(std::map<std::string, JsonValue> fields);
+  void add_item(JsonValue::object_t fields);
   void remove_item(int index);
   void set_item_order(std::vector<int> order);
   void set_warning(std::string msg);  // first warning wins
 
-  const std::map<std::string, JsonValue>& common_writes() const {
+  const JsonValue::object_t& common_writes() const {
     return common_writes_;
   }
   const std::vector<ItemWrite>& item_writes() const {
     return item_writes_;
   }
-  const std::vector<std::map<std::string, JsonValue>>& added_items() const {
+  const std::vector<JsonValue::object_t>& added_items() const {
     return added_items_;
   }
   const std::set<int>& removed_items() const {
@@ -389,9 +378,9 @@ class OperatorOutput {
   }
 
  private:
-  std::map<std::string, JsonValue> common_writes_;
+  JsonValue::object_t common_writes_;
   std::vector<ItemWrite> item_writes_;
-  std::vector<std::map<std::string, JsonValue>> added_items_;
+  std::vector<JsonValue::object_t> added_items_;
   std::set<int> removed_items_;
   std::vector<int> item_order_;
   bool has_item_order_ = false;

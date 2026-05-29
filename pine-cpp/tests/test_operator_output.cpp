@@ -32,7 +32,7 @@ TEST_CASE("OperatorOutput: set_item collects ordered (idx, field, value) log") {
 
 TEST_CASE("OperatorOutput: add_item appends rows") {
   OperatorOutput out;
-  std::map<std::string, JsonValue> r1;
+  JsonValue::object_t r1;
   r1["id"] = JsonValue(std::string("a"));
   out.add_item(r1);
   out.add_item({{"id", JsonValue(std::string("b"))}});

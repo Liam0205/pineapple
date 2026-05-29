@@ -14,6 +14,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -34,7 +35,7 @@ void OperatorOutput::set_item(int index, const std::string& field, JsonValue val
   item_writes_.push_back(ItemWrite{index, field, std::move(value)});
 }
 
-void OperatorOutput::add_item(std::map<std::string, JsonValue> fields) {
+void OperatorOutput::add_item(JsonValue::object_t fields) {
   added_items_.push_back(std::move(fields));
 }
 
@@ -563,7 +564,8 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offs
 // stand-alone callers that construct Frame directly still work.
 void parallel_execute(const Frame& frame, const OperatorConfig& op,
                       const std::map<std::string, std::unique_ptr<Operator>>& operators, OperatorOutput& out,
-                      const InputFieldSpec& spec, runtime::ThreadPool* pool = nullptr) {
+                      const InputFieldSpec& spec, runtime::ThreadPool* pool = nullptr,
+                      detail::CentralArena* central = nullptr) {
   int total = static_cast<int>(frame.item_count());
   int n = op.data_parallel;
   if (n <= 1 || total == 0) {
@@ -612,6 +614,10 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   auto shard_body = [&](int i) {
     if (shard_cancel.load(std::memory_order_acquire)) {
       return;
+    }
+    std::optional<ScopedInstall> guard;
+    if (central) {
+      guard.emplace(central);
     }
     try {
       OperatorInput input = build_operator_input(*shards[static_cast<std::size_t>(i)], op.name, spec);
@@ -665,7 +671,8 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
                              bool collect_traces, std::atomic<int64_t>* peak_concurrency = nullptr,
                              Engine::EngineMetrics* em = nullptr, runtime::ThreadPool* dag_pool = nullptr,
                              runtime::ThreadPool* shard_pool = nullptr,
-                             std::stop_token external_cancel = std::stop_token{}) {
+                             std::stop_token external_cancel = std::stop_token{},
+                             detail::CentralArena* central = nullptr) {
   const std::size_t n = graph.nodes.size();
 
   if (em && em->scheduler_runs) {
@@ -762,6 +769,11 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
       return;
     }
 
+    std::optional<ScopedInstall> guard;
+    if (central) {
+      guard.emplace(central);
+    }
+
     const auto& node = graph.nodes[i];
     const auto& op = config.operators.at(node.name);
 
@@ -804,7 +816,7 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
         trace.input_snapshot = snapshot_input(frame, op);
         trace.has_input_snapshot = true;
       }
-      parallel_execute(frame, op, operators, out, input_specs.at(op.name), shard_pool);
+      parallel_execute(frame, op, operators, out, input_specs.at(op.name), shard_pool, central);
       if (collect_traces && op.debug.value_or(false)) {
         trace.output_snapshot = snapshot_output(out);
         trace.has_output_snapshot = true;
@@ -966,6 +978,9 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
 void Engine::execute_traced_into(const Request& request, const std::map<std::string, JsonValue>& resources,
                                  TracedResult* out, std::stop_token external_cancel) const {
   validate_request(request, config_.flow_contract);
+  // Capture the calling thread's central arena (non-null if RequestArena is active).
+  // Worker threads get their own ThreadLocalBump backed by this central arena.
+  auto* central = current_central_arena();
   // Frame is now the polymorphic base; pick the implementation
   // requested by storage_mode ("column" / "row"), default "column".
   std::unique_ptr<Frame> frame_ptr = make_frame(config_.storage_mode, request.common, request.items);
@@ -976,7 +991,7 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
     out->trace =
         run_dag(config_, graph_, operators_, input_specs_, frame, /*collect_traces=*/true,
                 peak_concurrency_.get(), engine_metrics_.get(), dag_pool_ ? &dag_pool_->pool : nullptr,
-                shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel);
+                shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel, central);
   } catch (...) {
     run_err = std::current_exception();
   }

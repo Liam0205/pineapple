@@ -33,8 +33,8 @@ class LuaVM {
 
   void load_script(const std::string& code, const std::string& op_name);
   void set_global(const std::string& name, const JsonValue& value);
-  void set_global_table(const std::string& name, const std::vector<JsonValue>& values);
-  std::vector<JsonValue> call_function(const std::string& func_name, int nret, const std::string& op_name);
+  void set_global_table(const std::string& name, const JsonValue::array_t& values);
+  JsonValue::array_t call_function(const std::string& func_name, int nret, const std::string& op_name);
 
   lua_State* state() const {
     return L_;

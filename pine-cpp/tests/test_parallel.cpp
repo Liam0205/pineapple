@@ -52,7 +52,7 @@ Request make_request(const std::vector<std::string>& ids, const std::string& tag
   req.common["tag"] = JsonValue(tag);
   req.common["scene"] = JsonValue(scene);
   for (const auto& id : ids) {
-    std::map<std::string, JsonValue> row;
+    JsonValue::object_t row;
     row["id"] = JsonValue(id);
     req.items.push_back(std::move(row));
   }

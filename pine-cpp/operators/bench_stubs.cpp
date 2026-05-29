@@ -58,7 +58,7 @@ class RecallFeedDataStubOp : public Operator, public AdditiveWritesRowSet {
 
   void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
     for (int i = 0; i < item_count_; ++i) {
-      std::map<std::string, JsonValue> row;
+      JsonValue::object_t row;
       row["id"] = JsonValue(static_cast<double>(i + 1));
       row["item_id"] = JsonValue(std::to_string(10000 + i));
       row["type"] = JsonValue(static_cast<double>(i % 3 + 1));

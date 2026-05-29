@@ -142,7 +142,7 @@ OperatorInput build_operator_input(const Frame& frame, const std::string& op_nam
     }
   }
 
-  // Return lazy proxy — no eager reify of items (PERF-1b)
+  // Return lazy proxy (PERF-1b)
   return OperatorInput(frame, spec);
 }
 

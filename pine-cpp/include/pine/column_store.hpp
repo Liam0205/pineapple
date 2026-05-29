@@ -73,7 +73,7 @@ class TypedColumnStore final : public ColumnStore {
   std::unique_ptr<ColumnStore> clone() const override;
 
  private:
-  FieldMap<std::unique_ptr<Column>> cols_;
+  std::unordered_map<std::string, std::unique_ptr<Column>> cols_;
   std::size_t row_count_ = 0;
 };
 

@@ -1,6 +1,6 @@
 #include "pine/operator.hpp"
 
-#include <map>
+#include <unordered_map>
 
 #include "operators/_helpers.hpp"
 
@@ -11,7 +11,7 @@ class RecallStaticOp : public Operator, public AdditiveWritesRowSet {
   void init(const OperatorConfig& cfg) override {
     op_name_ = cfg.name;
     for (const auto& item : cfg.params.as_object().at("items").as_array()) {
-      std::map<std::string, JsonValue> row;
+      JsonValue::object_t row;
       for (const auto& [key, value] : item.as_object()) {
         row[key] = value;
       }
@@ -26,7 +26,7 @@ class RecallStaticOp : public Operator, public AdditiveWritesRowSet {
 
  private:
   std::string op_name_;
-  std::vector<std::map<std::string, JsonValue>> items_;
+  std::vector<JsonValue::object_t> items_;
 };
 
 static const OperatorSchema k_recall_static_schema{

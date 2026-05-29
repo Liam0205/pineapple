@@ -353,7 +353,7 @@ Request load_request_from_file(const std::string& path) {
   }
   if (auto it = root.find("items"); it != root.end()) {
     for (const auto& item : it->second.as_array()) {
-      std::map<std::string, JsonValue> row;
+      JsonValue::object_t row;
       for (const auto& [key, value] : item.as_object()) {
         row[key] = value;
       }

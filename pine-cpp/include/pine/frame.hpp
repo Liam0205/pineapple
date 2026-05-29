@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace pine {
@@ -75,7 +76,7 @@ class Frame {
 
 // Factory: build the Frame implementation that matches storage_mode.
 // Unknown / empty storage_mode falls back to "column".
-std::unique_ptr<Frame> make_frame(const std::string& storage_mode, std::map<std::string, JsonValue> common,
-                                  std::vector<std::map<std::string, JsonValue>> items);
+std::unique_ptr<Frame> make_frame(const std::string& storage_mode, JsonValue::object_t common,
+                                  std::vector<JsonValue::object_t> items);
 
 }  // namespace pine
