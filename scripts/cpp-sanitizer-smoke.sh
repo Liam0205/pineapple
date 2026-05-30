@@ -19,7 +19,8 @@ mkdir -p "$BUILD_DIR"
 cmake -S "$CPP_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g" \
-    -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+    -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+    -DPINE_USE_JEMALLOC=OFF
 
 echo "==> Building"
 cmake --build "$BUILD_DIR" -j"$(nproc 2>/dev/null || echo 4)"
