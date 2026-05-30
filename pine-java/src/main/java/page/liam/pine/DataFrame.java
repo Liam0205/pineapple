@@ -218,7 +218,7 @@ public class DataFrame implements Frame {
     public Map<String, Object> toResultCommon(List<String> commonOut) {
         rwLock.readLock().lock();
         try {
-            Map<String, Object> result = new LinkedHashMap<>();
+            Map<String, Object> result = new LinkedHashMap<>(commonOut.size(), 1.0f);
             for (String k : commonOut) {
                 if (common.containsKey(k)) {
                     result.put(k, common.get(k));
@@ -235,7 +235,7 @@ public class DataFrame implements Frame {
         try {
             List<Map<String, Object>> result = new ArrayList<>(items.size());
             for (Map<String, Object> item : items) {
-                Map<String, Object> row = new LinkedHashMap<>();
+                Map<String, Object> row = new LinkedHashMap<>(itemOut.size(), 1.0f);
                 for (String k : itemOut) {
                     if (item.containsKey(k)) {
                         row.put(k, item.get(k));

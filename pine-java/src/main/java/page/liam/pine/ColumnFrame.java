@@ -302,7 +302,7 @@ public class ColumnFrame implements Frame {
     public Map<String, Object> toResultCommon(List<String> commonOut) {
         rwLock.readLock().lock();
         try {
-            Map<String, Object> result = new LinkedHashMap<>();
+            Map<String, Object> result = new LinkedHashMap<>(commonOut.size(), 1.0f);
             for (String k : commonOut) {
                 if (common.containsKey(k)) {
                     result.put(k, common.get(k));
@@ -320,7 +320,7 @@ public class ColumnFrame implements Frame {
         try {
             List<Map<String, Object>> result = new ArrayList<>(rowCount);
             for (int i = 0; i < rowCount; i++) {
-                Map<String, Object> row = new LinkedHashMap<>();
+                Map<String, Object> row = new LinkedHashMap<>(itemOut.size(), 1.0f);
                 for (String field : itemOut) {
                     BitSet bits = presenceByField.get(field);
                     Object[] col = columns.get(field);
