@@ -244,25 +244,38 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 	}
 
 	// 5. Additions (zero-copy: take ownership of the caller's map)
-	for _, added := range out.GetAddedItems() {
-		if recall {
-			added["_source"] = opName
-		}
-		for k, v := range added {
-			if err := validateValue(k, v); err != nil {
-				return fmt.Errorf("added item write: %w", err)
-			}
-			if _, ok := f.columns[k]; !ok {
-				f.columns[k] = make([]any, f.rowCount, f.rowCount+1)
-				f.present[k] = make([]bool, f.rowCount, f.rowCount+1)
-			}
-		}
+	if addedItems := out.GetAddedItems(); len(addedItems) > 0 {
+		newCap := f.rowCount + len(addedItems)
 		for field, col := range f.columns {
-			value, ok := added[field]
-			f.columns[field] = append(col, value)
-			f.present[field] = append(f.present[field], ok)
+			if cap(col) < newCap {
+				grown := make([]any, f.rowCount, newCap)
+				copy(grown, col)
+				f.columns[field] = grown
+				grownP := make([]bool, f.rowCount, newCap)
+				copy(grownP, f.present[field])
+				f.present[field] = grownP
+			}
 		}
-		f.rowCount++
+		for _, added := range addedItems {
+			if recall {
+				added["_source"] = opName
+			}
+			for k, v := range added {
+				if err := validateValue(k, v); err != nil {
+					return fmt.Errorf("added item write: %w", err)
+				}
+				if _, ok := f.columns[k]; !ok {
+					f.columns[k] = make([]any, f.rowCount, newCap)
+					f.present[k] = make([]bool, f.rowCount, newCap)
+				}
+			}
+			for field, col := range f.columns {
+				value, ok := added[field]
+				f.columns[field] = append(col, value)
+				f.present[field] = append(f.present[field], ok)
+			}
+			f.rowCount++
+		}
 	}
 
 	return nil
