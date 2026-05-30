@@ -361,7 +361,14 @@ func snapshotOutput(out *types.OperatorOutput) map[string]any {
 		snap["common_writes"] = cw
 	}
 	if iw := out.GetItemWrites(); len(iw) > 0 {
-		snap["item_writes"] = iw
+		iwMap := make(map[int]map[string]any)
+		for _, w := range iw {
+			if iwMap[w.Index] == nil {
+				iwMap[w.Index] = make(map[string]any)
+			}
+			iwMap[w.Index][w.Field] = w.Value
+		}
+		snap["item_writes"] = iwMap
 	}
 	if ai := out.GetAddedItems(); len(ai) > 0 {
 		snap["added_items"] = ai

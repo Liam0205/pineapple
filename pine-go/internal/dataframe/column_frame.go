@@ -168,23 +168,21 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 	}
 
 	// 2. Item field writes
-	for idx, fields := range out.GetItemWrites() {
-		if idx < 0 || idx >= f.rowCount {
-			return fmt.Errorf("SetItem index %d out of range [0, %d)", idx, f.rowCount)
+	for _, w := range out.GetItemWrites() {
+		if w.Index < 0 || w.Index >= f.rowCount {
+			return fmt.Errorf("SetItem index %d out of range [0, %d)", w.Index, f.rowCount)
 		}
-		for field, value := range fields {
-			if err := validateValue(field, value); err != nil {
-				return fmt.Errorf("item[%d] write: %w", idx, err)
-			}
-			col, ok := f.columns[field]
-			if !ok {
-				col = make([]any, f.rowCount)
-				f.columns[field] = col
-				f.present[field] = make([]bool, f.rowCount)
-			}
-			col[idx] = value
-			f.present[field][idx] = true
+		if err := validateValue(w.Field, w.Value); err != nil {
+			return fmt.Errorf("item[%d] write: %w", w.Index, err)
 		}
+		col, ok := f.columns[w.Field]
+		if !ok {
+			col = make([]any, f.rowCount)
+			f.columns[w.Field] = col
+			f.present[w.Field] = make([]bool, f.rowCount)
+		}
+		col[w.Index] = w.Value
+		f.present[w.Field][w.Index] = true
 	}
 
 	// 3. Removals

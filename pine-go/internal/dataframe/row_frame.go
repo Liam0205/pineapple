@@ -151,16 +151,14 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 	}
 
 	// 2. Item field writes
-	for idx, fields := range out.GetItemWrites() {
-		if idx < 0 || idx >= len(f.items) {
-			return fmt.Errorf("SetItem index %d out of range [0, %d)", idx, len(f.items))
+	for _, w := range out.GetItemWrites() {
+		if w.Index < 0 || w.Index >= len(f.items) {
+			return fmt.Errorf("SetItem index %d out of range [0, %d)", w.Index, len(f.items))
 		}
-		for field, value := range fields {
-			if err := validateValue(field, value); err != nil {
-				return fmt.Errorf("item[%d] write: %w", idx, err)
-			}
-			f.items[idx][field] = value
+		if err := validateValue(w.Field, w.Value); err != nil {
+			return fmt.Errorf("item[%d] write: %w", w.Index, err)
 		}
+		f.items[w.Index][w.Field] = w.Value
 	}
 
 	// 3. Removals

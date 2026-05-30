@@ -39,7 +39,7 @@ func TestResourceLookupBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iw := out.GetItemWrites()
+	iw := out.ItemWriteMap()
 	if iw[0]["item_feature"] != 1.0 {
 		t.Errorf("item[0] = %v, want 1.0", iw[0]["item_feature"])
 	}
@@ -77,7 +77,7 @@ func TestResourceLookupWithDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iw := out.GetItemWrites()
+	iw := out.ItemWriteMap()
 	if iw[0]["item_feature"] != 10.0 {
 		t.Errorf("item[0] = %v, want 10.0", iw[0]["item_feature"])
 	}
@@ -153,7 +153,7 @@ func TestResourceLookupNumericKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iw := out.GetItemWrites()
+	iw := out.ItemWriteMap()
 	if iw[0]["item_feature"] != "found_int" {
 		t.Errorf("item[0] = %v, want found_int", iw[0]["item_feature"])
 	}
@@ -191,7 +191,7 @@ func TestResourceLookupNilKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iw := out.GetItemWrites()
+	iw := out.ItemWriteMap()
 	if iw[0]["item_feature"] != "fallback" {
 		t.Errorf("item[0] = %v, want fallback (nil key with default)", iw[0]["item_feature"])
 	}

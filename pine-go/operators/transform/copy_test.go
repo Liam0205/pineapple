@@ -42,7 +42,7 @@ func TestCopyOpCommonToItem(t *testing.T) {
 	if err := op.Execute(context.Background(), in, out); err != nil {
 		t.Fatal(err)
 	}
-	iw := out.GetItemWrites()
+	iw := out.ItemWriteMap()
 	for i := 0; i < 2; i++ {
 		if iw[i]["item_tag"] != "vip" {
 			t.Errorf("item[%d].item_tag = %v, want vip", i, iw[i]["item_tag"])
@@ -60,7 +60,7 @@ func TestCopyOpItemToItem(t *testing.T) {
 	if err := op.Execute(context.Background(), in, out); err != nil {
 		t.Fatal(err)
 	}
-	iw := out.GetItemWrites()
+	iw := out.ItemWriteMap()
 	if iw[0]["original_price"] != 10.0 {
 		t.Errorf("item[0].original_price = %v, want 10", iw[0]["original_price"])
 	}

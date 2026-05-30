@@ -72,7 +72,7 @@ func TestOperatorOutputSetItem(t *testing.T) {
 	out.SetItem(1, "rank", int64(2))
 	out.SetItem(0, "score", 0.9)
 
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["rank"] != int64(1) {
 		t.Errorf("item 0 rank = %v, want 1", writes[0]["rank"])
 	}

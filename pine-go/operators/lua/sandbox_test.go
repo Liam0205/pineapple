@@ -65,7 +65,7 @@ func TestLuaSandboxAllowsMath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["result"] != 3.0 {
 		t.Errorf("expected 3, got %v", writes[0]["result"])
 	}
@@ -83,7 +83,7 @@ func TestLuaSandboxAllowsString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["result"] != "42" {
 		t.Errorf("expected '42', got %v", writes[0]["result"])
 	}
