@@ -47,6 +47,19 @@ endif()
 message(STATUS "LuaJIT lib: ${LUAJIT_LIB}")
 message(STATUS "LuaJIT include: ${LUAJIT_INCLUDE}")
 
+# --- jemalloc (optional, replaces ptmalloc2 for lower malloc contention) ---
+# OFF by default so CI and sanitizer builds are unaffected.
+# Enable with: cmake -DPINE_USE_JEMALLOC=ON
+option(PINE_USE_JEMALLOC "Link jemalloc as the allocator" OFF)
+if(PINE_USE_JEMALLOC)
+    find_library(JEMALLOC_LIB NAMES jemalloc
+        HINTS /home/linuxbrew/.linuxbrew/lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu)
+    if(NOT JEMALLOC_LIB)
+        message(FATAL_ERROR "jemalloc not found. Install with: brew install jemalloc OR apt install libjemalloc-dev")
+    endif()
+    message(STATUS "jemalloc: ${JEMALLOC_LIB}")
+endif()
+
 # --- libcurl (for transform_by_remote_pineapple) ---
 find_library(CURL_LIB NAMES curl
     HINTS /home/linuxbrew/.linuxbrew/lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu)
@@ -110,6 +123,13 @@ target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CURL_INCLUD
 target_link_libraries(pine_cpp_core PUBLIC ${LUAJIT_LIB} ${CURL_LIB})
 if(NOT PINE_STACKTRACE_LIB STREQUAL "")
   target_link_libraries(pine_cpp_core PUBLIC ${PINE_STACKTRACE_LIB})
+endif()
+if(PINE_USE_JEMALLOC)
+  target_link_libraries(pine_cpp_core PUBLIC ${JEMALLOC_LIB})
+  target_compile_definitions(pine_cpp_core PUBLIC PINE_USE_JEMALLOC=1)
+  message(STATUS "pine-cpp: allocator = jemalloc")
+else()
+  message(STATUS "pine-cpp: allocator = system default (ptmalloc2)")
 endif()
 # Debug symbols are required for std::stacktrace to resolve source
 # file / line numbers; without them the trace prints `at :0`.
