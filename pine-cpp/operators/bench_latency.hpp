@@ -22,21 +22,25 @@ class LatencySampler {
   explicit LatencySampler(LatencyProfile profile)
       : profile_(profile), rng_(std::random_device{}()), dist_(0.0, 1.0), uniform_(0.0, 1.0) {}
 
-  void apply() {
+  double apply() {
     auto d = sample();
-    if (d.count() <= 0) return;
+    if (d.count() <= 0) return 0.0;
     if (profile_.is_io) {
       std::this_thread::sleep_for(d);
-    } else {
-      auto deadline = std::chrono::steady_clock::now() + d;
-      while (std::chrono::steady_clock::now() < deadline) {
-        volatile double acc = 0;
-        for (int i = 0; i < 100; ++i) {
-          acc += std::sqrt(static_cast<double>(i));
-        }
-        (void)acc;
-      }
+      return 0.0;
     }
+    // CPU-intensive: sustained FP division until timeout
+    auto deadline = std::chrono::steady_clock::now() + d;
+    double acc = 1.0;
+    while (std::chrono::steady_clock::now() < deadline) {
+      double a = uniform_(rng_) * 1000.0 + 1.0;
+      double b = uniform_(rng_) * 1000.0 + 1.0;
+      acc += a / b;
+      a = uniform_(rng_) * 1000.0 + 1.0;
+      b = uniform_(rng_) * 1000.0 + 1.0;
+      acc -= a / b;
+    }
+    return acc;
   }
 
  private:
