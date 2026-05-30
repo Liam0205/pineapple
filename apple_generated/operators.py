@@ -4,6 +4,44 @@ from typing import Any
 from apple.base import BaseOp
 
 
+class FilterBlockedCreatorOp(BaseOp):
+    """Operator: filter_blocked_creator"""
+    _name = "filter_blocked_creator"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "FilterBlockedCreatorOp":
+        _params = {
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
 class FilterConditionOp(BaseOp):
     """Operator: filter_condition"""
     _name = "filter_condition"
@@ -28,6 +66,47 @@ class FilterConditionOp(BaseOp):
         _params = {
             "value": value,
         }
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
+class FilterImpressionOp(BaseOp):
+    """Operator: filter_impression"""
+    _name = "filter_impression"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+        "min_remaining_ratio": {"type": "float", "required": False, "default": 1.5},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        min_remaining_ratio: Any = 1.5,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "FilterImpressionOp":
+        _params = {
+            "min_remaining_ratio": min_remaining_ratio,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
         return self._apply(
             params=_params,
             common_input=common_input,
@@ -149,6 +228,54 @@ class MergeDedupOp(BaseOp):
             name=name or "",
         )
 
+class ObserveDatahubOp(BaseOp):
+    """Operator: observe_datahub"""
+    _name = "observe_datahub"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+        "key_fields": {"type": "array", "required": False},
+        "mode": {"type": "string", "required": False, "default": ""},
+        "resource_name": {"type": "string", "required": False, "default": ""},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        key_fields: Any = None,
+        mode: str = "",
+        resource_name: str = "",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "ObserveDatahubOp":
+        _params = {
+            "mode": mode,
+            "resource_name": resource_name,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
+        if key_fields is not None:
+            _params["key_fields"] = key_fields
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
 class ObserveLogOp(BaseOp):
     """Operator: observe_log"""
     _name = "observe_log"
@@ -181,6 +308,51 @@ class ObserveLogOp(BaseOp):
             item_output=item_output,
             item_defaults=item_defaults,
             common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
+class RecallFeedDataOp(BaseOp):
+    """Operator: recall_feed_data"""
+    _name = "recall_feed_data"
+    _params_schema = {
+        "bench_item_count": {"type": "int", "required": False, "default": 3000},
+        "bench_profile": {"type": "any", "required": False},
+        "resource_name": {"type": "string", "required": False, "default": ""},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_item_count: int = 3000,
+        bench_profile: Any = None,
+        resource_name: str = "",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "RecallFeedDataOp":
+        _params = {
+            "bench_item_count": bench_item_count,
+            "resource_name": resource_name,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            recall=True,
             consumes_row_set=consumes_row_set,
             debug=debug,
             name=name or "",
@@ -320,6 +492,47 @@ class ReorderSortOp(BaseOp):
         _params = {
             "order": order,
         }
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
+class ReorderTopnBoostOp(BaseOp):
+    """Operator: reorder_topn_boost"""
+    _name = "reorder_topn_boost"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+        "size": {"type": "int", "required": False, "default": 10},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        size: int = 10,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "ReorderTopnBoostOp":
+        _params = {
+            "size": size,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
         return self._apply(
             params=_params,
             common_input=common_input,
@@ -592,6 +805,88 @@ class TransformDispatchOp(BaseOp):
             name=name or "",
         )
 
+class TransformGenerateRequestIdOp(BaseOp):
+    """Operator: transform_generate_request_id"""
+    _name = "transform_generate_request_id"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+        "prefix": {"type": "string", "required": False, "default": "bench"},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        prefix: str = "bench",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformGenerateRequestIdOp":
+        _params = {
+            "prefix": prefix,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformHydrateOp(BaseOp):
+    """Operator: transform_hydrate"""
+    _name = "transform_hydrate"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+        "mysql_dsn": {"type": "string", "required": False, "default": ""},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        mysql_dsn: str = "",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformHydrateOp":
+        _params = {
+            "mysql_dsn": mysql_dsn,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
 class TransformNormalizeOp(BaseOp):
     """Operator: transform_normalize"""
     _name = "transform_normalize"
@@ -616,6 +911,47 @@ class TransformNormalizeOp(BaseOp):
         _params = {
             "method": method,
         }
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformQueryBlockedCreatorsOp(BaseOp):
+    """Operator: transform_query_blocked_creators"""
+    _name = "transform_query_blocked_creators"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+        "mysql_dsn": {"type": "string", "required": False, "default": ""},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        mysql_dsn: str = "",
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformQueryBlockedCreatorsOp":
+        _params = {
+            "mysql_dsn": mysql_dsn,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
         return self._apply(
             params=_params,
             common_input=common_input,
@@ -723,6 +1059,56 @@ class TransformRedisSetOp(BaseOp):
             "redis_password": redis_password,
             "ttl": ttl,
         }
+        return self._apply(
+            params=_params,
+            common_input=common_input,
+            common_output=common_output,
+            item_input=item_input,
+            item_output=item_output,
+            item_defaults=item_defaults,
+            common_defaults=common_defaults,
+            consumes_row_set=consumes_row_set,
+            debug=debug,
+            name=name or "",
+        )
+
+class TransformRedisZrangebyscoreOp(BaseOp):
+    """Operator: transform_redis_zrangebyscore"""
+    _name = "transform_redis_zrangebyscore"
+    _params_schema = {
+        "bench_profile": {"type": "any", "required": False},
+        "key_prefix": {"type": "string", "required": False, "default": ""},
+        "redis_addr": {"type": "string", "required": False, "default": ""},
+        "redis_password": {"type": "string", "required": False, "default": ""},
+        "window_seconds": {"type": "int", "required": False, "default": 0},
+    }
+
+    def __call__(
+        self,
+        *,
+        bench_profile: Any = None,
+        key_prefix: str = "",
+        redis_addr: str = "",
+        redis_password: str = "",
+        window_seconds: int = 0,
+        common_input: list[str] | None = None,
+        common_output: list[str] | None = None,
+        item_input: list[str] | None = None,
+        item_output: list[str] | None = None,
+        item_defaults: dict | None = None,
+        common_defaults: dict | None = None,
+        consumes_row_set: bool = False,
+        debug: bool = False,
+        name: str | None = None,
+    ) -> "TransformRedisZrangebyscoreOp":
+        _params = {
+            "key_prefix": key_prefix,
+            "redis_addr": redis_addr,
+            "redis_password": redis_password,
+            "window_seconds": window_seconds,
+        }
+        if bench_profile is not None:
+            _params["bench_profile"] = bench_profile
         return self._apply(
             params=_params,
             common_input=common_input,
