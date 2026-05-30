@@ -243,16 +243,12 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		}
 	}
 
-	// 5. Additions
+	// 5. Additions (zero-copy: take ownership of the caller's map)
 	for _, added := range out.GetAddedItems() {
-		row := make(map[string]any, len(added)+1)
-		for k, v := range added {
-			row[k] = v
-		}
 		if recall {
-			row["_source"] = opName
+			added["_source"] = opName
 		}
-		for k, v := range row {
+		for k, v := range added {
 			if err := validateValue(k, v); err != nil {
 				return fmt.Errorf("added item write: %w", err)
 			}
@@ -262,7 +258,7 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 			}
 		}
 		for field, col := range f.columns {
-			value, ok := row[field]
+			value, ok := added[field]
 			f.columns[field] = append(col, value)
 			f.present[field] = append(f.present[field], ok)
 		}
