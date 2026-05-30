@@ -19,7 +19,7 @@ func init() {
 		Name: "recall_feed_data", Type: pine.OpTypeRecall,
 		Description: "Benchmark stub: generates synthetic feed items.",
 		Params: map[string]pine.ParamSpec{
-			"bench_item_count": {Type: "int64", Required: false, Default: int64(3000), Description: "Number of items to generate."},
+			"bench_item_count": {Type: "int", Required: false, Default: int(3000), Description: "Number of items to generate."},
 			"resource_name":    {Type: "string", Required: false, Default: "", Description: "Ignored in stub."},
 			"bench_profile":    {Type: "any", Required: false, Default: nil, Description: "Latency profile: {p50:[mean,max], p99:[mean,max], type:cpu|io}."},
 		},
@@ -30,7 +30,7 @@ func init() {
 		Description: "Benchmark stub: simulates Redis ZRANGEBYSCORE.",
 		Params: map[string]pine.ParamSpec{
 			"key_prefix":     {Type: "string", Required: false, Default: "", Description: "Stub param."},
-			"window_seconds": {Type: "int64", Required: false, Default: int64(0), Description: "Stub param."},
+			"window_seconds": {Type: "int", Required: false, Default: int(0), Description: "Stub param."},
 			"redis_addr":     {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"redis_password": {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"bench_profile":  {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
@@ -60,7 +60,7 @@ func init() {
 		Name: "filter_impression", Type: pine.OpTypeFilter,
 		Description: "Benchmark stub: simulates impression-based filtering.",
 		Params: map[string]pine.ParamSpec{
-			"min_remaining_ratio": {Type: "float64", Required: false, Default: 1.5, Description: "Stub param."},
+			"min_remaining_ratio": {Type: "float", Required: false, Default: 1.5, Description: "Stub param."},
 			"bench_profile":       {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &filterImpressionStub{} })
@@ -77,7 +77,7 @@ func init() {
 		Name: "reorder_topn_boost", Type: pine.OpTypeReorder,
 		Description: "Benchmark stub: simulates top-N boost reordering.",
 		Params: map[string]pine.ParamSpec{
-			"size":          {Type: "int64", Required: false, Default: int64(10), Description: "Stub param."},
+			"size":          {Type: "int", Required: false, Default: int(10), Description: "Stub param."},
 			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &reorderTopnBoostStub{} })
@@ -88,7 +88,7 @@ func init() {
 		Params: map[string]pine.ParamSpec{
 			"resource_name": {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"mode":          {Type: "string", Required: false, Default: "", Description: "Stub param."},
-			"key_fields":    {Type: "[]string", Required: false, Default: nil, Description: "Stub param."},
+			"key_fields":    {Type: "array", Required: false, Default: nil, Description: "Stub param."},
 			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &observeDatahubStub{} })
@@ -131,7 +131,7 @@ func init() {
 			"ak_id":      {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"ak_secret":  {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"endpoint":   {Type: "string", Required: false, Default: "", Description: "Stub param."},
-			"max_retry":  {Type: "int64", Required: false, Default: int64(0), Description: "Stub param."},
+			"max_retry":  {Type: "int", Required: false, Default: int(0), Description: "Stub param."},
 			"project":    {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"topic":      {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"user_agent": {Type: "string", Required: false, Default: "", Description: "Stub param."},
