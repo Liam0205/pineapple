@@ -174,7 +174,7 @@ func (o *recallFeedDataStub) Execute(_ context.Context, _ *pine.OperatorInput, o
 		})
 	}
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -194,7 +194,7 @@ func (o *transformRedisZrangebyscoreStub) Execute(_ context.Context, in *pine.Op
 	out.SetCommon("impression_cache_hit", true)
 	out.SetCommon("impression_ids_len", float64(0))
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -216,7 +216,7 @@ func (o *transformHydrateStub) Execute(_ context.Context, in *pine.OperatorInput
 		out.SetItem(i, "creator_id", float64(i%1000))
 	}
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -235,7 +235,7 @@ func (o *transformQueryBlockedCreatorsStub) Execute(_ context.Context, in *pine.
 	_ = in.Common("blocked_creator_ids")
 	out.SetCommon("blocked_creator_ids", []any{})
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -262,7 +262,7 @@ func (o *filterImpressionStub) Execute(_ context.Context, in *pine.OperatorInput
 		}
 	}
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -278,13 +278,13 @@ func (o *filterBlockedCreatorStub) Init(params map[string]any) error {
 	o.latency = ParseBenchProfile(params)
 	return nil
 }
-func (o *filterBlockedCreatorStub) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.OperatorOutput) error {
+func (o *filterBlockedCreatorStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	_ = in.Common("blocked_creator_ids")
 	for i := 0; i < in.ItemCount(); i++ {
 		_ = in.Item(i, "creator_id")
 	}
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -300,7 +300,7 @@ func (o *reorderTopnBoostStub) Init(params map[string]any) error {
 	o.latency = ParseBenchProfile(params)
 	return nil
 }
-func (o *reorderTopnBoostStub) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.OperatorOutput) error {
+func (o *reorderTopnBoostStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	_ = in.Common("page")
 	_ = in.Common("shuffle_salt")
 	for i := 0; i < in.ItemCount(); i++ {
@@ -308,7 +308,7 @@ func (o *reorderTopnBoostStub) Execute(_ context.Context, in *pine.OperatorInput
 		_ = in.Item(i, "created_at")
 	}
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -322,7 +322,7 @@ func (o *observeDatahubStub) Init(params map[string]any) error {
 	o.latency = ParseBenchProfile(params)
 	return nil
 }
-func (o *observeDatahubStub) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.OperatorOutput) error {
+func (o *observeDatahubStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	for _, k := range o.CommonInput {
 		_ = in.Common(k)
 	}
@@ -332,7 +332,7 @@ func (o *observeDatahubStub) Execute(_ context.Context, in *pine.OperatorInput, 
 		}
 	}
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }
@@ -357,7 +357,7 @@ func (o *transformGenerateRequestIdStub) Init(params map[string]any) error {
 func (o *transformGenerateRequestIdStub) Execute(_ context.Context, _ *pine.OperatorInput, out *pine.OperatorOutput) error {
 	out.SetCommon("request_id", fmt.Sprintf("%s:550e8400-e29b-41d4-a716-446655440000", o.prefix))
 	if o.latency != nil {
-		o.latency.Apply()
+		out.SetCommon("_bench_cpu_sink", o.latency.Apply())
 	}
 	return nil
 }

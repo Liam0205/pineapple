@@ -62,23 +62,27 @@ func (s *LatencySampler) Sample() time.Duration {
 	return time.Duration(sample * float64(time.Millisecond))
 }
 
-func (s *LatencySampler) Apply() {
+func (s *LatencySampler) Apply() float64 {
 	d := s.Sample()
 	if d <= 0 {
-		return
+		return 0
 	}
 	if s.profile.IsIO {
 		time.Sleep(d)
-	} else {
-		deadline := time.Now().Add(d)
-		for time.Now().Before(deadline) {
-			acc := 0.0
-			for i := 0; i < 100; i++ {
-				acc += math.Sqrt(float64(i))
-			}
-			_ = acc
-		}
+		return 0
 	}
+	// CPU-intensive: sustained FP division until timeout
+	deadline := time.Now().Add(d)
+	acc := 1.0
+	for time.Now().Before(deadline) {
+		a := s.rng.Float64()*1000 + 1
+		b := s.rng.Float64()*1000 + 1
+		acc += a / b
+		a = s.rng.Float64()*1000 + 1
+		b = s.rng.Float64()*1000 + 1
+		acc -= a / b
+	}
+	return acc
 }
 
 func ParseBenchProfile(params map[string]any) *LatencySampler {
