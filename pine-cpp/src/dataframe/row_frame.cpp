@@ -10,7 +10,7 @@
 namespace pine {
 
 namespace {
-std::string validate_value_row(const std::string& field, const JsonValue& value) {
+std::string validate_value_row(const std::string& field, const Variant& value) {
   if (value.is_null()) {
     return "";
   }
@@ -26,8 +26,8 @@ std::string validate_value_row(const std::string& field, const JsonValue& value)
 
 RowFrame::RowFrame() = default;
 
-RowFrame::RowFrame(JsonValue::object_t common,
-                   std::vector<JsonValue::object_t> items)
+RowFrame::RowFrame(Variant::object_t common,
+                   std::vector<Variant::object_t> items)
     : common_(std::move(common)) {
   items_.reserve(items.size());
   for (auto& row : items) {
@@ -35,12 +35,12 @@ RowFrame::RowFrame(JsonValue::object_t common,
   }
 }
 
-JsonValue RowFrame::common(const std::string& field) const {
+Variant RowFrame::common(const std::string& field) const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   const auto& src = view_common_ ? *view_common_ : common_;
   auto it = src.find(field);
   if (it == src.end()) {
-    return JsonValue();
+    return Variant();
   }
   return it->second;
 }
@@ -52,7 +52,7 @@ bool RowFrame::has_common(const std::string& field) const {
   return it != src.end();
 }
 
-void RowFrame::set_common(const std::string& field, JsonValue value) {
+void RowFrame::set_common(const std::string& field, Variant value) {
   if (is_window_view()) {
     throw Error(
         "RowFrame::set_common called on window view "
@@ -82,20 +82,20 @@ std::size_t RowFrame::item_count() const {
   return items_.size();
 }
 
-JsonValue RowFrame::item(std::size_t index, const std::string& field) const {
+Variant RowFrame::item(std::size_t index, const std::string& field) const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   const auto& src = view_items_ ? *view_items_ : items_;
   if (view_items_) {
     if (index >= view_count_) {
-      return JsonValue();
+      return Variant();
     }
     index += view_offset_;
   } else if (index >= src.size()) {
-    return JsonValue();
+    return Variant();
   }
   auto it = src[index].find(field);
   if (it == src[index].end()) {
-    return JsonValue();
+    return Variant();
   }
   return it->second;
 }
@@ -185,7 +185,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
                                           std::to_string(items_.size()) + ")");
       }
     }
-    std::vector<JsonValue::object_t> kept;
+    std::vector<Variant::object_t> kept;
     kept.reserve(items_.size() - removed.size());
     for (std::size_t i = 0; i < items_.size(); ++i) {
       if (removed.count(static_cast<int>(i)) == 0) {
@@ -214,7 +214,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
       }
       seen[idx] = true;
     }
-    std::vector<JsonValue::object_t> reordered;
+    std::vector<Variant::object_t> reordered;
     reordered.reserve(order.size());
     for (int idx : order) {
       reordered.push_back(std::move(items_[static_cast<std::size_t>(idx)]));
@@ -232,7 +232,7 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
       }
       auto row = added;
       if (is_recall) {
-        row["_source"] = JsonValue(op_name);
+        row["_source"] = Variant(op_name);
       }
       items_.emplace_back(std::make_move_iterator(row.begin()), std::make_move_iterator(row.end()));
     }
@@ -262,7 +262,7 @@ Result RowFrame::to_result(const std::vector<std::string>& common_out,
   }
   r.items.reserve(items_.size());
   for (const auto& row : items_) {
-    JsonValue::object_t out_row;
+    Variant::object_t out_row;
     for (const auto& field : item_out) {
       auto it = row.find(field);
       // Keep explicit nulls — pine-go RowFrame.ToResult / projectMap
@@ -278,9 +278,9 @@ Result RowFrame::to_result(const std::vector<std::string>& common_out,
   return r;
 }
 
-JsonValue::object_t RowFrame::item_object(std::size_t index) const {
+Variant::object_t RowFrame::item_object(std::size_t index) const {
   std::shared_lock<std::shared_mutex> lk(mu_);
-  JsonValue::object_t out;
+  Variant::object_t out;
   const auto& src = view_items_ ? *view_items_ : items_;
   if (view_items_) {
     if (index >= view_count_) {
@@ -333,8 +333,8 @@ std::pair<std::string, int> RowFrame::validate_strict_items(const std::vector<st
 
 // Factory selecting Frame implementation by storage_mode. Unknown
 // values fall back to "column" — mirrors pine-go NewFrame behavior.
-std::unique_ptr<Frame> make_frame(const std::string& storage_mode, JsonValue::object_t common,
-                                  std::vector<JsonValue::object_t> items) {
+std::unique_ptr<Frame> make_frame(const std::string& storage_mode, Variant::object_t common,
+                                  std::vector<Variant::object_t> items) {
   if (storage_mode == "row") {
     return std::make_unique<RowFrame>(std::move(common), std::move(items));
   }

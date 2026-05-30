@@ -1,6 +1,6 @@
 #pragma once
 
-// RapidJSON-based JSON serialization for pine::JsonValue.
+// RapidJSON-based JSON serialization for pine::Variant.
 //
 // Produces output byte-for-byte compatible with Go's encoding/json:
 //   - Numbers: go_format_json_number (Grisu2-style shortest representation)
@@ -99,10 +99,10 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
 
 }  // namespace detail
 
-// Write a JsonValue into a RapidJSON Writer.
+// Write a Variant into a RapidJSON Writer.
 // Objects keys are sorted lexicographically to match Go's encoding/json output.
 template <typename Writer>
-void write_json_value(Writer& w, const JsonValue& v) {
+void write_json_value(Writer& w, const Variant& v) {
   if (v.is_null()) {
     w.Null();
     return;
@@ -151,14 +151,14 @@ void write_json_value(Writer& w, const JsonValue& v) {
   w.EndObject();
 }
 
-// Serialize a JsonValue to a std::string using RapidJSON.
+// Serialize a Variant to a std::string using RapidJSON.
 // indent=0 → compact (matches Go json.Marshal); indent>0 → pretty-printed.
-std::string dump_json_fast(const JsonValue& value, int indent = 0);
+std::string dump_json_fast(const Variant& value, int indent = 0);
 
 // Serialize a Result's common map to compact JSON.
-std::string result_common_to_json(const JsonValue::object_t& common);
+std::string result_common_to_json(const Variant::object_t& common);
 
 // Serialize a Result's items array to compact JSON.
-std::string result_items_to_json(const std::vector<JsonValue::object_t>& items);
+std::string result_items_to_json(const std::vector<Variant::object_t>& items);
 
 }  // namespace pine

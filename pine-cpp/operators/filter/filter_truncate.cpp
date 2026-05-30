@@ -34,7 +34,7 @@ static const OperatorSchema k_filter_truncate_schema{
             {"top_n",
              {.type = "int64",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Number of items to keep."}},
         },
 };

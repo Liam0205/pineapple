@@ -51,7 +51,7 @@ class TransformResourceLookupOp : public Operator, public ConcurrentSafe {
     const auto& table = resource.as_object();
 
     for (std::size_t i = 0; i < input.item_count(); ++i) {
-      JsonValue field_val = input.item(i, lookup_key_);
+      Variant field_val = input.item(i, lookup_key_);
       if (field_val.is_null()) {
         if (has_default_) {
           out.set_item(static_cast<int>(i), output_field_, default_value_);
@@ -83,7 +83,7 @@ class TransformResourceLookupOp : public Operator, public ConcurrentSafe {
   std::string lookup_key_;
   std::string output_field_;
   bool has_default_ = false;
-  JsonValue default_value_;
+  Variant default_value_;
 };
 
 static const OperatorSchema k_transform_resource_lookup_schema{
@@ -95,22 +95,22 @@ static const OperatorSchema k_transform_resource_lookup_schema{
             {"default_value",
              {.type = "any",
               .required = false,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Value to use when the key is not found. Missing keys are skipped if unset."}},
             {"lookup_key",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Item field whose value is used as the lookup key."}},
             {"output_field",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Item field to write the looked-up value to."}},
             {"resource_name",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Name of the resource to read."}},
         },
 };

@@ -38,7 +38,7 @@ class TransformNormalizeOp : public Operator {
     vals.reserve(input.item_count());
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       try {
-        JsonValue v = input.item(i, field_);
+        Variant v = input.item(i, field_);
         if (v.is_null()) {
           throw operators::OperatorError("required field \"" + field_ + "\" is nil on item[" +
                                          std::to_string(i) + "]");
@@ -54,7 +54,7 @@ class TransformNormalizeOp : public Operator {
     double rng = maxv - minv;
     for (std::size_t i = 0; i < vals.size(); ++i) {
       double norm = (rng == 0.0) ? 0.0 : (vals[i] - minv) / rng;
-      out.set_item(static_cast<int>(i), out_field_, JsonValue(norm));
+      out.set_item(static_cast<int>(i), out_field_, Variant(norm));
     }
   }
 
@@ -73,7 +73,7 @@ static const OperatorSchema k_transform_normalize_schema{
             {"method",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue("min_max"),
+              .default_value = Variant("min_max"),
               .description = "Normalization method."}},
         },
 };

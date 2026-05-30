@@ -11,11 +11,11 @@ using namespace pine;
 namespace {
 
 ColumnFrame make_frame() {
-  std::vector<JsonValue::object_t> items;
-  items.push_back({{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}});
-  items.push_back({{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}});
-  items.push_back({{"id", JsonValue(3.0)}, {"score", JsonValue(30.0)}});
-  return ColumnFrame({{"region", JsonValue(std::string("us"))}}, std::move(items));
+  std::vector<Variant::object_t> items;
+  items.push_back({{"id", Variant(1.0)}, {"score", Variant(10.0)}});
+  items.push_back({{"id", Variant(2.0)}, {"score", Variant(20.0)}});
+  items.push_back({{"id", Variant(3.0)}, {"score", Variant(30.0)}});
+  return ColumnFrame({{"region", Variant(std::string("us"))}}, std::move(items));
 }
 
 }  // namespace
@@ -31,7 +31,7 @@ TEST_CASE("ColumnFrame: construction populates typed columns") {
   CHECK(std::find(fields.begin(), fields.end(), "score") != fields.end());
 }
 
-TEST_CASE("ColumnFrame: missing field returns null JsonValue") {
+TEST_CASE("ColumnFrame: missing field returns null Variant") {
   auto frame = make_frame();
   CHECK(frame.item(0, "missing").is_null());
   CHECK(frame.common("nope").is_null());
@@ -40,8 +40,8 @@ TEST_CASE("ColumnFrame: missing field returns null JsonValue") {
 TEST_CASE("ColumnFrame: apply_output common writes") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.set_common("region", JsonValue(std::string("eu")));
-  out.set_common("new_field", JsonValue(42.0));
+  out.set_common("region", Variant(std::string("eu")));
+  out.set_common("new_field", Variant(42.0));
   frame.apply_output(out, "op", false);
   CHECK(frame.common("region").as_string() == "eu");
   CHECK(frame.common("new_field").as_number() == 42.0);
@@ -50,8 +50,8 @@ TEST_CASE("ColumnFrame: apply_output common writes") {
 TEST_CASE("ColumnFrame: apply_output item writes (existing typed column)") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.set_item(0, "score", JsonValue(99.0));
-  out.set_item(2, "score", JsonValue(77.0));
+  out.set_item(0, "score", Variant(99.0));
+  out.set_item(2, "score", Variant(77.0));
   frame.apply_output(out, "op", false);
   CHECK(frame.item(0, "score").as_number() == 99.0);
   CHECK(frame.item(1, "score").as_number() == 20.0);
@@ -61,7 +61,7 @@ TEST_CASE("ColumnFrame: apply_output item writes (existing typed column)") {
 TEST_CASE("ColumnFrame: apply_output creates new column on first write") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.set_item(1, "tag", JsonValue(std::string("x")));
+  out.set_item(1, "tag", Variant(std::string("x")));
   frame.apply_output(out, "op", false);
   CHECK(frame.item(0, "tag").is_null());
   CHECK(frame.item(1, "tag").as_string() == "x");
@@ -72,7 +72,7 @@ TEST_CASE("ColumnFrame: apply_output type-mismatch promotes column to Json") {
   auto frame = make_frame();
   OperatorOutput out;
   // 'score' is currently typed (Int64/Double); writing a string forces promotion.
-  out.set_item(1, "score", JsonValue(std::string("not-a-number")));
+  out.set_item(1, "score", Variant(std::string("not-a-number")));
   frame.apply_output(out, "op", false);
   CHECK(frame.item(0, "score").as_number() == 10.0);
   CHECK(frame.item(1, "score").as_string() == "not-a-number");
@@ -103,8 +103,8 @@ TEST_CASE("ColumnFrame: apply_output reorders items") {
 TEST_CASE("ColumnFrame: apply_output adds items, recall stamps _source") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.add_item({{"id", JsonValue(99.0)}, {"score", JsonValue(50.0)}});
-  out.add_item({{"id", JsonValue(100.0)}});
+  out.add_item({{"id", Variant(99.0)}, {"score", Variant(50.0)}});
+  out.add_item({{"id", Variant(100.0)}});
   frame.apply_output(out, "recall_op", true);
   CHECK(frame.item_count() == 5);
   CHECK(frame.item(3, "id").as_number() == 99.0);
@@ -117,11 +117,11 @@ TEST_CASE("ColumnFrame: apply_output adds items, recall stamps _source") {
 TEST_CASE("ColumnFrame: apply_output runs 5 stages in order (writes -> removes -> reorder -> additions)") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.set_item(0, "score", JsonValue(100.0));  // stage 2
+  out.set_item(0, "score", Variant(100.0));  // stage 2
   out.remove_item(2);                          // stage 3 (item index in original numbering)
   // After stage 3 we have 2 rows. Reorder must reference those 2.
   out.set_item_order({1, 0});               // stage 4
-  out.add_item({{"id", JsonValue(99.0)}});  // stage 5
+  out.add_item({{"id", Variant(99.0)}});  // stage 5
   frame.apply_output(out, "op", false);
   CHECK(frame.item_count() == 3);
   // After writes: row0.score=100, row1.score=20, row2.score=30
@@ -166,7 +166,7 @@ TEST_CASE("ColumnFrame: warnings collected per operator with operator-name prefi
 TEST_CASE("ColumnFrame: out-of-range item write raises ExecutionError") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.set_item(99, "score", JsonValue(1.0));
+  out.set_item(99, "score", Variant(1.0));
   CHECK_THROWS_AS(frame.apply_output(out, "op", false), ExecutionError);
 }
 
@@ -214,7 +214,7 @@ TEST_CASE("ColumnFrame: window view reads parent common via view_common_ (R8-1)"
 TEST_CASE("ColumnFrame: apply_output rejects NaN/Inf in common writes") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.set_common("ratio", JsonValue(std::numeric_limits<double>::quiet_NaN()));
+  out.set_common("ratio", Variant(std::numeric_limits<double>::quiet_NaN()));
   try {
     frame.apply_output(out, "op", false);
     FAIL("expected NaN rejection");
@@ -227,7 +227,7 @@ TEST_CASE("ColumnFrame: apply_output rejects NaN/Inf in common writes") {
 TEST_CASE("ColumnFrame: apply_output rejects Inf in item writes") {
   auto frame = make_frame();
   OperatorOutput out;
-  out.set_item(0, "x", JsonValue(std::numeric_limits<double>::infinity()));
+  out.set_item(0, "x", Variant(std::numeric_limits<double>::infinity()));
   try {
     frame.apply_output(out, "op", false);
     FAIL("expected Inf rejection");
@@ -240,8 +240,8 @@ TEST_CASE("ColumnFrame: apply_output rejects Inf in item writes") {
 TEST_CASE("ColumnFrame: apply_output rejects NaN in additions") {
   auto frame = make_frame();
   OperatorOutput out;
-  JsonValue::object_t row;
-  row["bad"] = JsonValue(std::numeric_limits<double>::quiet_NaN());
+  Variant::object_t row;
+  row["bad"] = Variant(std::numeric_limits<double>::quiet_NaN());
   out.add_item(row);
   try {
     frame.apply_output(out, "op", true);

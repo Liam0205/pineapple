@@ -30,7 +30,7 @@ struct Pair {
   std::unique_ptr<ColumnFrame> col;
 };
 
-Pair make_pair(JsonValue::object_t common, std::vector<JsonValue::object_t> items) {
+Pair make_pair(Variant::object_t common, std::vector<Variant::object_t> items) {
   return {std::make_unique<RowFrame>(common, items), std::make_unique<ColumnFrame>(common, items)};
 }
 
@@ -40,61 +40,61 @@ void apply_both(Pair& p, const OperatorOutput& out, const std::string& op_name, 
 }
 
 bool result_equal(const Result& a, const Result& b) {
-  // JsonValue lacks operator== for object/array; compare via dump_json
+  // Variant lacks operator== for object/array; compare via dump_json
   // which is byte-deterministic across both impls.
-  JsonValue::object_t ao, bo;
+  Variant::object_t ao, bo;
   for (const auto& [k, v] : a.common) {
     ao[k] = v;
   }
   for (const auto& [k, v] : b.common) {
     bo[k] = v;
   }
-  if (dump_json(JsonValue(ao)) != dump_json(JsonValue(bo))) {
+  if (dump_json(Variant(ao)) != dump_json(Variant(bo))) {
     return false;
   }
-  JsonValue::array_t ai, bi;
+  Variant::array_t ai, bi;
   for (const auto& r : a.items) {
-    JsonValue::object_t row;
+    Variant::object_t row;
     for (const auto& [k, v] : r) {
       row[k] = v;
     }
-    ai.push_back(JsonValue(row));
+    ai.push_back(Variant(row));
   }
   for (const auto& r : b.items) {
-    JsonValue::object_t row;
+    Variant::object_t row;
     for (const auto& [k, v] : r) {
       row[k] = v;
     }
-    bi.push_back(JsonValue(row));
+    bi.push_back(Variant(row));
   }
-  return dump_json(JsonValue(ai)) == dump_json(JsonValue(bi));
+  return dump_json(Variant(ai)) == dump_json(Variant(bi));
 }
 
-JsonValue rand_value(std::mt19937& rng) {
+Variant rand_value(std::mt19937& rng) {
   int k = rng() % 8;
   switch (k) {
     case 0:
-      return JsonValue(static_cast<double>(rng() % 100));
+      return Variant(static_cast<double>(rng() % 100));
     case 1:
-      return JsonValue(static_cast<double>(rng()) / 1000.0);
+      return Variant(static_cast<double>(rng()) / 1000.0);
     case 2:
-      return JsonValue(std::string("s") + std::to_string(rng() % 10));
+      return Variant(std::string("s") + std::to_string(rng() % 10));
     case 3:
-      return JsonValue(true);
+      return Variant(true);
     case 4:
-      return JsonValue(false);
+      return Variant(false);
     case 5:
-      return JsonValue(nullptr);  // PRESENT-NULL
+      return Variant(nullptr);  // PRESENT-NULL
     case 6: {
-      JsonValue::array_t a;
-      a.push_back(JsonValue(1.0));
-      a.push_back(JsonValue(2.0));
-      return JsonValue(a);
+      Variant::array_t a;
+      a.push_back(Variant(1.0));
+      a.push_back(Variant(2.0));
+      return Variant(a);
     }
     default: {
-      JsonValue::object_t o;
-      o["k"] = JsonValue(std::string("v"));
-      return JsonValue(o);
+      Variant::object_t o;
+      o["k"] = Variant(std::string("v"));
+      return Variant(o);
     }
   }
 }
@@ -123,7 +123,7 @@ OperatorOutput rand_output(std::mt19937& rng, std::size_t n_items) {
   // tested separately below)
   int n_ad = rng() % 3;
   for (int i = 0; i < n_ad; ++i) {
-    JsonValue::object_t row;
+    Variant::object_t row;
     int n_f = 1 + (rng() % 3);
     for (int j = 0; j < n_f; ++j) {
       row["f" + std::to_string(rng() % 5)] = rand_value(rng);
@@ -136,40 +136,40 @@ OperatorOutput rand_output(std::mt19937& rng, std::size_t n_items) {
 }  // namespace
 
 TEST_CASE("Row/Column initial-state projection equivalence") {
-  std::vector<JsonValue::object_t> items;
-  items.push_back({{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}});
-  items.push_back({{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}});
-  auto p = make_pair({{"region", JsonValue(std::string("us"))}}, items);
+  std::vector<Variant::object_t> items;
+  items.push_back({{"id", Variant(1.0)}, {"score", Variant(10.0)}});
+  items.push_back({{"id", Variant(2.0)}, {"score", Variant(20.0)}});
+  auto p = make_pair({{"region", Variant(std::string("us"))}}, items);
   auto r = p.row->to_result({"region"}, {"id", "score"});
   auto c = p.col->to_result({"region"}, {"id", "score"});
   CHECK(result_equal(r, c));
 }
 
 TEST_CASE("Row/Column common writes equivalence") {
-  auto p = make_pair({{"region", JsonValue(std::string("us"))}},
-                     {{{"id", JsonValue(1.0)}}, {{"id", JsonValue(2.0)}}});
+  auto p = make_pair({{"region", Variant(std::string("us"))}},
+                     {{{"id", Variant(1.0)}}, {{"id", Variant(2.0)}}});
   OperatorOutput out;
-  out.set_common("region", JsonValue(std::string("eu")));
-  out.set_common("ts", JsonValue(1234.0));
+  out.set_common("region", Variant(std::string("eu")));
+  out.set_common("ts", Variant(1234.0));
   apply_both(p, out, "op", false);
   CHECK(result_equal(p.row->to_result({"region", "ts"}, {"id"}), p.col->to_result({"region", "ts"}, {"id"})));
 }
 
 TEST_CASE("Row/Column item writes equivalence") {
-  auto p = make_pair({}, {{{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}},
-                          {{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}}});
+  auto p = make_pair({}, {{{"id", Variant(1.0)}, {"score", Variant(10.0)}},
+                          {{"id", Variant(2.0)}, {"score", Variant(20.0)}}});
   OperatorOutput out;
-  out.set_item(0, "score", JsonValue(99.0));
-  out.set_item(1, "bonus", JsonValue(true));
+  out.set_item(0, "score", Variant(99.0));
+  out.set_item(1, "bonus", Variant(true));
   apply_both(p, out, "op", false);
   CHECK(result_equal(p.row->to_result({}, {"id", "score", "bonus"}),
                      p.col->to_result({}, {"id", "score", "bonus"})));
 }
 
 TEST_CASE("Row/Column remove equivalence") {
-  std::vector<JsonValue::object_t> items;
+  std::vector<Variant::object_t> items;
   for (int i = 0; i < 5; ++i) {
-    items.push_back({{"id", JsonValue(static_cast<double>(i))}});
+    items.push_back({{"id", Variant(static_cast<double>(i))}});
   }
   auto p = make_pair({}, items);
   OperatorOutput out;
@@ -182,7 +182,7 @@ TEST_CASE("Row/Column remove equivalence") {
 }
 
 TEST_CASE("Row/Column reorder equivalence") {
-  auto p = make_pair({}, {{{"id", JsonValue(0.0)}}, {{"id", JsonValue(1.0)}}, {{"id", JsonValue(2.0)}}});
+  auto p = make_pair({}, {{{"id", Variant(0.0)}}, {{"id", Variant(1.0)}}, {{"id", Variant(2.0)}}});
   OperatorOutput out;
   out.set_item_order({2, 0, 1});
   apply_both(p, out, "op", false);
@@ -190,10 +190,10 @@ TEST_CASE("Row/Column reorder equivalence") {
 }
 
 TEST_CASE("Row/Column additions + recall _source stamp equivalence") {
-  auto p = make_pair({}, {{{"id", JsonValue(0.0)}}});
+  auto p = make_pair({}, {{{"id", Variant(0.0)}}});
   OperatorOutput out;
-  out.add_item({{"id", JsonValue(100.0)}, {"name", JsonValue(std::string("added"))}});
-  out.add_item({{"id", JsonValue(200.0)}});
+  out.add_item({{"id", Variant(100.0)}, {"name", Variant(std::string("added"))}});
+  out.add_item({{"id", Variant(200.0)}});
   apply_both(p, out, "op_recall", /*recall=*/true);
   CHECK(p.row->item_count() == 3);
   CHECK(p.col->item_count() == 3);
@@ -202,27 +202,27 @@ TEST_CASE("Row/Column additions + recall _source stamp equivalence") {
 }
 
 TEST_CASE("Row/Column five-stage ordering equivalence") {
-  std::vector<JsonValue::object_t> items;
+  std::vector<Variant::object_t> items;
   for (int i = 0; i < 4; ++i) {
     items.push_back(
-        {{"id", JsonValue(static_cast<double>(i))}, {"score", JsonValue(static_cast<double>(i * 10))}});
+        {{"id", Variant(static_cast<double>(i))}, {"score", Variant(static_cast<double>(i * 10))}});
   }
-  auto p = make_pair({{"src", JsonValue(std::string("v"))}}, items);
+  auto p = make_pair({{"src", Variant(std::string("v"))}}, items);
   OperatorOutput out;
-  out.set_common("src", JsonValue(std::string("w")));
-  out.set_item(0, "score", JsonValue(-1.0));
+  out.set_common("src", Variant(std::string("w")));
+  out.set_item(0, "score", Variant(-1.0));
   out.remove_item(2);
   // after remove → 3 items; reorder needs len-3 permutation
   out.set_item_order({2, 0, 1});
-  out.add_item({{"id", JsonValue(99.0)}});
+  out.add_item({{"id", Variant(99.0)}});
   apply_both(p, out, "op", false);
   CHECK(result_equal(p.row->to_result({"src"}, {"id", "score"}), p.col->to_result({"src"}, {"id", "score"})));
 }
 
 TEST_CASE("Row/Column NaN-rejection error message equivalence") {
-  auto p = make_pair({}, {{{"id", JsonValue(1.0)}}});
+  auto p = make_pair({}, {{{"id", Variant(1.0)}}});
   OperatorOutput out;
-  out.set_common("ratio", JsonValue(std::numeric_limits<double>::quiet_NaN()));
+  out.set_common("ratio", Variant(std::numeric_limits<double>::quiet_NaN()));
   std::string row_err, col_err;
   try {
     p.row->apply_output(out, "op", false);
@@ -240,7 +240,7 @@ TEST_CASE("Row/Column NaN-rejection error message equivalence") {
 }
 
 TEST_CASE("Row/Column reorder-permutation error message equivalence") {
-  auto p = make_pair({}, {{{"id", JsonValue(0.0)}}, {{"id", JsonValue(1.0)}}, {{"id", JsonValue(2.0)}}});
+  auto p = make_pair({}, {{{"id", Variant(0.0)}}, {{"id", Variant(1.0)}}, {{"id", Variant(2.0)}}});
   OperatorOutput out;
   out.set_item_order({0, 0, 0});  // duplicate index
   std::string row_err, col_err;
@@ -266,13 +266,13 @@ TEST_CASE("Row/Column differential fuzz") {
   for (int seed = 0; seed < 100; ++seed) {
     std::mt19937 rng(static_cast<std::uint32_t>(seed));
     std::size_t n_items = rng() % 7;
-    JsonValue::object_t common;
+    Variant::object_t common;
     for (int i = 0, n = rng() % 4; i < n; ++i) {
       common["c" + std::to_string(i)] = rand_value(rng);
     }
-    std::vector<JsonValue::object_t> items;
+    std::vector<Variant::object_t> items;
     for (std::size_t i = 0; i < n_items; ++i) {
-      JsonValue::object_t row;
+      Variant::object_t row;
       int n_f = 1 + static_cast<int>(rng() % 4);
       for (int j = 0; j < n_f; ++j) {
         row["f" + std::to_string(j)] = rand_value(rng);

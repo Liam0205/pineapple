@@ -15,7 +15,7 @@ namespace {
 // silently corrupting downstream consumers) and is called from
 // apply_output's three write phases (common, items, additions). Returns
 // the violation message (without `pine:`/op prefix) or empty when OK.
-std::string validate_value(const std::string& field, const JsonValue& value) {
+std::string validate_value(const std::string& field, const Variant& value) {
   if (value.is_null()) {
     return "";
   }
@@ -25,7 +25,7 @@ std::string validate_value(const std::string& field, const JsonValue& value) {
       return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
     }
   }
-  // JsonValue only carries the JSON-representable types (null / number /
+  // Variant only carries the JSON-representable types (null / number /
   // string / bool / array / object) so the "unsupported type" branch in
   // Go's validateValue cannot fire here — the type system forbids it.
   return "";
@@ -36,8 +36,8 @@ std::string validate_value(const std::string& field, const JsonValue& value) {
 ColumnFrame::ColumnFrame() : items_(std::make_unique<TypedColumnStore>(0)) {
 }
 
-ColumnFrame::ColumnFrame(JsonValue::object_t common,
-                         std::vector<JsonValue::object_t> items)
+ColumnFrame::ColumnFrame(Variant::object_t common,
+                         std::vector<Variant::object_t> items)
     : common_(std::move(common)), items_(std::make_unique<TypedColumnStore>(items.size())) {
   // Collect the union of fields across items, preserving first-seen order.
   std::vector<std::string> field_order;
@@ -55,7 +55,7 @@ ColumnFrame::ColumnFrame(JsonValue::object_t common,
   // null value — requires JsonColumn so the null is kept as a value).
   for (const auto& field : field_order) {
     bool any_present_null = false;
-    std::vector<JsonValue> present_values;
+    std::vector<Variant> present_values;
     for (const auto& row : items) {
       auto it = row.find(field);
       if (it == row.end()) {
@@ -136,12 +136,12 @@ std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(const ColumnFrame& pa
   return v;
 }
 
-JsonValue ColumnFrame::common(const std::string& field) const {
+Variant ColumnFrame::common(const std::string& field) const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   const auto& src = view_common_ ? *view_common_ : common_;
   auto it = src.find(field);
   if (it == src.end()) {
-    return JsonValue();
+    return Variant();
   }
   return it->second;
 }
@@ -153,7 +153,7 @@ bool ColumnFrame::has_common(const std::string& field) const {
   return it != src.end();
 }
 
-void ColumnFrame::set_common(const std::string& field, JsonValue value) {
+void ColumnFrame::set_common(const std::string& field, Variant value) {
   if (is_window_view()) {
     throw Error(
         "ColumnFrame::set_common called on window view "
@@ -179,23 +179,23 @@ std::size_t ColumnFrame::item_count() const {
   return view_items_ ? view_count_ : items_->row_count();
 }
 
-JsonValue ColumnFrame::item(std::size_t index, const std::string& field) const {
+Variant ColumnFrame::item(std::size_t index, const std::string& field) const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   const ColumnStore* store = view_items_ ? view_items_ : items_.get();
   if (view_items_) {
     if (index >= view_count_) {
-      return JsonValue();
+      return Variant();
     }
     index += view_offset_;
   } else if (index >= store->row_count()) {
-    return JsonValue();
+    return Variant();
   }
   const Column* col = store->column(field);
   if (!col) {
-    return JsonValue();
+    return Variant();
   }
   if (col->is_null(index)) {
-    return JsonValue();
+    return Variant();
   }
   return col->get(index);
 }
@@ -239,7 +239,7 @@ std::vector<std::string> ColumnFrame::take_warnings() {
   return std::move(warnings_);
 }
 
-void ColumnFrame::write_item_field_locked(std::size_t idx, const std::string& field, const JsonValue& value) {
+void ColumnFrame::write_item_field_locked(std::size_t idx, const std::string& field, const Variant& value) {
   Column* col = items_->mutate_column(field);
   if (!col) {
     // New column — start as JsonColumn so any value type (including
@@ -342,7 +342,7 @@ void ColumnFrame::apply_output(const OperatorOutput& out, const std::string& op_
         write_item_field_locked(base + i, field, value);
       }
       if (is_recall) {
-        write_item_field_locked(base + i, "_source", JsonValue(op_name));
+        write_item_field_locked(base + i, "_source", Variant(op_name));
       }
     }
   }
@@ -379,7 +379,7 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
   }
   r.items.reserve(items_->row_count());
   for (std::size_t i = 0; i < items_->row_count(); ++i) {
-    JsonValue::object_t row;
+    Variant::object_t row;
     for (const auto& field : item_out) {
       const Column* col = items_->column(field);
       if (col && col->is_present(i)) {
@@ -391,9 +391,9 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
   return r;
 }
 
-JsonValue::object_t ColumnFrame::item_object(std::size_t index) const {
+Variant::object_t ColumnFrame::item_object(std::size_t index) const {
   std::shared_lock<std::shared_mutex> lk(mu_);
-  JsonValue::object_t out;
+  Variant::object_t out;
   const ColumnStore* store = view_items_ ? view_items_ : items_.get();
   if (view_items_) {
     if (index >= view_count_) {

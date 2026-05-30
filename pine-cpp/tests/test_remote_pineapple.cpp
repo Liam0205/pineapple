@@ -128,13 +128,13 @@ pine::OperatorConfig make_cfg(int port, bool allow_private = true, bool fail_on_
   pine::OperatorConfig cfg;
   cfg.name = "remote";
   cfg.type_name = "transform_by_remote_pineapple";
-  cfg.params = pine::JsonValue(pine::JsonValue::object_t{
-      {"host", pine::JsonValue("127.0.0.1")},
-      {"port", pine::JsonValue(static_cast<double>(port))},
-      {"endpoint", pine::JsonValue("/execute")},
-      {"allow_private", pine::JsonValue(allow_private)},
-      {"fail_on_error", pine::JsonValue(fail_on_error)},
-      {"timeout", pine::JsonValue(timeout)},
+  cfg.params = pine::Variant(pine::Variant::object_t{
+      {"host", pine::Variant("127.0.0.1")},
+      {"port", pine::Variant(static_cast<double>(port))},
+      {"endpoint", pine::Variant("/execute")},
+      {"allow_private", pine::Variant(allow_private)},
+      {"fail_on_error", pine::Variant(fail_on_error)},
+      {"timeout", pine::Variant(timeout)},
   });
   cfg.metadata.common_input = {"a"};
   cfg.metadata.common_output = {"b"};
@@ -150,10 +150,10 @@ std::unique_ptr<pine::Operator> create_op() {
 }
 
 pine::ColumnFrame build_frame() {
-  pine::JsonValue::object_t common{{"a", pine::JsonValue("hello")}};
-  std::vector<pine::JsonValue::object_t> items{
-      {{"x", pine::JsonValue("v1")}},
-      {{"x", pine::JsonValue("v2")}},
+  pine::Variant::object_t common{{"a", pine::Variant("hello")}};
+  std::vector<pine::Variant::object_t> items{
+      {{"x", pine::Variant("v1")}},
+      {{"x", pine::Variant("v2")}},
   };
   return pine::ColumnFrame(std::move(common), std::move(items));
 }

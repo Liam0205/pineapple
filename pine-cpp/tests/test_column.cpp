@@ -6,7 +6,7 @@
 using namespace pine;
 
 TEST_CASE("make_column: int values -> Int64Column") {
-  std::vector<JsonValue> vs{JsonValue(1.0), JsonValue(2.0), JsonValue(3.0)};
+  std::vector<Variant> vs{Variant(1.0), Variant(2.0), Variant(3.0)};
   auto col = make_column(vs);
   CHECK(col->type() == ColumnType::Int64);
   CHECK(col->size() == 3);
@@ -15,7 +15,7 @@ TEST_CASE("make_column: int values -> Int64Column") {
 }
 
 TEST_CASE("make_column: mixed int/double widens to DoubleColumn") {
-  std::vector<JsonValue> vs{JsonValue(1.0), JsonValue(2.5)};
+  std::vector<Variant> vs{Variant(1.0), Variant(2.5)};
   auto col = make_column(vs);
   CHECK(col->type() == ColumnType::Double);
   CHECK(col->size() == 2);
@@ -23,14 +23,14 @@ TEST_CASE("make_column: mixed int/double widens to DoubleColumn") {
 }
 
 TEST_CASE("make_column: string values -> StringColumn") {
-  std::vector<JsonValue> vs{JsonValue(std::string("a")), JsonValue(std::string("b"))};
+  std::vector<Variant> vs{Variant(std::string("a")), Variant(std::string("b"))};
   auto col = make_column(vs);
   CHECK(col->type() == ColumnType::String);
   CHECK(col->get(0).as_string() == "a");
 }
 
 TEST_CASE("make_column: bool values -> BoolColumn") {
-  std::vector<JsonValue> vs{JsonValue(true), JsonValue(false)};
+  std::vector<Variant> vs{Variant(true), Variant(false)};
   auto col = make_column(vs);
   CHECK(col->type() == ColumnType::Bool);
   CHECK(col->get(0).as_bool() == true);
@@ -38,7 +38,7 @@ TEST_CASE("make_column: bool values -> BoolColumn") {
 }
 
 TEST_CASE("make_column: heterogeneous types -> JsonColumn") {
-  std::vector<JsonValue> vs{JsonValue(1.0), JsonValue(std::string("s"))};
+  std::vector<Variant> vs{Variant(1.0), Variant(std::string("s"))};
   auto col = make_column(vs);
   CHECK(col->type() == ColumnType::Json);
   CHECK(col->get(0).as_number() == 1.0);
@@ -54,7 +54,7 @@ TEST_CASE("make_column: empty -> JsonColumn size 0") {
 TEST_CASE("Column: presence bitmap distinguishes absent / present-null / present-value") {
   // {1, null, 3}: null is treated as present-null, so make_column produces
   // a JsonColumn (typed columns cannot represent present-null).
-  std::vector<JsonValue> vs{JsonValue(1.0), JsonValue(), JsonValue(3.0)};
+  std::vector<Variant> vs{Variant(1.0), Variant(), Variant(3.0)};
   auto col = make_column(vs);
   CHECK(col->type() == ColumnType::Json);
   CHECK(col->is_null(1));
@@ -69,9 +69,9 @@ TEST_CASE("Column: presence bitmap distinguishes absent / present-null / present
 
 TEST_CASE("Column: append_null marks slot ABSENT (validity=false)") {
   auto col = std::make_unique<Int64Column>();
-  REQUIRE(col->append(JsonValue(1.0)));
+  REQUIRE(col->append(Variant(1.0)));
   col->append_null();
-  REQUIRE(col->append(JsonValue(3.0)));
+  REQUIRE(col->append(Variant(3.0)));
   CHECK(col->is_present(0));
   CHECK_FALSE(col->is_present(1));
   CHECK(col->is_present(2));
@@ -80,14 +80,14 @@ TEST_CASE("Column: append_null marks slot ABSENT (validity=false)") {
 
 TEST_CASE("TypedColumn::set type-mismatch returns false (caller promotes)") {
   auto col = std::make_unique<Int64Column>(3);
-  CHECK(col->set(0, JsonValue(42.0)));
-  CHECK_FALSE(col->set(0, JsonValue(std::string("nope"))));
+  CHECK(col->set(0, Variant(42.0)));
+  CHECK_FALSE(col->set(0, Variant(std::string("nope"))));
 }
 
 TEST_CASE("Column::append + remove + reorder") {
-  std::vector<JsonValue> vs{JsonValue(10.0), JsonValue(20.0), JsonValue(30.0)};
+  std::vector<Variant> vs{Variant(10.0), Variant(20.0), Variant(30.0)};
   auto col = make_column(vs);
-  REQUIRE(col->append(JsonValue(40.0)));
+  REQUIRE(col->append(Variant(40.0)));
   CHECK(col->size() == 4);
 
   col->remove({1});  // drop 20.0
@@ -101,10 +101,10 @@ TEST_CASE("Column::append + remove + reorder") {
 }
 
 TEST_CASE("Column::clone produces independent copy") {
-  std::vector<JsonValue> vs{JsonValue(1.0), JsonValue(2.0)};
+  std::vector<Variant> vs{Variant(1.0), Variant(2.0)};
   auto col = make_column(vs);
   auto copy = col->clone();
-  REQUIRE(copy->set(0, JsonValue(99.0)));
+  REQUIRE(copy->set(0, Variant(99.0)));
   CHECK(col->get(0).as_number() == 1.0);
   CHECK(copy->get(0).as_number() == 99.0);
 }
@@ -113,9 +113,9 @@ TEST_CASE("Column::to_json_column promotes typed -> Json preserving values + nul
   // Build an Int64Column with [1, ABSENT, 3] (via append + append_null)
   // and verify promotion to JsonColumn preserves presence semantics.
   auto typed = std::make_unique<Int64Column>();
-  REQUIRE(typed->append(JsonValue(1.0)));
+  REQUIRE(typed->append(Variant(1.0)));
   typed->append_null();
-  REQUIRE(typed->append(JsonValue(3.0)));
+  REQUIRE(typed->append(Variant(3.0)));
   REQUIRE(typed->type() == ColumnType::Int64);
   auto json_col = typed->to_json_column();
   CHECK(json_col->type() == ColumnType::Json);
@@ -127,10 +127,10 @@ TEST_CASE("Column::to_json_column promotes typed -> Json preserving values + nul
 
 TEST_CASE("JsonColumn accepts arbitrary types") {
   JsonColumn col;
-  REQUIRE(col.append(JsonValue(1.0)));
-  REQUIRE(col.append(JsonValue(std::string("s"))));
-  REQUIRE(col.append(JsonValue(true)));
-  REQUIRE(col.append(JsonValue()));
+  REQUIRE(col.append(Variant(1.0)));
+  REQUIRE(col.append(Variant(std::string("s"))));
+  REQUIRE(col.append(Variant(true)));
+  REQUIRE(col.append(Variant()));
   CHECK(col.size() == 4);
   CHECK(col.get(0).as_number() == 1.0);
   CHECK(col.get(1).as_string() == "s");
@@ -144,7 +144,7 @@ TEST_CASE("TypedColumnStore::remove_rows rejects OOB indices") {
   // but the store surface is reachable from other callers and must
   // self-defend.
   pine::TypedColumnStore store(3);
-  std::vector<pine::JsonValue> vs{pine::JsonValue(1.0), pine::JsonValue(2.0), pine::JsonValue(3.0)};
+  std::vector<pine::Variant> vs{pine::Variant(1.0), pine::Variant(2.0), pine::Variant(3.0)};
   store.set_column("x", pine::make_column(vs));
 
   CHECK_THROWS_AS(store.remove_rows({3}), std::invalid_argument);

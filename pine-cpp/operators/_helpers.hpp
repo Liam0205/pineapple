@@ -18,18 +18,18 @@ class OperatorError : public std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
-double to_double(const JsonValue& value);
+double to_double(const Variant& value);
 
-// json_type_name returns the Go-reflect-style type name for a JsonValue.
+// json_type_name returns the Go-reflect-style type name for a Variant.
 // Used in operator error messages to mirror Go's `%T` output (e.g.
 // `[]interface {}` and `map[string]interface {}`). Consolidation —
 // previously each operator that needed this had a private copy that
 // returned the C++-native form (`array` / `object`), creating two
 // inconsistent vocabularies in the same codebase.
-std::string json_type_name(const JsonValue& value);
+std::string json_type_name(const Variant& value);
 
-JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field);
-JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t index,
+Variant require_common(const Frame& frame, const OperatorConfig& op, const std::string& field);
+Variant require_item(const Frame& frame, const OperatorConfig& op, std::size_t index,
                        const std::string& field);
 
 // Variants that take the operator name + defaults map directly. Operators
@@ -37,10 +37,10 @@ JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t
 // (transform_copy, transform_normalize, reorder_sort, ...) used to keep a
 // per-class copy of these helpers; consolidated to one place so future
 // error-message tweaks land once.
-JsonValue require_common_by_name(const Frame& frame, const std::map<std::string, JsonValue>& defaults,
+Variant require_common_by_name(const Frame& frame, const std::map<std::string, Variant>& defaults,
                                  const std::string& field);
-JsonValue require_item_by_name(const Frame& frame, std::size_t index,
-                               const std::map<std::string, JsonValue>& defaults, const std::string& field);
+Variant require_item_by_name(const Frame& frame, std::size_t index,
+                               const std::map<std::string, Variant>& defaults, const std::string& field);
 
 std::string go_format_g(double d);
 // go_format_lookup_key mirrors pine-go transform/resource_lookup.go:91-96:
@@ -49,12 +49,12 @@ std::string go_format_g(double d);
 // transform_resource_lookup uses this for table keys so `1e-5` (lookup
 // value) matches the `0.00001` key form pine-go produces.
 std::string go_format_lookup_key(double d);
-std::string sprint_value(const JsonValue& v);
-std::string any_to_string(const JsonValue& v);
-std::string dedup_key(const JsonValue& v);
+std::string sprint_value(const Variant& v);
+std::string any_to_string(const Variant& v);
+std::string dedup_key(const Variant& v);
 std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields);
 std::string build_key_suffix(const OperatorInput& input, const std::vector<std::string>& fields);
-std::vector<std::string> json_to_string_slice(const JsonValue& v);
+std::vector<std::string> json_to_string_slice(const Variant& v);
 
 struct RedisParams {
   std::string host;

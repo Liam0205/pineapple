@@ -146,33 +146,33 @@ std::string export_schema_json() {
   auto names = registered_operator_names();
   std::sort(names.begin(), names.end());
 
-  JsonValue::array_t arr;
+  Variant::array_t arr;
   for (const auto& name : names) {
     const auto* entry = registry_entry(name);
     if (!entry) {
       continue;
     }
     const auto& schema = entry->schema;
-    JsonValue::object_t obj;
-    obj["Name"] = JsonValue(schema.name);
-    obj["Type"] = JsonValue(op_type_to_schema_string(schema.type));
-    obj["Description"] = JsonValue(schema.description);
+    Variant::object_t obj;
+    obj["Name"] = Variant(schema.name);
+    obj["Type"] = Variant(op_type_to_schema_string(schema.type));
+    obj["Description"] = Variant(schema.description);
 
-    JsonValue::object_t params_obj;
+    Variant::object_t params_obj;
     for (const auto& [pname, pschema] : schema.params) {
-      JsonValue::object_t param;
-      param["Type"] = JsonValue(pschema.type);
-      param["Required"] = JsonValue(pschema.required);
+      Variant::object_t param;
+      param["Type"] = Variant(pschema.type);
+      param["Required"] = Variant(pschema.required);
       param["Default"] = pschema.default_value;
-      param["Description"] = JsonValue(pschema.description);
-      params_obj[pname] = JsonValue(param);
+      param["Description"] = Variant(pschema.description);
+      params_obj[pname] = Variant(param);
     }
-    obj["Params"] = JsonValue(params_obj);
+    obj["Params"] = Variant(params_obj);
 
-    arr.push_back(JsonValue(obj));
+    arr.push_back(Variant(obj));
   }
 
-  return dump_json(JsonValue(arr));
+  return dump_json(Variant(arr));
 }
 
 }  // namespace pine

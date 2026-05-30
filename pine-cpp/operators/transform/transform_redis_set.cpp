@@ -29,7 +29,7 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe {
     }
 
     std::string key = rp_.key_prefix + operators::build_key_suffix(input, key_fields_);
-    JsonValue value = input.common(value_field_);
+    Variant value = input.common(value_field_);
 
     // Borrow from the shared pool. See transform_redis_get for
     // pool semantics; same RAII guard pattern.
@@ -118,38 +118,38 @@ static const OperatorSchema k_transform_redis_set_schema{
             {"data_type",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue("string"),
+              .default_value = Variant("string"),
               .description = "Redis data type: \"set\", \"string\", or \"list\"."}},
             {"fail_on_error",
              {.type = "bool",
               .required = false,
-              .default_value = JsonValue(false),
+              .default_value = Variant(false),
               .description =
                   "Return fatal error on Redis infrastructure failure instead of logging and continuing."}},
             {"key_prefix",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Key prefix prepended to the suffix built from common_input fields."}},
             {"redis_addr",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Redis server address (host:port)."}},
             {"redis_db",
              {.type = "int",
               .required = false,
-              .default_value = JsonValue(0.0),
+              .default_value = Variant(0.0),
               .description = "Redis DB number."}},
             {"redis_password",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue(""),
+              .default_value = Variant(""),
               .description = "Redis password."}},
             {"ttl",
              {.type = "int",
               .required = false,
-              .default_value = JsonValue(0.0),
+              .default_value = Variant(0.0),
               .description = "TTL in seconds. 0 means no expiry."}},
         },
 };

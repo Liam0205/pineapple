@@ -147,25 +147,25 @@ class PanicError : public Error, public std::nested_exception {
   std::string stack_;  // empty when std::stacktrace unavailable at link time
 };
 
-class JsonValue;
-using JsonObject = FlatMap<JsonValue>;
-using JsonArray = std::vector<JsonValue>;
+class Variant;
+using Object = FlatMap<Variant>;
+using Array = std::vector<Variant>;
 
-class JsonValue {
+class Variant {
  public:
-  using object_t = JsonObject;
-  using array_t = JsonArray;
+  using object_t = Object;
+  using array_t = Array;
   using value_t = std::variant<std::nullptr_t, bool, double, std::string, array_t, object_t>;
 
-  JsonValue();
-  JsonValue(std::nullptr_t);
-  JsonValue(bool value);
-  JsonValue(double value);
-  JsonValue(int value);
-  JsonValue(std::string value);
-  JsonValue(const char* value);
-  JsonValue(array_t value);
-  JsonValue(object_t value);
+  Variant();
+  Variant(std::nullptr_t);
+  Variant(bool value);
+  Variant(double value);
+  Variant(int value);
+  Variant(std::string value);
+  Variant(const char* value);
+  Variant(array_t value);
+  Variant(object_t value);
 
   bool is_null() const;
   bool is_bool() const;
@@ -184,15 +184,15 @@ class JsonValue {
 
   bool truthy() const;
 
-  const JsonValue* find(const std::string& key) const;
-  JsonValue* find(const std::string& key);
+  const Variant* find(const std::string& key) const;
+  Variant* find(const std::string& key);
 
  private:
   value_t value_;
 };
 
-JsonValue parse_json(const std::string& text);
-std::string dump_json(const JsonValue& value, int indent = 2);
+Variant parse_json(const std::string& text);
+std::string dump_json(const Variant& value, int indent = 2);
 
 struct Metadata {
   std::vector<std::string> common_input;
@@ -213,12 +213,12 @@ struct OperatorConfig {
   bool concurrent_safe = false;
   std::optional<bool> debug;
   bool for_branch_control = false;
-  std::map<std::string, JsonValue> common_defaults;
-  std::map<std::string, JsonValue> item_defaults;
+  std::map<std::string, Variant> common_defaults;
+  std::map<std::string, Variant> item_defaults;
   std::vector<std::string> strict_common;
   std::vector<std::string> strict_item;
   std::vector<std::string> sources;
-  JsonValue params;
+  Variant params;
   std::string operator_type;
   int data_parallel = 0;
 };
@@ -228,7 +228,7 @@ struct OperatorConfig {
 // load time from metadata + defaults maps.
 struct DefaultedField {
   std::string name;
-  JsonValue default_value;
+  Variant default_value;
 };
 
 struct InputFieldSpec {
@@ -258,7 +258,7 @@ struct FlowContract {
 struct ResourceEntry {
   std::string type;
   int interval = 0;  // seconds
-  JsonValue params;  // arbitrary object passed to the fetcher factory
+  Variant params;  // arbitrary object passed to the fetcher factory
 };
 
 struct Config {
@@ -293,7 +293,7 @@ ExpandedSequence expand_operator_sequence_with_subflows(const Config& config);
 struct ParamSchema {
   std::string type;
   bool required = false;
-  JsonValue default_value;  // null means no default
+  Variant default_value;  // null means no default
   std::string description;
 };
 
@@ -320,13 +320,13 @@ std::string render_collapsed_dot(const Graph& graph, int level);
 std::string render_collapsed_mermaid(const Graph& graph, int level);
 
 struct Request {
-  JsonValue::object_t common;
-  std::vector<JsonValue::object_t> items;
+  Variant::object_t common;
+  std::vector<Variant::object_t> items;
 };
 
 struct Result {
-  JsonValue::object_t common;
-  std::vector<JsonValue::object_t> items;
+  Variant::object_t common;
+  std::vector<Variant::object_t> items;
 };
 
 // OperatorOutput collects writes from an operator, applied to the DataFrame by
@@ -340,28 +340,28 @@ class OperatorOutput {
 
   // ItemWrite is a single (index, field, value) log entry. set_item()
   // appends; apply_output replays in order (last write wins per cell).
-  // Replaces the old nested map<int, map<string, JsonValue>> which paid
+  // Replaces the old nested map<int, map<string, Variant>> which paid
   // two tree-node allocations per write.
   struct ItemWrite {
     int index;
     std::string field;
-    JsonValue value;
+    Variant value;
   };
 
-  void set_common(const std::string& field, JsonValue value);
-  void set_item(int index, const std::string& field, JsonValue value);
-  void add_item(JsonValue::object_t fields);
+  void set_common(const std::string& field, Variant value);
+  void set_item(int index, const std::string& field, Variant value);
+  void add_item(Variant::object_t fields);
   void remove_item(int index);
   void set_item_order(std::vector<int> order);
   void set_warning(std::string msg);  // first warning wins
 
-  const JsonValue::object_t& common_writes() const {
+  const Variant::object_t& common_writes() const {
     return common_writes_;
   }
   const std::vector<ItemWrite>& item_writes() const {
     return item_writes_;
   }
-  const std::vector<JsonValue::object_t>& added_items() const {
+  const std::vector<Variant::object_t>& added_items() const {
     return added_items_;
   }
   const std::set<int>& removed_items() const {
@@ -381,9 +381,9 @@ class OperatorOutput {
   }
 
  private:
-  JsonValue::object_t common_writes_;
+  Variant::object_t common_writes_;
   std::vector<ItemWrite> item_writes_;
-  std::vector<JsonValue::object_t> added_items_;
+  std::vector<Variant::object_t> added_items_;
   std::set<int> removed_items_;
   std::vector<int> item_order_;
   bool has_item_order_ = false;
@@ -397,9 +397,9 @@ struct OpTrace {
   int64_t duration_us = 0;
   bool skipped = false;
   bool has_input_snapshot = false;
-  JsonValue input_snapshot;  // object {common?, items?}
+  Variant input_snapshot;  // object {common?, items?}
   bool has_output_snapshot = false;
-  JsonValue output_snapshot;  // object {common_writes?, item_writes?, added_items?, removed_items?}
+  Variant output_snapshot;  // object {common_writes?, item_writes?, added_items?, removed_items?}
 };
 
 struct TracedResult {
@@ -460,21 +460,21 @@ class Engine {
   static Engine from_file(const std::string& path, EngineOptions options);
 
   Result execute(const Request& request) const;
-  Result execute(const Request& request, const std::map<std::string, JsonValue>& resources) const;
+  Result execute(const Request& request, const std::map<std::string, Variant>& resources) const;
   // Cancellable variant: external_cancel.request_stop() (typically called
   // from a different thread when the client disconnects) interrupts any
   // cv.wait inside the DAG scheduler and aborts the run. Mirrors pine-go
   // Execute(ctx, req) where ctx.Done() is watched at every wait.
-  Result execute(const Request& request, const std::map<std::string, JsonValue>& resources,
+  Result execute(const Request& request, const std::map<std::string, Variant>& resources,
                  std::stop_token external_cancel) const;
   TracedResult execute_traced(const Request& request,
-                              const std::map<std::string, JsonValue>& resources) const;
+                              const std::map<std::string, Variant>& resources) const;
   // Variant of execute_traced that writes the partial result/trace/warnings
   // into *out before re-throwing any execution error. Mirrors pine-go's
   // (*Result, error) return contract where partial results survive errors.
-  void execute_traced_into(const Request& request, const std::map<std::string, JsonValue>& resources,
+  void execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
                            TracedResult* out) const;
-  void execute_traced_into(const Request& request, const std::map<std::string, JsonValue>& resources,
+  void execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
                            TracedResult* out, std::stop_token external_cancel) const;
   std::string render_dag(const std::string& format, int collapse = 0) const;
 

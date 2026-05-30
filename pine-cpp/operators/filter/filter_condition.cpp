@@ -18,7 +18,7 @@ class FilterConditionOp : public Operator, public ConsumesRowSet, public Mutates
   }
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     for (std::size_t i = 0; i < input.item_count(); ++i) {
-      JsonValue fv = input.item(i, field_);
+      Variant fv = input.item(i, field_);
       if (operators::sprint_value(fv) == target_) {
         out.remove_item(static_cast<int>(i));
       }
@@ -40,7 +40,7 @@ static const OperatorSchema k_filter_condition_schema{
             {"value",
              {.type = "any",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Items where field == value are removed."}},
         },
 };

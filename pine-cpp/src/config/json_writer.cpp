@@ -6,7 +6,7 @@
 
 namespace pine {
 
-std::string dump_json_fast(const JsonValue& value, int indent) {
+std::string dump_json_fast(const Variant& value, int indent) {
   rapidjson::StringBuffer sb;
   sb.Reserve(4096);
   if (indent == 0) {
@@ -21,7 +21,7 @@ std::string dump_json_fast(const JsonValue& value, int indent) {
   return std::string(sb.GetString(), sb.GetSize());
 }
 
-std::string result_common_to_json(const JsonValue::object_t& common) {
+std::string result_common_to_json(const Variant::object_t& common) {
   rapidjson::StringBuffer sb;
   sb.Reserve(512);
   rapidjson::Writer<rapidjson::StringBuffer> w(sb);
@@ -41,7 +41,7 @@ std::string result_common_to_json(const JsonValue::object_t& common) {
   return std::string(sb.GetString(), sb.GetSize());
 }
 
-std::string result_items_to_json(const std::vector<JsonValue::object_t>& items) {
+std::string result_items_to_json(const std::vector<Variant::object_t>& items) {
   rapidjson::StringBuffer sb;
   sb.Reserve(items.size() * 128 + 2);
   rapidjson::Writer<rapidjson::StringBuffer> w(sb);

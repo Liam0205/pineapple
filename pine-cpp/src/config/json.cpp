@@ -12,94 +12,94 @@
 
 namespace pine {
 
-JsonValue::JsonValue() : value_(nullptr) {
+Variant::Variant() : value_(nullptr) {
 }
-JsonValue::JsonValue(std::nullptr_t) : value_(nullptr) {
+Variant::Variant(std::nullptr_t) : value_(nullptr) {
 }
-JsonValue::JsonValue(bool value) : value_(value) {
+Variant::Variant(bool value) : value_(value) {
 }
-JsonValue::JsonValue(double value) : value_(value) {
+Variant::Variant(double value) : value_(value) {
 }
-JsonValue::JsonValue(int value) : value_(static_cast<double>(value)) {
+Variant::Variant(int value) : value_(static_cast<double>(value)) {
 }
-JsonValue::JsonValue(std::string value) : value_(std::move(value)) {
+Variant::Variant(std::string value) : value_(std::move(value)) {
 }
-JsonValue::JsonValue(const char* value) : value_(std::string(value)) {
+Variant::Variant(const char* value) : value_(std::string(value)) {
 }
-JsonValue::JsonValue(array_t value) : value_(std::move(value)) {
+Variant::Variant(array_t value) : value_(std::move(value)) {
 }
-JsonValue::JsonValue(object_t value) : value_(std::move(value)) {
+Variant::Variant(object_t value) : value_(std::move(value)) {
 }
 
-bool JsonValue::is_null() const {
+bool Variant::is_null() const {
   return std::holds_alternative<std::nullptr_t>(value_);
 }
-bool JsonValue::is_bool() const {
+bool Variant::is_bool() const {
   return std::holds_alternative<bool>(value_);
 }
-bool JsonValue::is_number() const {
+bool Variant::is_number() const {
   return std::holds_alternative<double>(value_);
 }
-bool JsonValue::is_string() const {
+bool Variant::is_string() const {
   return std::holds_alternative<std::string>(value_);
 }
-bool JsonValue::is_array() const {
+bool Variant::is_array() const {
   return std::holds_alternative<array_t>(value_);
 }
-bool JsonValue::is_object() const {
+bool Variant::is_object() const {
   return std::holds_alternative<object_t>(value_);
 }
 
-bool JsonValue::as_bool() const {
+bool Variant::as_bool() const {
   if (!is_bool()) {
     throw ConfigError("JSON value is not bool");
   }
   return std::get<bool>(value_);
 }
 
-double JsonValue::as_number() const {
+double Variant::as_number() const {
   if (!is_number()) {
     throw ConfigError("JSON value is not number");
   }
   return std::get<double>(value_);
 }
 
-const std::string& JsonValue::as_string() const {
+const std::string& Variant::as_string() const {
   if (!is_string()) {
     throw ConfigError("JSON value is not string");
   }
   return std::get<std::string>(value_);
 }
 
-const JsonValue::array_t& JsonValue::as_array() const {
+const Variant::array_t& Variant::as_array() const {
   if (!is_array()) {
     throw ConfigError("JSON value is not array");
   }
   return std::get<array_t>(value_);
 }
 
-const JsonValue::object_t& JsonValue::as_object() const {
+const Variant::object_t& Variant::as_object() const {
   if (!is_object()) {
     throw ConfigError("JSON value is not object");
   }
   return std::get<object_t>(value_);
 }
 
-JsonValue::array_t& JsonValue::as_array() {
+Variant::array_t& Variant::as_array() {
   if (!is_array()) {
     throw ConfigError("JSON value is not array");
   }
   return std::get<array_t>(value_);
 }
 
-JsonValue::object_t& JsonValue::as_object() {
+Variant::object_t& Variant::as_object() {
   if (!is_object()) {
     throw ConfigError("JSON value is not object");
   }
   return std::get<object_t>(value_);
 }
 
-bool JsonValue::truthy() const {
+bool Variant::truthy() const {
   if (is_null()) {
     return false;
   }
@@ -109,7 +109,7 @@ bool JsonValue::truthy() const {
   return true;
 }
 
-const JsonValue* JsonValue::find(const std::string& key) const {
+const Variant* Variant::find(const std::string& key) const {
   if (!is_object()) {
     return nullptr;
   }
@@ -118,7 +118,7 @@ const JsonValue* JsonValue::find(const std::string& key) const {
   return it == obj.end() ? nullptr : &it->second;
 }
 
-JsonValue* JsonValue::find(const std::string& key) {
+Variant* Variant::find(const std::string& key) {
   if (!is_object()) {
     return nullptr;
   }
@@ -134,9 +134,9 @@ class Parser {
   explicit Parser(const std::string& text) : text_(text) {
   }
 
-  JsonValue parse() {
+  Variant parse() {
     skip_ws();
-    JsonValue value = parse_value();
+    Variant value = parse_value();
     skip_ws();
     if (pos_ != text_.size()) {
       throw ConfigError("failed to parse config JSON: trailing characters");
@@ -176,7 +176,7 @@ class Parser {
     pos_ += token.size();
   }
 
-  JsonValue parse_value() {
+  Variant parse_value() {
     skip_ws();
     char ch = peek();
     if (ch == '{') {
@@ -186,29 +186,29 @@ class Parser {
       return parse_array();
     }
     if (ch == '"') {
-      return JsonValue(parse_string());
+      return Variant(parse_string());
     }
     if (ch == 't') {
       expect("true");
-      return JsonValue(true);
+      return Variant(true);
     }
     if (ch == 'f') {
       expect("false");
-      return JsonValue(false);
+      return Variant(false);
     }
     if (ch == 'n') {
       expect("null");
-      return JsonValue(nullptr);
+      return Variant(nullptr);
     }
-    return JsonValue(parse_number());
+    return Variant(parse_number());
   }
 
-  JsonValue parse_object() {
+  Variant parse_object() {
     consume('{');
-    JsonValue::object_t object;
+    Variant::object_t object;
     skip_ws();
     if (consume('}')) {
-      return JsonValue(object);
+      return Variant(object);
     }
     while (true) {
       skip_ws();
@@ -227,15 +227,15 @@ class Parser {
         throw ConfigError("failed to parse config JSON: expected ','");
       }
     }
-    return JsonValue(object);
+    return Variant(object);
   }
 
-  JsonValue parse_array() {
+  Variant parse_array() {
     consume('[');
-    JsonValue::array_t array;
+    Variant::array_t array;
     skip_ws();
     if (consume(']')) {
-      return JsonValue(array);
+      return Variant(array);
     }
     while (true) {
       skip_ws();
@@ -248,7 +248,7 @@ class Parser {
         throw ConfigError("failed to parse config JSON: expected ','");
       }
     }
-    return JsonValue(array);
+    return Variant(array);
   }
 
   std::string parse_string() {
@@ -413,7 +413,7 @@ namespace {
 // buffers on deeply nested values. Threading the output `std::string&`
 // through the recursion eliminates those temporaries — each character is
 // appended exactly once into the caller's buffer.
-void dump_impl(const JsonValue& value, int indent_size, int depth, std::string& out) {
+void dump_impl(const Variant& value, int indent_size, int depth, std::string& out) {
   if (value.is_null()) {
     out += "null";
     return;
@@ -547,10 +547,10 @@ void dump_impl(const JsonValue& value, int indent_size, int depth, std::string& 
 
 }  // namespace
 
-JsonValue parse_json(const std::string& text) {
+Variant parse_json(const std::string& text) {
   return Parser(text).parse();
 }
-std::string dump_json(const JsonValue& value, int indent) {
+std::string dump_json(const Variant& value, int indent) {
   return dump_json_fast(value, indent);
 }
 

@@ -11,7 +11,7 @@ class TransformSizeOp : public Operator, public ConsumesRowSet, public Concurren
     out_field_ = cfg.metadata.common_output.at(0);
   }
   void execute(const OperatorInput& input, OperatorOutput& out) override {
-    out.set_common(out_field_, JsonValue(static_cast<double>(input.item_count())));
+    out.set_common(out_field_, Variant(static_cast<double>(input.item_count())));
   }
 
  private:

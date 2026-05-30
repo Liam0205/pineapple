@@ -26,14 +26,14 @@ class OperatorInput {
 
   // common returns the value for the given field, or null if absent.
   // Substitutes defaults for nil values.
-  JsonValue common(const std::string& field) const;
+  Variant common(const std::string& field) const;
 
   // item_count returns the number of items.
   std::size_t item_count() const { return cached_item_count_; }
 
   // item returns the value for (index, field), or null if absent.
   // Substitutes defaults for nil values.
-  JsonValue item(std::size_t index, const std::string& field) const;
+  Variant item(std::size_t index, const std::string& field) const;
 
   // common_keys returns all common field names present in the spec.
   std::vector<std::string> common_keys() const;
@@ -42,7 +42,7 @@ class OperatorInput {
   std::vector<std::string> item_keys(std::size_t index) const;
 
   // resources returns the injected resource map (may be nullptr).
-  const std::map<std::string, JsonValue>* resources() const;
+  const std::map<std::string, Variant>* resources() const;
 
  private:
   const Frame* frame_;

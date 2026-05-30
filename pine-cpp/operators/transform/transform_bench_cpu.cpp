@@ -44,7 +44,7 @@ class TransformBenchCpuOp : public Operator, public ConcurrentSafe {
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       double result = cpu_work(iterations_);
-      out.set_item(static_cast<int>(i), "_bench_result", JsonValue(result));
+      out.set_item(static_cast<int>(i), "_bench_result", Variant(result));
     }
   }
 
@@ -62,7 +62,7 @@ static const OperatorSchema k_transform_bench_cpu_schema{
             {"iterations",
              {.type = "int",
               .required = false,
-              .default_value = JsonValue(100.0),
+              .default_value = Variant(100.0),
               .description = "Number of fib(32) computations per item."}},
         },
 };

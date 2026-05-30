@@ -49,11 +49,11 @@ constexpr const char* kParallelConfig = R"({
 
 Request make_request(const std::vector<std::string>& ids, const std::string& tag, const std::string& scene) {
   Request req;
-  req.common["tag"] = JsonValue(tag);
-  req.common["scene"] = JsonValue(scene);
+  req.common["tag"] = Variant(tag);
+  req.common["scene"] = Variant(scene);
   for (const auto& id : ids) {
-    JsonValue::object_t row;
-    row["id"] = JsonValue(id);
+    Variant::object_t row;
+    row["id"] = Variant(id);
     req.items.push_back(std::move(row));
   }
   return req;
@@ -103,7 +103,7 @@ TEST_CASE("parallel_execute: zero items passthrough is safe") {
 
 TEST_CASE("parallel_execute: traced execution still records one entry per operator") {
   Engine engine(load_config_from_json(kParallelConfig));
-  std::map<std::string, JsonValue> resources;
+  std::map<std::string, Variant> resources;
   auto traced = engine.execute_traced(make_request({"a", "b", "c", "d", "e", "f"}, "x", "y"), resources);
   REQUIRE(traced.trace.size() == 2);
   CHECK(traced.trace[0].name == "copy_tag");

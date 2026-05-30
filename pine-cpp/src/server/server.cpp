@@ -362,8 +362,8 @@ std::string json_escape(const std::string& s) {
   return out;
 }
 
-// Convert a JsonValue to its JSON string representation.
-std::string jsonvalue_to_string(const JsonValue& v) {
+// Convert a Variant to its JSON string representation.
+std::string jsonvalue_to_string(const Variant& v) {
   if (v.is_null()) {
     return "null";
   }
@@ -502,7 +502,7 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
   }
 
   // Parse JSON
-  JsonValue json;
+  Variant json;
   try {
     json = parse_json(body);
   } catch (const std::exception& e) {
@@ -566,7 +566,7 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
     return_trace = trace_it->second.as_bool();
   }
 
-  // Execute with per-request arena allocation. All JsonValue containers
+  // Execute with per-request arena allocation. All Variant containers
   // (object_t, array_t) allocated during execute + serialization use
   // bump-pointer allocation; the entire arena is freed at scope exit.
   std::string response;
@@ -646,7 +646,7 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
   if (exec_result.has_error) {
     status = exec_result.is_validation_error ? 400 : 500;
   }
-  }  // arena scope ends — all arena-allocated JsonValues freed
+  }  // arena scope ends — all arena-allocated Variants freed
 
   send_json(client_fd, status, response);
 }
@@ -835,7 +835,7 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
 
   try {
     TracedResult traced;
-    std::map<std::string, JsonValue> res_snap;
+    std::map<std::string, Variant> res_snap;
     if (resource_manager_) {
       res_snap = resource_manager_->snapshot();
     }

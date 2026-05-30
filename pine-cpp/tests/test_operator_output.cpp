@@ -6,8 +6,8 @@ using namespace pine;
 
 TEST_CASE("OperatorOutput: set_common collects field writes") {
   OperatorOutput out;
-  out.set_common("a", JsonValue(std::string("v1")));
-  out.set_common("b", JsonValue(2.0));
+  out.set_common("a", Variant(std::string("v1")));
+  out.set_common("b", Variant(2.0));
   CHECK(out.common_writes().size() == 2);
   CHECK(out.common_writes().at("a").as_string() == "v1");
   CHECK(out.common_writes().at("b").as_number() == 2.0);
@@ -15,9 +15,9 @@ TEST_CASE("OperatorOutput: set_common collects field writes") {
 
 TEST_CASE("OperatorOutput: set_item collects ordered (idx, field, value) log") {
   OperatorOutput out;
-  out.set_item(0, "x", JsonValue(std::string("hello")));
-  out.set_item(0, "y", JsonValue(true));
-  out.set_item(2, "x", JsonValue(std::string("world")));
+  out.set_item(0, "x", Variant(std::string("hello")));
+  out.set_item(0, "y", Variant(true));
+  out.set_item(2, "x", Variant(std::string("world")));
   REQUIRE(out.item_writes().size() == 3);
   CHECK(out.item_writes()[0].index == 0);
   CHECK(out.item_writes()[0].field == "x");
@@ -32,10 +32,10 @@ TEST_CASE("OperatorOutput: set_item collects ordered (idx, field, value) log") {
 
 TEST_CASE("OperatorOutput: add_item appends rows") {
   OperatorOutput out;
-  JsonValue::object_t r1;
-  r1["id"] = JsonValue(std::string("a"));
+  Variant::object_t r1;
+  r1["id"] = Variant(std::string("a"));
   out.add_item(r1);
-  out.add_item({{"id", JsonValue(std::string("b"))}});
+  out.add_item({{"id", Variant(std::string("b"))}});
   REQUIRE(out.added_items().size() == 2);
   CHECK(out.added_items()[0].at("id").as_string() == "a");
   CHECK(out.added_items()[1].at("id").as_string() == "b");
