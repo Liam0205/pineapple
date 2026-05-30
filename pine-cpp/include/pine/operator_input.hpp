@@ -29,7 +29,9 @@ class OperatorInput {
   Variant common(const std::string& field) const;
 
   // item_count returns the number of items.
-  std::size_t item_count() const { return cached_item_count_; }
+  std::size_t item_count() const {
+    return cached_item_count_;
+  }
 
   // item returns the value for (index, field), or null if absent.
   // Substitutes defaults for nil values.

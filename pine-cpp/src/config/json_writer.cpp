@@ -30,8 +30,7 @@ std::string result_common_to_json(const Variant::object_t& common) {
   for (const auto& [k, _] : common) {
     keys.push_back(&k);
   }
-  std::sort(keys.begin(), keys.end(),
-            [](const std::string* a, const std::string* b) { return *a < *b; });
+  std::sort(keys.begin(), keys.end(), [](const std::string* a, const std::string* b) { return *a < *b; });
   w.StartObject();
   for (const auto* key : keys) {
     w.Key(key->c_str(), static_cast<rapidjson::SizeType>(key->size()));
@@ -52,8 +51,7 @@ std::string result_items_to_json(const std::vector<Variant::object_t>& items) {
     for (const auto& [k, _] : row) {
       keys.push_back(&k);
     }
-    std::sort(keys.begin(), keys.end(),
-              [](const std::string* a, const std::string* b) { return *a < *b; });
+    std::sort(keys.begin(), keys.end(), [](const std::string* a, const std::string* b) { return *a < *b; });
     w.StartObject();
     for (const auto* key : keys) {
       w.Key(key->c_str(), static_cast<rapidjson::SizeType>(key->size()));

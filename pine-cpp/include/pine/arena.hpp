@@ -16,8 +16,8 @@ namespace detail {
 // Individual threads grab chunks from here and sub-allocate locally (lock-free).
 class CentralArena {
  public:
-  explicit CentralArena(std::size_t initial_size)
-      : mono_(initial_size, std::pmr::new_delete_resource()) {}
+  explicit CentralArena(std::size_t initial_size) : mono_(initial_size, std::pmr::new_delete_resource()) {
+  }
 
   void* allocate(std::size_t bytes, std::size_t alignment) {
     std::lock_guard<std::mutex> lk(mu_);
@@ -35,7 +35,8 @@ class CentralArena {
 // Deallocation is a no-op (arena pattern).
 class ThreadLocalBump final : public std::pmr::memory_resource {
  public:
-  explicit ThreadLocalBump(CentralArena* central) : central_(central) {}
+  explicit ThreadLocalBump(CentralArena* central) : central_(central) {
+  }
 
  protected:
   void* do_allocate(std::size_t bytes, std::size_t alignment) override {
@@ -61,7 +62,8 @@ class ThreadLocalBump final : public std::pmr::memory_resource {
     return ptr;
   }
 
-  void do_deallocate(void*, std::size_t, std::size_t) noexcept override {}
+  void do_deallocate(void*, std::size_t, std::size_t) noexcept override {
+  }
 
   bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
     return this == &other;
@@ -102,7 +104,8 @@ class ArenaAllocator {
 
   ArenaAllocator() noexcept = default;
   template <typename U>
-  ArenaAllocator(const ArenaAllocator<U>&) noexcept {}
+  ArenaAllocator(const ArenaAllocator<U>&) noexcept {
+  }
 
   T* allocate(std::size_t n) {
     return static_cast<T*>(detail::tl_resource->allocate(n * sizeof(T), alignof(T)));
@@ -127,7 +130,9 @@ class ScopedInstall {
       : bump_(central), prev_(detail::tl_resource) {
     detail::tl_resource = &bump_;
   }
-  ~ScopedInstall() { detail::tl_resource = prev_; }
+  ~ScopedInstall() {
+    detail::tl_resource = prev_;
+  }
   ScopedInstall(const ScopedInstall&) = delete;
   ScopedInstall& operator=(const ScopedInstall&) = delete;
 
@@ -152,7 +157,10 @@ class ScopedInstall {
 class RequestArena {
  public:
   explicit RequestArena(std::size_t initial_size = 256 * 1024)
-      : central_(initial_size), bump_(&central_), prev_(detail::tl_resource), prev_central_(detail::tl_central) {
+      : central_(initial_size),
+        bump_(&central_),
+        prev_(detail::tl_resource),
+        prev_central_(detail::tl_central) {
     detail::tl_resource = &bump_;
     detail::tl_central = &central_;
   }
@@ -165,7 +173,9 @@ class RequestArena {
   RequestArena(const RequestArena&) = delete;
   RequestArena& operator=(const RequestArena&) = delete;
 
-  detail::CentralArena* central() noexcept { return &central_; }
+  detail::CentralArena* central() noexcept {
+    return &central_;
+  }
 
  private:
   detail::CentralArena central_;

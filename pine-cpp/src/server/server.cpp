@@ -1,6 +1,5 @@
 #include "server/server.hpp"
 
-#include "config/json_writer.hpp"
 #include "pine/resource.hpp"
 
 #include <sys/stat.h>
@@ -14,6 +13,7 @@
 #include <sstream>
 #include <thread>
 
+#include "config/json_writer.hpp"
 #include "server/http_stats.hpp"
 
 // POSIX socket headers
@@ -577,75 +577,75 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
     // Execute (R10-2: pass client_fd so engine sees client-disconnect cancel)
     auto exec_result = execute_with_trace(req, return_trace, client_fd);
 
-  // Build response JSON — match Go's executeResponse structure.
-  // Go writes resp.Common/Items from result only when result != nil; an
-  // engine-level error leaves them as nil maps → JSON `null`. A successful
-  // run that produces an empty common/items still serializes as `{}`/`[]`.
-  response = "{";
+    // Build response JSON — match Go's executeResponse structure.
+    // Go writes resp.Common/Items from result only when result != nil; an
+    // engine-level error leaves them as nil maps → JSON `null`. A successful
+    // run that produces an empty common/items still serializes as `{}`/`[]`.
+    response = "{";
 
-  if (!exec_result.has_result) {
-    response += "\"common\":null";
-    response += ",\"items\":null";
-  } else {
-    response += "\"common\":" + result_common_to_json(exec_result.result.common);
-    response += ",\"items\":" + result_items_to_json(exec_result.result.items);
-  }
-
-  // Warnings
-  if (!exec_result.warnings.empty()) {
-    response += ",\"warnings\":[";
-    for (size_t i = 0; i < exec_result.warnings.size(); ++i) {
-      if (i > 0) {
-        response += ",";
-      }
-      response += "\"" + json_escape(exec_result.warnings[i]) + "\"";
+    if (!exec_result.has_result) {
+      response += "\"common\":null";
+      response += ",\"items\":null";
+    } else {
+      response += "\"common\":" + result_common_to_json(exec_result.result.common);
+      response += ",\"items\":" + result_items_to_json(exec_result.result.items);
     }
-    response += "]";
-  }
 
-  // Trace
-  if (!exec_result.trace.empty()) {
-    response += ",\"trace\":[";
-    for (size_t i = 0; i < exec_result.trace.size(); ++i) {
-      if (i > 0) {
-        response += ",";
+    // Warnings
+    if (!exec_result.warnings.empty()) {
+      response += ",\"warnings\":[";
+      for (size_t i = 0; i < exec_result.warnings.size(); ++i) {
+        if (i > 0) {
+          response += ",";
+        }
+        response += "\"" + json_escape(exec_result.warnings[i]) + "\"";
       }
-      const auto& t = exec_result.trace[i];
-      response += "{\"name\":\"" + json_escape(t.name) + "\"";
-      response += ",\"duration_ms\":";
-      // Format duration_ms to match Go's encoding:
-      // Go uses float64 → json.Encoder which outputs minimal representation.
-      char dur_buf[64];
-      if (t.duration_ms == 0.0) {
-        response += "0";
-      } else {
-        int n = snprintf(dur_buf, sizeof(dur_buf), "%g", t.duration_ms);
-        response.append(dur_buf, static_cast<size_t>(n));
-      }
-      if (t.skipped) {
-        response += ",\"skipped\":true";
-      }
-      if (t.has_input_snapshot) {
-        response += ",\"input_snapshot\":" + dump_json_fast(t.input_snapshot, 0);
-      }
-      if (t.has_output_snapshot) {
-        response += ",\"output_snapshot\":" + dump_json_fast(t.output_snapshot, 0);
-      }
-      response += "}";
+      response += "]";
     }
-    response += "]";
-  }
 
-  // Error
-  if (exec_result.has_error) {
-    response += ",\"error\":\"" + json_escape(exec_result.error) + "\"";
-  }
+    // Trace
+    if (!exec_result.trace.empty()) {
+      response += ",\"trace\":[";
+      for (size_t i = 0; i < exec_result.trace.size(); ++i) {
+        if (i > 0) {
+          response += ",";
+        }
+        const auto& t = exec_result.trace[i];
+        response += "{\"name\":\"" + json_escape(t.name) + "\"";
+        response += ",\"duration_ms\":";
+        // Format duration_ms to match Go's encoding:
+        // Go uses float64 → json.Encoder which outputs minimal representation.
+        char dur_buf[64];
+        if (t.duration_ms == 0.0) {
+          response += "0";
+        } else {
+          int n = snprintf(dur_buf, sizeof(dur_buf), "%g", t.duration_ms);
+          response.append(dur_buf, static_cast<size_t>(n));
+        }
+        if (t.skipped) {
+          response += ",\"skipped\":true";
+        }
+        if (t.has_input_snapshot) {
+          response += ",\"input_snapshot\":" + dump_json_fast(t.input_snapshot, 0);
+        }
+        if (t.has_output_snapshot) {
+          response += ",\"output_snapshot\":" + dump_json_fast(t.output_snapshot, 0);
+        }
+        response += "}";
+      }
+      response += "]";
+    }
 
-  response += "}\n";
+    // Error
+    if (exec_result.has_error) {
+      response += ",\"error\":\"" + json_escape(exec_result.error) + "\"";
+    }
 
-  if (exec_result.has_error) {
-    status = exec_result.is_validation_error ? 400 : 500;
-  }
+    response += "}\n";
+
+    if (exec_result.has_error) {
+      status = exec_result.is_validation_error ? 400 : 500;
+    }
   }  // arena scope ends — all arena-allocated Variants freed
 
   send_json(client_fd, status, response);

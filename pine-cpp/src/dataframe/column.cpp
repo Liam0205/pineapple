@@ -46,7 +46,9 @@ void apply_remove(std::vector<bool>& validity, const std::set<int>& indices) {
   std::size_t write = 0;
   for (std::size_t i = 0; i < validity.size(); ++i) {
     if (!bitmap[i]) {
-      if (write != i) validity[write] = validity[i];
+      if (write != i) {
+        validity[write] = validity[i];
+      }
       ++write;
     }
   }
@@ -59,7 +61,9 @@ void apply_remove_data(std::vector<V>& data, const std::set<int>& indices) {
   std::size_t write = 0;
   for (std::size_t i = 0; i < data.size(); ++i) {
     if (!bitmap[i]) {
-      if (write != i) data[write] = std::move(data[i]);
+      if (write != i) {
+        data[write] = std::move(data[i]);
+      }
       ++write;
     }
   }

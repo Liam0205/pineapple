@@ -26,8 +26,7 @@ std::string validate_value_row(const std::string& field, const Variant& value) {
 
 RowFrame::RowFrame() = default;
 
-RowFrame::RowFrame(Variant::object_t common,
-                   std::vector<Variant::object_t> items)
+RowFrame::RowFrame(Variant::object_t common, std::vector<Variant::object_t> items)
     : common_(std::move(common)) {
   items_.reserve(items.size());
   for (auto& row : items) {

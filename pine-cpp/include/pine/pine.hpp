@@ -1,9 +1,8 @@
 #pragma once
 
-#include "pine/metrics.hpp"
-
 #include "pine/arena.hpp"
 #include "pine/flat_map.hpp"
+#include "pine/metrics.hpp"
 
 #include <atomic>
 #include <exception>
@@ -258,7 +257,7 @@ struct FlowContract {
 struct ResourceEntry {
   std::string type;
   int interval = 0;  // seconds
-  Variant params;  // arbitrary object passed to the fetcher factory
+  Variant params;    // arbitrary object passed to the fetcher factory
 };
 
 struct Config {
@@ -467,8 +466,7 @@ class Engine {
   // Execute(ctx, req) where ctx.Done() is watched at every wait.
   Result execute(const Request& request, const std::map<std::string, Variant>& resources,
                  std::stop_token external_cancel) const;
-  TracedResult execute_traced(const Request& request,
-                              const std::map<std::string, Variant>& resources) const;
+  TracedResult execute_traced(const Request& request, const std::map<std::string, Variant>& resources) const;
   // Variant of execute_traced that writes the partial result/trace/warnings
   // into *out before re-throwing any execution error. Mirrors pine-go's
   // (*Result, error) return contract where partial results survive errors.

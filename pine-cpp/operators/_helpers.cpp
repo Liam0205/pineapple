@@ -64,7 +64,7 @@ Variant require_common(const Frame& frame, const OperatorConfig& op, const std::
 }
 
 Variant require_item(const Frame& frame, const OperatorConfig& op, std::size_t index,
-                       const std::string& field) {
+                     const std::string& field) {
   Variant v = frame.item(index, field);
   if (!v.is_null()) {
     return v;
@@ -76,7 +76,7 @@ Variant require_item(const Frame& frame, const OperatorConfig& op, std::size_t i
 }
 
 Variant require_common_by_name(const Frame& frame, const std::map<std::string, Variant>& defaults,
-                                 const std::string& field) {
+                               const std::string& field) {
   Variant v = frame.common(field);
   if (!v.is_null()) {
     return v;
@@ -88,7 +88,7 @@ Variant require_common_by_name(const Frame& frame, const std::map<std::string, V
 }
 
 Variant require_item_by_name(const Frame& frame, std::size_t index,
-                               const std::map<std::string, Variant>& defaults, const std::string& field) {
+                             const std::map<std::string, Variant>& defaults, const std::string& field) {
   Variant v = frame.item(index, field);
   if (!v.is_null()) {
     return v;

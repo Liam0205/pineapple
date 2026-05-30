@@ -48,13 +48,8 @@ java-pine/target/
 # Redis dump file from local testing
 dump.rdb
 
-# C++ build artifacts (sanitizer variants — keep main build/ ignored by default)
-pine-cpp/build/
-pine-cpp/build-asan/
-pine-cpp/build-gprof/
-pine-cpp/build-tests/
-pine-cpp/build-werror/
-pine-cpp/build-lint/
-pine-cpp/build/
+# C++ build artifacts (all build-* variants)
+pine-cpp/build*/
+Testing/
 .clang-format.preferred
 bench-results/
