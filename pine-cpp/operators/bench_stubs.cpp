@@ -278,7 +278,7 @@ class FilterBlockedCreatorStubOp : public Operator, public ConsumesRowSet, publi
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
     (void)input.common("blocked_creator_ids");
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       (void)input.item(i, "creator_id");
@@ -321,7 +321,7 @@ class ReorderTopnBoostStubOp : public Operator, public ConsumesRowSet, public Mu
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
     (void)input.common("page");
     (void)input.common("shuffle_salt");
     for (std::size_t i = 0; i < input.item_count(); ++i) {
@@ -366,7 +366,7 @@ class ObserveDatahubStubOp : public Operator {
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
     for (const auto& k : common_input_) {
       (void)input.common(k);
     }

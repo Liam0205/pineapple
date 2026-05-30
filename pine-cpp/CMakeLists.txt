@@ -48,16 +48,17 @@ message(STATUS "LuaJIT lib: ${LUAJIT_LIB}")
 message(STATUS "LuaJIT include: ${LUAJIT_INCLUDE}")
 
 # --- jemalloc (optional, replaces ptmalloc2 for lower malloc contention) ---
-# OFF by default so CI and sanitizer builds are unaffected.
-# Enable with: cmake -DPINE_USE_JEMALLOC=ON
-option(PINE_USE_JEMALLOC "Link jemalloc as the allocator" OFF)
+# ON by default for production/benchmark builds. Disable with -DPINE_USE_JEMALLOC=OFF for sanitizer builds.
+option(PINE_USE_JEMALLOC "Link jemalloc as the allocator" ON)
 if(PINE_USE_JEMALLOC)
     find_library(JEMALLOC_LIB NAMES jemalloc
         HINTS /home/linuxbrew/.linuxbrew/lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu)
     if(NOT JEMALLOC_LIB)
-        message(FATAL_ERROR "jemalloc not found. Install with: brew install jemalloc OR apt install libjemalloc-dev")
+        message(WARNING "jemalloc not found, falling back to system allocator. Install with: brew install jemalloc OR apt install libjemalloc-dev")
+        set(PINE_USE_JEMALLOC OFF)
+    else()
+        message(STATUS "jemalloc: ${JEMALLOC_LIB}")
     endif()
-    message(STATUS "jemalloc: ${JEMALLOC_LIB}")
 endif()
 
 # --- libcurl (for transform_by_remote_pineapple) ---
