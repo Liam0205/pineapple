@@ -191,11 +191,15 @@ public class ColumnFrame implements Frame {
                         throw new IndexOutOfBoundsException("RemoveItem index " + idx + " out of range [0, " + rowCount + ")");
                     }
                 }
+                boolean[] bitmap = new boolean[rowCount];
+                for (int idx : removed) {
+                    bitmap[idx] = true;
+                }
                 int newCount = rowCount - removed.size();
                 int[] mapping = new int[newCount];
                 int j = 0;
                 for (int i = 0; i < rowCount; i++) {
-                    if (!removed.contains(i)) {
+                    if (!bitmap[i]) {
                         mapping[j++] = i;
                     }
                 }
