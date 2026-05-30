@@ -71,6 +71,7 @@ func (f *RowFrame) BuildInput(
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
+	// Eagerly build common (few fields, cheap)
 	totalCommon := len(spec.StrictCommon) + len(spec.DefaultedCommon) + len(spec.NullableCommon)
 	cs := make(map[string]any, totalCommon)
 
@@ -97,38 +98,44 @@ func (f *RowFrame) BuildInput(
 		cs[field] = v
 	}
 
-	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem) + len(spec.NullableItem)
-	its := make([]map[string]any, len(f.items))
+	// Validate strict item fields upfront (fail fast)
 	for i, item := range f.items {
-		row := make(map[string]any, totalItem)
-
 		for _, field := range spec.StrictItem {
 			v, exists := item[field]
 			if !exists || v == nil {
 				return nil, fmt.Errorf("required field %q is nil on item[%d]", field, i)
 			}
-			row[field] = v
-		}
-		for _, df := range spec.DefaultedItem {
-			v, exists := item[df.Name]
-			if !exists || v == nil {
-				row[df.Name] = df.Default
-			} else {
-				row[df.Name] = v
-			}
 		}
 		for _, field := range spec.NullableItem {
-			v, exists := item[field]
+			_, exists := item[field]
 			if !exists {
 				return nil, fmt.Errorf("required field %q is missing on item[%d]", field, i)
 			}
-			row[field] = v
 		}
-
-		its[i] = row
 	}
 
-	return types.NewOperatorInput(cs, its), nil
+	// Build item defaults map and field list for lazy access
+	var itemDefaults map[string]any
+	if len(spec.DefaultedItem) > 0 {
+		itemDefaults = make(map[string]any, len(spec.DefaultedItem))
+		for _, df := range spec.DefaultedItem {
+			itemDefaults[df.Name] = df.Default
+		}
+	}
+
+	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem) + len(spec.NullableItem)
+	itemFields := make([]string, 0, totalItem)
+	for _, field := range spec.StrictItem {
+		itemFields = append(itemFields, field)
+	}
+	for _, df := range spec.DefaultedItem {
+		itemFields = append(itemFields, df.Name)
+	}
+	for _, field := range spec.NullableItem {
+		itemFields = append(itemFields, field)
+	}
+
+	return types.NewLazyOperatorInput(cs, f, itemDefaults, itemFields, 0, len(f.items)), nil
 }
 
 func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error {

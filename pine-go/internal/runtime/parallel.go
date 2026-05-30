@@ -14,7 +14,6 @@ import (
 func splitInput(input *types.OperatorInput, n int) ([]*types.OperatorInput, []int) {
 	total := input.ItemCount()
 	common := input.RawCommon()
-	items := input.RawItems()
 
 	if n <= 1 || total == 0 {
 		return []*types.OperatorInput{input}, []int{0}
@@ -29,17 +28,35 @@ func splitInput(input *types.OperatorInput, n int) ([]*types.OperatorInput, []in
 	parts := make([]*types.OperatorInput, n)
 	offsets := make([]int, n)
 	start := 0
-	for i := 0; i < n; i++ {
-		size := base
-		if i < rem {
-			size++
+
+	if input.IsLazy() {
+		baseOffset := input.LazyOffset()
+		frame := input.LazyFrame()
+		itemDefaults := input.LazyItemDefaults()
+		itemFields := input.LazyItemFields()
+		for i := 0; i < n; i++ {
+			size := base
+			if i < rem {
+				size++
+			}
+			parts[i] = types.NewLazyOperatorInput(common, frame, itemDefaults, itemFields, baseOffset+start, size)
+			offsets[i] = start
+			start += size
 		}
-		end := start + size
-		shardItems := make([]map[string]any, size)
-		copy(shardItems, items[start:end])
-		parts[i] = types.NewOperatorInput(common, shardItems)
-		offsets[i] = start
-		start = end
+	} else {
+		items := input.RawItems()
+		for i := 0; i < n; i++ {
+			size := base
+			if i < rem {
+				size++
+			}
+			end := start + size
+			shardItems := make([]map[string]any, size)
+			copy(shardItems, items[start:end])
+			parts[i] = types.NewOperatorInput(common, shardItems)
+			offsets[i] = start
+			start = end
+		}
 	}
 	return parts, offsets
 }

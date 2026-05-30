@@ -1,14 +1,47 @@
 package types
 
-// OperatorInput provides read-only access to DataFrame data for one operator invocation.
-type OperatorInput struct {
-	common map[string]any
-	items  []map[string]any
+// FrameReader is the minimal read interface needed by lazy OperatorInput.
+// Both RowFrame and ColumnFrame satisfy this interface.
+type FrameReader interface {
+	Common(field string) any
+	Item(index int, field string) any
+	ItemCount() int
 }
 
-// NewOperatorInput creates an OperatorInput. Intended for engine-internal use.
+// OperatorInput provides read-only access to DataFrame data for one operator invocation.
+// It operates in two modes:
+//   - Lazy mode (frame != nil): reads from Frame on demand, avoiding O(N×M) materialization
+//   - Materialized mode (items != nil): legacy path, used when lazy proxy is split for data_parallel
+type OperatorInput struct {
+	common map[string]any
+
+	// Lazy mode fields
+	frame        FrameReader
+	itemDefaults map[string]any
+	itemFields   []string
+	offset       int
+	count        int
+
+	// Materialized mode field (nil in lazy mode)
+	items []map[string]any
+}
+
+// NewOperatorInput creates a materialized OperatorInput. Intended for engine-internal use.
 func NewOperatorInput(common map[string]any, items []map[string]any) *OperatorInput {
 	return &OperatorInput{common: common, items: items}
+}
+
+// NewLazyOperatorInput creates a lazy OperatorInput backed by a Frame reference.
+// Item reads are deferred until Item() is called, avoiding O(N×M) upfront materialization.
+func NewLazyOperatorInput(common map[string]any, frame FrameReader, itemDefaults map[string]any, itemFields []string, offset, count int) *OperatorInput {
+	return &OperatorInput{
+		common:       common,
+		frame:        frame,
+		itemDefaults: itemDefaults,
+		itemFields:   itemFields,
+		offset:       offset,
+		count:        count,
+	}
 }
 
 // Common returns a common-side field value, or nil if not present.
@@ -21,15 +54,30 @@ func (in *OperatorInput) Common(field string) any {
 
 // ItemCount returns the number of items.
 func (in *OperatorInput) ItemCount() int {
-	return len(in.items)
+	if in.items != nil {
+		return len(in.items)
+	}
+	return in.count
 }
 
 // Item returns a field value for the item at the given index, or nil if not present.
 func (in *OperatorInput) Item(index int, field string) any {
-	if index < 0 || index >= len(in.items) {
+	if in.items != nil {
+		if index < 0 || index >= len(in.items) {
+			return nil
+		}
+		return in.items[index][field]
+	}
+	if index < 0 || index >= in.count {
 		return nil
 	}
-	return in.items[index][field]
+	v := in.frame.Item(in.offset+index, field)
+	if v == nil && in.itemDefaults != nil {
+		if d, ok := in.itemDefaults[field]; ok {
+			return d
+		}
+	}
+	return v
 }
 
 // CommonKeys returns the list of common field names available in this input.
@@ -43,14 +91,20 @@ func (in *OperatorInput) CommonKeys() []string {
 
 // ItemKeys returns the list of item field names available for the given item index.
 func (in *OperatorInput) ItemKeys(index int) []string {
-	if index < 0 || index >= len(in.items) {
+	if in.items != nil {
+		if index < 0 || index >= len(in.items) {
+			return nil
+		}
+		keys := make([]string, 0, len(in.items[index]))
+		for k := range in.items[index] {
+			keys = append(keys, k)
+		}
+		return keys
+	}
+	if index < 0 || index >= in.count {
 		return nil
 	}
-	keys := make([]string, 0, len(in.items[index]))
-	for k := range in.items[index] {
-		keys = append(keys, k)
-	}
-	return keys
+	return in.itemFields
 }
 
 // OperatorOutput collects writes from an operator, applied to the DataFrame by the engine.
@@ -114,8 +168,23 @@ func (out *OperatorOutput) SetWarning(err error) {
 
 // --- Accessors for engine-internal use ---
 
-func (in *OperatorInput) RawCommon() map[string]any  { return in.common }
-func (in *OperatorInput) RawItems() []map[string]any  { return in.items }
+func (in *OperatorInput) RawCommon() map[string]any { return in.common }
+func (in *OperatorInput) RawItems() []map[string]any { return in.items }
+
+// IsLazy returns true if this OperatorInput is in lazy (frame-backed) mode.
+func (in *OperatorInput) IsLazy() bool { return in.frame != nil }
+
+// LazyOffset returns the item offset for lazy mode (used by splitInput).
+func (in *OperatorInput) LazyOffset() int { return in.offset }
+
+// LazyFrame returns the underlying FrameReader (nil if materialized).
+func (in *OperatorInput) LazyFrame() FrameReader { return in.frame }
+
+// LazyItemDefaults returns the item defaults map (nil if materialized).
+func (in *OperatorInput) LazyItemDefaults() map[string]any { return in.itemDefaults }
+
+// LazyItemFields returns the item field names (nil if materialized).
+func (in *OperatorInput) LazyItemFields() []string { return in.itemFields }
 
 func (out *OperatorOutput) GetCommonWrites() map[string]any       { return out.commonWrites }
 func (out *OperatorOutput) GetItemWrites() map[int]map[string]any  { return out.itemWrites }
