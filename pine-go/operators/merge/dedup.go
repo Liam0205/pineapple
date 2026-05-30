@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 )
@@ -80,11 +81,11 @@ func dedupKey(v any) string {
 		if x == 0 {
 			x = 0 // canonicalize -0.0 → +0.0 (IEEE 754)
 		}
-		return fmt.Sprintf("F:%v", x)
+		return "F:" + strconv.FormatFloat(x, 'g', -1, 64)
 	case int64:
-		return fmt.Sprintf("F:%v", float64(x))
+		return "F:" + strconv.FormatFloat(float64(x), 'g', -1, 64)
 	case int:
-		return fmt.Sprintf("F:%v", float64(x))
+		return "F:" + strconv.FormatFloat(float64(x), 'g', -1, 64)
 	case string:
 		return "S:" + x
 	default:
