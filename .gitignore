@@ -56,3 +56,4 @@ pine-cpp/build-werror/
 pine-cpp/build-lint/
 pine-cpp/build/
 .clang-format.preferred
+bench-results/
