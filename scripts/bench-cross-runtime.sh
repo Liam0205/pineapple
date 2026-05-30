@@ -20,13 +20,18 @@
 #   --generate    Also generate synthetic fixtures via bench-generate-fixtures.py
 #   --filter      Only run fixtures whose name matches this substring
 #
-# Output: /tmp/bench_cross_runtime/report.txt
+# Output: bench-results/report-<timestamp>.txt (in repo root, not /tmp)
 
 set -euo pipefail
+# Run in its own process group so cleanup can kill the whole group
+if [[ "${BENCH_IN_PGRP:-}" != "1" ]]; then
+  BENCH_IN_PGRP=1 exec setsid bash "$0" "$@"
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="/tmp/bench_cross_runtime"
-REPORT="$WORK_DIR/report.txt"
+RESULTS_DIR="$REPO_ROOT/bench-results"
+REPORT="$RESULTS_DIR/report-$(date +%Y%m%d-%H%M%S).txt"
 FIXTURE_SRC="$REPO_ROOT/fixtures/benchmarks"
 
 NPROC=$(nproc)
@@ -51,7 +56,10 @@ while [[ $# -gt 0 ]]; do
 done
 # PLACEHOLDER_SCRIPT_BODY
 
-mkdir -p "$WORK_DIR"
+mkdir -p "$WORK_DIR" "$RESULTS_DIR"
+# Clean up any leftover artifacts from a previous run
+rm -f "$WORK_DIR"/*.csv "$WORK_DIR"/*.log "$WORK_DIR"/*.pid
+rm -f "$WORK_DIR"/server-go "$WORK_DIR"/server-cpp
 
 # ─── Colors ───────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -131,11 +139,14 @@ next_port() { PORT_IDX=$((PORT_IDX + 1)); echo $((BASE_PORT + PORT_IDX)); }
 start_server() {
   local runtime="$1" port="$2" config="$3"
   local pid_file="$WORK_DIR/${runtime}.pid"
+  local sink="/dev/null"
+  # Set BENCH_VERBOSE=1 to capture server logs for debugging startup failures
+  [[ "${BENCH_VERBOSE:-}" == "1" ]] && sink="$WORK_DIR/${runtime}.log"
   case "$runtime" in
     java) java -cp "$JAVA_CP" -Dpine.config="$config" -Dpine.port="$port" \
-      page.liam.pine.PineServer >"$WORK_DIR/${runtime}.log" 2>&1 & ;;
-    go) "$WORK_DIR/server-go" -config "$config" -addr ":$port" >"$WORK_DIR/${runtime}.log" 2>&1 & ;;
-    cpp) "$WORK_DIR/server-cpp" -config "$config" -addr ":$port" >"$WORK_DIR/${runtime}.log" 2>&1 & ;;
+      page.liam.pine.PineServer >"$sink" 2>&1 & ;;
+    go) "$WORK_DIR/server-go" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
+    cpp) "$WORK_DIR/server-cpp" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
   esac
   echo $! > "$pid_file"
   for _ in $(seq 1 40); do
@@ -143,7 +154,7 @@ start_server() {
     sleep 0.25
   done
   err "$runtime server failed to start on :$port"
-  tail -20 "$WORK_DIR/${runtime}.log" >&2
+  [[ "$sink" != "/dev/null" ]] && tail -20 "$sink" >&2 || err "  (rerun with BENCH_VERBOSE=1 to see server logs)"
   return 1
 }
 
@@ -159,18 +170,24 @@ stop_server() {
   rm -f "$pid_file"
 }
 
-cleanup() { for rt in "${RUNTIMES[@]}"; do stop_server "$rt"; done; }
+cleanup() {
+  # Kill all processes in this script's process group (catches hey + servers)
+  kill -- -$$ 2>/dev/null || true
+  # Also stop any servers tracked by pid files
+  for rt in "${RUNTIMES[@]}"; do stop_server "$rt"; done
+  rm -f "$WORK_DIR"/server-go "$WORK_DIR"/server-cpp
+  rm -f "$WORK_DIR"/*.log "$WORK_DIR"/*.pid
+  rm -f "$WORK_DIR"/*.csv
+}
 trap cleanup EXIT INT TERM
 
 parse_hey() {
-  local csv_file="$1"
   python3 -c "
 import csv, math, sys
 times, offsets = [], []
-with open(sys.argv[1]) as f:
-    for row in csv.DictReader(f):
-        times.append(float(row['response-time']))
-        offsets.append(float(row['offset']))
+for row in csv.DictReader(sys.stdin):
+    times.append(float(row['response-time']))
+    offsets.append(float(row['offset']))
 if not times:
     print('N/A|N/A|N/A|N/A|N/A|N/A')
     sys.exit(0)
@@ -185,7 +202,7 @@ p50 = times[int(n * 0.50)]
 p90 = times[int(n * 0.90)]
 p99 = times[int(n * 0.99)]
 print(f'{qps:.4f}|{mean:.6f}|{stddev:.6f}|{p50:.6f}|{p90:.6f}|{p99:.6f}')
-" "$csv_file" 2>/dev/null || echo "N/A|N/A|N/A|N/A|N/A|N/A"
+" 2>/dev/null || echo "N/A|N/A|N/A|N/A|N/A|N/A"
 }
 
 # ─── Determine storage modes per fixture ─────────────────────────────
@@ -266,13 +283,11 @@ for fixture in "${FIXTURES[@]}"; do
       hey -n 100 -c 5 -m POST -H "Content-Type: application/json" \
         -d "$req_body" -o csv "http://localhost:$port/execute" > /dev/null 2>&1
 
-      # Benchmark
-      hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
+      # Benchmark — pipe directly to parse_hey, no temp file
+      METRICS=$(hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
         -H "Content-Type: application/json" \
         -d "$req_body" -o csv \
-        "http://localhost:$port/execute" > "$WORK_DIR/${fixture}_${mode}_${rt}.csv" 2>&1
-
-      METRICS=$(parse_hey "$WORK_DIR/${fixture}_${mode}_${rt}.csv")
+        "http://localhost:$port/execute" 2>/dev/null | parse_hey)
       IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
       printf "  %-8s %-35s %7s %10s %10s %10s %10s %10s %10s\n" \
         "$rt" "$fixture" "$mode" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
@@ -284,12 +299,5 @@ for fixture in "${FIXTURES[@]}"; do
 done
 
 echo >> "$REPORT"
-{
-  echo "Raw CSV data: $WORK_DIR/<fixture>_<mode>_<runtime>.csv"
-} >> "$REPORT"
 
-info "Done. Report:"
-echo
-cat "$REPORT"
-echo
-info "Full report: $REPORT"
+info "Done. Report: $REPORT"
