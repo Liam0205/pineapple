@@ -65,6 +65,21 @@ public class ColumnFrame implements Frame {
     }
 
     @Override
+    public Object item(int index, String field) {
+        rwLock.readLock().lock();
+        try {
+            if (index < 0 || index >= rowCount) return null;
+            Object[] col = columns.get(field);
+            if (col == null) return null;
+            BitSet bits = presenceByField.get(field);
+            if (bits == null || !bits.get(index)) return null;
+            return col[index];
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    @Override
     public OperatorInput buildInput(String opName, InputFieldSpec spec) throws PineErrors.OperatorException {
         rwLock.readLock().lock();
         try {
@@ -97,11 +112,8 @@ public class ColumnFrame implements Frame {
                 cs.put(field, common.get(field));
             }
 
-            List<Map<String, Object>> its = new ArrayList<>(rowCount);
+            // Validate strict item fields upfront (fail fast)
             for (int i = 0; i < rowCount; i++) {
-                Map<String, Object> row = new LinkedHashMap<>();
-
-                // Strict item fields: must be present and non-nil
                 for (String field : spec.strictItem) {
                     Object[] col = columns.get(field);
                     BitSet bits = presenceByField.get(field);
@@ -109,19 +121,7 @@ public class ColumnFrame implements Frame {
                         throw new PineErrors.OperatorException(
                                 "required field \"" + field + "\" is nil on item[" + i + "]");
                     }
-                    row.put(field, col[i]);
                 }
-                // Defaulted item fields: substitute default on nil/missing
-                for (InputFieldSpec.DefaultedField df : spec.defaultedItem) {
-                    Object[] col = columns.get(df.name);
-                    BitSet bits = presenceByField.get(df.name);
-                    if (col != null && bits != null && bits.get(i) && col[i] != null) {
-                        row.put(df.name, col[i]);
-                    } else {
-                        row.put(df.name, df.defaultValue);
-                    }
-                }
-                // Nullable item fields: missing -> error, nil -> pass through
                 for (String field : spec.nullableItem) {
                     Object[] col = columns.get(field);
                     BitSet bits = presenceByField.get(field);
@@ -129,13 +129,19 @@ public class ColumnFrame implements Frame {
                         throw new PineErrors.OperatorException(
                                 "required field \"" + field + "\" is missing on item[" + i + "]");
                     }
-                    row.put(field, col[i]);
                 }
-
-                its.add(row);
             }
 
-            return new OperatorInput(cs, its);
+            // Build item defaults map for lazy access
+            Map<String, Object> itemDefaults = null;
+            if (!spec.defaultedItem.isEmpty()) {
+                itemDefaults = new HashMap<>(spec.defaultedItem.size());
+                for (InputFieldSpec.DefaultedField df : spec.defaultedItem) {
+                    itemDefaults.put(df.name, df.defaultValue);
+                }
+            }
+
+            return new OperatorInput(cs, this, itemDefaults, 0, rowCount);
         } finally {
             rwLock.readLock().unlock();
         }
