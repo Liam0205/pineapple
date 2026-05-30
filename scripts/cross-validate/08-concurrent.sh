@@ -28,6 +28,12 @@ JAVA_CONC_PORT=19002
 PY_CONC_PORT=19003
 CPP_CONC_PORT=19004
 
+# Kill any leftover processes on these ports from previous runs
+for p in $GO_CONC_PORT $JAVA_CONC_PORT $PY_CONC_PORT $CPP_CONC_PORT; do
+  lsof -ti:"$p" 2>/dev/null | xargs kill 2>/dev/null || true
+done
+sleep 0.5
+
 "$WORK_DIR/pineapple-server" -config "$CONC_CONFIG" -addr ":$GO_CONC_PORT" &
 GO_SRV_PID=$!
 java -cp "$JAVA_CP" -Dpine.config="$CONC_CONFIG" -Dpine.port=$JAVA_CONC_PORT page.liam.pine.PineServer &
