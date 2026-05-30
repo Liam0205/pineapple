@@ -36,8 +36,7 @@ std::string validate_value(const std::string& field, const Variant& value) {
 ColumnFrame::ColumnFrame() : items_(std::make_unique<TypedColumnStore>(0)) {
 }
 
-ColumnFrame::ColumnFrame(Variant::object_t common,
-                         std::vector<Variant::object_t> items)
+ColumnFrame::ColumnFrame(Variant::object_t common, std::vector<Variant::object_t> items)
     : common_(std::move(common)), items_(std::make_unique<TypedColumnStore>(items.size())) {
   // Collect the union of fields across items, preserving first-seen order.
   std::vector<std::string> field_order;

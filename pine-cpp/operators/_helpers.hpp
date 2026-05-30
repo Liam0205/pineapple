@@ -30,7 +30,7 @@ std::string json_type_name(const Variant& value);
 
 Variant require_common(const Frame& frame, const OperatorConfig& op, const std::string& field);
 Variant require_item(const Frame& frame, const OperatorConfig& op, std::size_t index,
-                       const std::string& field);
+                     const std::string& field);
 
 // Variants that take the operator name + defaults map directly. Operators
 // that cached `op_name_` / `common_defaults_` / `item_defaults_` on `init`
@@ -38,9 +38,9 @@ Variant require_item(const Frame& frame, const OperatorConfig& op, std::size_t i
 // per-class copy of these helpers; consolidated to one place so future
 // error-message tweaks land once.
 Variant require_common_by_name(const Frame& frame, const std::map<std::string, Variant>& defaults,
-                                 const std::string& field);
+                               const std::string& field);
 Variant require_item_by_name(const Frame& frame, std::size_t index,
-                               const std::map<std::string, Variant>& defaults, const std::string& field);
+                             const std::map<std::string, Variant>& defaults, const std::string& field);
 
 std::string go_format_g(double d);
 // go_format_lookup_key mirrors pine-go transform/resource_lookup.go:91-96:

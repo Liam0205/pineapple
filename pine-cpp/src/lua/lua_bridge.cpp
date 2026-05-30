@@ -258,8 +258,7 @@ void LuaVM::set_global_table(const std::string& name, const Variant::array_t& va
   lua_setglobal(L_, name.c_str());
 }
 
-Variant::array_t LuaVM::call_function(const std::string& func_name, int nret,
-                                            const std::string& op_name) {
+Variant::array_t LuaVM::call_function(const std::string& func_name, int nret, const std::string& op_name) {
   lua_getglobal(L_, func_name.c_str());
   if (lua_type(L_, -1) != LUA_TFUNCTION) {
     lua_pop(L_, 1);

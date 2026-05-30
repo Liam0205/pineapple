@@ -1,7 +1,5 @@
 #include "pine/pine.hpp"
 
-#include "config/json_writer.hpp"
-
 #include <cctype>
 #include <charconv>
 #include <cmath>
@@ -9,6 +7,8 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+
+#include "config/json_writer.hpp"
 
 namespace pine {
 
