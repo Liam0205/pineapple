@@ -1,0 +1,18 @@
+{
+  "common": {
+    "page": 0,
+    "size": 10,
+    "gender": 1,
+    "tag_ids": [1, 2, 3],
+    "nsfw": false,
+    "google_play_nsfw": false,
+    "display_mode_nsfw": false,
+    "content_type": 1,
+    "filter_html_content": false,
+    "user_id": "100001",
+    "client_ip": "192.168.1.1",
+    "language_code": "en",
+    "session_id": "bench-session-001"
+  },
+  "items": []
+}
