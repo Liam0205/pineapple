@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "operators/_helpers.hpp"
+#include "operators/bench_latency.hpp"
 
 namespace pine {
 
@@ -52,6 +53,7 @@ class RecallFeedDataStubOp : public Operator, public AdditiveWritesRowSet {
     if (it != params.end() && it->second.is_number()) {
       item_count_ = static_cast<int>(it->second.as_number());
     }
+    latency_ = parse_bench_profile(cfg.params);
   }
 
   void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
@@ -64,10 +66,12 @@ class RecallFeedDataStubOp : public Operator, public AdditiveWritesRowSet {
       row["created_at"] = JsonValue("2026-01-01T00:00:00Z");
       out.add_item(std::move(row));
     }
+    if (latency_) latency_->apply();
   }
 
  private:
   int item_count_ = 3000;
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_recall_feed_data_schema{
@@ -79,7 +83,10 @@ static const OperatorSchema k_recall_feed_data_schema{
                  .description = "Number of items to generate."}},
                {"resource_name",
                 {.type = "string", .required = false, .default_value = JsonValue(""),
-                 .description = "Ignored in stub."}}},
+                 .description = "Ignored in stub."}},
+               {"bench_profile",
+                {.type = "any", .required = false, .default_value = JsonValue(nullptr),
+                 .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(RecallFeedDataStubOp, k_recall_feed_data_schema)
 
@@ -89,14 +96,20 @@ PINE_REGISTER_OPERATOR_T(RecallFeedDataStubOp, k_recall_feed_data_schema)
 
 class TransformRedisZrangebyscoreStubOp : public Operator {
  public:
-  void init(const OperatorConfig& /*cfg*/) override {}
+  void init(const OperatorConfig& cfg) override {
+    latency_ = parse_bench_profile(cfg.params);
+  }
 
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     (void)input.common("user_id");
     out.set_common("impression_ids", JsonValue(JsonValue::array_t{}));
     out.set_common("impression_cache_hit", JsonValue(true));
     out.set_common("impression_ids_len", JsonValue(0.0));
+    if (latency_) latency_->apply();
   }
+
+ private:
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_transform_redis_zrangebyscore_schema{
@@ -106,7 +119,8 @@ static const OperatorSchema k_transform_redis_zrangebyscore_schema{
     .params = {{"key_prefix", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}},
                {"window_seconds", {.type = "int", .required = false, .default_value = JsonValue(0.0), .description = "Stub param."}},
                {"redis_addr", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}},
-               {"redis_password", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}}},
+               {"redis_password", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}},
+               {"bench_profile", {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformRedisZrangebyscoreStubOp, k_transform_redis_zrangebyscore_schema)
 
@@ -115,7 +129,9 @@ PINE_REGISTER_OPERATOR_T(TransformRedisZrangebyscoreStubOp, k_transform_redis_zr
 
 class TransformHydrateStubOp : public Operator, public ConsumesRowSet {
  public:
-  void init(const OperatorConfig& /*cfg*/) override {}
+  void init(const OperatorConfig& cfg) override {
+    latency_ = parse_bench_profile(cfg.params);
+  }
 
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     for (std::size_t i = 0; i < input.item_count(); ++i) {
@@ -123,14 +139,19 @@ class TransformHydrateStubOp : public Operator, public ConsumesRowSet {
       (void)input.item(i, "type");
       out.set_item(static_cast<int>(i), "creator_id", JsonValue(static_cast<double>(i % 1000)));
     }
+    if (latency_) latency_->apply();
   }
+
+ private:
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_transform_hydrate_schema{
     .name = "transform_hydrate",
     .type = OpType::Transform,
     .description = "Benchmark stub: simulates MySQL hydration.",
-    .params = {{"mysql_dsn", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}}},
+    .params = {{"mysql_dsn", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}},
+               {"bench_profile", {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformHydrateStubOp, k_transform_hydrate_schema)
 
@@ -139,20 +160,27 @@ PINE_REGISTER_OPERATOR_T(TransformHydrateStubOp, k_transform_hydrate_schema)
 
 class TransformQueryBlockedCreatorsStubOp : public Operator {
  public:
-  void init(const OperatorConfig& /*cfg*/) override {}
+  void init(const OperatorConfig& cfg) override {
+    latency_ = parse_bench_profile(cfg.params);
+  }
 
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     (void)input.common("user_id");
     (void)input.common("blocked_creator_ids");
     out.set_common("blocked_creator_ids", JsonValue(JsonValue::array_t{}));
+    if (latency_) latency_->apply();
   }
+
+ private:
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_transform_query_blocked_creators_schema{
     .name = "transform_query_blocked_creators",
     .type = OpType::Transform,
     .description = "Benchmark stub: simulates MySQL blocked-creators query.",
-    .params = {{"mysql_dsn", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}}},
+    .params = {{"mysql_dsn", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}},
+               {"bench_profile", {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformQueryBlockedCreatorsStubOp, k_transform_query_blocked_creators_schema)
 
@@ -161,7 +189,9 @@ PINE_REGISTER_OPERATOR_T(TransformQueryBlockedCreatorsStubOp, k_transform_query_
 
 class FilterImpressionStubOp : public Operator, public ConsumesRowSet, public MutatesRowSet {
  public:
-  void init(const OperatorConfig& /*cfg*/) override {}
+  void init(const OperatorConfig& cfg) override {
+    latency_ = parse_bench_profile(cfg.params);
+  }
 
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     (void)input.common("impression_ids");
@@ -173,7 +203,11 @@ class FilterImpressionStubOp : public Operator, public ConsumesRowSet, public Mu
         out.remove_item(static_cast<int>(i));
       }
     }
+    if (latency_) latency_->apply();
   }
+
+ private:
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_filter_impression_schema{
@@ -181,7 +215,9 @@ static const OperatorSchema k_filter_impression_schema{
     .type = OpType::Filter,
     .description = "Benchmark stub: simulates impression-based filtering.",
     .params = {{"min_remaining_ratio",
-                {.type = "float", .required = false, .default_value = JsonValue(1.5), .description = "Stub param."}}},
+                {.type = "float", .required = false, .default_value = JsonValue(1.5), .description = "Stub param."}},
+               {"bench_profile",
+                {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(FilterImpressionStubOp, k_filter_impression_schema)
 
@@ -190,21 +226,27 @@ PINE_REGISTER_OPERATOR_T(FilterImpressionStubOp, k_filter_impression_schema)
 
 class FilterBlockedCreatorStubOp : public Operator, public ConsumesRowSet, public MutatesRowSet {
  public:
-  void init(const OperatorConfig& /*cfg*/) override {}
+  void init(const OperatorConfig& cfg) override {
+    latency_ = parse_bench_profile(cfg.params);
+  }
 
   void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
     (void)input.common("blocked_creator_ids");
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       (void)input.item(i, "creator_id");
     }
+    if (latency_) latency_->apply();
   }
+
+ private:
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_filter_blocked_creator_schema{
     .name = "filter_blocked_creator",
     .type = OpType::Filter,
     .description = "Benchmark stub: simulates blocked-creator filtering.",
-    .params = {},
+    .params = {{"bench_profile", {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(FilterBlockedCreatorStubOp, k_filter_blocked_creator_schema)
 
@@ -221,6 +263,7 @@ class ReorderTopnBoostStubOp : public Operator, public ConsumesRowSet, public Mu
     if (it != params.end() && it->second.is_number()) {
       size_ = static_cast<int>(it->second.as_number());
     }
+    latency_ = parse_bench_profile(cfg.params);
   }
 
   void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
@@ -230,17 +273,20 @@ class ReorderTopnBoostStubOp : public Operator, public ConsumesRowSet, public Mu
       (void)input.item(i, "id");
       (void)input.item(i, "created_at");
     }
+    if (latency_) latency_->apply();
   }
 
  private:
   int size_ = 10;
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_reorder_topn_boost_schema{
     .name = "reorder_topn_boost",
     .type = OpType::Reorder,
     .description = "Benchmark stub: simulates top-N boost reordering.",
-    .params = {{"size", {.type = "int", .required = false, .default_value = JsonValue(10.0), .description = "Stub param."}}},
+    .params = {{"size", {.type = "int", .required = false, .default_value = JsonValue(10.0), .description = "Stub param."}},
+               {"bench_profile", {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(ReorderTopnBoostStubOp, k_reorder_topn_boost_schema)
 
@@ -253,6 +299,7 @@ class ObserveDatahubStubOp : public Operator {
   void init(const OperatorConfig& cfg) override {
     common_input_ = cfg.metadata.common_input;
     item_input_ = cfg.metadata.item_input;
+    latency_ = parse_bench_profile(cfg.params);
   }
 
   void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
@@ -264,11 +311,13 @@ class ObserveDatahubStubOp : public Operator {
         (void)input.item(i, k);
       }
     }
+    if (latency_) latency_->apply();
   }
 
  private:
   std::vector<std::string> common_input_;
   std::vector<std::string> item_input_;
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_observe_datahub_schema{
@@ -277,7 +326,8 @@ static const OperatorSchema k_observe_datahub_schema{
     .description = "Benchmark stub: simulates DataHub MQ write.",
     .params = {{"resource_name", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}},
                {"mode", {.type = "string", .required = false, .default_value = JsonValue(""), .description = "Stub param."}},
-               {"key_fields", {.type = "array", .required = false, .default_value = JsonValue(nullptr), .description = "Stub param."}}},
+               {"key_fields", {.type = "array", .required = false, .default_value = JsonValue(nullptr), .description = "Stub param."}},
+               {"bench_profile", {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(ObserveDatahubStubOp, k_observe_datahub_schema)
 
@@ -292,21 +342,25 @@ class TransformGenerateRequestIdStubOp : public Operator {
     if (it != params.end() && it->second.is_string()) {
       prefix_ = it->second.as_string();
     }
+    latency_ = parse_bench_profile(cfg.params);
   }
 
   void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
     out.set_common("request_id", JsonValue(prefix_ + ":550e8400-e29b-41d4-a716-446655440000"));
+    if (latency_) latency_->apply();
   }
 
  private:
   std::string prefix_ = "bench";
+  std::unique_ptr<LatencySampler> latency_;
 };
 
 static const OperatorSchema k_transform_generate_request_id_schema{
     .name = "transform_generate_request_id",
     .type = OpType::Transform,
     .description = "Benchmark stub: generates a fixed request ID.",
-    .params = {{"prefix", {.type = "string", .required = false, .default_value = JsonValue("bench"), .description = "Stub param."}}},
+    .params = {{"prefix", {.type = "string", .required = false, .default_value = JsonValue("bench"), .description = "Stub param."}},
+               {"bench_profile", {.type = "any", .required = false, .default_value = JsonValue(nullptr), .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformGenerateRequestIdStubOp, k_transform_generate_request_id_schema)
 
