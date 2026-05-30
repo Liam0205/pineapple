@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"os"
+	"runtime/debug"
 
 	// Blank-import all operator packages to trigger init() registrations.
 	_ "github.com/Liam0205/pineapple/pine-go/operators"
@@ -10,6 +12,12 @@ import (
 )
 
 func main() {
+	// Reduce GC frequency for throughput-oriented workloads.
+	// Only apply if the user hasn't explicitly set GOGC.
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(400)
+	}
+
 	configPath := flag.String("config", "", "Path to pipeline JSON config file")
 	addr := flag.String("addr", ":8080", "Listen address")
 	readHeaderTimeout := flag.Duration("read-header-timeout", 0, "HTTP read header timeout (0 = default 10s)")
