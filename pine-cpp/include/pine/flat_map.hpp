@@ -35,19 +35,39 @@ class FlatMap {
               [](const value_type& a, const value_type& b) { return a.first < b.first; });
   }
 
-  iterator begin() noexcept { return entries_.begin(); }
-  iterator end() noexcept { return entries_.end(); }
-  const_iterator begin() const noexcept { return entries_.begin(); }
-  const_iterator end() const noexcept { return entries_.end(); }
-  const_iterator cbegin() const noexcept { return entries_.cbegin(); }
-  const_iterator cend() const noexcept { return entries_.cend(); }
+  iterator begin() noexcept {
+    return entries_.begin();
+  }
+  iterator end() noexcept {
+    return entries_.end();
+  }
+  const_iterator begin() const noexcept {
+    return entries_.begin();
+  }
+  const_iterator end() const noexcept {
+    return entries_.end();
+  }
+  const_iterator cbegin() const noexcept {
+    return entries_.cbegin();
+  }
+  const_iterator cend() const noexcept {
+    return entries_.cend();
+  }
 
-  bool empty() const noexcept { return entries_.empty(); }
-  std::size_t size() const noexcept { return entries_.size(); }
+  bool empty() const noexcept {
+    return entries_.empty();
+  }
+  std::size_t size() const noexcept {
+    return entries_.size();
+  }
 
-  void clear() noexcept { entries_.clear(); }
+  void clear() noexcept {
+    entries_.clear();
+  }
 
-  void reserve(std::size_t n) { entries_.reserve(n); }
+  void reserve(std::size_t n) {
+    entries_.reserve(n);
+  }
 
   iterator find(const std::string& key) {
     auto it = lower_bound(key);
@@ -146,16 +166,12 @@ class FlatMap {
  private:
   iterator lower_bound(const std::string& key) {
     return std::lower_bound(entries_.begin(), entries_.end(), key,
-                            [](const value_type& entry, const std::string& k) {
-                              return entry.first < k;
-                            });
+                            [](const value_type& entry, const std::string& k) { return entry.first < k; });
   }
 
   const_iterator lower_bound(const std::string& key) const {
     return std::lower_bound(entries_.begin(), entries_.end(), key,
-                            [](const value_type& entry, const std::string& k) {
-                              return entry.first < k;
-                            });
+                            [](const value_type& entry, const std::string& k) { return entry.first < k; });
   }
 
   std::vector<value_type> entries_;

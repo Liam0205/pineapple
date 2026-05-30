@@ -30,7 +30,7 @@ func main() {
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(results)
+	_ = enc.Encode(results)
 }
 
 func calibrate(targetMs float64) int64 {

@@ -45,23 +45,43 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
     std::size_t esc_len = 0;
     std::size_t skip = 1;
 
-    if (ch == '"')       { esc = "\\\"";   esc_len = 2; }
-    else if (ch == '\\') { esc = "\\\\";   esc_len = 2; }
-    else if (ch == '\n') { esc = "\\n";    esc_len = 2; }
-    else if (ch == '\r') { esc = "\\r";    esc_len = 2; }
-    else if (ch == '\t') { esc = "\\t";    esc_len = 2; }
-    else if (ch == '<')  { esc = "\\u003c"; esc_len = 6; }
-    else if (ch == '>')  { esc = "\\u003e"; esc_len = 6; }
-    else if (ch == '&')  { esc = "\\u0026"; esc_len = 6; }
-    else if (ch < 0x20) {
+    if (ch == '"') {
+      esc = "\\\"";
+      esc_len = 2;
+    } else if (ch == '\\') {
+      esc = "\\\\";
+      esc_len = 2;
+    } else if (ch == '\n') {
+      esc = "\\n";
+      esc_len = 2;
+    } else if (ch == '\r') {
+      esc = "\\r";
+      esc_len = 2;
+    } else if (ch == '\t') {
+      esc = "\\t";
+      esc_len = 2;
+    } else if (ch == '<') {
+      esc = "\\u003c";
+      esc_len = 6;
+    } else if (ch == '>') {
+      esc = "\\u003e";
+      esc_len = 6;
+    } else if (ch == '&') {
+      esc = "\\u0026";
+      esc_len = 6;
+    } else if (ch < 0x20) {
       // flush safe prefix
       if (p > safe) {
         sb.Reserve(static_cast<rapidjson::SizeType>(p - safe));
-        for (const char* q = safe; q < p; ++q) sb.PutUnsafe(*q);
+        for (const char* q = safe; q < p; ++q) {
+          sb.PutUnsafe(*q);
+        }
       }
       char buf[8];
       int n = std::snprintf(buf, sizeof(buf), "\\u%04x", ch);
-      for (int i = 0; i < n; ++i) sb.Put(buf[i]);
+      for (int i = 0; i < n; ++i) {
+        sb.Put(buf[i]);
+      }
       safe = p + 1;
       ++p;
       continue;
@@ -79,9 +99,13 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
       // flush safe prefix
       if (p > safe) {
         sb.Reserve(static_cast<rapidjson::SizeType>(p - safe));
-        for (const char* q = safe; q < p; ++q) sb.PutUnsafe(*q);
+        for (const char* q = safe; q < p; ++q) {
+          sb.PutUnsafe(*q);
+        }
       }
-      for (std::size_t i = 0; i < esc_len; ++i) sb.Put(esc[i]);
+      for (std::size_t i = 0; i < esc_len; ++i) {
+        sb.Put(esc[i]);
+      }
       p += skip;
       safe = p;
     } else {
@@ -92,7 +116,9 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
   // flush remaining safe suffix
   if (p > safe) {
     sb.Reserve(static_cast<rapidjson::SizeType>(p - safe));
-    for (const char* q = safe; q < p; ++q) sb.PutUnsafe(*q);
+    for (const char* q = safe; q < p; ++q) {
+      sb.PutUnsafe(*q);
+    }
   }
   sb.Put('"');
 }
@@ -141,8 +167,7 @@ void write_json_value(Writer& w, const Variant& v) {
   for (const auto& [k, _] : obj) {
     keys.push_back(&k);
   }
-  std::sort(keys.begin(), keys.end(),
-            [](const std::string* a, const std::string* b) { return *a < *b; });
+  std::sort(keys.begin(), keys.end(), [](const std::string* a, const std::string* b) { return *a < *b; });
   w.StartObject();
   for (const auto* key : keys) {
     w.Key(key->c_str(), static_cast<rapidjson::SizeType>(key->size()));

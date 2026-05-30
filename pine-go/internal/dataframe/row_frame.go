@@ -125,15 +125,11 @@ func (f *RowFrame) BuildInput(
 
 	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem) + len(spec.NullableItem)
 	itemFields := make([]string, 0, totalItem)
-	for _, field := range spec.StrictItem {
-		itemFields = append(itemFields, field)
-	}
+	itemFields = append(itemFields, spec.StrictItem...)
 	for _, df := range spec.DefaultedItem {
 		itemFields = append(itemFields, df.Name)
 	}
-	for _, field := range spec.NullableItem {
-		itemFields = append(itemFields, field)
-	}
+	itemFields = append(itemFields, spec.NullableItem...)
 
 	return types.NewLazyOperatorInput(cs, f, itemDefaults, itemFields, 0, len(f.items)), nil
 }

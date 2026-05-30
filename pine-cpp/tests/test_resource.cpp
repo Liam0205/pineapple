@@ -25,8 +25,7 @@ struct RegistryFixture {
 
 TEST_CASE("resource: register_resource + snapshot returns loaded values") {
   resource::Manager mgr;
-  mgr.register_resource(
-      "static_one", []() { return Variant(std::string("v1")); }, std::chrono::seconds(60));
+  mgr.register_resource("static_one", []() { return Variant(std::string("v1")); }, std::chrono::seconds(60));
   mgr.start();
 
   auto snap = mgr.snapshot();
