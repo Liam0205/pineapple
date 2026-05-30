@@ -94,7 +94,7 @@ class LatencySampler {
     @SuppressWarnings("unchecked")
     static LatencySampler parse(Map<String, Object> params) {
         Object raw = params.get("bench_profile");
-        if (raw == null || !(raw instanceof Map)) return null;
+        if (!(raw instanceof Map)) return null;
         Map<String, Object> m = (Map<String, Object>) raw;
 
         double p50Mean = 0, p50Max = 0, p99Mean = 0, p99Max = 0;
