@@ -204,19 +204,17 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 		f.items = reordered
 	}
 
-	// 5. Additions
+	// 5. Additions (zero-copy: take ownership of the caller's map)
 	for _, added := range out.GetAddedItems() {
-		row := make(map[string]any, len(added)+1)
 		for k, v := range added {
 			if err := validateValue(k, v); err != nil {
 				return fmt.Errorf("added item write: %w", err)
 			}
-			row[k] = v
 		}
 		if recall {
-			row["_source"] = opName
+			added["_source"] = opName
 		}
-		f.items = append(f.items, row)
+		f.items = append(f.items, added)
 	}
 
 	return nil
