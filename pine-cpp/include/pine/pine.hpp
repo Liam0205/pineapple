@@ -3,6 +3,7 @@
 #include "pine/metrics.hpp"
 
 #include "pine/arena.hpp"
+#include "pine/flat_map.hpp"
 
 #include <atomic>
 #include <exception>
@@ -146,12 +147,14 @@ class PanicError : public Error, public std::nested_exception {
   std::string stack_;  // empty when std::stacktrace unavailable at link time
 };
 
+class JsonValue;
+using JsonObject = FlatMap<JsonValue>;
+using JsonArray = std::vector<JsonValue>;
+
 class JsonValue {
  public:
-  using object_t = std::unordered_map<std::string, JsonValue, std::hash<std::string>,
-                                      std::equal_to<std::string>,
-                                      ArenaAllocator<std::pair<const std::string, JsonValue>>>;
-  using array_t = std::vector<JsonValue, ArenaAllocator<JsonValue>>;
+  using object_t = JsonObject;
+  using array_t = JsonArray;
   using value_t = std::variant<std::nullptr_t, bool, double, std::string, array_t, object_t>;
 
   JsonValue();
