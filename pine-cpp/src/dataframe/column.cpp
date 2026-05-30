@@ -32,27 +32,38 @@ bool is_integral_number(const Variant& v) {
   return std::isfinite(d) && std::trunc(d) == d && d > -9.2233720368547758e18 && d < 9.2233720368547758e18;
 }
 
+// Build a dense bitmap from a sparse set for O(1) membership test.
+std::vector<bool> make_remove_bitmap(std::size_t n, const std::set<int>& indices) {
+  std::vector<bool> bitmap(n, false);
+  for (int idx : indices) {
+    bitmap[static_cast<std::size_t>(idx)] = true;
+  }
+  return bitmap;
+}
+
 void apply_remove(std::vector<bool>& validity, const std::set<int>& indices) {
-  std::vector<bool> out;
-  out.reserve(validity.size() - indices.size());
+  auto bitmap = make_remove_bitmap(validity.size(), indices);
+  std::size_t write = 0;
   for (std::size_t i = 0; i < validity.size(); ++i) {
-    if (!indices.count(static_cast<int>(i))) {
-      out.push_back(validity[i]);
+    if (!bitmap[i]) {
+      if (write != i) validity[write] = validity[i];
+      ++write;
     }
   }
-  validity = std::move(out);
+  validity.resize(write);
 }
 
 template <typename V>
 void apply_remove_data(std::vector<V>& data, const std::set<int>& indices) {
-  std::vector<V> out;
-  out.reserve(data.size() - indices.size());
+  auto bitmap = make_remove_bitmap(data.size(), indices);
+  std::size_t write = 0;
   for (std::size_t i = 0; i < data.size(); ++i) {
-    if (!indices.count(static_cast<int>(i))) {
-      out.push_back(std::move(data[i]));
+    if (!bitmap[i]) {
+      if (write != i) data[write] = std::move(data[i]);
+      ++write;
     }
   }
-  data = std::move(out);
+  data.resize(write);
 }
 
 }  // namespace
