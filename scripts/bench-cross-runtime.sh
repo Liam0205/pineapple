@@ -146,7 +146,8 @@ start_server() {
     java) java -cp "$JAVA_CP" -Dpine.config="$config" -Dpine.port="$port" \
       page.liam.pine.PineServer >"$sink" 2>&1 & ;;
     go) "$WORK_DIR/server-go" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
-    cpp) "$WORK_DIR/server-cpp" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
+    cpp) env ${CPP_LD_PRELOAD:+LD_PRELOAD="$CPP_LD_PRELOAD"} \
+      "$WORK_DIR/server-cpp" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
   esac
   echo $! > "$pid_file"
   for _ in $(seq 1 40); do
