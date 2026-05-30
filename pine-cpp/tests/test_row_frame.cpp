@@ -16,8 +16,8 @@ std::unique_ptr<RowFrame> make_row_frame() {
   items.push_back({{"id", Variant(1.0)}, {"score", Variant(10.0)}});
   items.push_back({{"id", Variant(2.0)}, {"score", Variant(20.0)}});
   items.push_back({{"id", Variant(3.0)}, {"score", Variant(30.0)}});
-  return std::make_unique<RowFrame>(
-      Variant::object_t{{"region", Variant(std::string("us"))}}, std::move(items));
+  return std::make_unique<RowFrame>(Variant::object_t{{"region", Variant(std::string("us"))}},
+                                    std::move(items));
 }
 
 }  // namespace

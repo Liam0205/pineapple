@@ -18,26 +18,28 @@ namespace pine {
 
 namespace {
 
-const bool _bench_fetcher_feed_data = resource::register_fetcher_factory("feed_data", [](const Variant& /*params*/) -> resource::Fetcher {
-  return []() -> Variant {
-    Variant::array_t items;
-    items.reserve(3000);
-    for (int i = 0; i < 3000; ++i) {
-      Variant::object_t row;
-      row["id"] = Variant(static_cast<double>(i + 1));
-      row["item_id"] = Variant(std::to_string(10000 + i));
-      row["type"] = Variant(static_cast<double>(i % 3 + 1));
-      row["score"] = Variant(static_cast<double>(1000 - i));
-      row["created_at"] = Variant("2026-01-01T00:00:00Z");
-      items.push_back(Variant(std::move(row)));
-    }
-    return Variant(std::move(items));
-  };
-});
+const bool _bench_fetcher_feed_data =
+    resource::register_fetcher_factory("feed_data", [](const Variant& /*params*/) -> resource::Fetcher {
+      return []() -> Variant {
+        Variant::array_t items;
+        items.reserve(3000);
+        for (int i = 0; i < 3000; ++i) {
+          Variant::object_t row;
+          row["id"] = Variant(static_cast<double>(i + 1));
+          row["item_id"] = Variant(std::to_string(10000 + i));
+          row["type"] = Variant(static_cast<double>(i % 3 + 1));
+          row["score"] = Variant(static_cast<double>(1000 - i));
+          row["created_at"] = Variant("2026-01-01T00:00:00Z");
+          items.push_back(Variant(std::move(row)));
+        }
+        return Variant(std::move(items));
+      };
+    });
 
-const bool _bench_fetcher_datahub = resource::register_fetcher_factory("datahub_producer", [](const Variant& /*params*/) -> resource::Fetcher {
-  return []() -> Variant { return Variant(nullptr); };
-});
+const bool _bench_fetcher_datahub = resource::register_fetcher_factory(
+    "datahub_producer", [](const Variant& /*params*/) -> resource::Fetcher {
+      return []() -> Variant { return Variant(nullptr); };
+    });
 
 }  // namespace
 
@@ -82,13 +84,19 @@ static const OperatorSchema k_recall_feed_data_schema{
     .type = OpType::Recall,
     .description = "Benchmark stub: generates synthetic feed items.",
     .params = {{"bench_item_count",
-                {.type = "int", .required = false, .default_value = Variant(3000.0),
+                {.type = "int",
+                 .required = false,
+                 .default_value = Variant(3000.0),
                  .description = "Number of items to generate."}},
                {"resource_name",
-                {.type = "string", .required = false, .default_value = Variant(""),
+                {.type = "string",
+                 .required = false,
+                 .default_value = Variant(""),
                  .description = "Ignored in stub."}},
                {"bench_profile",
-                {.type = "any", .required = false, .default_value = Variant(nullptr),
+                {.type = "any",
+                 .required = false,
+                 .default_value = Variant(nullptr),
                  .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(RecallFeedDataStubOp, k_recall_feed_data_schema)
@@ -108,7 +116,10 @@ class TransformRedisZrangebyscoreStubOp : public Operator {
     out.set_common("impression_ids", Variant(Variant::array_t{}));
     out.set_common("impression_cache_hit", Variant(true));
     out.set_common("impression_ids_len", Variant(0.0));
-    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -119,11 +130,20 @@ static const OperatorSchema k_transform_redis_zrangebyscore_schema{
     .name = "transform_redis_zrangebyscore",
     .type = OpType::Transform,
     .description = "Benchmark stub: simulates Redis ZRANGEBYSCORE.",
-    .params = {{"key_prefix", {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
-               {"window_seconds", {.type = "int", .required = false, .default_value = Variant(0.0), .description = "Stub param."}},
-               {"redis_addr", {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
-               {"redis_password", {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
-               {"bench_profile", {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params =
+        {{"key_prefix",
+          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+         {"window_seconds",
+          {.type = "int", .required = false, .default_value = Variant(0.0), .description = "Stub param."}},
+         {"redis_addr",
+          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+         {"redis_password",
+          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+         {"bench_profile",
+          {.type = "any",
+           .required = false,
+           .default_value = Variant(nullptr),
+           .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformRedisZrangebyscoreStubOp, k_transform_redis_zrangebyscore_schema)
 
@@ -142,7 +162,10 @@ class TransformHydrateStubOp : public Operator, public ConsumesRowSet {
       (void)input.item(i, "type");
       out.set_item(static_cast<int>(i), "creator_id", Variant(static_cast<double>(i % 1000)));
     }
-    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -153,8 +176,14 @@ static const OperatorSchema k_transform_hydrate_schema{
     .name = "transform_hydrate",
     .type = OpType::Transform,
     .description = "Benchmark stub: simulates MySQL hydration.",
-    .params = {{"mysql_dsn", {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
-               {"bench_profile", {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params =
+        {{"mysql_dsn",
+          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+         {"bench_profile",
+          {.type = "any",
+           .required = false,
+           .default_value = Variant(nullptr),
+           .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformHydrateStubOp, k_transform_hydrate_schema)
 
@@ -171,7 +200,10 @@ class TransformQueryBlockedCreatorsStubOp : public Operator {
     (void)input.common("user_id");
     (void)input.common("blocked_creator_ids");
     out.set_common("blocked_creator_ids", Variant(Variant::array_t{}));
-    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -182,8 +214,14 @@ static const OperatorSchema k_transform_query_blocked_creators_schema{
     .name = "transform_query_blocked_creators",
     .type = OpType::Transform,
     .description = "Benchmark stub: simulates MySQL blocked-creators query.",
-    .params = {{"mysql_dsn", {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
-               {"bench_profile", {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params =
+        {{"mysql_dsn",
+          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+         {"bench_profile",
+          {.type = "any",
+           .required = false,
+           .default_value = Variant(nullptr),
+           .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformQueryBlockedCreatorsStubOp, k_transform_query_blocked_creators_schema)
 
@@ -220,10 +258,14 @@ static const OperatorSchema k_filter_impression_schema{
     .name = "filter_impression",
     .type = OpType::Filter,
     .description = "Benchmark stub: simulates impression-based filtering.",
-    .params = {{"min_remaining_ratio",
-                {.type = "float", .required = false, .default_value = Variant(1.5), .description = "Stub param."}},
-               {"bench_profile",
-                {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params =
+        {{"min_remaining_ratio",
+          {.type = "float", .required = false, .default_value = Variant(1.5), .description = "Stub param."}},
+         {"bench_profile",
+          {.type = "any",
+           .required = false,
+           .default_value = Variant(nullptr),
+           .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(FilterImpressionStubOp, k_filter_impression_schema)
 
@@ -255,7 +297,11 @@ static const OperatorSchema k_filter_blocked_creator_schema{
     .name = "filter_blocked_creator",
     .type = OpType::Filter,
     .description = "Benchmark stub: simulates blocked-creator filtering.",
-    .params = {{"bench_profile", {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params = {{"bench_profile",
+                {.type = "any",
+                 .required = false,
+                 .default_value = Variant(nullptr),
+                 .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(FilterBlockedCreatorStubOp, k_filter_blocked_creator_schema)
 
@@ -297,8 +343,14 @@ static const OperatorSchema k_reorder_topn_boost_schema{
     .name = "reorder_topn_boost",
     .type = OpType::Reorder,
     .description = "Benchmark stub: simulates top-N boost reordering.",
-    .params = {{"size", {.type = "int", .required = false, .default_value = Variant(10.0), .description = "Stub param."}},
-               {"bench_profile", {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params =
+        {{"size",
+          {.type = "int", .required = false, .default_value = Variant(10.0), .description = "Stub param."}},
+         {"bench_profile",
+          {.type = "any",
+           .required = false,
+           .default_value = Variant(nullptr),
+           .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(ReorderTopnBoostStubOp, k_reorder_topn_boost_schema)
 
@@ -339,10 +391,21 @@ static const OperatorSchema k_observe_datahub_schema{
     .name = "observe_datahub",
     .type = OpType::Observe,
     .description = "Benchmark stub: simulates DataHub MQ write.",
-    .params = {{"resource_name", {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
-               {"mode", {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
-               {"key_fields", {.type = "array", .required = false, .default_value = Variant(nullptr), .description = "Stub param."}},
-               {"bench_profile", {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params =
+        {{"resource_name",
+          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+         {"mode",
+          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+         {"key_fields",
+          {.type = "array",
+           .required = false,
+           .default_value = Variant(nullptr),
+           .description = "Stub param."}},
+         {"bench_profile",
+          {.type = "any",
+           .required = false,
+           .default_value = Variant(nullptr),
+           .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(ObserveDatahubStubOp, k_observe_datahub_schema)
 
@@ -362,7 +425,10 @@ class TransformGenerateRequestIdStubOp : public Operator {
 
   void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
     out.set_common("request_id", Variant(prefix_ + ":550e8400-e29b-41d4-a716-446655440000"));
-    if (latency_) { volatile double sink = latency_->apply(); (void)sink; }
+    if (latency_) {
+      volatile double sink = latency_->apply();
+      (void)sink;
+    }
   }
 
  private:
@@ -374,8 +440,16 @@ static const OperatorSchema k_transform_generate_request_id_schema{
     .name = "transform_generate_request_id",
     .type = OpType::Transform,
     .description = "Benchmark stub: generates a fixed request ID.",
-    .params = {{"prefix", {.type = "string", .required = false, .default_value = Variant("bench"), .description = "Stub param."}},
-               {"bench_profile", {.type = "any", .required = false, .default_value = Variant(nullptr), .description = "Latency profile."}}},
+    .params = {{"prefix",
+                {.type = "string",
+                 .required = false,
+                 .default_value = Variant("bench"),
+                 .description = "Stub param."}},
+               {"bench_profile",
+                {.type = "any",
+                 .required = false,
+                 .default_value = Variant(nullptr),
+                 .description = "Latency profile."}}},
 };
 PINE_REGISTER_OPERATOR_T(TransformGenerateRequestIdStubOp, k_transform_generate_request_id_schema)
 

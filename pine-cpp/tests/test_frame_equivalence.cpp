@@ -146,8 +146,8 @@ TEST_CASE("Row/Column initial-state projection equivalence") {
 }
 
 TEST_CASE("Row/Column common writes equivalence") {
-  auto p = make_pair({{"region", Variant(std::string("us"))}},
-                     {{{"id", Variant(1.0)}}, {{"id", Variant(2.0)}}});
+  auto p =
+      make_pair({{"region", Variant(std::string("us"))}}, {{{"id", Variant(1.0)}}, {{"id", Variant(2.0)}}});
   OperatorOutput out;
   out.set_common("region", Variant(std::string("eu")));
   out.set_common("ts", Variant(1234.0));

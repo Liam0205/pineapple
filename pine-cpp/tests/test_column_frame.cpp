@@ -118,9 +118,9 @@ TEST_CASE("ColumnFrame: apply_output runs 5 stages in order (writes -> removes -
   auto frame = make_frame();
   OperatorOutput out;
   out.set_item(0, "score", Variant(100.0));  // stage 2
-  out.remove_item(2);                          // stage 3 (item index in original numbering)
+  out.remove_item(2);                        // stage 3 (item index in original numbering)
   // After stage 3 we have 2 rows. Reorder must reference those 2.
-  out.set_item_order({1, 0});               // stage 4
+  out.set_item_order({1, 0});             // stage 4
   out.add_item({{"id", Variant(99.0)}});  // stage 5
   frame.apply_output(out, "op", false);
   CHECK(frame.item_count() == 3);

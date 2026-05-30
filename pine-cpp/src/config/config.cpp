@@ -240,8 +240,7 @@ Config load_config_from_file(const std::string& path) {
 
 Config load_config_from_json(const std::string& text) {
   const auto root = parse_json(text).as_object();
-  auto require_obj = [](const Variant::object_t& parent,
-                        const std::string& key) -> const Variant::object_t& {
+  auto require_obj = [](const Variant::object_t& parent, const std::string& key) -> const Variant::object_t& {
     auto it = parent.find(key);
     if (it == parent.end()) {
       throw ConfigError("missing required top-level field \"" + key + "\"");
