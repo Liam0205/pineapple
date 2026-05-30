@@ -371,6 +371,7 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
   }
   std::shared_lock<std::shared_mutex> lk(mu_);
   Result r;
+  r.common.reserve(common_out.size());
   for (const auto& field : common_out) {
     auto it = common_.find(field);
     if (it != common_.end()) {
@@ -380,6 +381,7 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
   r.items.reserve(items_->row_count());
   for (std::size_t i = 0; i < items_->row_count(); ++i) {
     Variant::object_t row;
+    row.reserve(item_out.size());
     for (const auto& field : item_out) {
       const Column* col = items_->column(field);
       if (col && col->is_present(i)) {

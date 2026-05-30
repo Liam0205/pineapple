@@ -254,6 +254,7 @@ Result RowFrame::to_result(const std::vector<std::string>& common_out,
   }
   std::shared_lock<std::shared_mutex> lk(mu_);
   Result r;
+  r.common.reserve(common_out.size());
   for (const auto& field : common_out) {
     auto it = common_.find(field);
     if (it != common_.end()) {
@@ -263,6 +264,7 @@ Result RowFrame::to_result(const std::vector<std::string>& common_out,
   r.items.reserve(items_.size());
   for (const auto& row : items_) {
     Variant::object_t out_row;
+    out_row.reserve(item_out.size());
     for (const auto& field : item_out) {
       auto it = row.find(field);
       // Keep explicit nulls — pine-go RowFrame.ToResult / projectMap
