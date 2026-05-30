@@ -107,10 +107,17 @@ func (in *OperatorInput) ItemKeys(index int) []string {
 	return in.itemFields
 }
 
+// ItemWrite represents a single field write to an item at a given index.
+type ItemWrite struct {
+	Index int
+	Field string
+	Value any
+}
+
 // OperatorOutput collects writes from an operator, applied to the DataFrame by the engine.
 type OperatorOutput struct {
 	commonWrites map[string]any
-	itemWrites   map[int]map[string]any
+	itemWrites   []ItemWrite
 	addedItems   []map[string]any
 	removedItems map[int]struct{}
 	itemOrder    []int
@@ -132,13 +139,7 @@ func (out *OperatorOutput) SetCommon(field string, value any) {
 
 // SetItem writes a field for the item at the given index.
 func (out *OperatorOutput) SetItem(index int, field string, value any) {
-	if out.itemWrites == nil {
-		out.itemWrites = make(map[int]map[string]any)
-	}
-	if out.itemWrites[index] == nil {
-		out.itemWrites[index] = make(map[string]any)
-	}
-	out.itemWrites[index][field] = value
+	out.itemWrites = append(out.itemWrites, ItemWrite{Index: index, Field: field, Value: value})
 }
 
 // AddItem appends a new item row.
@@ -186,9 +187,22 @@ func (in *OperatorInput) LazyItemDefaults() map[string]any { return in.itemDefau
 // LazyItemFields returns the item field names (nil if materialized).
 func (in *OperatorInput) LazyItemFields() []string { return in.itemFields }
 
-func (out *OperatorOutput) GetCommonWrites() map[string]any       { return out.commonWrites }
-func (out *OperatorOutput) GetItemWrites() map[int]map[string]any  { return out.itemWrites }
-func (out *OperatorOutput) GetAddedItems() []map[string]any        { return out.addedItems }
-func (out *OperatorOutput) GetRemovedItems() map[int]struct{}      { return out.removedItems }
-func (out *OperatorOutput) GetItemOrder() []int                    { return out.itemOrder }
-func (out *OperatorOutput) GetWarning() error                      { return out.warning }
+func (out *OperatorOutput) GetCommonWrites() map[string]any  { return out.commonWrites }
+func (out *OperatorOutput) GetItemWrites() []ItemWrite        { return out.itemWrites }
+func (out *OperatorOutput) GetAddedItems() []map[string]any   { return out.addedItems }
+func (out *OperatorOutput) GetRemovedItems() map[int]struct{} { return out.removedItems }
+func (out *OperatorOutput) GetItemOrder() []int               { return out.itemOrder }
+func (out *OperatorOutput) GetWarning() error                 { return out.warning }
+
+// ItemWriteMap reconstructs the legacy map[int]map[string]any view from the
+// flat slice. Intended for tests and debug snapshots only.
+func (out *OperatorOutput) ItemWriteMap() map[int]map[string]any {
+	m := make(map[int]map[string]any)
+	for _, w := range out.itemWrites {
+		if m[w.Index] == nil {
+			m[w.Index] = make(map[string]any)
+		}
+		m[w.Index][w.Field] = w.Value
+	}
+	return m
+}

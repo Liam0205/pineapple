@@ -180,7 +180,7 @@ func runFixtureCase(t *testing.T, operatorName string, tc fixtureCase) {
 
 	// Validate item writes (Transform)
 	if tc.Expected.Items != nil {
-		iw := output.GetItemWrites()
+		iw := output.ItemWriteMap()
 		for i, expectedItem := range tc.Expected.Items {
 			for key, expectedVal := range expectedItem {
 				writes, ok := iw[i]

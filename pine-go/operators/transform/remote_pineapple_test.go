@@ -79,7 +79,7 @@ func TestRemotePineapple_BasicFieldMapping(t *testing.T) {
 		t.Errorf("expected user_score=0.95, got %v", cw["user_score"])
 	}
 
-	iw := out.GetItemWrites()
+	iw := out.ItemWriteMap()
 	if iw[0]["item_feature"] != "feat_a" {
 		t.Errorf("item[0] item_feature: want feat_a, got %v", iw[0]["item_feature"])
 	}

@@ -147,7 +147,7 @@ func TestMergeOutputs_ItemWritesOffset(t *testing.T) {
 
 	merged := mergeOutputs("op", []*types.OperatorOutput{out0, out1}, []int{0, 2})
 
-	iw := merged.GetItemWrites()
+	iw := merged.ItemWriteMap()
 	for absIdx, want := range map[int]float64{0: 1.0, 1: 2.0, 2: 3.0, 3: 4.0} {
 		if iw[absIdx]["score"] != want {
 			t.Errorf("itemWrites[%d][score]=%v, want %v", absIdx, iw[absIdx]["score"], want)
@@ -177,7 +177,7 @@ func TestMergeOutputs_NilOutputSkipped(t *testing.T) {
 	out0.SetItem(0, "x", 1)
 
 	merged := mergeOutputs("op", []*types.OperatorOutput{out0, nil}, []int{0, 1})
-	iw := merged.GetItemWrites()
+	iw := merged.ItemWriteMap()
 	if iw[0]["x"] != 1 {
 		t.Errorf("itemWrites[0][x]=%v, want 1", iw[0]["x"])
 	}
@@ -208,7 +208,7 @@ func TestParallelExecute_TransformSuccess(t *testing.T) {
 		t.Fatalf("parallelExecute: %v", err)
 	}
 
-	iw := output.GetItemWrites()
+	iw := output.ItemWriteMap()
 	for i := 0; i < 10; i++ {
 		want := float64(i) * 2
 		if iw[i]["doubled"] != want {
@@ -616,7 +616,7 @@ func TestParallelExecuteRaceSafe(t *testing.T) {
 		if err != nil {
 			t.Fatalf("iter %d: %v", iter, err)
 		}
-		iw := output.GetItemWrites()
+		iw := output.ItemWriteMap()
 		for i := 0; i < itemCount; i++ {
 			want := float64(i) + 1
 			if iw[i]["result"] != want {

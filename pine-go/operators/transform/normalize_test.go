@@ -43,7 +43,7 @@ func TestNormalizeOpExecute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	expected := []float64{0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0}
 	for i, exp := range expected {
 		got := writes[i]["score_norm"].(float64)
@@ -63,7 +63,7 @@ func TestNormalizeOpExecuteEqualValues(t *testing.T) {
 	in := pine.NewOperatorInput(nil, items)
 	out := pine.NewOperatorOutput()
 	_ = op.Execute(context.Background(), in, out)
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	for i := 0; i < 2; i++ {
 		if writes[i]["score_norm"] != 0.0 {
 			t.Errorf("expected 0 for equal values, got %v", writes[i]["score_norm"])
@@ -95,7 +95,7 @@ func TestNormalizeOpExecuteInt64(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["score_norm"] != 0.0 || writes[1]["score_norm"] != 1.0 {
 		t.Errorf("unexpected normalization: %v, %v", writes[0]["score_norm"], writes[1]["score_norm"])
 	}

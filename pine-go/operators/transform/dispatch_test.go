@@ -33,7 +33,7 @@ func TestDispatchOpExecute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	for i := 0; i < 3; i++ {
 		if writes[i]["item_scene"] != "homepage" {
 			t.Errorf("item[%d] item_scene = %v", i, writes[i]["item_scene"])
@@ -62,7 +62,7 @@ func TestDispatchOpExecuteNilCommon(t *testing.T) {
 	in := pine.NewOperatorInput(map[string]any{}, items)
 	out := pine.NewOperatorOutput()
 	_ = op.Execute(context.Background(), in, out)
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["item_missing"] != nil {
 		t.Errorf("expected nil for missing common field, got %v", writes[0]["item_missing"])
 	}

@@ -85,11 +85,8 @@ func mergeOutputs(opName string, outputs []*types.OperatorOutput, offsets []int)
 			merged.SetWarning(w)
 		}
 		offset := offsets[i]
-		for localIdx, fields := range out.GetItemWrites() {
-			absIdx := localIdx + offset
-			for field, value := range fields {
-				merged.SetItem(absIdx, field, value)
-			}
+		for _, w := range out.GetItemWrites() {
+			merged.SetItem(w.Index+offset, w.Field, w.Value)
 		}
 		for localIdx := range out.GetRemovedItems() {
 			merged.RemoveItem(localIdx + offset)

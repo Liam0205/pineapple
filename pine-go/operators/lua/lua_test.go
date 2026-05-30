@@ -86,7 +86,7 @@ func TestLuaOpForItem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	// user_age < 18 → item_price * 0.8
 	if writes[0]["item_adjusted"] != 80.0 {
 		t.Errorf("item[0] expected 80, got %v", writes[0]["item_adjusted"])
@@ -114,7 +114,7 @@ func TestLuaOpForItemAdult(t *testing.T) {
 	out := pine.NewOperatorOutput()
 	_ = op.Execute(context.Background(), in, out)
 
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["item_adjusted"] != 100.0 {
 		t.Errorf("expected 100, got %v", writes[0]["item_adjusted"])
 	}
@@ -232,7 +232,7 @@ func TestLuaOpNilHandling(t *testing.T) {
 	out := pine.NewOperatorOutput()
 	_ = op.Execute(context.Background(), in, out)
 
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["result"] != -1.0 {
 		t.Errorf("expected -1 for nil input, got %v", writes[0]["result"])
 	}
@@ -250,7 +250,7 @@ func TestLuaOpMultipleReturns(t *testing.T) {
 	out := pine.NewOperatorOutput()
 	_ = op.Execute(context.Background(), in, out)
 
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["double"] != 10.0 {
 		t.Errorf("expected 10, got %v", writes[0]["double"])
 	}
@@ -277,7 +277,7 @@ func TestLuaOpConcurrent(t *testing.T) {
 				errs <- err
 				return
 			}
-			w := out.GetItemWrites()
+			w := out.ItemWriteMap()
 			if w[0]["result"] != val*2 {
 				errs <- fmt.Errorf("expected %f, got %v", val*2, w[0]["result"])
 			}
@@ -300,7 +300,7 @@ func TestLuaOpStringReturn(t *testing.T) {
 	out := pine.NewOperatorOutput()
 	_ = op.Execute(context.Background(), in, out)
 
-	writes := out.GetItemWrites()
+	writes := out.ItemWriteMap()
 	if writes[0]["greeting"] != "hello_world" {
 		t.Errorf("expected hello_world, got %v", writes[0]["greeting"])
 	}
