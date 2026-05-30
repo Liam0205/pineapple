@@ -26,7 +26,8 @@ public class BenchStubs {
                         "Benchmark stub: generates synthetic feed items.",
                         Map.of(
                                 "bench_item_count", ParamSpec.optional("int", 3000L, "Number of items to generate."),
-                                "resource_name", ParamSpec.optional("string", "", "Ignored in stub.")
+                                "resource_name", ParamSpec.optional("string", "", "Ignored in stub."),
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 RecallFeedDataStub::new);
 
@@ -35,20 +36,23 @@ public class BenchStubs {
                         "transform_redis_zrangebyscore",
                         OperatorType.TRANSFORM,
                         "Benchmark stub: simulates Redis ZRANGEBYSCORE.",
-                        Map.of(
-                                "key_prefix", ParamSpec.optional("string", "", "Stub param."),
-                                "window_seconds", ParamSpec.optional("int", 0L, "Stub param."),
-                                "redis_addr", ParamSpec.optional("string", "", "Stub param."),
-                                "redis_password", ParamSpec.optional("string", "", "Stub param.")
+                        Map.ofEntries(
+                                Map.entry("key_prefix", ParamSpec.optional("string", "", "Stub param.")),
+                                Map.entry("window_seconds", ParamSpec.optional("int", 0L, "Stub param.")),
+                                Map.entry("redis_addr", ParamSpec.optional("string", "", "Stub param.")),
+                                Map.entry("redis_password", ParamSpec.optional("string", "", "Stub param.")),
+                                Map.entry("bench_profile", ParamSpec.optional("any", null, "Latency profile."))
                         )),
                 TransformRedisZrangebyscoreStub::new);
+
         Registry.registerGlobal(
                 new OperatorSchema(
                         "transform_hydrate",
                         OperatorType.TRANSFORM,
                         "Benchmark stub: simulates MySQL hydration.",
                         Map.of(
-                                "mysql_dsn", ParamSpec.optional("string", "", "Stub param.")
+                                "mysql_dsn", ParamSpec.optional("string", "", "Stub param."),
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 TransformHydrateStub::new);
 
@@ -58,7 +62,8 @@ public class BenchStubs {
                         OperatorType.TRANSFORM,
                         "Benchmark stub: simulates MySQL blocked-creators query.",
                         Map.of(
-                                "mysql_dsn", ParamSpec.optional("string", "", "Stub param.")
+                                "mysql_dsn", ParamSpec.optional("string", "", "Stub param."),
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 TransformQueryBlockedCreatorsStub::new);
 
@@ -68,7 +73,8 @@ public class BenchStubs {
                         OperatorType.FILTER,
                         "Benchmark stub: simulates impression-based filtering.",
                         Map.of(
-                                "min_remaining_ratio", ParamSpec.optional("float64", 1.5, "Stub param.")
+                                "min_remaining_ratio", ParamSpec.optional("float64", 1.5, "Stub param."),
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 FilterImpressionStub::new);
 
@@ -77,7 +83,9 @@ public class BenchStubs {
                         "filter_blocked_creator",
                         OperatorType.FILTER,
                         "Benchmark stub: simulates blocked-creator filtering.",
-                        Collections.emptyMap()),
+                        Map.of(
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
+                        )),
                 FilterBlockedCreatorStub::new);
 
         Registry.registerGlobal(
@@ -86,7 +94,8 @@ public class BenchStubs {
                         OperatorType.REORDER,
                         "Benchmark stub: simulates top-N boost reordering.",
                         Map.of(
-                                "size", ParamSpec.optional("int", 10L, "Stub param.")
+                                "size", ParamSpec.optional("int", 10L, "Stub param."),
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 ReorderTopnBoostStub::new);
 
@@ -98,7 +107,8 @@ public class BenchStubs {
                         Map.of(
                                 "resource_name", ParamSpec.optional("string", "", "Stub param."),
                                 "mode", ParamSpec.optional("string", "", "Stub param."),
-                                "key_fields", ParamSpec.optional("any", null, "Stub param.")
+                                "key_fields", ParamSpec.optional("any", null, "Stub param."),
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 ObserveDatahubStub::new);
 
@@ -108,7 +118,8 @@ public class BenchStubs {
                         OperatorType.TRANSFORM,
                         "Benchmark stub: generates a fixed request ID.",
                         Map.of(
-                                "prefix", ParamSpec.optional("string", "bench", "Stub param.")
+                                "prefix", ParamSpec.optional("string", "bench", "Stub param."),
+                                "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 TransformGenerateRequestIdStub::new);
 
