@@ -77,7 +77,7 @@ class TransformByLuaOp : public Operator, public ConcurrentSafe, public StatsPro
         vm.set_global(field, input.common(field));
       }
       for (const auto& field : item_input_) {
-        JsonValue::array_t column;
+        Variant::array_t column;
         column.reserve(input.item_count());
         for (std::size_t i = 0; i < input.item_count(); ++i) {
           column.push_back(input.item(i, field));
@@ -112,17 +112,17 @@ static const OperatorSchema k_transform_by_lua_schema{
             {"function_for_common",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue(""),
+              .default_value = Variant(""),
               .description = "Function name to call once for all items."}},
             {"function_for_item",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue(""),
+              .default_value = Variant(""),
               .description = "Function name to call per item."}},
             {"lua_script",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Lua source code defining the function to call."}},
         },
 };

@@ -165,7 +165,7 @@ void LuaVM::load_script(const std::string& code, const std::string& op_name) {
   }
 }
 
-void LuaVM::to_lua(const JsonValue& value) {
+void LuaVM::to_lua(const Variant& value) {
   if (value.is_null()) {
     lua_pushnil(L_);
   } else if (value.is_bool()) {
@@ -193,34 +193,34 @@ void LuaVM::to_lua(const JsonValue& value) {
   }
 }
 
-JsonValue LuaVM::from_lua(int index) {
+Variant LuaVM::from_lua(int index) {
   int t = lua_type(L_, index);
   switch (t) {
     case LUA_TNIL:
-      return JsonValue();
+      return Variant();
     case LUA_TBOOLEAN:
-      return JsonValue(static_cast<bool>(lua_toboolean(L_, index)));
+      return Variant(static_cast<bool>(lua_toboolean(L_, index)));
     case LUA_TNUMBER:
-      return JsonValue(lua_tonumber(L_, index));
+      return Variant(lua_tonumber(L_, index));
     case LUA_TSTRING: {
       std::size_t len;
       const char* s = lua_tolstring(L_, index, &len);
-      return JsonValue(std::string(s, len));
+      return Variant(std::string(s, len));
     }
     case LUA_TTABLE: {
       int abs_idx = (index > 0) ? index : lua_gettop(L_) + index + 1;
       int len = static_cast<int>(lua_objlen(L_, abs_idx));
       if (len > 0) {
-        JsonValue::array_t arr;
+        Variant::array_t arr;
         arr.reserve(static_cast<std::size_t>(len));
         for (int i = 1; i <= len; ++i) {
           lua_rawgeti(L_, abs_idx, i);
           arr.push_back(from_lua(-1));
           lua_pop(L_, 1);
         }
-        return JsonValue(std::move(arr));
+        return Variant(std::move(arr));
       }
-      JsonValue::object_t obj;
+      Variant::object_t obj;
       lua_pushnil(L_);
       while (lua_next(L_, abs_idx) != 0) {
         if (lua_type(L_, -2) != LUA_TSTRING) {
@@ -235,21 +235,21 @@ JsonValue LuaVM::from_lua(int index) {
       }
       if (obj.empty()) {
         // Lua empty table → empty array (cross-runtime convention)
-        return JsonValue(JsonValue::array_t{});
+        return Variant(Variant::array_t{});
       }
-      return JsonValue(std::move(obj));
+      return Variant(std::move(obj));
     }
     default:
-      return JsonValue();
+      return Variant();
   }
 }
 
-void LuaVM::set_global(const std::string& name, const JsonValue& value) {
+void LuaVM::set_global(const std::string& name, const Variant& value) {
   to_lua(value);
   lua_setglobal(L_, name.c_str());
 }
 
-void LuaVM::set_global_table(const std::string& name, const JsonValue::array_t& values) {
+void LuaVM::set_global_table(const std::string& name, const Variant::array_t& values) {
   lua_createtable(L_, static_cast<int>(values.size()), 0);
   for (std::size_t i = 0; i < values.size(); ++i) {
     to_lua(values[i]);
@@ -258,7 +258,7 @@ void LuaVM::set_global_table(const std::string& name, const JsonValue::array_t& 
   lua_setglobal(L_, name.c_str());
 }
 
-JsonValue::array_t LuaVM::call_function(const std::string& func_name, int nret,
+Variant::array_t LuaVM::call_function(const std::string& func_name, int nret,
                                             const std::string& op_name) {
   lua_getglobal(L_, func_name.c_str());
   if (lua_type(L_, -1) != LUA_TFUNCTION) {
@@ -270,7 +270,7 @@ JsonValue::array_t LuaVM::call_function(const std::string& func_name, int nret,
     lua_pop(L_, 1);
     throw ExecutionError(op_name, "lua: " + err);
   }
-  JsonValue::array_t results;
+  Variant::array_t results;
   results.reserve(static_cast<std::size_t>(nret));
   for (int j = 0; j < nret; ++j) {
     int idx = -(nret - j);

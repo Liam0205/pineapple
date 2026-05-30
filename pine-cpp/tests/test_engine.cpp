@@ -43,7 +43,7 @@ constexpr const char* kCopyConfig = R"({
 TEST_CASE("Engine::execute: runs simple transform_copy") {
   Engine engine(load_config_from_json(kCopyConfig));
   Request req;
-  req.common["src"] = JsonValue(std::string("hello"));
+  req.common["src"] = Variant(std::string("hello"));
   auto result = engine.execute(req);
   REQUIRE(result.common.count("dst") == 1);
   CHECK(result.common.at("dst").as_string() == "hello");
@@ -52,8 +52,8 @@ TEST_CASE("Engine::execute: runs simple transform_copy") {
 TEST_CASE("Engine::execute_traced: produces trace entries") {
   Engine engine(load_config_from_json(kCopyConfig));
   Request req;
-  req.common["src"] = JsonValue(std::string("v"));
-  std::map<std::string, JsonValue> resources;
+  req.common["src"] = Variant(std::string("v"));
+  std::map<std::string, Variant> resources;
   auto traced = engine.execute_traced(req, resources);
   REQUIRE(traced.trace.size() == 1);
   CHECK(traced.trace[0].name == "copy");
@@ -136,7 +136,7 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
     void init(const pine::OperatorConfig&) override {
     }
     void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
-      out.set_common("region", pine::JsonValue(std::string("us")));
+      out.set_common("region", pine::Variant(std::string("us")));
     }
   };
   static const pine::OperatorSchema s{
@@ -210,10 +210,10 @@ TEST_CASE("Engine::execute honors external stop_token") {
     })";
   Engine engine(load_config_from_json(kCfg));
   Request req;
-  req.common["src"] = JsonValue(std::string("v"));
+  req.common["src"] = Variant(std::string("v"));
   std::stop_source src;
   src.request_stop();  // pre-cancelled
-  static const std::map<std::string, JsonValue> empty_res;
+  static const std::map<std::string, Variant> empty_res;
   // Pre-cancelled token: run_dag should see stop_requested at every wait
   // and either return early or finish the trivial DAG. Either way the
   // call must not deadlock and not throw spuriously.
@@ -261,7 +261,7 @@ TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)"
     })";
   Engine engine(load_config_from_json(kCfg));
   Request req;
-  static const std::map<std::string, JsonValue> empty_res;
+  static const std::map<std::string, Variant> empty_res;
 
   std::stop_source src;
   auto cancel_token = src.get_token();

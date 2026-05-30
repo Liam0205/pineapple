@@ -27,15 +27,15 @@
 
 namespace pine {
 
-void OperatorOutput::set_common(const std::string& field, JsonValue value) {
+void OperatorOutput::set_common(const std::string& field, Variant value) {
   common_writes_[field] = std::move(value);
 }
 
-void OperatorOutput::set_item(int index, const std::string& field, JsonValue value) {
+void OperatorOutput::set_item(int index, const std::string& field, Variant value) {
   item_writes_.push_back(ItemWrite{index, field, std::move(value)});
 }
 
-void OperatorOutput::add_item(JsonValue::object_t fields) {
+void OperatorOutput::add_item(Variant::object_t fields) {
   added_items_.push_back(std::move(fields));
 }
 
@@ -63,7 +63,7 @@ using Frame = ::pine::Frame;
 
 bool should_skip(const Frame& frame, const OperatorConfig& op) {
   for (const auto& field : op.skip) {
-    JsonValue v = frame.common(field);
+    Variant v = frame.common(field);
     if (!v.is_null() && v.truthy()) {
       return true;
     }
@@ -103,18 +103,18 @@ void validate_request(const Request& request, const FlowContract& contract) {
 //
 // pine-go derives this from the projected OperatorInput so fields
 // that are unset and have no default never appear in the snapshot. The
-// earlier C++ version inserted JsonValue() (null) placeholders for those
+// earlier C++ version inserted Variant() (null) placeholders for those
 // fields, polluting trace output relative to Go.
-JsonValue snapshot_input(const Frame& frame, const OperatorConfig& op) {
-  JsonValue::object_t snap;
+Variant snapshot_input(const Frame& frame, const OperatorConfig& op) {
+  Variant::object_t snap;
   std::set<std::string> skip_set(op.skip.begin(), op.skip.end());
 
-  JsonValue::object_t common;
+  Variant::object_t common;
   for (const auto& field : op.metadata.common_input) {
     if (skip_set.count(field)) {
       continue;
     }
-    JsonValue v = frame.common(field);
+    Variant v = frame.common(field);
     if (!v.is_null()) {
       common[field] = v;
     } else if (auto def = op.common_defaults.find(field); def != op.common_defaults.end()) {
@@ -123,17 +123,17 @@ JsonValue snapshot_input(const Frame& frame, const OperatorConfig& op) {
     // else: omit — matches Go BuildInput projection semantics.
   }
   if (!common.empty()) {
-    snap["common"] = JsonValue(std::move(common));
+    snap["common"] = Variant(std::move(common));
   }
 
   if (frame.item_count() > 0 && !op.metadata.item_input.empty()) {
     bool has_data = false;
-    JsonValue::array_t items;
+    Variant::array_t items;
     items.reserve(frame.item_count());
     for (std::size_t i = 0; i < frame.item_count(); ++i) {
-      JsonValue::object_t row;
+      Variant::object_t row;
       for (const auto& field : op.metadata.item_input) {
-        JsonValue v = frame.item(i, field);
+        Variant v = frame.item(i, field);
         if (!v.is_null()) {
           row[field] = v;
         } else if (auto def = op.item_defaults.find(field); def != op.item_defaults.end()) {
@@ -144,27 +144,27 @@ JsonValue snapshot_input(const Frame& frame, const OperatorConfig& op) {
       if (!row.empty()) {
         has_data = true;
       }
-      items.push_back(JsonValue(std::move(row)));
+      items.push_back(Variant(std::move(row)));
     }
     if (has_data) {
-      snap["items"] = JsonValue(std::move(items));
+      snap["items"] = Variant(std::move(items));
     }
   }
 
-  return JsonValue(std::move(snap));
+  return Variant(std::move(snap));
 }
 
 // snapshot_output mirrors pine-go's snapshotOutput: serialize the
 // OperatorOutput buffer into a stable JSON-friendly shape.
-JsonValue snapshot_output(const OperatorOutput& out) {
-  JsonValue::object_t snap;
+Variant snapshot_output(const OperatorOutput& out) {
+  Variant::object_t snap;
 
   if (!out.common_writes().empty()) {
-    JsonValue::object_t cw;
+    Variant::object_t cw;
     for (const auto& [field, value] : out.common_writes()) {
       cw[field] = value;
     }
-    snap["common_writes"] = JsonValue(std::move(cw));
+    snap["common_writes"] = Variant(std::move(cw));
   }
 
   if (!out.item_writes().empty()) {
@@ -172,44 +172,44 @@ JsonValue snapshot_output(const OperatorOutput& out) {
     // group by idx and let later writes overwrite earlier ones to
     // preserve the snapshot's "final state" semantics. apply_output
     // also replays the vector in order so the on-frame state matches.
-    std::map<int, std::map<std::string, JsonValue>> grouped;
+    std::map<int, std::map<std::string, Variant>> grouped;
     for (const auto& w : out.item_writes()) {
       grouped[w.index][w.field] = w.value;
     }
-    JsonValue::object_t iw;
+    Variant::object_t iw;
     for (const auto& [idx, fields] : grouped) {
-      JsonValue::object_t row;
+      Variant::object_t row;
       for (const auto& [field, value] : fields) {
         row[field] = value;
       }
-      iw[std::to_string(idx)] = JsonValue(std::move(row));
+      iw[std::to_string(idx)] = Variant(std::move(row));
     }
-    snap["item_writes"] = JsonValue(std::move(iw));
+    snap["item_writes"] = Variant(std::move(iw));
   }
 
   if (!out.added_items().empty()) {
-    JsonValue::array_t ai;
+    Variant::array_t ai;
     ai.reserve(out.added_items().size());
     for (const auto& row : out.added_items()) {
-      JsonValue::object_t obj;
+      Variant::object_t obj;
       for (const auto& [field, value] : row) {
         obj[field] = value;
       }
-      ai.push_back(JsonValue(std::move(obj)));
+      ai.push_back(Variant(std::move(obj)));
     }
-    snap["added_items"] = JsonValue(std::move(ai));
+    snap["added_items"] = Variant(std::move(ai));
   }
 
   if (!out.removed_items().empty()) {
-    JsonValue::array_t ri;
+    Variant::array_t ri;
     ri.reserve(out.removed_items().size());
     for (int idx : out.removed_items()) {
-      ri.push_back(JsonValue(static_cast<double>(idx)));
+      ri.push_back(Variant(static_cast<double>(idx)));
     }
-    snap["removed_items"] = JsonValue(std::move(ri));
+    snap["removed_items"] = Variant(std::move(ri));
   }
 
-  return JsonValue(std::move(snap));
+  return Variant(std::move(snap));
 }
 
 int64_t now_us() {
@@ -942,15 +942,15 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
 }  // namespace
 
 Result Engine::execute(const Request& request) const {
-  static const std::map<std::string, JsonValue> empty_resources;
+  static const std::map<std::string, Variant> empty_resources;
   return execute(request, empty_resources, std::stop_token{});
 }
 
-Result Engine::execute(const Request& request, const std::map<std::string, JsonValue>& resources) const {
+Result Engine::execute(const Request& request, const std::map<std::string, Variant>& resources) const {
   return execute(request, resources, std::stop_token{});
 }
 
-Result Engine::execute(const Request& request, const std::map<std::string, JsonValue>& resources,
+Result Engine::execute(const Request& request, const std::map<std::string, Variant>& resources,
                        std::stop_token external_cancel) const {
   // Route through the traced path so partial-result salvage runs even
   // for callers using the no-trace API. Mirrors pine-go's Execute()
@@ -964,18 +964,18 @@ Result Engine::execute(const Request& request, const std::map<std::string, JsonV
 }
 
 TracedResult Engine::execute_traced(const Request& request,
-                                    const std::map<std::string, JsonValue>& resources) const {
+                                    const std::map<std::string, Variant>& resources) const {
   TracedResult traced;
   execute_traced_into(request, resources, &traced);
   return traced;
 }
 
-void Engine::execute_traced_into(const Request& request, const std::map<std::string, JsonValue>& resources,
+void Engine::execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
                                  TracedResult* out) const {
   execute_traced_into(request, resources, out, std::stop_token{});
 }
 
-void Engine::execute_traced_into(const Request& request, const std::map<std::string, JsonValue>& resources,
+void Engine::execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
                                  TracedResult* out, std::stop_token external_cancel) const {
   validate_request(request, config_.flow_contract);
   // Capture the calling thread's central arena (non-null if RequestArena is active).

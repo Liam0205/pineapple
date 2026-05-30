@@ -10,8 +10,8 @@ OperatorInput::OperatorInput(const Frame& frame, const InputFieldSpec& spec)
     : frame_(&frame), spec_(&spec), cached_item_count_(frame.item_count()) {
 }
 
-JsonValue OperatorInput::common(const std::string& field) const {
-  JsonValue v = frame_->common(field);
+Variant OperatorInput::common(const std::string& field) const {
+  Variant v = frame_->common(field);
   if (!v.is_null()) {
     return v;
   }
@@ -20,14 +20,14 @@ JsonValue OperatorInput::common(const std::string& field) const {
       return df.default_value;
     }
   }
-  return JsonValue(nullptr);
+  return Variant(nullptr);
 }
 
-JsonValue OperatorInput::item(std::size_t index, const std::string& field) const {
+Variant OperatorInput::item(std::size_t index, const std::string& field) const {
   if (index >= cached_item_count_) {
-    return JsonValue(nullptr);
+    return Variant(nullptr);
   }
-  JsonValue v = frame_->item(index, field);
+  Variant v = frame_->item(index, field);
   if (!v.is_null()) {
     return v;
   }
@@ -36,7 +36,7 @@ JsonValue OperatorInput::item(std::size_t index, const std::string& field) const
       return df.default_value;
     }
   }
-  return JsonValue(nullptr);
+  return Variant(nullptr);
 }
 
 std::vector<std::string> OperatorInput::common_keys() const {
@@ -68,7 +68,7 @@ std::vector<std::string> OperatorInput::item_keys(std::size_t index) const {
   return keys;
 }
 
-const std::map<std::string, JsonValue>* OperatorInput::resources() const {
+const std::map<std::string, Variant>* OperatorInput::resources() const {
   return frame_->resources();
 }
 
@@ -110,7 +110,7 @@ OperatorInput build_operator_input(const Frame& frame, const std::string& op_nam
                                    const InputFieldSpec& spec) {
   // Validate strict common fields
   for (const auto& field : spec.strict_common) {
-    JsonValue v = frame.common(field);
+    Variant v = frame.common(field);
     if (v.is_null()) {
       throw ExecutionError(op_name, "required field \"" + field + "\" is nil in common");
     }

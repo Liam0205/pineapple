@@ -96,7 +96,7 @@ constexpr const char* kRootDebugConfig = R"({
 
 Request make_request() {
   Request req;
-  req.common["x"] = JsonValue(1.0);
+  req.common["x"] = Variant(1.0);
   return req;
 }
 

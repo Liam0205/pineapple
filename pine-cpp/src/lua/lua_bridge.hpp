@@ -32,17 +32,17 @@ class LuaVM {
   LuaVM& operator=(const LuaVM&) = delete;
 
   void load_script(const std::string& code, const std::string& op_name);
-  void set_global(const std::string& name, const JsonValue& value);
-  void set_global_table(const std::string& name, const JsonValue::array_t& values);
-  JsonValue::array_t call_function(const std::string& func_name, int nret, const std::string& op_name);
+  void set_global(const std::string& name, const Variant& value);
+  void set_global_table(const std::string& name, const Variant::array_t& values);
+  Variant::array_t call_function(const std::string& func_name, int nret, const std::string& op_name);
 
   lua_State* state() const {
     return L_;
   }
 
  private:
-  void to_lua(const JsonValue& value);
-  JsonValue from_lua(int index);
+  void to_lua(const Variant& value);
+  Variant from_lua(int index);
   lua_State* L_;
 };
 

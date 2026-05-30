@@ -14,7 +14,7 @@ namespace {
 
 // Best-effort coercion of a JSON value to int64. Mirrors pine-go's
 // toInt64Param: accepts number, string-encoded integer, or bool→0/1.
-int64_t to_int64_param(const JsonValue& v) {
+int64_t to_int64_param(const Variant& v) {
   if (v.is_number()) {
     return static_cast<int64_t>(v.as_number());
   }
@@ -31,7 +31,7 @@ int64_t to_int64_param(const JsonValue& v) {
   return 0;
 }
 
-std::vector<std::string> to_string_slice(const JsonValue& v) {
+std::vector<std::string> to_string_slice(const Variant& v) {
   std::vector<std::string> out;
   if (!v.is_array()) {
     return out;
@@ -126,7 +126,7 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
     const auto& common_resp_fields = common_resp_.empty() ? common_output_ : common_resp_;
     const auto& item_resp_fields = item_resp_.empty() ? item_output_ : item_resp_;
 
-    JsonValue::object_t req_common;
+    Variant::object_t req_common;
     for (std::size_t i = 0; i < common_input_.size(); ++i) {
       if (i >= common_req_fields.size()) {
         break;
@@ -134,10 +134,10 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
       req_common.emplace(common_req_fields[i], input.common(common_input_[i]));
     }
 
-    JsonValue::array_t req_items;
+    Variant::array_t req_items;
     req_items.reserve(input.item_count());
     for (std::size_t j = 0; j < input.item_count(); ++j) {
-      JsonValue::object_t item;
+      Variant::object_t item;
       for (std::size_t i = 0; i < item_input_.size(); ++i) {
         if (i >= item_req_fields.size()) {
           break;
@@ -147,10 +147,10 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
       req_items.emplace_back(std::move(item));
     }
 
-    JsonValue::object_t req_body_obj;
-    req_body_obj.emplace("common", JsonValue(std::move(req_common)));
-    req_body_obj.emplace("items", JsonValue(std::move(req_items)));
-    std::string body = dump_json(JsonValue(std::move(req_body_obj)), 0);
+    Variant::object_t req_body_obj;
+    req_body_obj.emplace("common", Variant(std::move(req_common)));
+    req_body_obj.emplace("items", Variant(std::move(req_items)));
+    std::string body = dump_json(Variant(std::move(req_body_obj)), 0);
 
     http::PostOptions opts;
     opts.url = url_;
@@ -170,7 +170,7 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
       return;
     }
 
-    JsonValue parsed;
+    Variant parsed;
     try {
       parsed = parse_json(res.body);
     } catch (const std::exception& e) {
@@ -191,11 +191,11 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
       }
     }
 
-    const JsonValue::object_t* resp_common = nullptr;
+    const Variant::object_t* resp_common = nullptr;
     if (auto it = obj.find("common"); it != obj.end() && it->second.is_object()) {
       resp_common = &it->second.as_object();
     }
-    const JsonValue::array_t* resp_items = nullptr;
+    const Variant::array_t* resp_items = nullptr;
     if (auto it = obj.find("items"); it != obj.end() && it->second.is_array()) {
       resp_items = &it->second.as_array();
     }
@@ -278,58 +278,58 @@ static const OperatorSchema k_transform_by_remote_pineapple_schema{
             {"host",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Downstream service host."}},
             {"port",
              {.type = "int64",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Downstream service port."}},
             {"endpoint",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue("/execute"),
+              .default_value = Variant("/execute"),
               .description = "Downstream endpoint path."}},
             {"timeout",
              {.type = "float64",
               .required = false,
-              .default_value = JsonValue(5.0),
+              .default_value = Variant(5.0),
               .description = "Request timeout in seconds."}},
             {"fail_on_error",
              {.type = "bool",
               .required = false,
-              .default_value = JsonValue(true),
+              .default_value = Variant(true),
               .description = "true=fatal on downstream error; false=warning and skip."}},
             {"max_response_size",
              {.type = "int64",
               .required = false,
-              .default_value = JsonValue(static_cast<double>(10 * 1024 * 1024)),
+              .default_value = Variant(static_cast<double>(10 * 1024 * 1024)),
               .description = "Maximum response body size in bytes (default 10 MB)."}},
             {"allow_private",
              {.type = "bool",
               .required = false,
-              .default_value = JsonValue(false),
+              .default_value = Variant(false),
               .description = "Allow connections to private/loopback addresses (dev/internal use)."}},
             {"common_request",
              {.type = "any",
               .required = false,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Downstream common field names, positionally mapped to common_input."}},
             {"item_request",
              {.type = "any",
               .required = false,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Downstream item field names, positionally mapped to item_input."}},
             {"common_response",
              {.type = "any",
               .required = false,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description =
                   "Downstream common response field names, positionally mapped to common_output."}},
             {"item_response",
              {.type = "any",
               .required = false,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Downstream item response field names, positionally mapped to item_output."}},
         },
 };

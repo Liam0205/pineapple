@@ -36,7 +36,7 @@ class RecallResourceOp : public Operator, public AdditiveWritesRowSet {
         throw ExecutionError("recall_resource: items[" + std::to_string(i) + "] is " +
                              pine::operators::json_type_name(elem) + ", want map[string]any");
       }
-      JsonValue::object_t row;
+      Variant::object_t row;
       for (const auto& [key, value] : elem.as_object()) {
         row[key] = value;
       }
@@ -58,7 +58,7 @@ static const OperatorSchema k_recall_resource_schema{
             {"resource_name",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Name of the resource to read."}},
         },
 };

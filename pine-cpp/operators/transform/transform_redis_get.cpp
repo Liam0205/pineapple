@@ -19,7 +19,7 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe {
   }
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     if (rp_.host.empty()) {
-      out.set_common(cache_hit_field_, JsonValue(false));
+      out.set_common(cache_hit_field_, Variant(false));
       return;
     }
 
@@ -36,7 +36,7 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe {
         throw ExecutionError("transform_redis_get: " + std::string(e.what()));
       }
       out.set_warning("transform_redis_get: Get(" + key + "): " + std::string(e.what()));
-      out.set_common(cache_hit_field_, JsonValue(false));
+      out.set_common(cache_hit_field_, Variant(false));
       return;
     }
     if (!client || !client->connected()) {
@@ -44,7 +44,7 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe {
         throw ExecutionError("transform_redis_get: connection failed");
       }
       out.set_warning("transform_redis_get: Get(" + key + "): connection failed");
-      out.set_common(cache_hit_field_, JsonValue(false));
+      out.set_common(cache_hit_field_, Variant(false));
       return;
     }
     redis::Client* cli = client.get();
@@ -53,34 +53,34 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe {
       if (rp_.data_type == "string") {
         auto val = cli->get(key);
         if (val && !val->empty()) {
-          out.set_common(result_field_, JsonValue(*val));
-          out.set_common(cache_hit_field_, JsonValue(true));
+          out.set_common(result_field_, Variant(*val));
+          out.set_common(cache_hit_field_, Variant(true));
         } else {
-          out.set_common(cache_hit_field_, JsonValue(false));
+          out.set_common(cache_hit_field_, Variant(false));
         }
       } else if (rp_.data_type == "set") {
         auto members = cli->smembers(key);
         if (!members.empty()) {
-          JsonValue::array_t arr;
+          Variant::array_t arr;
           for (auto& m : members) {
-            arr.push_back(JsonValue(std::move(m)));
+            arr.push_back(Variant(std::move(m)));
           }
-          out.set_common(result_field_, JsonValue(std::move(arr)));
-          out.set_common(cache_hit_field_, JsonValue(true));
+          out.set_common(result_field_, Variant(std::move(arr)));
+          out.set_common(cache_hit_field_, Variant(true));
         } else {
-          out.set_common(cache_hit_field_, JsonValue(false));
+          out.set_common(cache_hit_field_, Variant(false));
         }
       } else if (rp_.data_type == "list") {
         auto vals = cli->lrange(key, 0, -1);
         if (!vals.empty()) {
-          JsonValue::array_t arr;
+          Variant::array_t arr;
           for (auto& v : vals) {
-            arr.push_back(JsonValue(std::move(v)));
+            arr.push_back(Variant(std::move(v)));
           }
-          out.set_common(result_field_, JsonValue(std::move(arr)));
-          out.set_common(cache_hit_field_, JsonValue(true));
+          out.set_common(result_field_, Variant(std::move(arr)));
+          out.set_common(cache_hit_field_, Variant(true));
         } else {
-          out.set_common(cache_hit_field_, JsonValue(false));
+          out.set_common(cache_hit_field_, Variant(false));
         }
       } else {
         throw ExecutionError("transform_redis_get: unsupported data_type \"" + rp_.data_type + "\"");
@@ -95,7 +95,7 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe {
                              : (rp_.data_type == "list") ? "LRange"
                                                          : "Get";
       out.set_warning("transform_redis_get: " + cmd_name + "(" + key + "): " + std::string(e.what()));
-      out.set_common(cache_hit_field_, JsonValue(false));
+      out.set_common(cache_hit_field_, Variant(false));
     }
   }
 
@@ -117,33 +117,33 @@ static const OperatorSchema k_transform_redis_get_schema{
             {"data_type",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue("string"),
+              .default_value = Variant("string"),
               .description = "Redis data type: \"set\", \"string\", or \"list\"."}},
             {"fail_on_error",
              {.type = "bool",
               .required = false,
-              .default_value = JsonValue(false),
+              .default_value = Variant(false),
               .description =
                   "Return fatal error on Redis infrastructure failure instead of treating as cache miss."}},
             {"key_prefix",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Key prefix prepended to the suffix built from common_input fields."}},
             {"redis_addr",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Redis server address (host:port)."}},
             {"redis_db",
              {.type = "int",
               .required = false,
-              .default_value = JsonValue(0.0),
+              .default_value = Variant(0.0),
               .description = "Redis DB number."}},
             {"redis_password",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue(""),
+              .default_value = Variant(""),
               .description = "Redis password."}},
         },
 };

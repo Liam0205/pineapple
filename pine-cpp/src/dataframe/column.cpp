@@ -24,7 +24,7 @@ const char* column_type_name(ColumnType t) {
 
 namespace {
 
-bool is_integral_number(const JsonValue& v) {
+bool is_integral_number(const Variant& v) {
   if (!v.is_number()) {
     return false;
   }
@@ -77,42 +77,42 @@ ColumnType BoolColumn::type() const {
 }
 
 template <>
-JsonValue Int64Column::get(std::size_t i) const {
+Variant Int64Column::get(std::size_t i) const {
   if (is_null(i)) {
-    return JsonValue();
+    return Variant();
   }
-  // Int64Column stores the original int64 precisely, but JsonValue only
+  // Int64Column stores the original int64 precisely, but Variant only
   // carries double — for |v| > 2^53 the returned value will not round-trip.
   // pine-go / pine-java / pine-python store numeric columns as double
   // natively, so the loss is symmetric across runtimes; the precision
   // boundary is documented here and pine::int64_lossy_as_double()
   // exposes the detection seam.
-  return JsonValue(static_cast<double>(data_[i]));
+  return Variant(static_cast<double>(data_[i]));
 }
 template <>
-JsonValue DoubleColumn::get(std::size_t i) const {
+Variant DoubleColumn::get(std::size_t i) const {
   if (is_null(i)) {
-    return JsonValue();
+    return Variant();
   }
-  return JsonValue(data_[i]);
+  return Variant(data_[i]);
 }
 template <>
-JsonValue StringColumn::get(std::size_t i) const {
+Variant StringColumn::get(std::size_t i) const {
   if (is_null(i)) {
-    return JsonValue();
+    return Variant();
   }
-  return JsonValue(data_[i]);
+  return Variant(data_[i]);
 }
 template <>
-JsonValue BoolColumn::get(std::size_t i) const {
+Variant BoolColumn::get(std::size_t i) const {
   if (is_null(i)) {
-    return JsonValue();
+    return Variant();
   }
-  return JsonValue(data_[i]);
+  return Variant(data_[i]);
 }
 
 template <>
-bool Int64Column::set(std::size_t i, const JsonValue& v) {
+bool Int64Column::set(std::size_t i, const Variant& v) {
   if (v.is_null()) {
     return false;  // typed cannot hold present-null; caller promotes.
   }
@@ -127,7 +127,7 @@ bool Int64Column::set(std::size_t i, const JsonValue& v) {
   return true;
 }
 template <>
-bool DoubleColumn::set(std::size_t i, const JsonValue& v) {
+bool DoubleColumn::set(std::size_t i, const Variant& v) {
   if (v.is_null()) {
     return false;
   }
@@ -142,7 +142,7 @@ bool DoubleColumn::set(std::size_t i, const JsonValue& v) {
   return true;
 }
 template <>
-bool StringColumn::set(std::size_t i, const JsonValue& v) {
+bool StringColumn::set(std::size_t i, const Variant& v) {
   if (v.is_null()) {
     return false;
   }
@@ -157,7 +157,7 @@ bool StringColumn::set(std::size_t i, const JsonValue& v) {
   return true;
 }
 template <>
-bool BoolColumn::set(std::size_t i, const JsonValue& v) {
+bool BoolColumn::set(std::size_t i, const Variant& v) {
   if (v.is_null()) {
     return false;
   }
@@ -173,7 +173,7 @@ bool BoolColumn::set(std::size_t i, const JsonValue& v) {
 }
 
 template <>
-bool Int64Column::append(const JsonValue& v) {
+bool Int64Column::append(const Variant& v) {
   if (v.is_null()) {
     return false;
   }
@@ -185,7 +185,7 @@ bool Int64Column::append(const JsonValue& v) {
   return true;
 }
 template <>
-bool DoubleColumn::append(const JsonValue& v) {
+bool DoubleColumn::append(const Variant& v) {
   if (v.is_null()) {
     return false;
   }
@@ -197,7 +197,7 @@ bool DoubleColumn::append(const JsonValue& v) {
   return true;
 }
 template <>
-bool StringColumn::append(const JsonValue& v) {
+bool StringColumn::append(const Variant& v) {
   if (v.is_null()) {
     return false;
   }
@@ -209,7 +209,7 @@ bool StringColumn::append(const JsonValue& v) {
   return true;
 }
 template <>
-bool BoolColumn::append(const JsonValue& v) {
+bool BoolColumn::append(const Variant& v) {
   if (v.is_null()) {
     return false;
   }
@@ -275,14 +275,14 @@ template class TypedColumn<bool>;
 
 // ---------------- JsonColumn ----------------
 
-JsonValue JsonColumn::get(std::size_t i) const {
+Variant JsonColumn::get(std::size_t i) const {
   if (i >= validity_.size() || !validity_[i]) {
-    return JsonValue();
+    return Variant();
   }
   return data_[i];
 }
 
-bool JsonColumn::set(std::size_t i, const JsonValue& v) {
+bool JsonColumn::set(std::size_t i, const Variant& v) {
   if (i >= data_.size()) {
     return false;
   }
@@ -292,7 +292,7 @@ bool JsonColumn::set(std::size_t i, const JsonValue& v) {
   return true;
 }
 
-bool JsonColumn::append(const JsonValue& v) {
+bool JsonColumn::append(const Variant& v) {
   // append always marks the new slot as present (value may itself be null).
   data_.push_back(v);
   validity_.push_back(true);
@@ -300,7 +300,7 @@ bool JsonColumn::append(const JsonValue& v) {
 }
 
 void JsonColumn::append_null() {
-  data_.push_back(JsonValue());
+  data_.push_back(Variant());
   validity_.push_back(false);
 }
 
@@ -310,7 +310,7 @@ void JsonColumn::remove(const std::set<int>& indices) {
 }
 
 void JsonColumn::reorder(const std::vector<int>& order) {
-  std::vector<JsonValue> new_data;
+  std::vector<Variant> new_data;
   std::vector<bool> new_valid;
   new_data.reserve(order.size());
   new_valid.reserve(order.size());
@@ -335,7 +335,7 @@ std::unique_ptr<Column> JsonColumn::to_json_column() const {
 
 // ---------------- Factories ----------------
 
-std::unique_ptr<Column> make_column(const std::vector<JsonValue>& values) {
+std::unique_ptr<Column> make_column(const std::vector<Variant>& values) {
   // Probe non-null values for a homogeneous type.
   enum class Cand { Unknown, Int64, Double, String, Bool, Json };
   Cand cand = Cand::Unknown;

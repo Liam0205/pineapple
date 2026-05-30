@@ -13,7 +13,7 @@ namespace pine {
 
 // RowFrame is the row-major Frame implementation. Mirrors pine-go
 // internal/dataframe/row_frame.go: common is a small map, items live as
-// a vector<map<string, JsonValue>>. Pays no column-cell touch overhead
+// a vector<map<string, Variant>>. Pays no column-cell touch overhead
 // on per-row access patterns (Lua snapshots, remote requests, observe
 // logging, recall add_item). For column-wide batch scans ColumnFrame is
 // still preferred.
@@ -26,23 +26,23 @@ namespace pine {
 class RowFrame : public Frame {
  public:
   RowFrame();
-  RowFrame(JsonValue::object_t common, std::vector<JsonValue::object_t> items);
+  RowFrame(Variant::object_t common, std::vector<Variant::object_t> items);
 
   // ---- Frame interface ----
-  JsonValue common(const std::string& field) const override;
+  Variant common(const std::string& field) const override;
   bool has_common(const std::string& field) const override;
-  void set_common(const std::string& field, JsonValue value) override;
+  void set_common(const std::string& field, Variant value) override;
   std::vector<std::string> common_fields() const override;
 
   std::size_t item_count() const override;
-  JsonValue item(std::size_t index, const std::string& field) const override;
+  Variant item(std::size_t index, const std::string& field) const override;
   bool item_has(std::size_t index, const std::string& field) const override;
   std::vector<std::string> item_fields() const override;
 
-  void set_resources(const std::map<std::string, JsonValue>* res) override {
+  void set_resources(const std::map<std::string, Variant>* res) override {
     resources_ = res;
   }
-  const std::map<std::string, JsonValue>* resources() const override {
+  const std::map<std::string, Variant>* resources() const override {
     return resources_;
   }
 
@@ -54,7 +54,7 @@ class RowFrame : public Frame {
   Result to_result(const std::vector<std::string>& common_out,
                    const std::vector<std::string>& item_out) const override;
 
-  JsonValue::object_t item_object(std::size_t index) const override;
+  Variant::object_t item_object(std::size_t index) const override;
 
   std::unique_ptr<Frame> make_window_view(std::size_t row_offset, std::size_t row_count) const override;
 
@@ -62,16 +62,16 @@ class RowFrame : public Frame {
 
  private:
   mutable std::shared_mutex mu_;
-  JsonValue::object_t common_;
-  std::vector<JsonValue::object_t> items_;
+  Variant::object_t common_;
+  std::vector<Variant::object_t> items_;
   std::vector<std::string> warnings_;
-  const std::map<std::string, JsonValue>* resources_ = nullptr;
+  const std::map<std::string, Variant>* resources_ = nullptr;
 
   // Window-view mode: when set, reads delegate to parent storage with
   // an (offset, count) translation; writes throw. Set only by
   // make_window_view.
-  const JsonValue::object_t* view_common_ = nullptr;
-  const std::vector<JsonValue::object_t>* view_items_ = nullptr;
+  const Variant::object_t* view_common_ = nullptr;
+  const std::vector<Variant::object_t>* view_items_ = nullptr;
   std::size_t view_offset_ = 0;
   std::size_t view_count_ = 0;
   bool is_window_view() const noexcept {

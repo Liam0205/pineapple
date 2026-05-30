@@ -17,7 +17,7 @@ std::string read_file(const std::string& path) {
   return oss.str();
 }
 
-std::vector<std::string> as_string_list(const JsonValue::object_t& obj, const std::string& key) {
+std::vector<std::string> as_string_list(const Variant::object_t& obj, const std::string& key) {
   std::vector<std::string> out;
   auto it = obj.find(key);
   if (it == obj.end()) {
@@ -29,8 +29,8 @@ std::vector<std::string> as_string_list(const JsonValue::object_t& obj, const st
   return out;
 }
 
-std::map<std::string, JsonValue> as_value_map(const JsonValue::object_t& obj, const std::string& key) {
-  std::map<std::string, JsonValue> out;
+std::map<std::string, Variant> as_value_map(const Variant::object_t& obj, const std::string& key) {
+  std::map<std::string, Variant> out;
   auto it = obj.find(key);
   if (it == obj.end()) {
     return out;
@@ -41,7 +41,7 @@ std::map<std::string, JsonValue> as_value_map(const JsonValue::object_t& obj, co
   return out;
 }
 
-Metadata parse_metadata(const JsonValue::object_t& obj) {
+Metadata parse_metadata(const Variant::object_t& obj) {
   Metadata meta;
   auto it = obj.find("$metadata");
   if (it == obj.end()) {
@@ -55,7 +55,7 @@ Metadata parse_metadata(const JsonValue::object_t& obj) {
   return meta;
 }
 
-std::vector<std::string> parse_skip(const JsonValue::object_t& obj) {
+std::vector<std::string> parse_skip(const Variant::object_t& obj) {
   std::vector<std::string> out;
   auto it = obj.find("skip");
   if (it == obj.end()) {
@@ -73,7 +73,7 @@ std::vector<std::string> parse_skip(const JsonValue::object_t& obj) {
   return out;
 }
 
-OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
+OperatorConfig parse_operator(const std::string& name, const Variant& value) {
   const auto& obj = value.as_object();
   OperatorConfig op;
   op.name = name;
@@ -110,7 +110,7 @@ OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
   op.strict_common = as_string_list(obj, "strict_common");
   op.strict_item = as_string_list(obj, "strict_item");
   op.sources = as_string_list(obj, "sources");
-  JsonValue::object_t params;
+  Variant::object_t params;
   for (const auto& [key, item] : obj) {
     if (key == "type_name" || key == "$metadata" || key == "$code_info" || key == "skip" || key == "recall" ||
         key == "sources" || key == "debug" || key == "consumes_row_set" || key == "mutates_row_set" ||
@@ -121,7 +121,7 @@ OperatorConfig parse_operator(const std::string& name, const JsonValue& value) {
     }
     params[key] = item;
   }
-  op.params = JsonValue(params);
+  op.params = Variant(params);
   return op;
 }
 
@@ -240,8 +240,8 @@ Config load_config_from_file(const std::string& path) {
 
 Config load_config_from_json(const std::string& text) {
   const auto root = parse_json(text).as_object();
-  auto require_obj = [](const JsonValue::object_t& parent,
-                        const std::string& key) -> const JsonValue::object_t& {
+  auto require_obj = [](const Variant::object_t& parent,
+                        const std::string& key) -> const Variant::object_t& {
     auto it = parent.find(key);
     if (it == parent.end()) {
       throw ConfigError("missing required top-level field \"" + key + "\"");
@@ -353,7 +353,7 @@ Request load_request_from_file(const std::string& path) {
   }
   if (auto it = root.find("items"); it != root.end()) {
     for (const auto& item : it->second.as_array()) {
-      JsonValue::object_t row;
+      Variant::object_t row;
       for (const auto& [key, value] : item.as_object()) {
         row[key] = value;
       }
@@ -364,22 +364,22 @@ Request load_request_from_file(const std::string& path) {
 }
 
 std::string result_to_json(const Result& result) {
-  JsonValue::object_t root;
-  JsonValue::object_t common;
+  Variant::object_t root;
+  Variant::object_t common;
   for (const auto& [key, value] : result.common) {
     common[key] = value;
   }
-  JsonValue::array_t items;
+  Variant::array_t items;
   for (const auto& row : result.items) {
-    JsonValue::object_t obj;
+    Variant::object_t obj;
     for (const auto& [key, value] : row) {
       obj[key] = value;
     }
     items.emplace_back(obj);
   }
-  root["common"] = JsonValue(common);
-  root["items"] = JsonValue(items);
-  return dump_json(JsonValue(root));
+  root["common"] = Variant(common);
+  root["items"] = Variant(items);
+  return dump_json(Variant(root));
 }
 
 }  // namespace pine

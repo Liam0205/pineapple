@@ -41,9 +41,9 @@ struct TraceEntry {
   double duration_ms = 0.0;
   bool skipped = false;
   bool has_input_snapshot = false;
-  JsonValue input_snapshot;
+  Variant input_snapshot;
   bool has_output_snapshot = false;
-  JsonValue output_snapshot;
+  Variant output_snapshot;
 };
 
 // Result of an engine execution, including trace and warnings.

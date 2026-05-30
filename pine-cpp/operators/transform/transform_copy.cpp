@@ -33,7 +33,7 @@ class TransformCopyOp : public Operator, public ConcurrentSafe {
     if (direction_ == "common_to_item") {
       const auto inputs = active_inputs(common_input_);
       for (std::size_t i = 0; i < inputs.size(); ++i) {
-        JsonValue value = input.common(inputs[i]);
+        Variant value = input.common(inputs[i]);
         const auto& dst = item_output_.at(i);
         for (std::size_t j = 0; j < input.item_count(); ++j) {
           out.set_item(static_cast<int>(j), dst, value);
@@ -42,7 +42,7 @@ class TransformCopyOp : public Operator, public ConcurrentSafe {
     } else if (direction_ == "common_to_common") {
       const auto inputs = active_inputs(common_input_);
       for (std::size_t i = 0; i < inputs.size(); ++i) {
-        JsonValue value = input.common(inputs[i]);
+        Variant value = input.common(inputs[i]);
         out.set_common(common_output_.at(i), value);
       }
     } else if (direction_ == "item_to_item") {
@@ -58,11 +58,11 @@ class TransformCopyOp : public Operator, public ConcurrentSafe {
       const auto inputs = active_inputs(item_input_);
       for (std::size_t i = 0; i < inputs.size(); ++i) {
         const auto& src = inputs[i];
-        JsonValue::array_t vals;
+        Variant::array_t vals;
         for (std::size_t j = 0; j < input.item_count(); ++j) {
           vals.push_back(input.item(j, src));
         }
-        out.set_common(common_output_.at(i), JsonValue(vals));
+        out.set_common(common_output_.at(i), Variant(vals));
       }
     } else {
       throw ExecutionError("transform_copy: unsupported direction \"" + direction_ + "\"");
@@ -88,7 +88,7 @@ static const OperatorSchema k_transform_copy_schema{
             {"direction",
              {.type = "string",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "Copy direction: \"common_to_item\", \"item_to_common\", \"common_to_common\", "
                              "or \"item_to_item\"."}},
         },

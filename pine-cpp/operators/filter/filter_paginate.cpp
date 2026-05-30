@@ -16,7 +16,7 @@ class FilterPaginateOp : public Operator, public ConsumesRowSet, public MutatesR
     if (n == 0) {
       return;
     }
-    auto to_int = [](const JsonValue& v) -> int {
+    auto to_int = [](const Variant& v) -> int {
       if (v.is_number()) {
         return static_cast<int>(v.as_number());
       }

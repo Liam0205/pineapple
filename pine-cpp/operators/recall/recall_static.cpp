@@ -11,7 +11,7 @@ class RecallStaticOp : public Operator, public AdditiveWritesRowSet {
   void init(const OperatorConfig& cfg) override {
     op_name_ = cfg.name;
     for (const auto& item : cfg.params.as_object().at("items").as_array()) {
-      JsonValue::object_t row;
+      Variant::object_t row;
       for (const auto& [key, value] : item.as_object()) {
         row[key] = value;
       }
@@ -26,7 +26,7 @@ class RecallStaticOp : public Operator, public AdditiveWritesRowSet {
 
  private:
   std::string op_name_;
-  std::vector<JsonValue::object_t> items_;
+  std::vector<Variant::object_t> items_;
 };
 
 static const OperatorSchema k_recall_static_schema{
@@ -38,7 +38,7 @@ static const OperatorSchema k_recall_static_schema{
             {"items",
              {.type = "any",
               .required = true,
-              .default_value = JsonValue(nullptr),
+              .default_value = Variant(nullptr),
               .description = "JSON array of item maps to emit as candidates."}},
         },
 };

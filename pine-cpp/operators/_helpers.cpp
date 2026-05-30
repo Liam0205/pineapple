@@ -11,7 +11,7 @@
 namespace pine {
 namespace operators {
 
-double to_double(const JsonValue& value) {
+double to_double(const Variant& value) {
   if (value.is_bool()) {
     throw OperatorError("cannot convert bool to float64");
   }
@@ -30,7 +30,7 @@ double to_double(const JsonValue& value) {
   throw OperatorError("cannot convert map[string]interface {} to float64");
 }
 
-std::string json_type_name(const JsonValue& value) {
+std::string json_type_name(const Variant& value) {
   if (value.is_null()) {
     return "<nil>";
   }
@@ -52,8 +52,8 @@ std::string json_type_name(const JsonValue& value) {
   return "unknown";
 }
 
-JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std::string& field) {
-  JsonValue v = frame.common(field);
+Variant require_common(const Frame& frame, const OperatorConfig& op, const std::string& field) {
+  Variant v = frame.common(field);
   if (!v.is_null()) {
     return v;
   }
@@ -63,9 +63,9 @@ JsonValue require_common(const Frame& frame, const OperatorConfig& op, const std
   throw ExecutionError("required field \"" + field + "\" is nil in common");
 }
 
-JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t index,
+Variant require_item(const Frame& frame, const OperatorConfig& op, std::size_t index,
                        const std::string& field) {
-  JsonValue v = frame.item(index, field);
+  Variant v = frame.item(index, field);
   if (!v.is_null()) {
     return v;
   }
@@ -75,9 +75,9 @@ JsonValue require_item(const Frame& frame, const OperatorConfig& op, std::size_t
   throw ExecutionError("required field \"" + field + "\" is nil on item[" + std::to_string(index) + "]");
 }
 
-JsonValue require_common_by_name(const Frame& frame, const std::map<std::string, JsonValue>& defaults,
+Variant require_common_by_name(const Frame& frame, const std::map<std::string, Variant>& defaults,
                                  const std::string& field) {
-  JsonValue v = frame.common(field);
+  Variant v = frame.common(field);
   if (!v.is_null()) {
     return v;
   }
@@ -87,9 +87,9 @@ JsonValue require_common_by_name(const Frame& frame, const std::map<std::string,
   throw ExecutionError("required field \"" + field + "\" is nil in common");
 }
 
-JsonValue require_item_by_name(const Frame& frame, std::size_t index,
-                               const std::map<std::string, JsonValue>& defaults, const std::string& field) {
-  JsonValue v = frame.item(index, field);
+Variant require_item_by_name(const Frame& frame, std::size_t index,
+                               const std::map<std::string, Variant>& defaults, const std::string& field) {
+  Variant v = frame.item(index, field);
   if (!v.is_null()) {
     return v;
   }
@@ -216,7 +216,7 @@ std::string go_format_lookup_key(double d) {
   return std::string(buf, ptr);
 }
 
-std::string sprint_value(const JsonValue& v) {
+std::string sprint_value(const Variant& v) {
   if (v.is_null()) {
     return "<nil>";
   }
@@ -232,7 +232,7 @@ std::string sprint_value(const JsonValue& v) {
   return "<complex>";
 }
 
-std::string any_to_string(const JsonValue& v) {
+std::string any_to_string(const Variant& v) {
   if (v.is_null()) {
     return "";
   }
@@ -248,7 +248,7 @@ std::string any_to_string(const JsonValue& v) {
   return dump_json(v, 0);
 }
 
-std::string dedup_key(const JsonValue& v) {
+std::string dedup_key(const Variant& v) {
   if (v.is_null()) {
     return "N:";
   }
@@ -300,7 +300,7 @@ std::string build_key_suffix(const OperatorInput& input, const std::vector<std::
   return result;
 }
 
-std::vector<std::string> json_to_string_slice(const JsonValue& v) {
+std::vector<std::string> json_to_string_slice(const Variant& v) {
   std::vector<std::string> out;
   if (!v.is_array()) {
     return out;

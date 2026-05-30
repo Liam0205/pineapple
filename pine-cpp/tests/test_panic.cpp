@@ -58,7 +58,7 @@ TEST_CASE("dispatch_with_recovery: pine::ExecutionError passes through unwrapped
   Engine engine(load_config_from_json(kBadCopyConfig));
   Request req;
   // a is present but null → passes validation, ExecutionError "required field \"a\" is nil"
-  req.common["a"] = JsonValue();
+  req.common["a"] = Variant();
   bool caught_execution = false;
   bool caught_panic = false;
   try {

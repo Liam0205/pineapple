@@ -12,7 +12,7 @@ class TransformDispatchOp : public Operator, public ConcurrentSafe {
     dst_ = cfg.metadata.item_output.at(0);
   }
   void execute(const OperatorInput& input, OperatorOutput& out) override {
-    JsonValue v = input.common(src_);
+    Variant v = input.common(src_);
     for (std::size_t j = 0; j < input.item_count(); ++j) {
       out.set_item(static_cast<int>(j), dst_, v);
     }

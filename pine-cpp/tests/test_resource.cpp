@@ -26,7 +26,7 @@ struct RegistryFixture {
 TEST_CASE("resource: register_resource + snapshot returns loaded values") {
   resource::Manager mgr;
   mgr.register_resource(
-      "static_one", []() { return JsonValue(std::string("v1")); }, std::chrono::seconds(60));
+      "static_one", []() { return Variant(std::string("v1")); }, std::chrono::seconds(60));
   mgr.start();
 
   auto snap = mgr.snapshot();
@@ -37,18 +37,18 @@ TEST_CASE("resource: register_resource + snapshot returns loaded values") {
 
 TEST_CASE("resource: duplicate name throws") {
   resource::Manager mgr;
-  mgr.register_resource("dup", []() { return JsonValue(1); }, std::chrono::seconds(60));
+  mgr.register_resource("dup", []() { return Variant(1); }, std::chrono::seconds(60));
   CHECK_THROWS_AS(mgr.register_resource(
-                      "dup", []() { return JsonValue(2); }, std::chrono::seconds(60)),
+                      "dup", []() { return Variant(2); }, std::chrono::seconds(60)),
                   std::runtime_error);
 }
 
 TEST_CASE("resource: factory registry roundtrip") {
   RegistryFixture _;
   int factory_calls = 0;
-  resource::register_fetcher_factory("test_factory", [&factory_calls](const JsonValue& /*params*/) {
+  resource::register_fetcher_factory("test_factory", [&factory_calls](const Variant& /*params*/) {
     factory_calls++;
-    return resource::Fetcher{[]() { return JsonValue(std::string("hello")); }};
+    return resource::Fetcher{[]() { return Variant(std::string("hello")); }};
   });
   CHECK(resource::lookup_fetcher_factory("test_factory") != nullptr);
   CHECK(resource::lookup_fetcher_factory("missing") == nullptr);
@@ -57,7 +57,7 @@ TEST_CASE("resource: factory registry roundtrip") {
   CHECK(types[0] == "test_factory");
 
   Config cfg;
-  cfg.resource_config["r1"] = ResourceEntry{"test_factory", 0, JsonValue{}};
+  cfg.resource_config["r1"] = ResourceEntry{"test_factory", 0, Variant{}};
 
   resource::Manager mgr;
   mgr.load_from_config(cfg);
@@ -71,7 +71,7 @@ TEST_CASE("resource: factory registry roundtrip") {
 TEST_CASE("resource: load_from_config rejects unknown types") {
   RegistryFixture _;
   Config cfg;
-  cfg.resource_config["x"] = ResourceEntry{"unknown_type", 0, JsonValue{}};
+  cfg.resource_config["x"] = ResourceEntry{"unknown_type", 0, Variant{}};
 
   resource::Manager mgr;
   CHECK_THROWS_AS(mgr.load_from_config(cfg), std::runtime_error);
@@ -81,7 +81,7 @@ TEST_CASE("resource: background refresh updates the value") {
   std::atomic<int> counter{0};
   resource::Manager mgr;
   mgr.register_resource(
-      "tick", [&counter]() { return JsonValue(counter.fetch_add(1) + 1); }, std::chrono::seconds(1));
+      "tick", [&counter]() { return Variant(counter.fetch_add(1) + 1); }, std::chrono::seconds(1));
   mgr.start();
 
   auto initial = mgr.snapshot()["tick"].as_number();

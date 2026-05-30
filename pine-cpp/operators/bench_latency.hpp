@@ -141,7 +141,7 @@ class LatencySampler {
   FastRng rng_;
 };
 
-inline std::unique_ptr<LatencySampler> parse_bench_profile(const JsonValue& params) {
+inline std::unique_ptr<LatencySampler> parse_bench_profile(const Variant& params) {
   if (!params.is_object()) return nullptr;
   auto it = params.as_object().find("bench_profile");
   if (it == params.as_object().end() || it->second.is_null()) return nullptr;

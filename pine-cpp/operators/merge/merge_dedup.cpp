@@ -13,7 +13,7 @@ class MergeDedupOp : public Operator, public ConsumesRowSet, public MutatesRowSe
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     std::vector<std::string> seen;
     for (std::size_t i = 0; i < input.item_count(); ++i) {
-      JsonValue fv = input.item(i, field_);
+      Variant fv = input.item(i, field_);
       std::string key = operators::dedup_key(fv);
       bool dup = false;
       for (const auto& s : seen) {
@@ -44,7 +44,7 @@ static const OperatorSchema k_merge_dedup_schema{
             {"strategy",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue("first"),
+              .default_value = Variant("first"),
               .description = "Dedup strategy \xe2\x80\x94 \"first\" keeps first occurrence."}},
         },
 };

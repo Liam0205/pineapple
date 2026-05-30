@@ -39,9 +39,9 @@ bool register_fetcher_factory(const std::string& type_name, FetcherFactory facto
 // This allows both server-side mtime config reload and CLI parsing to resolve "type": "static" on
 // resource_config out-of-the-box.
 const bool _static_fetcher_init = [] {
-  register_fetcher_factory("static", [](const JsonValue& params) {
+  register_fetcher_factory("static", [](const Variant& params) {
     auto val_it = params.as_object().find("value");
-    JsonValue val = (val_it != params.as_object().end()) ? val_it->second : JsonValue();
+    Variant val = (val_it != params.as_object().end()) ? val_it->second : Variant();
     return Fetcher{[val]() { return val; }};
   });
   return true;
@@ -172,9 +172,9 @@ void Manager::stop() {
   stopping_.store(false, std::memory_order_release);
 }
 
-std::map<std::string, JsonValue> Manager::snapshot() const {
+std::map<std::string, Variant> Manager::snapshot() const {
   std::shared_lock<std::shared_mutex> lk(mu_);
-  std::map<std::string, JsonValue> out;
+  std::map<std::string, Variant> out;
   for (const auto& [name, r] : resources_) {
     if (r->loaded) {
       out.emplace(name, r->value);
@@ -234,7 +234,7 @@ void Manager::refresh_loop(Managed* r) {
     }
     lk.unlock();
     try {
-      JsonValue val = r->fetcher();
+      Variant val = r->fetcher();
       std::unique_lock<std::shared_mutex> wlk(mu_);
       r->value = std::move(val);
     } catch (const std::exception& e) {

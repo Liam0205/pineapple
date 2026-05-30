@@ -12,12 +12,12 @@ using namespace pine;
 namespace {
 
 std::unique_ptr<RowFrame> make_row_frame() {
-  std::vector<JsonValue::object_t> items;
-  items.push_back({{"id", JsonValue(1.0)}, {"score", JsonValue(10.0)}});
-  items.push_back({{"id", JsonValue(2.0)}, {"score", JsonValue(20.0)}});
-  items.push_back({{"id", JsonValue(3.0)}, {"score", JsonValue(30.0)}});
+  std::vector<Variant::object_t> items;
+  items.push_back({{"id", Variant(1.0)}, {"score", Variant(10.0)}});
+  items.push_back({{"id", Variant(2.0)}, {"score", Variant(20.0)}});
+  items.push_back({{"id", Variant(3.0)}, {"score", Variant(30.0)}});
   return std::make_unique<RowFrame>(
-      JsonValue::object_t{{"region", JsonValue(std::string("us"))}}, std::move(items));
+      Variant::object_t{{"region", Variant(std::string("us"))}}, std::move(items));
 }
 
 }  // namespace
@@ -35,9 +35,9 @@ TEST_CASE("RowFrame: construction + reads") {
 TEST_CASE("RowFrame: apply_output runs 5 stages") {
   auto frame = make_row_frame();
   OperatorOutput out;
-  out.set_common("region", JsonValue(std::string("eu")));
-  out.set_item(0, "score", JsonValue(11.0));
-  out.add_item({{"id", JsonValue(4.0)}});
+  out.set_common("region", Variant(std::string("eu")));
+  out.set_item(0, "score", Variant(11.0));
+  out.add_item({{"id", Variant(4.0)}});
   frame->apply_output(out, "op", false);
   CHECK(frame->common("region").as_string() == "eu");
   CHECK(frame->item(0, "score").as_number() == 11.0);
@@ -48,7 +48,7 @@ TEST_CASE("RowFrame: apply_output runs 5 stages") {
 TEST_CASE("RowFrame: apply_output rejects NaN/Inf") {
   auto frame = make_row_frame();
   OperatorOutput out;
-  out.set_common("ratio", JsonValue(std::numeric_limits<double>::quiet_NaN()));
+  out.set_common("ratio", Variant(std::numeric_limits<double>::quiet_NaN()));
   CHECK_THROWS_AS(frame->apply_output(out, "op", false), ExecutionError);
 }
 
@@ -61,15 +61,15 @@ TEST_CASE("RowFrame: window view + bounds check") {
   CHECK(view->item(1, "score").as_number() == 30.0);
   CHECK(view->common("region").as_string() == "us");
   // write paths must throw on view
-  CHECK_THROWS_AS(view->set_common("k", JsonValue(1.0)), Error);
+  CHECK_THROWS_AS(view->set_common("k", Variant(1.0)), Error);
   OperatorOutput empty;
   CHECK_THROWS_AS(view->apply_output(empty, "op", false), Error);
   CHECK_THROWS_AS(view->to_result({"region"}, {"id"}), Error);
 }
 
 TEST_CASE("make_frame factory selects implementation by storage_mode") {
-  JsonValue::object_t common{{"r", JsonValue(std::string("v"))}};
-  std::vector<JsonValue::object_t> items{{{"id", JsonValue(1.0)}}};
+  Variant::object_t common{{"r", Variant(std::string("v"))}};
+  std::vector<Variant::object_t> items{{{"id", Variant(1.0)}}};
   auto col = make_frame("column", common, items);
   auto row = make_frame("row", common, items);
   auto fallback = make_frame("", common, items);

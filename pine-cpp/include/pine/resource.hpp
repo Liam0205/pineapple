@@ -26,11 +26,11 @@ namespace pine {
 namespace resource {
 
 // Fetcher loads a resource value. Called by the background refresh loop.
-using Fetcher = std::function<JsonValue()>;
+using Fetcher = std::function<Variant()>;
 
 // FetcherFactory creates a Fetcher from config params. Business code
 // registers factories at static init time, keyed by ResourceEntry.type.
-using FetcherFactory = std::function<Fetcher(const JsonValue& params)>;
+using FetcherFactory = std::function<Fetcher(const Variant& params)>;
 
 // Register a fetcher factory under a type name. Throws if name is duplicated.
 // Returns true for static-init use:
@@ -73,7 +73,7 @@ class Manager {
 
   // Returns a snapshot of all currently-loaded resources. Pass to
   // `Engine::execute(request, snapshot)`.
-  std::map<std::string, JsonValue> snapshot() const;
+  std::map<std::string, Variant> snapshot() const;
 
   // Returns the registered resource names, sorted.
   std::vector<std::string> names() const;
@@ -87,7 +87,7 @@ class Manager {
     std::string name;
     Fetcher fetcher;
     std::chrono::seconds interval{0};
-    JsonValue value;
+    Variant value;
     bool loaded = false;
   };
 

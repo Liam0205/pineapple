@@ -48,13 +48,13 @@ TEST_CASE("dump_json: roundtrip preserves structure") {
   CHECK(reparsed.find("empty")->is_null());
 }
 
-TEST_CASE("JsonValue truthy semantics") {
+TEST_CASE("Variant truthy semantics") {
   // null and bool follow value; everything else is truthy.
-  CHECK(JsonValue(nullptr).truthy() == false);
-  CHECK(JsonValue(false).truthy() == false);
-  CHECK(JsonValue(true).truthy() == true);
-  CHECK(JsonValue(0.0).truthy() == true);
-  CHECK(JsonValue(1.0).truthy() == true);
-  CHECK(JsonValue(std::string("")).truthy() == true);
-  CHECK(JsonValue(std::string("x")).truthy() == true);
+  CHECK(Variant(nullptr).truthy() == false);
+  CHECK(Variant(false).truthy() == false);
+  CHECK(Variant(true).truthy() == true);
+  CHECK(Variant(0.0).truthy() == true);
+  CHECK(Variant(1.0).truthy() == true);
+  CHECK(Variant(std::string("")).truthy() == true);
+  CHECK(Variant(std::string("x")).truthy() == true);
 }

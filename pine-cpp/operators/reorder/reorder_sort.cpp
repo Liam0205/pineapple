@@ -30,7 +30,7 @@ class ReorderSortOp : public Operator, public ConsumesRowSet, public MutatesRowS
     keyed.reserve(input.item_count());
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       try {
-        JsonValue v = input.item(i, field_);
+        Variant v = input.item(i, field_);
         if (v.is_null()) {
           throw operators::OperatorError("required field \"" + field_ + "\" is nil on item[" +
                                          std::to_string(i) + "]");
@@ -70,7 +70,7 @@ static const OperatorSchema k_reorder_sort_schema{
             {"order",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue("desc"),
+              .default_value = Variant("desc"),
               .description = "Sort direction \xe2\x80\x94 \"asc\" or \"desc\"."}},
         },
 };

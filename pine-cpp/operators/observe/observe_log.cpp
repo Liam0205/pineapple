@@ -19,28 +19,28 @@ class ObserveLogOp : public Operator {
   }
 
   void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
-    JsonValue::object_t snapshot;
+    Variant::object_t snapshot;
     if (!common_input_.empty()) {
-      JsonValue::object_t common;
+      Variant::object_t common;
       for (const auto& k : common_input_) {
         common[k] = input.common(k);
       }
-      snapshot["common"] = JsonValue(std::move(common));
+      snapshot["common"] = Variant(std::move(common));
     }
     if (!item_input_.empty() && input.item_count() > 0) {
-      JsonValue::array_t items;
+      Variant::array_t items;
       items.reserve(input.item_count());
       for (std::size_t i = 0; i < input.item_count(); ++i) {
-        JsonValue::object_t row;
+        Variant::object_t row;
         for (const auto& k : item_input_) {
           row[k] = input.item(i, k);
         }
-        items.push_back(JsonValue(std::move(row)));
+        items.push_back(Variant(std::move(row)));
       }
-      snapshot["items"] = JsonValue(std::move(items));
+      snapshot["items"] = Variant(std::move(items));
     }
 
-    std::string data = dump_json(JsonValue(snapshot), 0);
+    std::string data = dump_json(Variant(snapshot), 0);
     while (!data.empty() && data.back() == '\n') {
       data.pop_back();
     }
@@ -69,7 +69,7 @@ static const OperatorSchema k_observe_log_schema{
             {"log_prefix",
              {.type = "string",
               .required = false,
-              .default_value = JsonValue(""),
+              .default_value = Variant(""),
               .description = "Prefix prepended to each log line."}},
         },
 };
