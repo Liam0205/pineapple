@@ -16,7 +16,7 @@ struct LatencyProfile {
   double p99_mean = 0;
   double p99_max = 0;
   bool is_io = false;
-  int64_t iterations = 0; // calibrated mode: base iteration count for p50_mean
+  int64_t iterations = 0;  // calibrated mode: base iteration count for p50_mean
 };
 
 // Fast RNG: xoshiro256+ (same family as Go's math/rand source)
@@ -37,7 +37,9 @@ class FastRng {
     // Box-Muller transform
     double u1 = float64();
     double u2 = float64();
-    if (u1 < 1e-300) u1 = 1e-300;
+    if (u1 < 1e-300) {
+      u1 = 1e-300;
+    }
     return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * M_PI * u2);
   }
 
@@ -66,12 +68,15 @@ class FastRng {
 
 class LatencySampler {
  public:
-  explicit LatencySampler(LatencyProfile profile)
-      : profile_(profile), rng_(std::random_device{}()) {}
+  explicit LatencySampler(LatencyProfile profile) : profile_(profile) {
+  }
 
   double apply() {
-    auto d = sample();
-    if (d.count() <= 0) return 0.0;
+    auto& rng = thread_local_rng();
+    auto d = sample(rng);
+    if (d.count() <= 0) {
+      return 0.0;
+    }
     if (profile_.is_io) {
       std::this_thread::sleep_for(d);
       return 0.0;
@@ -81,71 +86,93 @@ class LatencySampler {
       double target_us = profile_.p50_mean * 1000.0;
       double ratio = static_cast<double>(d.count()) / target_us;
       int64_t n = static_cast<int64_t>(profile_.iterations * ratio);
-      if (n < 1) n = 1;
-      return cpu_work(n);
+      if (n < 1) {
+        n = 1;
+      }
+      return cpu_work(rng, n);
     }
     // Time-based mode: compute until timeout
     auto deadline = std::chrono::steady_clock::now() + d;
     double acc = 1.0;
     while (std::chrono::steady_clock::now() < deadline) {
-      double a = rng_.float64() * 1000.0 + 1.0;
-      double b = rng_.float64() * 1000.0 + 1.0;
+      double a = rng.float64() * 1000.0 + 1.0;
+      double b = rng.float64() * 1000.0 + 1.0;
       acc += a / b;
-      a = rng_.float64() * 1000.0 + 1.0;
-      b = rng_.float64() * 1000.0 + 1.0;
+      a = rng.float64() * 1000.0 + 1.0;
+      b = rng.float64() * 1000.0 + 1.0;
       acc -= a / b;
     }
     return acc;
   }
 
  private:
-  double cpu_work(int64_t n) {
+  static FastRng& thread_local_rng() {
+    thread_local FastRng rng(std::random_device{}());
+    return rng;
+  }
+
+  double cpu_work(FastRng& rng, int64_t n) {
     double acc = 1.0;
     for (int64_t i = 0; i < n; ++i) {
-      double a = rng_.float64() * 1000.0 + 1.0;
-      double b = rng_.float64() * 1000.0 + 1.0;
+      double a = rng.float64() * 1000.0 + 1.0;
+      double b = rng.float64() * 1000.0 + 1.0;
       acc += a / b;
-      a = rng_.float64() * 1000.0 + 1.0;
-      b = rng_.float64() * 1000.0 + 1.0;
+      a = rng.float64() * 1000.0 + 1.0;
+      b = rng.float64() * 1000.0 + 1.0;
       acc -= a / b;
     }
     return acc;
   }
 
-  std::chrono::microseconds sample() {
+  std::chrono::microseconds sample(FastRng& rng) {
     if (profile_.p50_mean <= 0 && profile_.p99_mean <= 0) {
       return std::chrono::microseconds(0);
     }
 
-    double jitter = rng_.float64();
+    double jitter = rng.float64();
     double p50 = profile_.p50_mean + jitter * (profile_.p50_max - profile_.p50_mean);
     double p99 = profile_.p99_mean + jitter * (profile_.p99_max - profile_.p99_mean);
 
-    if (p50 <= 0) p50 = 0.001;
-    if (p99 <= p50) p99 = p50 * 2;
+    if (p50 <= 0) {
+      p50 = 0.001;
+    }
+    if (p99 <= p50) {
+      p99 = p50 * 2;
+    }
 
     double mu = std::log(p50);
     double sigma = (std::log(p99) - mu) / 2.326;
-    if (sigma <= 0) sigma = 0.1;
+    if (sigma <= 0) {
+      sigma = 0.1;
+    }
 
-    double s = std::exp(mu + sigma * rng_.norm_float64());
+    double s = std::exp(mu + sigma * rng.norm_float64());
 
     double cap = p99 * 1.5;
-    if (s > cap) s = cap;
-    if (s < 0) s = 0;
+    if (s > cap) {
+      s = cap;
+    }
+    if (s < 0) {
+      s = 0;
+    }
 
     return std::chrono::microseconds(static_cast<int64_t>(s * 1000.0));
   }
 
   LatencyProfile profile_;
-  FastRng rng_;
 };
 
 inline std::unique_ptr<LatencySampler> parse_bench_profile(const Variant& params) {
-  if (!params.is_object()) return nullptr;
+  if (!params.is_object()) {
+    return nullptr;
+  }
   auto it = params.as_object().find("bench_profile");
-  if (it == params.as_object().end() || it->second.is_null()) return nullptr;
-  if (!it->second.is_object()) return nullptr;
+  if (it == params.as_object().end() || it->second.is_null()) {
+    return nullptr;
+  }
+  if (!it->second.is_object()) {
+    return nullptr;
+  }
 
   const auto& m = it->second.as_object();
   LatencyProfile profile;
@@ -154,8 +181,12 @@ inline std::unique_ptr<LatencySampler> parse_bench_profile(const Variant& params
   if (p50_it != m.end() && p50_it->second.is_array()) {
     const auto& arr = p50_it->second.as_array();
     if (arr.size() >= 2) {
-      if (arr[0].is_number()) profile.p50_mean = arr[0].as_number();
-      if (arr[1].is_number()) profile.p50_max = arr[1].as_number();
+      if (arr[0].is_number()) {
+        profile.p50_mean = arr[0].as_number();
+      }
+      if (arr[1].is_number()) {
+        profile.p50_max = arr[1].as_number();
+      }
     }
   }
 
@@ -163,8 +194,12 @@ inline std::unique_ptr<LatencySampler> parse_bench_profile(const Variant& params
   if (p99_it != m.end() && p99_it->second.is_array()) {
     const auto& arr = p99_it->second.as_array();
     if (arr.size() >= 2) {
-      if (arr[0].is_number()) profile.p99_mean = arr[0].as_number();
-      if (arr[1].is_number()) profile.p99_max = arr[1].as_number();
+      if (arr[0].is_number()) {
+        profile.p99_mean = arr[0].as_number();
+      }
+      if (arr[1].is_number()) {
+        profile.p99_max = arr[1].as_number();
+      }
     }
   }
 
@@ -178,7 +213,9 @@ inline std::unique_ptr<LatencySampler> parse_bench_profile(const Variant& params
     profile.iterations = static_cast<int64_t>(iter_it->second.as_number());
   }
 
-  if (profile.p50_mean <= 0 && profile.p99_mean <= 0) return nullptr;
+  if (profile.p50_mean <= 0 && profile.p99_mean <= 0) {
+    return nullptr;
+  }
 
   return std::make_unique<LatencySampler>(profile);
 }
