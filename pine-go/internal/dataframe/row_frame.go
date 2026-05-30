@@ -205,16 +205,23 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 	}
 
 	// 5. Additions (zero-copy: take ownership of the caller's map)
-	for _, added := range out.GetAddedItems() {
-		for k, v := range added {
-			if err := validateValue(k, v); err != nil {
-				return fmt.Errorf("added item write: %w", err)
+	if addedItems := out.GetAddedItems(); len(addedItems) > 0 {
+		if cap(f.items)-len(f.items) < len(addedItems) {
+			grown := make([]map[string]any, len(f.items), len(f.items)+len(addedItems))
+			copy(grown, f.items)
+			f.items = grown
+		}
+		for _, added := range addedItems {
+			for k, v := range added {
+				if err := validateValue(k, v); err != nil {
+					return fmt.Errorf("added item write: %w", err)
+				}
 			}
+			if recall {
+				added["_source"] = opName
+			}
+			f.items = append(f.items, added)
 		}
-		if recall {
-			added["_source"] = opName
-		}
-		f.items = append(f.items, added)
 	}
 
 	return nil
