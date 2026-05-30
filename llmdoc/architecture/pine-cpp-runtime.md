@@ -172,7 +172,7 @@ cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 c
 - 请求执行期间的中间对象以 arena 分配为主
 - **per-thread bump arena**（PERF-14）：每个线程持有 thread_local bump allocator，请求级 Variant/FlatMap 分配走 arena 路径，减少 malloc 竞争
 - 对象 API 与分配策略解耦，采用接近 Protobuf Arena 的模式
-- **jemalloc**（默认启用）：CMake `PINE_USE_JEMALLOC=ON`，通过 `target_link_libraries(jemalloc)` 链接，减少多线程 malloc 锁竞争和内存碎片
+- **jemalloc**（默认启用）：CMake `PINE_USE_JEMALLOC=ON`（默认），通过 `target_link_libraries(jemalloc)` 链接，减少多线程 malloc 锁竞争和内存碎片。sanitizer 构建需显式 `-DPINE_USE_JEMALLOC=OFF`
 
 ### 5. DataFrame 与数据表示
 

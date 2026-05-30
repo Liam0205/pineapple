@@ -20,7 +20,7 @@
 2. **C++ FlatMap 替代 std::map/unordered_map**：`JsonValue::object_t` 从 `std::map` → `std::unordered_map` → 自定义 `FlatMap`（sorted vector），减少 hash 开销和内存碎片
 3. **Variant 重命名**：`JsonValue` → `Variant`，反映其作为通用值类型的定位（不仅限于 JSON 边界）
 4. **RapidJSON 替代手写序列化器**：dump_json 热点（22.4% profile）通过 RapidJSON 的 Writer 消除
-5. **jemalloc 默认启用**：CMake `PINE_USE_JEMALLOC=ON`，通过 `target_link_libraries` 链接，减少多线程 malloc 竞争
+5. **jemalloc 默认启用**：CMake `PINE_USE_JEMALLOC=ON`（默认），通过 `target_link_libraries` 链接，减少多线程 malloc 竞争。sanitizer 构建需显式关闭
 6. **Go GOGC=400**：server 启动时设置，减少 GC 频率换取吞吐（内存充裕场景）
 7. **跨运行时 lazy OperatorInput proxy**：Go/Java/C++ 三方统一从 eager reify 改为 lazy 按需读取，避免 O(N×M) 预复制
 
