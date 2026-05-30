@@ -157,9 +157,13 @@ public class DataFrame implements Frame {
                         throw new IndexOutOfBoundsException("RemoveItem index " + idx + " out of range [0, " + items.size() + ")");
                     }
                 }
+                boolean[] bitmap = new boolean[items.size()];
+                for (int idx : removed) {
+                    bitmap[idx] = true;
+                }
                 List<Map<String, Object>> surviving = new ArrayList<>();
                 for (int i = 0; i < items.size(); i++) {
-                    if (!removed.contains(i)) {
+                    if (!bitmap[i]) {
                         surviving.add(items.get(i));
                     }
                 }
