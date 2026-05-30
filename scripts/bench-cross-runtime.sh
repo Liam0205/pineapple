@@ -54,7 +54,6 @@ while [[ $# -gt 0 ]]; do
     *)             echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
-# PLACEHOLDER_SCRIPT_BODY
 
 mkdir -p "$WORK_DIR" "$RESULTS_DIR"
 # Clean up any leftover artifacts from a previous run
@@ -123,12 +122,11 @@ if ! should_skip cpp; then
   info "  Building C++..."
   CPP_BUILD="$REPO_ROOT/pine-cpp/build"
   mkdir -p "$CPP_BUILD"
-  (cd "$CPP_BUILD" && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null 2>&1 \
+  (cd "$CPP_BUILD" && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DPINE_USE_JEMALLOC=ON >/dev/null 2>&1 \
     && cmake --build . -j2 --target pineapple-server 2>&1 | tail -1)
   cp "$CPP_BUILD/pineapple-server" "$WORK_DIR/server-cpp"
   ok "C++ built"
 fi
-# PLACEHOLDER_SERVER_HELPERS
 
 # ─── Server helpers ───────────────────────────────────────────────────
 BASE_PORT=19100
@@ -219,7 +217,6 @@ get_storage_modes() {
   mode=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c.get('storage_mode','row'))" "$config_file" 2>/dev/null || echo "row")
   echo "$mode"
 }
-# PLACEHOLDER_BENCH_LOOP
 
 # ─── Report header ────────────────────────────────────────────────────
 {
