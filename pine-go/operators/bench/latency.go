@@ -7,11 +7,12 @@ import (
 )
 
 type LatencyProfile struct {
-	P50Mean float64
-	P50Max  float64
-	P99Mean float64
-	P99Max  float64
-	IsIO    bool
+	P50Mean    float64
+	P50Max     float64
+	P99Mean    float64
+	P99Max     float64
+	IsIO       bool
+	Iterations int64 // calibrated mode: base iteration count for P50Mean
 }
 
 type LatencySampler struct {
@@ -71,7 +72,16 @@ func (s *LatencySampler) Apply() float64 {
 		time.Sleep(d)
 		return 0
 	}
-	// CPU-intensive: sustained FP division until timeout
+	if s.profile.Iterations > 0 {
+		// Calibrated mode: scale iterations proportionally to sampled duration
+		ratio := float64(d) / (s.profile.P50Mean * float64(time.Millisecond))
+		n := int64(float64(s.profile.Iterations) * ratio)
+		if n < 1 {
+			n = 1
+		}
+		return latencyCPUWork(s.rng, n)
+	}
+	// Time-based mode: compute until timeout
 	deadline := time.Now().Add(d)
 	acc := 1.0
 	for time.Now().Before(deadline) {
@@ -80,6 +90,19 @@ func (s *LatencySampler) Apply() float64 {
 		acc += a / b
 		a = s.rng.Float64()*1000 + 1
 		b = s.rng.Float64()*1000 + 1
+		acc -= a / b
+	}
+	return acc
+}
+
+func latencyCPUWork(rng *rand.Rand, n int64) float64 {
+	acc := 1.0
+	for i := int64(0); i < n; i++ {
+		a := rng.Float64()*1000 + 1
+		b := rng.Float64()*1000 + 1
+		acc += a / b
+		a = rng.Float64()*1000 + 1
+		b = rng.Float64()*1000 + 1
 		acc -= a / b
 	}
 	return acc
@@ -107,6 +130,9 @@ func ParseBenchProfile(params map[string]any) *LatencySampler {
 	}
 	if t, ok := m["type"].(string); ok {
 		profile.IsIO = (t == "io")
+	}
+	if iter, ok := m["iterations"]; ok {
+		profile.Iterations = int64(toFloat(iter))
 	}
 
 	if profile.P50Mean <= 0 && profile.P99Mean <= 0 {
