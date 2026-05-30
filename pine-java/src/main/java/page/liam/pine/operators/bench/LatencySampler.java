@@ -19,25 +19,30 @@ class LatencySampler {
         this.isIO = isIO;
     }
 
-    void apply() {
+    double apply() {
         long micros = sample();
-        if (micros <= 0) return;
+        if (micros <= 0) return 0.0;
         if (isIO) {
             try {
                 Thread.sleep(micros / 1000, (int) ((micros % 1000) * 1000));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-        } else {
-            long deadline = System.nanoTime() + micros * 1000L;
-            while (System.nanoTime() < deadline) {
-                double acc = 0;
-                for (int i = 0; i < 100; i++) {
-                    acc += Math.sqrt(i);
-                }
-                if (acc < 0) break; // prevent dead code elimination
-            }
+            return 0.0;
         }
+        // CPU-intensive: sustained FP division until timeout
+        long deadline = System.nanoTime() + micros * 1000L;
+        double acc = 1.0;
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+        while (System.nanoTime() < deadline) {
+            double a = rng.nextDouble() * 1000.0 + 1.0;
+            double b = rng.nextDouble() * 1000.0 + 1.0;
+            acc += a / b;
+            a = rng.nextDouble() * 1000.0 + 1.0;
+            b = rng.nextDouble() * 1000.0 + 1.0;
+            acc -= a / b;
+        }
+        return acc;
     }
 
     private long sample() {
