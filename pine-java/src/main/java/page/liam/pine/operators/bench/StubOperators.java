@@ -7,6 +7,7 @@ import java.util.Map;
 
 class RecallFeedDataStub extends AbstractOperator implements AdditiveWritesRowSet {
     private int itemCount = 3000;
+    private LatencySampler latency;
 
     @Override
     public void init(OperatorParams params) {
@@ -14,6 +15,7 @@ class RecallFeedDataStub extends AbstractOperator implements AdditiveWritesRowSe
         if (v instanceof Number) {
             itemCount = ((Number) v).intValue();
         }
+        latency = LatencySampler.parse(params.toMap());
     }
 
     @Override
@@ -27,12 +29,17 @@ class RecallFeedDataStub extends AbstractOperator implements AdditiveWritesRowSe
             row.put("created_at", "2026-01-01T00:00:00Z");
             output.addItem(row);
         }
+        if (latency != null) latency.apply();
     }
 }
 
 class TransformRedisZrangebyscoreStub extends AbstractOperator {
+    private LatencySampler latency;
+
     @Override
-    public void init(OperatorParams params) {}
+    public void init(OperatorParams params) {
+        latency = LatencySampler.parse(params.toMap());
+    }
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
@@ -40,12 +47,17 @@ class TransformRedisZrangebyscoreStub extends AbstractOperator {
         output.setCommon("impression_ids", java.util.List.of());
         output.setCommon("impression_cache_hit", true);
         output.setCommon("impression_ids_len", 0.0);
+        if (latency != null) latency.apply();
     }
 }
 
 class TransformHydrateStub extends AbstractOperator implements ConsumesRowSet {
+    private LatencySampler latency;
+
     @Override
-    public void init(OperatorParams params) {}
+    public void init(OperatorParams params) {
+        latency = LatencySampler.parse(params.toMap());
+    }
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
@@ -54,5 +66,6 @@ class TransformHydrateStub extends AbstractOperator implements ConsumesRowSet {
             input.item(i, "type");
             output.setItem(i, "creator_id", (double) (i % 1000));
         }
+        if (latency != null) latency.apply();
     }
 }
