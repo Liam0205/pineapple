@@ -5,6 +5,7 @@ import java.util.Map;
 
 public interface Frame {
     Object common(String field);
+    Object item(int index, String field);
     int itemCount();
     OperatorInput buildInput(String opName, InputFieldSpec spec) throws PineErrors.OperatorException;
     void applyOutput(OperatorOutput out, String opName, boolean recall);

@@ -46,6 +46,7 @@ public class DataFrame implements Frame {
         }
     }
 
+    @Override
     public Object item(int index, String field) {
         rwLock.readLock().lock();
         try {
@@ -88,42 +89,34 @@ public class DataFrame implements Frame {
                 cs.put(field, common.get(field));
             }
 
-            List<Map<String, Object>> its = new ArrayList<>(items.size());
+            // Validate strict item fields upfront (fail fast)
             for (int i = 0; i < items.size(); i++) {
                 Map<String, Object> item = items.get(i);
-                Map<String, Object> row = new LinkedHashMap<>();
-
-                // Strict item fields: must exist and be non-nil
                 for (String field : spec.strictItem) {
                     Object v = item.get(field);
                     if (!item.containsKey(field) || v == null) {
                         throw new PineErrors.OperatorException(
                                 "required field \"" + field + "\" is nil on item[" + i + "]");
                     }
-                    row.put(field, v);
                 }
-                // Defaulted item fields: substitute default on nil/missing
-                for (InputFieldSpec.DefaultedField df : spec.defaultedItem) {
-                    Object v = item.get(df.name);
-                    if (!item.containsKey(df.name) || v == null) {
-                        row.put(df.name, df.defaultValue);
-                    } else {
-                        row.put(df.name, v);
-                    }
-                }
-                // Nullable item fields: missing -> error, nil -> pass through
                 for (String field : spec.nullableItem) {
                     if (!item.containsKey(field)) {
                         throw new PineErrors.OperatorException(
                                 "required field \"" + field + "\" is missing on item[" + i + "]");
                     }
-                    row.put(field, item.get(field));
                 }
-
-                its.add(row);
             }
 
-            return new OperatorInput(cs, its);
+            // Build item defaults map for lazy access
+            Map<String, Object> itemDefaults = null;
+            if (!spec.defaultedItem.isEmpty()) {
+                itemDefaults = new HashMap<>(spec.defaultedItem.size());
+                for (InputFieldSpec.DefaultedField df : spec.defaultedItem) {
+                    itemDefaults.put(df.name, df.defaultValue);
+                }
+            }
+
+            return new OperatorInput(cs, this, itemDefaults, 0, items.size());
         } finally {
             rwLock.readLock().unlock();
         }

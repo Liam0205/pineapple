@@ -23,16 +23,29 @@ public class ParallelExecutor {
         int base = total / n;
         int rem = total % n;
         int start = 0;
-        List<Map<String, Object>> allItems = input.rawItems();
-        Map<String, Object> common = input.rawCommon();
 
-        for (int i = 0; i < n; i++) {
-            int size = base + (i < rem ? 1 : 0);
-            int end = start + size;
-            List<Map<String, Object>> shardItems = new ArrayList<>(allItems.subList(start, end));
-            shards.add(new OperatorInput(common, shardItems));
-            offsets[i] = start;
-            start = end;
+        if (input.isLazy()) {
+            Frame frame = input.lazyFrame();
+            Map<String, Object> common = input.rawCommon();
+            Map<String, Object> itemDefaults = input.lazyItemDefaults();
+            int baseOffset = input.lazyOffset();
+            for (int i = 0; i < n; i++) {
+                int size = base + (i < rem ? 1 : 0);
+                shards.add(new OperatorInput(common, frame, itemDefaults, baseOffset + start, size));
+                offsets[i] = start;
+                start += size;
+            }
+        } else {
+            List<Map<String, Object>> allItems = input.rawItems();
+            Map<String, Object> common = input.rawCommon();
+            for (int i = 0; i < n; i++) {
+                int size = base + (i < rem ? 1 : 0);
+                int end = start + size;
+                List<Map<String, Object>> shardItems = new ArrayList<>(allItems.subList(start, end));
+                shards.add(new OperatorInput(common, shardItems));
+                offsets[i] = start;
+                start = end;
+            }
         }
 
         if (shards.size() == 1) {
