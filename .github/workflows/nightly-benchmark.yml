@@ -113,6 +113,16 @@ jobs:
             --curr /tmp/bench_cross_runtime/report.txt \
             --output /tmp/bench_cross_runtime/comparison.txt
 
+      - name: Analyze benchmark results
+        if: always()
+        run: |
+          if [ -f /tmp/bench_cross_runtime/report.txt ]; then
+            python3 scripts/bench-analyze.py /tmp/bench_cross_runtime/report.txt \
+              -o /tmp/bench_cross_runtime/analysis.txt
+            python3 scripts/bench-analyze.py /tmp/bench_cross_runtime/report.txt \
+              --json -o /tmp/bench_cross_runtime/analysis.json
+          fi
+
       - name: Write benchmark summary
         if: always()
         shell: bash
@@ -120,6 +130,13 @@ jobs:
           {
             echo "### Cross-Runtime Benchmark"
             echo ""
+            if [ -f /tmp/bench_cross_runtime/analysis.txt ]; then
+              echo "#### Analysis"
+              echo '```text'
+              cat /tmp/bench_cross_runtime/analysis.txt
+              echo '```'
+              echo ""
+            fi
             if [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
               echo "#### Delta vs previous run"
               echo '```text'
@@ -141,6 +158,8 @@ jobs:
           path: |
             /tmp/bench_cross_runtime/report.txt
             /tmp/bench_cross_runtime/comparison.txt
+            /tmp/bench_cross_runtime/analysis.txt
+            /tmp/bench_cross_runtime/analysis.json
             /tmp/bench_cross_runtime/*.csv
           retention-days: 30
 
@@ -154,7 +173,9 @@ jobs:
             exit 0
           fi
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
+          if [ -f /tmp/bench_cross_runtime/analysis.txt ]; then
+            BODY=$(grep -A5 "## Verdict" /tmp/bench_cross_runtime/analysis.txt | tail -n+2)
+          elif [ -f /tmp/bench_cross_runtime/comparison.txt ]; then
             BODY=$(head -20 /tmp/bench_cross_runtime/comparison.txt)
           elif [ -f /tmp/bench_cross_runtime/report.txt ]; then
             BODY=$(grep -E "^\s+(go|java|cpp)" /tmp/bench_cross_runtime/report.txt | head -12)
