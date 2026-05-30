@@ -275,6 +275,7 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Cross-validate metrics-parity section：`scripts/cross-validate/13-metrics-parity.sh`
 - Cross-validate pine-cpp 预构建：`scripts/cross-validate/_prebuild.sh`
 - 跨引擎 benchmark：`scripts/cross-engine-bench.py`、`scripts/cross-engine-bench-cli.sh`、`scripts/bench-generate-fixtures.py`
-- 跨运行时 benchmark（nightly）：`scripts/bench-cross-runtime.sh`、`scripts/bench-compare.py`、`scripts/bench-analyze.py`、`scripts/bench-dag-scheduler.sh`
+- 跨运行时 benchmark（nightly）：`scripts/bench-cross-runtime.sh`、`scripts/bench-compare.py`、`scripts/bench-analyze.py`、`scripts/bench-dag-scheduler.sh`、`scripts/bench-profile.sh`（perf/gprof profiling）
+- Benchmark fixtures：`fixtures/benchmarks/realistic_for_you.json`、`fixtures/benchmarks/realistic_for_you_calibrated.json`（iteration-based 校准）
 - Tag release：`scripts/tag-release.sh`
 - Server stress 入口：`pine-go/pkg/server/server_test.go`

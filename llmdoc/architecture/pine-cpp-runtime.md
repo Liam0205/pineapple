@@ -96,15 +96,16 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - debug snapshot + `StartTime` 在 `OpTrace` 中可选记录
   - `data_parallel` transform 在固定线程池中分片执行；分片通过 `ColumnFrame::make_window_view` 零拷贝窗口视图实现——shard 共享 parent frame 的 ColumnStore，以 `(offset, count)` 做行级翻译，避免逐行物化。window view 是只读投影，所有写方法（`set_common` / `push_warning` / `apply_output` / `to_result`）均 throw `Error`
 - **数据表示**
+  - **`Variant`**（原名 `JsonValue`，PERF-18 重命名）：通用值类型，`Variant::object_t` = `FlatMap<std::string, Variant>`（sorted vector，PERF-9 从 `std::map` → `unordered_map` → `FlatMap` 演进）。`FlatMap` 在小 N（典型 operator 字段数 < 20）下比 hash map 更快（cache-friendly linear scan + 无 hash 开销）
   - 强类型 `Column` 抽象（Int64/Double/String/Bool）+ JsonColumn 退路、validity bitmap
-  - `ColumnStore` 接口（默认 `TypedColumnStore`），保留 Arrow-backed 实现的扩展点
+  - `ColumnStore` 接口（默认 `TypedColumnStore`，内部 `FlatMap<string, unique_ptr<Column>>`），保留 Arrow-backed 实现的扩展点
   - **`Frame` 抽象基类**（`include/pine/frame.hpp`，R3-L3）：`ColumnFrame` 和 `RowFrame` 两个物理实现。`Operator::execute` 签名为 `const Frame&`（不绑定具体实现）。`pine::make_frame(storage_mode, common, items)` 工厂按 `Config.storage_mode` 路由（`"row"` → RowFrame，其他 → ColumnFrame）
-  - `ColumnFrame` 为请求级 DataFrame，内部使用 `shared_mutex` 自治并发；canonical 5-stage write log（common writes / item writes / removals / reorder / additions）。NaN/Inf 在 apply_output 三阶段校验（R3-H2）
-  - `RowFrame` 为行存 DataFrame，items 以 `vector<map<string, JsonValue>>` 存储，同样内部 `shared_mutex` + 5-stage write log + NaN/Inf 校验。适用于逐行访问密集场景（Lua snapshot、remote request、observe logging）
-  - `OperatorOutput` write-log 模式：算子只声明写入意图，由 frame 应用，便于 trace/debug。`item_writes_` 内部为 `vector<ItemWrite>`（`struct ItemWrite { int index; std::string field; JsonValue value; }`），`set_item` 为 O(1) 摊销 push_back；`apply_output` 按顺序重放（last-write-wins 语义），`snapshot_output` 显式 group 到 map 保持最终状态视图
+  - `ColumnFrame` 为请求级 DataFrame，内部使用 `shared_mutex` 自治并发；canonical 5-stage write log（common writes / item writes / removals / reorder / additions）。NaN/Inf 在 apply_output 三阶段校验（R3-H2）。**行删除使用 bitmap 查找**（PERF-16）替代线性扫描
+  - `RowFrame` 为行存 DataFrame，items 以 `vector<FlatMap<string, Variant>>` 存储，同样内部 `shared_mutex` + 5-stage write log + NaN/Inf 校验。适用于逐行访问密集场景（Lua snapshot、remote request、observe logging）
+  - `OperatorOutput` write-log 模式：算子只声明写入意图，由 frame 应用，便于 trace/debug。`item_writes_` 内部为 `vector<ItemWrite>`（`struct ItemWrite { int index; std::string field; Variant value; }`），`set_item` 为 O(1) 摊销 push_back；`apply_output` 按顺序重放（last-write-wins 语义），`snapshot_output` 显式 group 到 map 保持最终状态视图
   - **ValidateOutput 类型约束**（R3-H1）：每个算子 execute 后、apply_output 前，按 operator_type 检查输出方法是否合法（Recall 不能 SetCommon 等），违规抛 ExecutionError `"type violation: operator type X must not call [Method1 Method2]"`
 - **算子输入投影层**
-  - **`OperatorInput`**（`include/pine/operator_input.hpp`）：Frame + InputFieldSpec 之上的 lazy read-only proxy。算子签名为 `execute(const OperatorInput&, OperatorOutput&)`，通过 `common(field)` / `item(i, field)` 按需读取，自动替换 defaulted 字段。避免旧实现的 O(N×M) eager reify（逐 item×field 预复制到 `vector<map>`）
+  - **`OperatorInput`**（`include/pine/operator_input.hpp`）：Frame + InputFieldSpec 之上的 lazy read-only proxy。算子签名为 `execute(const OperatorInput&, OperatorOutput&)`，通过 `common(field)` / `item(i, field)` 按需读取，自动替换 defaulted 字段。避免旧实现的 O(N×M) eager reify（逐 item×field 预复制到 `vector<map>`）。**`item_count` 在构造时缓存**，避免每次调用获取 shared_lock
   - `build_operator_input(frame, op_name, spec)` 工厂：先做 strict 字段批量校验（一次遍历验证全部 strict common + strict item 字段存在性），校验通过后构造 lazy proxy。校验与代理解耦，错误快速失败
   - `Frame::batch_validate_strict_items(fields, op_name)` 虚方法：ColumnFrame/RowFrame 各自实现最优路径的批量 strict item 检查，避免逐字段逐行的 O(N×M×F) 调用
 - **算子框架**
@@ -112,8 +113,8 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
   - marker 类型 `ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` / `ConcurrentSafe`
   - `OperatorTraits<T>` 编译期 `std::is_base_of_v` 标记检查
   - `register_operator_with_traits(schema, factory, ...)` 底层 API + `register_operator_typed<T>(schema)` 模板 + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
-  - 内置算子均使用 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`（具体清单见 `pine-cpp/CMakeLists.txt`，含 `transform_bench_cpu` / `transform_bench_sleep` 两个仅供 benchmark 用的算子，pine-python 不实现这两个算子）
-  - `observe_log` 完整实现（R3-L8）：init 读取 metadata 字段列表和 `log_prefix`，execute 构造 `{common, items}` snapshot 后 `dump_json(value, 0)` 紧凑输出到 stderr。`dump_json(value, 0)` 紧凑模式（R13-1）抑制所有 `\n` / 缩进 / 冒号后空格，与 Go `json.Marshal` 格式对齐
+  - 内置算子均使用 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`（具体清单见 `pine-cpp/CMakeLists.txt`）。Benchmark stub 算子（`transform_bench_cpu` / `transform_bench_sleep` 等 9 个）仅供性能测试，pine-python 不实现。Bench stub 使用 iteration-based 校准模式 + 正态分布延迟模拟，确保跨运行时可比性
+  - `observe_log` 完整实现（R3-L8）：init 读取 metadata 字段列表和 `log_prefix`，execute 构造 `{common, items}` snapshot 后 **RapidJSON Writer** 紧凑输出到 stderr（PERF-15 从手写 `dump_json` 迁移到 RapidJSON，消除 22.4% 序列化热点）。紧凑模式抑制所有 `\n` / 缩进 / 冒号后空格，与 Go `json.Marshal` 格式对齐
   - `[pine-debug]` stderr 日志（R3-L6）：debug=true 的算子在 execute 后、apply_output 前输出 `operator/duration/input_size/output_size/input/output` 单行日志
   - `inline constexpr const char* kVersion`（R3-L2）：编译期版本常量，对齐 Go `const Version`，由 `scripts/bump-version.sh` 同步
   - warning operator-name 前缀（`{op_name}: ...`）由框架在 `apply_output` 阶段统一加上
@@ -155,7 +156,7 @@ cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 c
 - **CMake**
 - 目标标准：**C++23**
 - 错误返回采用 `std::expected<T, E>`；若目标编译器过旧，可用 `tl::expected` 作为兼容层
-- JSON 库选择 **nlohmann/json**（边界层读写一体，JSON 不在主要热路径）
+- JSON 序列化使用 **RapidJSON**（PERF-15 替代手写 `dump_json`，消除序列化热点）；JSON 解析仍使用 **nlohmann/json**（边界层读入，非热路径）
 
 ### 3. Lua 集成
 
@@ -169,12 +170,15 @@ cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 c
 - **Arena + RAII 分层共存**
 - 长生命周期对象（Engine、配置、LuaJIT state）由 RAII 管理
 - 请求执行期间的中间对象以 arena 分配为主
+- **per-thread bump arena**（PERF-14）：每个线程持有 thread_local bump allocator，请求级 Variant/FlatMap 分配走 arena 路径，减少 malloc 竞争
 - 对象 API 与分配策略解耦，采用接近 Protobuf Arena 的模式
+- **jemalloc**（默认启用）：CMake `PINE_USE_JEMALLOC=ON`，通过 `target_link_libraries(jemalloc)` 链接，减少多线程 malloc 锁竞争和内存碎片
 
 ### 5. DataFrame 与数据表示
 
 - DataFrame 内部采用 **强类型列**，而不是 cell-level 动态 variant
-- 动态值 `Value` 只存在于边界层：JSON 解析、Lua 交互、operator config、最终 JSON 序列化
+- 动态值 `Variant`（原名 `JsonValue`）只存在于边界层：JSON 解析、Lua 交互、operator config、最终 JSON 序列化
+- `Variant::object_t` = `FlatMap<std::string, Variant>`（sorted vector of pairs），在典型字段数（< 20）下比 hash map 更快
 - nullable 表示使用 **`Column<T> + validity bitmap`**
 - 字符串底层采用 **arena/string pool** 持有，读取接口暴露 `std::string_view`
 
