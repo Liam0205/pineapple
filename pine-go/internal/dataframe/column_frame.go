@@ -194,12 +194,16 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 				return fmt.Errorf("RemoveItem index %d out of range [0, %d)", idx, f.rowCount)
 			}
 		}
+		bitmap := make([]bool, f.rowCount)
+		for idx := range removed {
+			bitmap[idx] = true
+		}
 		newCount := f.rowCount - len(removed)
 		for field, col := range f.columns {
 			newCol := make([]any, 0, newCount)
 			newPresent := make([]bool, 0, newCount)
 			for i, v := range col {
-				if _, rm := removed[i]; !rm {
+				if !bitmap[i] {
 					newCol = append(newCol, v)
 					newPresent = append(newPresent, f.present[field][i])
 				}
