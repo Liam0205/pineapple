@@ -73,7 +73,7 @@ public class BenchStubs {
                         OperatorType.FILTER,
                         "Benchmark stub: simulates impression-based filtering.",
                         Map.of(
-                                "min_remaining_ratio", ParamSpec.optional("float64", 1.5, "Stub param."),
+                                "min_remaining_ratio", ParamSpec.optional("float", 1.5, "Stub param."),
                                 "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 FilterImpressionStub::new);
@@ -107,7 +107,7 @@ public class BenchStubs {
                         Map.of(
                                 "resource_name", ParamSpec.optional("string", "", "Stub param."),
                                 "mode", ParamSpec.optional("string", "", "Stub param."),
-                                "key_fields", ParamSpec.optional("any", null, "Stub param."),
+                                "key_fields", ParamSpec.optional("array", null, "Stub param."),
                                 "bench_profile", ParamSpec.optional("any", null, "Latency profile.")
                         )),
                 ObserveDatahubStub::new);
@@ -138,5 +138,36 @@ public class BenchStubs {
         });
 
         ResourceManager.registerFactory("datahub_producer", params -> () -> "nop");
+
+        Codegen.ResourceSchema feedDataSchema = new Codegen.ResourceSchema();
+        feedDataSchema.name = "feed_data";
+        feedDataSchema.description = "Benchmark stub: generates synthetic feed data.";
+        feedDataSchema.params = Map.of(
+                "mysql_dsn", codegenParam("string", false, "", "Stub param.")
+        );
+        ResourceRegistry.register(feedDataSchema);
+
+        Codegen.ResourceSchema datahubSchema = new Codegen.ResourceSchema();
+        datahubSchema.name = "datahub_producer";
+        datahubSchema.description = "Benchmark stub: no-op datahub producer.";
+        datahubSchema.params = Map.ofEntries(
+                Map.entry("ak_id", codegenParam("string", false, "", "Stub param.")),
+                Map.entry("ak_secret", codegenParam("string", false, "", "Stub param.")),
+                Map.entry("endpoint", codegenParam("string", false, "", "Stub param.")),
+                Map.entry("max_retry", codegenParam("int", false, 0L, "Stub param.")),
+                Map.entry("project", codegenParam("string", false, "", "Stub param.")),
+                Map.entry("topic", codegenParam("string", false, "", "Stub param.")),
+                Map.entry("user_agent", codegenParam("string", false, "", "Stub param."))
+        );
+        ResourceRegistry.register(datahubSchema);
+    }
+
+    private static Codegen.ParamSpec codegenParam(String type, boolean required, Object defaultValue, String description) {
+        Codegen.ParamSpec ps = new Codegen.ParamSpec();
+        ps.type = type;
+        ps.required = required;
+        ps.defaultValue = defaultValue;
+        ps.description = description;
+        return ps;
     }
 }

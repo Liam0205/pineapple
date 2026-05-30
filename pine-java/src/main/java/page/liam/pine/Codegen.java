@@ -603,7 +603,6 @@ public class Codegen {
                     w.printf("            %s=%s,%n", pName, pName);
                 }
                 w.println("        )");
-                w.println();
             }
         }
 
