@@ -20,6 +20,7 @@ func init() {
 		Params: map[string]pine.ParamSpec{
 			"bench_item_count": {Type: "int64", Required: false, Default: int64(3000), Description: "Number of items to generate."},
 			"resource_name":    {Type: "string", Required: false, Default: "", Description: "Ignored in stub."},
+			"bench_profile":    {Type: "any", Required: false, Default: nil, Description: "Latency profile: {p50:[mean,max], p99:[mean,max], type:cpu|io}."},
 		},
 	}, func() pine.Operator { return &recallFeedDataStub{} })
 
@@ -31,6 +32,7 @@ func init() {
 			"window_seconds": {Type: "int64", Required: false, Default: int64(0), Description: "Stub param."},
 			"redis_addr":     {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"redis_password": {Type: "string", Required: false, Default: "", Description: "Stub param."},
+			"bench_profile":  {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &transformRedisZrangebyscoreStub{} })
 
@@ -38,7 +40,8 @@ func init() {
 		Name: "transform_hydrate", Type: pine.OpTypeTransform,
 		Description: "Benchmark stub: simulates MySQL hydration.",
 		Params: map[string]pine.ParamSpec{
-			"mysql_dsn": {Type: "string", Required: false, Default: "", Description: "Stub param."},
+			"mysql_dsn":     {Type: "string", Required: false, Default: "", Description: "Stub param."},
+			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &transformHydrateStub{} })
 
@@ -46,7 +49,8 @@ func init() {
 		Name: "transform_query_blocked_creators", Type: pine.OpTypeTransform,
 		Description: "Benchmark stub: simulates MySQL blocked-creators query.",
 		Params: map[string]pine.ParamSpec{
-			"mysql_dsn": {Type: "string", Required: false, Default: "", Description: "Stub param."},
+			"mysql_dsn":     {Type: "string", Required: false, Default: "", Description: "Stub param."},
+			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &transformQueryBlockedCreatorsStub{} })
 // PLACEHOLDER_MORE_OPS
@@ -56,19 +60,24 @@ func init() {
 		Description: "Benchmark stub: simulates impression-based filtering.",
 		Params: map[string]pine.ParamSpec{
 			"min_remaining_ratio": {Type: "float64", Required: false, Default: 1.5, Description: "Stub param."},
+			"bench_profile":       {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &filterImpressionStub{} })
 
 	pine.Register(pine.OperatorSchema{
 		Name: "filter_blocked_creator", Type: pine.OpTypeFilter,
 		Description: "Benchmark stub: simulates blocked-creator filtering.",
+		Params: map[string]pine.ParamSpec{
+			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
+		},
 	}, func() pine.Operator { return &filterBlockedCreatorStub{} })
 
 	pine.Register(pine.OperatorSchema{
 		Name: "reorder_topn_boost", Type: pine.OpTypeReorder,
 		Description: "Benchmark stub: simulates top-N boost reordering.",
 		Params: map[string]pine.ParamSpec{
-			"size": {Type: "int64", Required: false, Default: int64(10), Description: "Stub param."},
+			"size":          {Type: "int64", Required: false, Default: int64(10), Description: "Stub param."},
+			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &reorderTopnBoostStub{} })
 
@@ -79,6 +88,7 @@ func init() {
 			"resource_name": {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"mode":          {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"key_fields":    {Type: "[]string", Required: false, Default: nil, Description: "Stub param."},
+			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &observeDatahubStub{} })
 
@@ -86,7 +96,8 @@ func init() {
 		Name: "transform_generate_request_id", Type: pine.OpTypeTransform,
 		Description: "Benchmark stub: generates a fixed request ID.",
 		Params: map[string]pine.ParamSpec{
-			"prefix": {Type: "string", Required: false, Default: "bench", Description: "Stub param."},
+			"prefix":        {Type: "string", Required: false, Default: "bench", Description: "Stub param."},
+			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &transformGenerateRequestIdStub{} })
 
@@ -135,6 +146,7 @@ type recallFeedDataStub struct {
 	pine.MetadataHolder
 	pine.AdditiveWritesRowSetMarker
 	itemCount int
+	latency   *LatencySampler
 }
 
 func (o *recallFeedDataStub) Init(params map[string]any) error {
@@ -147,6 +159,7 @@ func (o *recallFeedDataStub) Init(params map[string]any) error {
 			o.itemCount = int(n)
 		}
 	}
+	o.latency = ParseBenchProfile(params)
 	return nil
 }
 
@@ -160,42 +173,70 @@ func (o *recallFeedDataStub) Execute(_ context.Context, _ *pine.OperatorInput, o
 			"created_at": "2026-01-01T00:00:00Z",
 		})
 	}
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
 
-type transformRedisZrangebyscoreStub struct{ pine.MetadataHolder }
+type transformRedisZrangebyscoreStub struct {
+	pine.MetadataHolder
+	latency *LatencySampler
+}
 
-func (o *transformRedisZrangebyscoreStub) Init(_ map[string]any) error { return nil }
+func (o *transformRedisZrangebyscoreStub) Init(params map[string]any) error {
+	o.latency = ParseBenchProfile(params)
+	return nil
+}
 func (o *transformRedisZrangebyscoreStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	_ = in.Common("user_id")
 	out.SetCommon("impression_ids", []any{})
 	out.SetCommon("impression_cache_hit", true)
 	out.SetCommon("impression_ids_len", float64(0))
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
 
 type transformHydrateStub struct {
 	pine.MetadataHolder
 	pine.ConsumesRowSetMarker
+	latency *LatencySampler
 }
 
-func (o *transformHydrateStub) Init(_ map[string]any) error { return nil }
+func (o *transformHydrateStub) Init(params map[string]any) error {
+	o.latency = ParseBenchProfile(params)
+	return nil
+}
 func (o *transformHydrateStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	for i := 0; i < in.ItemCount(); i++ {
 		_ = in.Item(i, "item_id")
 		_ = in.Item(i, "type")
 		out.SetItem(i, "creator_id", float64(i%1000))
 	}
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
 
-type transformQueryBlockedCreatorsStub struct{ pine.MetadataHolder }
+type transformQueryBlockedCreatorsStub struct {
+	pine.MetadataHolder
+	latency *LatencySampler
+}
 
-func (o *transformQueryBlockedCreatorsStub) Init(_ map[string]any) error { return nil }
+func (o *transformQueryBlockedCreatorsStub) Init(params map[string]any) error {
+	o.latency = ParseBenchProfile(params)
+	return nil
+}
 func (o *transformQueryBlockedCreatorsStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	_ = in.Common("user_id")
 	_ = in.Common("blocked_creator_ids")
 	out.SetCommon("blocked_creator_ids", []any{})
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
 
@@ -203,9 +244,13 @@ type filterImpressionStub struct {
 	pine.MetadataHolder
 	pine.ConsumesRowSetMarker
 	pine.MutatesRowSetMarker
+	latency *LatencySampler
 }
 
-func (o *filterImpressionStub) Init(_ map[string]any) error { return nil }
+func (o *filterImpressionStub) Init(params map[string]any) error {
+	o.latency = ParseBenchProfile(params)
+	return nil
+}
 func (o *filterImpressionStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	_ = in.Common("impression_ids")
 	_ = in.Common("size")
@@ -216,6 +261,9 @@ func (o *filterImpressionStub) Execute(_ context.Context, in *pine.OperatorInput
 			out.RemoveItem(i)
 		}
 	}
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
 
@@ -223,13 +271,20 @@ type filterBlockedCreatorStub struct {
 	pine.MetadataHolder
 	pine.ConsumesRowSetMarker
 	pine.MutatesRowSetMarker
+	latency *LatencySampler
 }
 
-func (o *filterBlockedCreatorStub) Init(_ map[string]any) error { return nil }
+func (o *filterBlockedCreatorStub) Init(params map[string]any) error {
+	o.latency = ParseBenchProfile(params)
+	return nil
+}
 func (o *filterBlockedCreatorStub) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.OperatorOutput) error {
 	_ = in.Common("blocked_creator_ids")
 	for i := 0; i < in.ItemCount(); i++ {
 		_ = in.Item(i, "creator_id")
+	}
+	if o.latency != nil {
+		o.latency.Apply()
 	}
 	return nil
 }
@@ -238,9 +293,13 @@ type reorderTopnBoostStub struct {
 	pine.MetadataHolder
 	pine.ConsumesRowSetMarker
 	pine.MutatesRowSetMarker
+	latency *LatencySampler
 }
 
-func (o *reorderTopnBoostStub) Init(_ map[string]any) error { return nil }
+func (o *reorderTopnBoostStub) Init(params map[string]any) error {
+	o.latency = ParseBenchProfile(params)
+	return nil
+}
 func (o *reorderTopnBoostStub) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.OperatorOutput) error {
 	_ = in.Common("page")
 	_ = in.Common("shuffle_salt")
@@ -248,12 +307,21 @@ func (o *reorderTopnBoostStub) Execute(_ context.Context, in *pine.OperatorInput
 		_ = in.Item(i, "id")
 		_ = in.Item(i, "created_at")
 	}
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
 
-type observeDatahubStub struct{ pine.MetadataHolder }
+type observeDatahubStub struct {
+	pine.MetadataHolder
+	latency *LatencySampler
+}
 
-func (o *observeDatahubStub) Init(_ map[string]any) error { return nil }
+func (o *observeDatahubStub) Init(params map[string]any) error {
+	o.latency = ParseBenchProfile(params)
+	return nil
+}
 func (o *observeDatahubStub) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.OperatorOutput) error {
 	for _, k := range o.CommonInput {
 		_ = in.Common(k)
@@ -263,12 +331,16 @@ func (o *observeDatahubStub) Execute(_ context.Context, in *pine.OperatorInput, 
 			_ = in.Item(i, k)
 		}
 	}
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
 
 type transformGenerateRequestIdStub struct {
 	pine.MetadataHolder
-	prefix string
+	prefix  string
+	latency *LatencySampler
 }
 
 func (o *transformGenerateRequestIdStub) Init(params map[string]any) error {
@@ -278,10 +350,14 @@ func (o *transformGenerateRequestIdStub) Init(params map[string]any) error {
 			o.prefix = s
 		}
 	}
+	o.latency = ParseBenchProfile(params)
 	return nil
 }
 
 func (o *transformGenerateRequestIdStub) Execute(_ context.Context, _ *pine.OperatorInput, out *pine.OperatorOutput) error {
 	out.SetCommon("request_id", fmt.Sprintf("%s:550e8400-e29b-41d4-a716-446655440000", o.prefix))
+	if o.latency != nil {
+		o.latency.Apply()
+	}
 	return nil
 }
