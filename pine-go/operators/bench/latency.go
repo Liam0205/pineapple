@@ -2,7 +2,7 @@ package bench
 
 import (
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 )
 
@@ -17,13 +17,11 @@ type LatencyProfile struct {
 
 type LatencySampler struct {
 	profile LatencyProfile
-	rng     *rand.Rand
 }
 
 func NewLatencySampler(profile LatencyProfile) *LatencySampler {
 	return &LatencySampler{
 		profile: profile,
-		rng:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -32,7 +30,7 @@ func (s *LatencySampler) Sample() time.Duration {
 		return 0
 	}
 
-	jitterFactor := s.rng.Float64()
+	jitterFactor := rand.Float64()
 	p50 := s.profile.P50Mean + jitterFactor*(s.profile.P50Max-s.profile.P50Mean)
 	p99 := s.profile.P99Mean + jitterFactor*(s.profile.P99Max-s.profile.P99Mean)
 
@@ -50,7 +48,7 @@ func (s *LatencySampler) Sample() time.Duration {
 		sigma = 0.1
 	}
 
-	sample := math.Exp(mu + sigma*s.rng.NormFloat64())
+	sample := math.Exp(mu + sigma*rand.NormFloat64())
 
 	cap := p99 * 1.5
 	if sample > cap {
@@ -79,30 +77,30 @@ func (s *LatencySampler) Apply() float64 {
 		if n < 1 {
 			n = 1
 		}
-		return latencyCPUWork(s.rng, n)
+		return latencyCPUWork(n)
 	}
 	// Time-based mode: compute until timeout
 	deadline := time.Now().Add(d)
 	acc := 1.0
 	for time.Now().Before(deadline) {
-		a := s.rng.Float64()*1000 + 1
-		b := s.rng.Float64()*1000 + 1
+		a := rand.Float64()*1000 + 1
+		b := rand.Float64()*1000 + 1
 		acc += a / b
-		a = s.rng.Float64()*1000 + 1
-		b = s.rng.Float64()*1000 + 1
+		a = rand.Float64()*1000 + 1
+		b = rand.Float64()*1000 + 1
 		acc -= a / b
 	}
 	return acc
 }
 
-func latencyCPUWork(rng *rand.Rand, n int64) float64 {
+func latencyCPUWork(n int64) float64 {
 	acc := 1.0
 	for i := int64(0); i < n; i++ {
-		a := rng.Float64()*1000 + 1
-		b := rng.Float64()*1000 + 1
+		a := rand.Float64()*1000 + 1
+		b := rand.Float64()*1000 + 1
 		acc += a / b
-		a = rng.Float64()*1000 + 1
-		b = rng.Float64()*1000 + 1
+		a = rand.Float64()*1000 + 1
+		b = rand.Float64()*1000 + 1
 		acc -= a / b
 	}
 	return acc
