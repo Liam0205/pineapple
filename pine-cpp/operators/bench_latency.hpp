@@ -15,6 +15,7 @@ struct LatencyProfile {
   double p99_mean = 0;
   double p99_max = 0;
   bool is_io = false;
+  int64_t iterations = 0; // calibrated mode: base iteration count for p50_mean
 };
 
 class LatencySampler {
@@ -29,7 +30,15 @@ class LatencySampler {
       std::this_thread::sleep_for(d);
       return 0.0;
     }
-    // CPU-intensive: sustained FP division until timeout
+    if (profile_.iterations > 0) {
+      // Calibrated mode: scale iterations proportionally to sampled duration
+      double target_us = profile_.p50_mean * 1000.0;
+      double ratio = static_cast<double>(d.count()) / target_us;
+      int64_t n = static_cast<int64_t>(profile_.iterations * ratio);
+      if (n < 1) n = 1;
+      return cpu_work(n);
+    }
+    // Time-based mode: compute until timeout
     auto deadline = std::chrono::steady_clock::now() + d;
     double acc = 1.0;
     while (std::chrono::steady_clock::now() < deadline) {
@@ -44,6 +53,19 @@ class LatencySampler {
   }
 
  private:
+  double cpu_work(int64_t n) {
+    double acc = 1.0;
+    for (int64_t i = 0; i < n; ++i) {
+      double a = uniform_(rng_) * 1000.0 + 1.0;
+      double b = uniform_(rng_) * 1000.0 + 1.0;
+      acc += a / b;
+      a = uniform_(rng_) * 1000.0 + 1.0;
+      b = uniform_(rng_) * 1000.0 + 1.0;
+      acc -= a / b;
+    }
+    return acc;
+  }
+
   std::chrono::microseconds sample() {
     if (profile_.p50_mean <= 0 && profile_.p99_mean <= 0) {
       return std::chrono::microseconds(0);
@@ -105,6 +127,11 @@ inline std::unique_ptr<LatencySampler> parse_bench_profile(const JsonValue& para
   auto type_it = m.find("type");
   if (type_it != m.end() && type_it->second.is_string()) {
     profile.is_io = (type_it->second.as_string() == "io");
+  }
+
+  auto iter_it = m.find("iterations");
+  if (iter_it != m.end() && iter_it->second.is_number()) {
+    profile.iterations = static_cast<int64_t>(iter_it->second.as_number());
   }
 
   if (profile.p50_mean <= 0 && profile.p99_mean <= 0) return nullptr;
