@@ -54,7 +54,6 @@ func init() {
 			"bench_profile": {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &transformQueryBlockedCreatorsStub{} })
-// PLACEHOLDER_MORE_OPS
 
 	pine.Register(pine.OperatorSchema{
 		Name: "filter_impression", Type: pine.OpTypeFilter,
