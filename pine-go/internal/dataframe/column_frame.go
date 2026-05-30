@@ -115,41 +115,44 @@ func (f *ColumnFrame) BuildInput(
 		cs[field] = v
 	}
 
-	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem) + len(spec.NullableItem)
-	its := make([]map[string]any, f.rowCount)
+	// Validate strict item fields upfront (fail fast)
 	for i := 0; i < f.rowCount; i++ {
-		row := make(map[string]any, totalItem)
-
-		// Strict item fields: must be present and non-nil
 		for _, field := range spec.StrictItem {
 			col, colExists := f.columns[field]
 			if !colExists || !f.present[field][i] || col[i] == nil {
 				return nil, fmt.Errorf("required field %q is nil on item[%d]", field, i)
 			}
-			row[field] = col[i]
 		}
-		// Defaulted item fields: substitute default on nil/missing
-		for _, df := range spec.DefaultedItem {
-			col, colExists := f.columns[df.Name]
-			if colExists && f.present[df.Name][i] && col[i] != nil {
-				row[df.Name] = col[i]
-			} else {
-				row[df.Name] = df.Default
-			}
-		}
-		// Nullable item fields: missing → error, nil → pass through
 		for _, field := range spec.NullableItem {
-			col, colExists := f.columns[field]
+			_, colExists := f.columns[field]
 			if !colExists || !f.present[field][i] {
 				return nil, fmt.Errorf("required field %q is missing on item[%d]", field, i)
 			}
-			row[field] = col[i]
 		}
-
-		its[i] = row
 	}
 
-	return types.NewOperatorInput(cs, its), nil
+	// Build item defaults map and field list for lazy access
+	var itemDefaults map[string]any
+	if len(spec.DefaultedItem) > 0 {
+		itemDefaults = make(map[string]any, len(spec.DefaultedItem))
+		for _, df := range spec.DefaultedItem {
+			itemDefaults[df.Name] = df.Default
+		}
+	}
+
+	totalItem := len(spec.StrictItem) + len(spec.DefaultedItem) + len(spec.NullableItem)
+	itemFields := make([]string, 0, totalItem)
+	for _, field := range spec.StrictItem {
+		itemFields = append(itemFields, field)
+	}
+	for _, df := range spec.DefaultedItem {
+		itemFields = append(itemFields, df.Name)
+	}
+	for _, field := range spec.NullableItem {
+		itemFields = append(itemFields, field)
+	}
+
+	return types.NewLazyOperatorInput(cs, f, itemDefaults, itemFields, 0, f.rowCount), nil
 }
 
 func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall bool) error {
