@@ -171,9 +171,13 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 				return fmt.Errorf("RemoveItem index %d out of range [0, %d)", idx, len(f.items))
 			}
 		}
+		bitmap := make([]bool, len(f.items))
+		for idx := range removed {
+			bitmap[idx] = true
+		}
 		surviving := make([]map[string]any, 0, len(f.items)-len(removed))
 		for i, item := range f.items {
-			if _, rm := removed[i]; !rm {
+			if !bitmap[i] {
 				surviving = append(surviving, item)
 			}
 		}
