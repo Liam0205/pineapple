@@ -29,6 +29,17 @@ fi
 
 log "post-push: watching CI for PR #${pr_number} (branch '$branch')..."
 
+# After a fresh push, GitHub needs a few seconds to register check runs for the
+# new head commit. Poll until at least one check appears (or give up), so we
+# don't mistake "not created yet" for "no CI".
+for _ in $(seq 1 24); do
+  cnt="$(gh pr checks "$pr_number" --json state --jq 'length' 2>/dev/null)"
+  if [ -n "$cnt" ] && [ "$cnt" -gt 0 ]; then
+    break
+  fi
+  sleep 5
+done
+
 # Block until all checks finish. --fail-fast returns as soon as one fails.
 # We intentionally ignore the watch exit code here and re-derive the final
 # verdict from a fresh --json query, so the reporting logic is single-sourced.

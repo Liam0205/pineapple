@@ -99,6 +99,15 @@ if [ "$push_rc" -ne 0 ]; then
   exit "$push_rc"
 fi
 
+# The inner push already updated the remote. The OUTER push that invoked this
+# hook will now fail to lock the ref ("remote rejected / cannot lock ref") —
+# this is EXPECTED and HARMLESS: git's atomic ref protection rejects the outer
+# update because the inner push already advanced the ref. The push DID succeed.
+# Because the outer push always fails this way, its exit code does NOT reflect
+# CI status — read the ✓/✗ report below for the real verdict.
+echo "post-push: ✔ push succeeded (remote updated by inner push)." >&2
+echo "post-push:   the outer 'remote rejected / cannot lock ref' line is expected — ignore it." >&2
+
 # The inner push has already updated the remote. Block on CI, then report.
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 if [ -x "${repo_root}/scripts/check-pr-ci.sh" ]; then
