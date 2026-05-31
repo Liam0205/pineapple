@@ -6,8 +6,12 @@ package bench
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"hash/fnv"
+	"math"
 	"runtime"
+	"sort"
 	"strconv"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
@@ -301,19 +305,81 @@ type reorderTopnBoostStub struct {
 	pine.MetadataHolder
 	pine.ConsumesRowSetMarker
 	pine.MutatesRowSetMarker
+	size    int
 	latency *LatencySampler
 }
 
 func (o *reorderTopnBoostStub) Init(params map[string]any) error {
+	o.size = 10
+	if v, ok := params["size"]; ok {
+		switch n := v.(type) {
+		case int:
+			o.size = n
+		case int64:
+			o.size = int(n)
+		case float64:
+			o.size = int(n)
+		}
+	}
 	o.latency = ParseBenchProfile(params)
 	return nil
 }
+
+// Execute performs a deterministic top-N boost: items are ranked by an FNV-1a
+// hash of "shuffle_salt | id" (mirroring reorder_shuffle_by_salt), then the
+// top `size` items by hash are boosted to the front. The remaining items keep
+// their original relative order. This exercises the row-set reorder path
+// (SetItemOrder) under load, which a field-only stub would not.
 func (o *reorderTopnBoostStub) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
-	_ = in.Common("page")
-	_ = in.Common("shuffle_salt")
-	for i := 0; i < in.ItemCount(); i++ {
-		_ = in.Item(i, "id")
-		_ = in.Item(i, "created_at")
+	n := in.ItemCount()
+	if n > 0 {
+		saltPrefix := benchAnyToString(in.Common("shuffle_salt")) + "|"
+
+		type ranked struct {
+			idx int
+			r   float64
+			id  uint64
+		}
+		items := make([]ranked, n)
+		for i := 0; i < n; i++ {
+			itemVal := benchAnyToString(in.Item(i, "id"))
+			items[i] = ranked{idx: i, r: benchHashToUnitInterval(saltPrefix + itemVal), id: benchParseUint64(itemVal)}
+		}
+
+		boost := o.size
+		if boost > n {
+			boost = n
+		}
+		if boost < 0 {
+			boost = 0
+		}
+
+		// Partial selection: top `boost` items by hash (ascending), tie-broken
+		// by parsed id then original index for determinism.
+		less := func(a, b int) bool {
+			if items[a].r != items[b].r {
+				return items[a].r < items[b].r
+			}
+			if items[a].id != items[b].id {
+				return items[a].id < items[b].id
+			}
+			return items[a].idx < items[b].idx
+		}
+		sort.Slice(items, less)
+
+		boosted := make([]bool, n)
+		order := make([]int, 0, n)
+		for i := 0; i < boost; i++ {
+			order = append(order, items[i].idx)
+			boosted[items[i].idx] = true
+		}
+		// Remaining items keep their original relative order.
+		for i := 0; i < n; i++ {
+			if !boosted[i] {
+				order = append(order, i)
+			}
+		}
+		out.SetItemOrder(order)
 	}
 	if o.latency != nil {
 		sink := o.latency.Apply()
@@ -371,4 +437,45 @@ func (o *transformGenerateRequestIdStub) Execute(_ context.Context, _ *pine.Oper
 		runtime.KeepAlive(sink)
 	}
 	return nil
+}
+
+// ─── Deterministic hash helpers (mirror reorder_shuffle_by_salt) ─────────────
+
+func benchHashToUnitInterval(s string) float64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(s))
+	return float64(h.Sum64()) / (float64(math.MaxUint64) + 1.0)
+}
+
+func benchAnyToString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case int64:
+		return fmt.Sprintf("%g", float64(x))
+	case uint64:
+		return fmt.Sprintf("%g", float64(x))
+	case float64:
+		return fmt.Sprintf("%g", x)
+	case int:
+		return fmt.Sprintf("%g", float64(x))
+	case nil:
+		return ""
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return string(b)
+	}
+}
+
+func benchParseUint64(s string) uint64 {
+	n, _ := strconv.ParseUint(s, 10, 64)
+	return n
 }
