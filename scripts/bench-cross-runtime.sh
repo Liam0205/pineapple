@@ -107,7 +107,7 @@ JAVA_CP=""
 
 if ! should_skip go; then
   info "  Building Go..."
-  (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/server-go" ./cmd/pineapple-server/)
+  (cd "$REPO_ROOT/pine-go" && go build -tags pine_bench -o "$WORK_DIR/server-go" ./cmd/pineapple-server/)
   ok "Go built"
 fi
 
@@ -122,7 +122,7 @@ if ! should_skip cpp; then
   info "  Building C++..."
   CPP_BUILD="$REPO_ROOT/pine-cpp/build"
   mkdir -p "$CPP_BUILD"
-  (cd "$CPP_BUILD" && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DPINE_USE_JEMALLOC=ON >/dev/null 2>&1 \
+  (cd "$CPP_BUILD" && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DPINE_USE_JEMALLOC=ON -DPINE_BUILD_BENCH_STUBS=ON >/dev/null 2>&1 \
     && cmake --build . -j2 --target pineapple-server 2>&1 | tail -1)
   cp "$CPP_BUILD/pineapple-server" "$WORK_DIR/server-cpp"
   ok "C++ built"
@@ -141,7 +141,7 @@ start_server() {
   # Set BENCH_VERBOSE=1 to capture server logs for debugging startup failures
   [[ "${BENCH_VERBOSE:-}" == "1" ]] && sink="$WORK_DIR/${runtime}.log"
   case "$runtime" in
-    java) java -cp "$JAVA_CP" -Dpine.config="$config" -Dpine.port="$port" \
+    java) java -cp "$JAVA_CP" -Dpine.bench=true -Dpine.config="$config" -Dpine.port="$port" \
       page.liam.pine.PineServer >"$sink" 2>&1 & ;;
     go) "$WORK_DIR/server-go" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
     cpp) env ${CPP_LD_PRELOAD:+LD_PRELOAD="$CPP_LD_PRELOAD"} \
