@@ -54,6 +54,7 @@ class StatePool {
   std::atomic<int64_t> borrow_count_{0};
   std::atomic<int64_t> return_count_{0};
   std::atomic<int64_t> create_count_{0};
+  std::atomic<int64_t> reuse_count_{0};
   std::atomic<int64_t> active_count_{0};
 
   // External metrics
