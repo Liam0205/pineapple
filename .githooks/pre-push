@@ -6,6 +6,14 @@ if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
   exit 0
 fi
 
+# Inner (self-wrapped) push: lint already ran in the outer invocation and the
+# real push is happening now — let it through before doing any work again.
+# The marker is an env var scoped to this process subtree, so it cannot leak
+# into a later unrelated `git push` (no stale-flag risk).
+if [ -n "${GIT_POSTPUSH:-}" ]; then
+  exit 0
+fi
+
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
 if [ -f ".venv/bin/activate" ]; then
@@ -62,4 +70,46 @@ if [ -n "$errors" ]; then
 fi
 
 echo "pre-push: all lint checks passed."
+
+# ── post-push CI watch (self-wrapping) ──────────────────────────────────────
+# git has no native post-push hook. We emulate one: on the OUTER push the
+# GIT_POSTPUSH marker is absent, so we perform the real push ourselves (INNER),
+# which re-enters this hook WITH the marker and is let through immediately at
+# the top. Control then returns here and we block on the remote CI.
+#
+# Read the refspec stdin git handed us; skip the CI watch for deletions/no-ops.
+have_ref=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "${local_ref:-}" ] && continue
+  have_ref=1
+done
+
+if [ "$have_ref" -eq 0 ]; then
+  exit 0
+fi
+
+remote_name="${1:-origin}"
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+
+echo "post-push: performing real push to '${remote_name}'..." >&2
+GIT_POSTPUSH=1 git push "${remote_name}" "${branch}"
+push_rc=$?
+if [ "$push_rc" -ne 0 ]; then
+  echo "post-push: inner push failed (rc=${push_rc}) — not watching CI." >&2
+  exit "$push_rc"
+fi
+
+# The inner push has already updated the remote. Block on CI, then report.
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+if [ -x "${repo_root}/scripts/check-pr-ci.sh" ]; then
+  "${repo_root}/scripts/check-pr-ci.sh"
+  ci_rc=$?
+  # rc 2 = no PR / gh missing → non-fatal. rc 1 = CI failed → surface as failure.
+  if [ "$ci_rc" -eq 1 ]; then
+    exit 1
+  fi
+fi
+
+# Reaching here means the real push already succeeded (inner). Returning 0 makes
+# the OUTER push a no-op ("Everything up-to-date") — it does NOT push again.
 exit 0
