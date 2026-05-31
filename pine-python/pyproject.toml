@@ -1,6 +1,6 @@
 [project]
 name = "pineapple-pine"
-version = "0.9.6"
+version = "0.9.7"
 description = "Pineapple pipeline engine — Python runtime"
 requires-python = ">=3.11"
 license = "Apache-2.0"
