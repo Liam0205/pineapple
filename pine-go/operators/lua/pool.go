@@ -19,7 +19,6 @@ type statePool struct {
 	baseline map[string]struct{} // _G key names present after script load
 
 	mu        sync.Mutex
-	allStates []*glua.LState
 	closed    bool
 	snapshots sync.Map // *glua.LState → map[string]glua.LValue (borrow-time values)
 
@@ -94,7 +93,6 @@ func (sp *statePool) newState() (*glua.LState, error) {
 		L.Close()
 		return nil, errPoolClosed
 	}
-	sp.allStates = append(sp.allStates, L)
 	sp.mu.Unlock()
 	return L, nil
 }
@@ -206,18 +204,15 @@ func (sp *statePool) statsSnapshot() map[string]int64 {
 	}
 }
 
-// Close releases all Lua states created by this pool.
+// Close marks the pool as closed. States already idle in the pool, and any
+// states still checked out, are reclaimed by the GC once unreferenced — we do
+// not retain a strong reference to every state (that would pin them forever and
+// defeat sync.Pool's GC-driven shrinking). After Close, newState refuses to
+// hand out fresh states and Return drops states instead of recycling them.
 func (sp *statePool) Close() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-	if sp.closed {
-		return
-	}
 	sp.closed = true
-	for _, L := range sp.allStates {
-		L.Close()
-	}
-	sp.allStates = nil
 }
 
 func (sp *statePool) setMetrics(borrow, ret, create metrics.Counter, active metrics.Gauge) {

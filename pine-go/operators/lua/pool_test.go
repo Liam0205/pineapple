@@ -2,8 +2,10 @@ package lua
 
 import (
 	"fmt"
+	"runtime"
 	"sync/atomic"
 	"testing"
+	"weak"
 
 	glua "github.com/yuin/gopher-lua"
 )
@@ -164,37 +166,35 @@ func TestPoolReturnRestoresModifiedBaseline(t *testing.T) {
 	}
 }
 
-func TestPoolCloseReleasesStates(t *testing.T) {
+// TestPoolDoesNotRetainStates is the regression test for the unbounded leak
+// (issue #61). The pool must NOT hold a strong reference to every state it ever
+// created: once a returned state is evicted from sync.Pool by GC and the caller
+// drops its reference, it must become collectable. We can't use a finalizer
+// here — gopher-lua's LState contains internal reference cycles
+// (LState.G.MainThread == LState), and Go does not guarantee finalizers run for
+// objects in a cycle. A weak pointer has no such restriction, so we observe
+// collection through it instead. sync.Pool drains over two GC cycles
+// (local → victim → cleared), so we run several before giving up.
+func TestPoolDoesNotRetainStates(t *testing.T) {
 	sp, err := newStatePool(`function f() return 1 end`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for i := 0; i < 3; i++ {
+	var wp weak.Pointer[glua.LState]
+	func() {
 		L := sp.Borrow()
+		wp = weak.Make(L)
 		sp.Return(L)
-	}
+	}()
 
-	created := atomic.LoadInt64(&sp.createCount)
-	if created == 0 {
-		t.Fatal("expected at least one state created")
+	for i := 0; i < 8; i++ {
+		runtime.GC()
+		if wp.Value() == nil {
+			return // state was collected — pool retains no strong reference
+		}
 	}
-
-	sp.mu.Lock()
-	tracked := len(sp.allStates)
-	sp.mu.Unlock()
-	if int64(tracked) != created {
-		t.Errorf("tracked %d states, but %d created", tracked, created)
-	}
-
-	sp.Close()
-
-	sp.mu.Lock()
-	remaining := sp.allStates
-	sp.mu.Unlock()
-	if remaining != nil {
-		t.Errorf("expected nil allStates after Close, got %d entries", len(remaining))
-	}
+	t.Fatal("returned state was never collected — pool is still pinning states (issue #61 leak)")
 }
 
 func TestPoolCloseIdempotent(t *testing.T) {
