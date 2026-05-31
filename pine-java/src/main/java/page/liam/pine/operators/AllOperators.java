@@ -303,6 +303,8 @@ public class AllOperators {
                         )),
                 TransformBenchSleep::new);
 
-        page.liam.pine.operators.bench.BenchStubs.ensureRegistered();
+        if (Boolean.getBoolean("pine.bench")) {
+            page.liam.pine.operators.bench.BenchStubs.ensureRegistered();
+        }
     }
 }
