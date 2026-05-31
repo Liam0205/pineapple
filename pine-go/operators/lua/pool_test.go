@@ -247,3 +247,68 @@ func TestReturnAfterCloseNoPanic(t *testing.T) {
 		t.Errorf("expected activeCount=0, got %d", atomic.LoadInt64(&sp.activeCount))
 	}
 }
+
+// TestPoolReuseCountAccounting locks in the hit/miss split surfaced via
+// reuse_count. Every borrow is either a pool hit (reuse_count++) or a pool miss
+// that builds a fresh state (create_count++). create_count also counts the
+// single pre-warm creation done at construction, so on-borrow misses equal
+// create_count - 1 and the invariant borrow_count == reuse_count + misses must
+// always hold regardless of GC or sync.Pool scheduling.
+func TestPoolReuseCountAccounting(t *testing.T) {
+	sp, err := newStatePool(`function f() return 1 end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c := atomic.LoadInt64(&sp.createCount); c != 1 {
+		t.Fatalf("create_count after construction = %d, want 1 (pre-warm)", c)
+	}
+	if r := atomic.LoadInt64(&sp.reuseCount); r != 0 {
+		t.Fatalf("reuse_count after construction = %d, want 0", r)
+	}
+
+	checkInvariant := func() {
+		t.Helper()
+		b := atomic.LoadInt64(&sp.borrowCount)
+		r := atomic.LoadInt64(&sp.reuseCount)
+		c := atomic.LoadInt64(&sp.createCount)
+		if b != r+(c-1) {
+			t.Fatalf("borrow_count(%d) != reuse_count(%d) + misses(%d)", b, r, c-1)
+		}
+	}
+
+	// Sequential reuse: return before borrowing again so the next borrow is a
+	// hit. reuse_count must climb and no fresh states should be created.
+	for i := 0; i < 5; i++ {
+		L := sp.Borrow()
+		if L == nil {
+			t.Fatal("unexpected nil borrow")
+		}
+		sp.Return(L)
+		checkInvariant()
+	}
+	if r := atomic.LoadInt64(&sp.reuseCount); r == 0 {
+		t.Fatal("reuse_count stayed 0 — pool hits are not being counted")
+	}
+
+	// Force a miss: hold two states at once. The pool holds at most one idle
+	// state, so the second borrow must build a fresh one.
+	beforeCreate := atomic.LoadInt64(&sp.createCount)
+	a := sp.Borrow()
+	b := sp.Borrow()
+	if a == nil || b == nil {
+		t.Fatal("unexpected nil borrow")
+	}
+	if c := atomic.LoadInt64(&sp.createCount); c <= beforeCreate {
+		t.Fatalf("holding two states did not create a new one: create_count=%d", c)
+	}
+	checkInvariant()
+	sp.Return(a)
+	sp.Return(b)
+	checkInvariant()
+
+	if _, ok := sp.statsSnapshot()["reuse_count"]; !ok {
+		t.Fatal("statsSnapshot missing reuse_count key")
+	}
+}
+
