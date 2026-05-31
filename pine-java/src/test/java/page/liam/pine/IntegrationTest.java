@@ -198,6 +198,52 @@ public class IntegrationTest {
     }
 
     @Test
+    void testEngineCloseTearsDownLuaPool() throws Exception {
+        List<Map<String, Object>> staticItems = new ArrayList<>();
+        Map<String, Object> item1 = new LinkedHashMap<>();
+        item1.put("item_id", "x");
+        item1.put("score", 3.0);
+        staticItems.add(item1);
+
+        String luaScript = "function double_score() return score * 2 end";
+
+        Map<String, Object> luaParams = new LinkedHashMap<>();
+        luaParams.put("lua_script", luaScript);
+        luaParams.put("function_for_item", "double_score");
+
+        Map<String, Object> operators = new LinkedHashMap<>();
+        operators.put("recall", operator("recall_static",
+                Collections.singletonMap("items", staticItems),
+                metadata(Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList(), Arrays.asList("item_id", "score"))));
+        operators.put("lua", operator("transform_by_lua",
+                luaParams,
+                metadata(Collections.emptyList(), Collections.emptyList(),
+                        Collections.singletonList("score"), Collections.singletonList("doubled"))));
+
+        Map<String, Object> flowContract = new LinkedHashMap<>();
+        flowContract.put("common_input", Collections.emptyList());
+        flowContract.put("common_output", Collections.emptyList());
+        flowContract.put("item_output", Arrays.asList("item_id", "score", "doubled"));
+
+        byte[] config = buildConfig(operators, Arrays.asList("recall", "lua"), flowContract);
+        Engine engine = Engine.create(config);
+
+        // Pool works before close.
+        Engine.Result before = engine.execute(new HashMap<>(), new ArrayList<>());
+        assertNull(before.error);
+
+        // Retiring the engine must close the operator's Lua state pool.
+        engine.close();
+
+        // After close, the pool refuses to hand out states and the operator errors.
+        Engine.Result after = engine.execute(new HashMap<>(), new ArrayList<>());
+        assertNotNull(after.error, "executing a closed engine's Lua pool must error");
+        assertTrue(after.error.getMessage().contains("pool is closed"),
+                "error should report the pool is closed, got: " + after.error.getMessage());
+    }
+
+    @Test
     void testFilterAndSort() throws Exception {
         List<Map<String, Object>> staticItems = new ArrayList<>();
         Map<String, Object> item1 = new LinkedHashMap<>();
