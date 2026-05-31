@@ -131,7 +131,7 @@ The new model uses three marker interfaces for precise row-set dependency declar
 
 ### Prerequisites
 
-- Go 1.22+ (Pine-Go)
+- Go 1.26+ (Pine-Go)
 - Java 21+ (Pine-Java)
 - Python 3.11+ (Apple DSL + Pine-Python)
 
