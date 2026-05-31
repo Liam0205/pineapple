@@ -1,7 +1,9 @@
 """Tests for _LuaPool lifecycle, specifically close-during-borrow safety."""
 from __future__ import annotations
 
+import json
 import threading
+from typing import Any
 
 import pytest
 
@@ -86,6 +88,71 @@ def test_normal_borrow_return_cycle():
     assert pool.return_count == 1
     assert pool.active_count == 0
     pool.close()
+
+
+_LUA_ENGINE_CONFIG: dict[str, Any] = {
+    "_PINEAPPLE_VERSION": "0.6.6",
+    "pipeline_config": {
+        "operators": {
+            "recall_items": {
+                "type_name": "recall_static",
+                "recall": True,
+                "items": [{"item_id": "a", "item_score": 1.0}],
+                "$metadata": {
+                    "common_input": [],
+                    "common_output": [],
+                    "item_input": [],
+                    "item_output": ["item_id", "item_score"],
+                },
+            },
+            "lua_transform": {
+                "type_name": "transform_by_lua",
+                "lua_script": "function compute()\n  return item_score * 2 + 1\nend",
+                "function_for_item": "compute",
+                "function_for_common": "",
+                "$metadata": {
+                    "common_input": [],
+                    "common_output": [],
+                    "item_input": ["item_score"],
+                    "item_output": ["item_result"],
+                },
+            },
+        },
+        "pipeline_map": {},
+    },
+    "pipeline_group": {
+        "main": {"pipeline": ["recall_items", "lua_transform"]},
+    },
+}
+
+
+def _make_lua_engine():
+    from pine.engine import Engine
+    from pine.operators import ensure_registered
+    ensure_registered()
+    return Engine.create(json.dumps(_LUA_ENGINE_CONFIG).encode())
+
+
+def test_engine_close_tears_down_lua_pool():
+    """engine.close() must propagate to the Lua operator's pool, so a
+    subsequent execute surfaces the pool-closed error."""
+    engine = _make_lua_engine()
+
+    before = engine.execute({}, [])
+    assert before.error is None
+
+    engine.close()
+
+    after = engine.execute({}, [])
+    assert after.error is not None
+    assert "pool is closed" in str(after.error)
+
+
+def test_engine_close_is_idempotent():
+    """Calling engine.close() twice must not raise."""
+    engine = _make_lua_engine()
+    engine.close()
+    engine.close()
 
 
 def test_reuse_count_distinguishes_hits_from_misses():

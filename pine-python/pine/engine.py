@@ -30,6 +30,7 @@ from pine.frame import Frame
 from pine.metrics import Nop as _metrics_nop
 from pine.operator import (
     AdditiveWritesRowSet,
+    Closer,
     ConcurrentSafe,
     ConsumesRowSet,
     DebugAware,
@@ -657,6 +658,21 @@ class Engine:
                 if custom:
                     result[cop.name] = custom
         return result if result else None
+
+    def close(self) -> None:
+        """Tear down every operator implementing Closer.
+
+        Called when the engine is retired — during a config hot-reload (on the
+        swapped-out engine) or on shutdown — so operator-held resources (e.g.
+        Lua state pools) are released instead of leaking. Failures from
+        individual operators are caught and logged so one does not skip the rest.
+        """
+        for cop in self._operators:
+            if isinstance(cop.instance, Closer):
+                try:
+                    cop.instance.close()
+                except Exception as e:  # noqa: BLE001
+                    print(f'[pine] operator "{cop.name}" close: {e}', file=sys.stderr)
 
     def render_dag(self, fmt: str, collapse: int = 0) -> str:
         """Render the DAG in the given format.

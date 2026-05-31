@@ -9,6 +9,7 @@ from pine.cancellation import CancellationToken
 from pine.errors import OperatorException
 from pine.operator import (
     AbstractOperator,
+    Closer,
     ConcurrentSafe,
     DebugAware,
     MetricsAware,
@@ -27,7 +28,7 @@ except ImportError:
 
 class TransformByLua(
     AbstractOperator, ConcurrentSafe,
-    StatsProvider, DebugAware, MetricsAware,
+    StatsProvider, DebugAware, MetricsAware, Closer,
 ):
     def __init__(self):
         self._script = ""
@@ -123,6 +124,10 @@ class TransformByLua(
             "reuse_count": self._pool.reuse_count,
             "active_count": self._pool.active_count,
         }
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.close()
 
     def _execute_for_item(
         self, token: CancellationToken, runtime: LuaRuntime,

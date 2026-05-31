@@ -100,9 +100,14 @@ class _ServerState:
 
     def swap_engine(self, new_engine: Engine, duration_ns: int):
         with self._lock:
+            old_engine = self._engine
             self._engine = new_engine
             self.reload_count += 1
             self.last_reload_duration_ns = duration_ns
+        # Retire the swapped-out engine outside the lock: close() tears down its
+        # operators (e.g. Lua state pools) for parity with pine-go/-java/-cpp.
+        if old_engine is not None:
+            old_engine.close()
 
     def record_reload_error(self):
         with self._lock:
@@ -405,6 +410,7 @@ class PineServer:
         self._middlewares: list[Middleware] = []
         self._started = False
         self._server: HTTPServer | None = None
+        self._state: _ServerState | None = None
         self._stop_event = threading.Event()
 
     def add_middleware(self, mw: Middleware):
@@ -423,6 +429,7 @@ class PineServer:
             raise RuntimeError(f"error creating engine: {e}") from e
 
         state = _ServerState(engine)
+        self._state = state
         http_stats = HttpStats()
         chain = list(self._middlewares) + [
             _http_metrics_middleware(self._metrics_provider, http_stats),
@@ -454,6 +461,12 @@ class PineServer:
         self._stop_event.set()
         if self._server:
             self._server.shutdown()
+        # Tear down the live engine's operators on shutdown, for parity with
+        # pine-go/-java/-cpp. close() is idempotent, so a repeated stop() is safe.
+        if self._state is not None:
+            engine = self._state.engine
+            if engine is not None:
+                engine.close()
 
 
 def main():
