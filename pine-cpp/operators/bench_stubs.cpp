@@ -2,10 +2,12 @@
 #include "pine/resource.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <random>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "operators/_helpers.hpp"
 #include "operators/bench_latency.hpp"
@@ -40,6 +42,23 @@ const bool _bench_fetcher_datahub = resource::register_fetcher_factory(
     "datahub_producer", [](const Variant& /*params*/) -> resource::Fetcher {
       return []() -> Variant { return Variant(nullptr); };
     });
+
+// Deterministic hash helpers (mirror reorder_shuffle_by_salt) for the
+// reorder_topn_boost stub, so the bench reorder path matches across runtimes.
+uint64_t bench_fnv64a(const std::string& s) {
+  uint64_t hash = 14695981039346656037ULL;
+  for (unsigned char c : s) {
+    hash ^= c;
+    hash *= 1099511628211ULL;
+  }
+  return hash;
+}
+
+uint64_t bench_parse_uint64(const std::string& s) {
+  uint64_t result = 0;
+  std::from_chars(s.data(), s.data() + s.size(), result);
+  return result;
+}
 
 }  // namespace
 
@@ -306,9 +325,11 @@ static const OperatorSchema k_filter_blocked_creator_schema{
 PINE_REGISTER_OPERATOR_T(FilterBlockedCreatorStubOp, k_filter_blocked_creator_schema)
 
 // ─── reorder_topn_boost ──────────────────────────────────────────────────────
-// Stub: reads page/shuffle_salt/id/created_at, boosts top N newest items.
-// Simplified: just reads fields without reordering (framework overhead is what
-// we measure, not the boost logic).
+// Stub: deterministic top-N boost. Items are ranked by an FNV-1a hash of
+// "shuffle_salt | id" (mirroring reorder_shuffle_by_salt); the top `size` items
+// by hash are boosted to the front and the rest keep their original order. This
+// exercises the row-set reorder path (set_item_order), which a field-only stub
+// would not.
 
 class ReorderTopnBoostStubOp : public Operator, public ConsumesRowSet, public MutatesRowSet {
  public:
@@ -321,12 +342,52 @@ class ReorderTopnBoostStubOp : public Operator, public ConsumesRowSet, public Mu
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
-    (void)input.common("page");
-    (void)input.common("shuffle_salt");
-    for (std::size_t i = 0; i < input.item_count(); ++i) {
-      (void)input.item(i, "id");
-      (void)input.item(i, "created_at");
+  void execute(const OperatorInput& input, OperatorOutput& out) override {
+    const std::size_t n = input.item_count();
+    if (n > 0) {
+      const std::string salt_prefix = operators::any_to_string(input.common("shuffle_salt")) + "|";
+
+      struct Ranked {
+        std::size_t idx;
+        double r;
+        uint64_t id;
+      };
+      std::vector<Ranked> ranked;
+      ranked.reserve(n);
+      for (std::size_t i = 0; i < n; ++i) {
+        std::string item_val = operators::any_to_string(input.item(i, "id"));
+        uint64_t h = bench_fnv64a(salt_prefix + item_val);
+        double r = static_cast<double>(h) / (static_cast<double>(UINT64_MAX) + 1.0);
+        ranked.push_back({i, r, bench_parse_uint64(item_val)});
+      }
+
+      std::sort(ranked.begin(), ranked.end(), [](const Ranked& a, const Ranked& b) {
+        if (a.r != b.r) {
+          return a.r < b.r;
+        }
+        if (a.id != b.id) {
+          return a.id < b.id;
+        }
+        return a.idx < b.idx;
+      });
+
+      std::size_t boost = size_ < 0 ? 0 : static_cast<std::size_t>(size_);
+      if (boost > n) {
+        boost = n;
+      }
+      std::vector<bool> boosted(n, false);
+      std::vector<int> order;
+      order.reserve(n);
+      for (std::size_t i = 0; i < boost; ++i) {
+        order.push_back(static_cast<int>(ranked[i].idx));
+        boosted[ranked[i].idx] = true;
+      }
+      for (std::size_t i = 0; i < n; ++i) {
+        if (!boosted[i]) {
+          order.push_back(static_cast<int>(i));
+        }
+      }
+      out.set_item_order(std::move(order));
     }
     if (latency_) {
       volatile double sink = latency_->apply();
