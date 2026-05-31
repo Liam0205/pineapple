@@ -249,10 +249,13 @@ Lua runtime 现在同时实现两种扩展接口：
 
 `pine-go/operators/lua/pool.go` （与 `pine-cpp/src/lua/lua_pool.cpp`）通过原子计数维护：
 
-- `borrow_count`
-- `return_count`
-- `create_count`
-- `active_count`
+- `borrow_count` — 累计借用次数
+- `return_count` — 累计归还次数
+- `create_count` — 实际新建 state 的次数（pool miss）
+- `reuse_count` — 命中池内闲置 state 的次数（pool hit，0.9.7 起新增四运行时一致）
+- `active_count` — 当前借出未归还的 state 数
+
+`reuse_count + create_count == borrow_count` 恒成立（borrow 要么命中已有 state 计入 reuse，要么走 newState 计入 create）。运维可由此直接计算命中率 `reuse_count / borrow_count`，无需额外采样。
 
 `pine-go/operators/lua/lua.go` 的 `OperatorStats()`（C++ 为 `TransformByLuaOp::operator_stats()`）将这些计数暴露到 `/stats.operator_detail[operatorName]`。
 

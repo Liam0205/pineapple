@@ -128,6 +128,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的第四运行时
 - **可插拔观测与扩展**
   - `pine::metrics::Provider` / `Counter` / `Gauge` / `Histogram` / `NopProvider`（对齐 pine-go `pkg/metrics`）
   - `MetricsAware` 接口（`Engine` 预创建后自动注入）与 `StatsProvider` 接口（向 `/stats` 暴露算子内部计数）
+  - `Closer` 接口（`include/pine/operator.hpp`，0.9.7）：算子可选实现 `void close()`，由 `Engine::close()` 在引擎退役时遍历触发；`Server::stop()` 与 hot-reload 的旧 engine swap 都在锁外调用，对齐 pine-go/pine-java/pine-python 的 teardown 契约。`LuaPool::close()` 翻转 `closed_` 原子标志，已发出的 `LuaVM` 由 RAII 销毁链回收
   - `EngineOptions::metrics_provider` 注入；未设置时回退到 `metrics::nop_provider()`
   - `ServerConfig::middlewares`：outer-to-inner 调用链 + `MiddlewareContext`（method / path / normalized_path / request_bytes / status）
   - `pine::server::http_metrics_middleware(provider)` 工厂返回内置 HTTP 指标 middleware，指标名与桶与 pine-go `pkg/server/http_metrics.go` 一致。`Server::run()` 现在**无条件** `push_back(http_metrics_middleware(provider, http_stats_.get()))`，不再需要用户显式注入。当 `ServerConfig::metrics_provider` 为 nullptr 时自动 tie-off 至 `metrics::nop_provider()`。`HttpStats` 累加器（`src/server/http_stats.{hpp,cpp}`）是 middleware 第二写入路径，数据由 `handle_stats()` 序列化为 `"http"` 子树
