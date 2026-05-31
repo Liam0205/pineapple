@@ -2,6 +2,7 @@ package pine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -281,6 +282,23 @@ func (e *Engine) OperatorCustomStats() map[string]map[string]int64 {
 		return nil
 	}
 	return result
+}
+
+// Close tears down every operator that implements Closer. It is called when
+// the engine is retired — during a config hot-reload (on the swapped-out
+// engine) or on shutdown — so operator-held resources (e.g. Lua state pools)
+// are released instead of leaking. Errors from individual operators are
+// collected and joined; Close never panics on a partially built engine.
+func (e *Engine) Close() error {
+	var errs []error
+	for _, cop := range e.plan.Operators {
+		if c, ok := cop.Instance.(types.Closer); ok {
+			if err := c.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("operator %q close: %w", cop.Name, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // RenderOption configures optional DAG rendering behaviour.

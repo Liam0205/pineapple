@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
@@ -199,6 +200,40 @@ func (o *metadataCaptureOp) Execute(_ context.Context, _ *types.OperatorInput, o
 	return nil
 }
 
+// closeOkOp counts Close calls into a package-level counter and returns nil.
+type closeOkOp struct {
+	types.ConcurrentSafeMarker
+}
+
+func (o *closeOkOp) Init(params map[string]any) error { return nil }
+func (o *closeOkOp) Execute(_ context.Context, _ *types.OperatorInput, _ *types.OperatorOutput) error {
+	return nil
+}
+func (o *closeOkOp) Close() error {
+	closeOkCount.Add(1)
+	return nil
+}
+
+// closeErrOp counts Close calls and returns a deliberate error.
+type closeErrOp struct {
+	types.ConcurrentSafeMarker
+}
+
+func (o *closeErrOp) Init(params map[string]any) error { return nil }
+func (o *closeErrOp) Execute(_ context.Context, _ *types.OperatorInput, _ *types.OperatorOutput) error {
+	return nil
+}
+func (o *closeErrOp) Close() error {
+	closeErrCount.Add(1)
+	return fmt.Errorf("deliberate close error")
+}
+
+// Package-level counters for closeable test operators.
+var (
+	closeOkCount  atomic.Int64
+	closeErrCount atomic.Int64
+)
+
 // --- register test operators ---
 
 func init() {
@@ -226,6 +261,8 @@ func init() {
 	registry.Register(types.OperatorSchema{Name: "panic_op", Type: types.OpTypeTransform, Description: "Always panics."}, func() types.Operator { return &panicTestOp{} })
 	registry.Register(types.OperatorSchema{Name: "warning_op", Type: types.OpTypeTransform, Description: "Emits warning."}, func() types.Operator { return &warningTestOp{} })
 	registry.Register(types.OperatorSchema{Name: "metadata_capture", Type: types.OpTypeTransform, Description: "Captures metadata."}, func() types.Operator { return &metadataCaptureOp{} })
+	registry.Register(types.OperatorSchema{Name: "close_ok", Type: types.OpTypeTransform, Description: "Records Close calls."}, func() types.Operator { return &closeOkOp{} })
+	registry.Register(types.OperatorSchema{Name: "close_err", Type: types.OpTypeTransform, Description: "Records Close calls and errors."}, func() types.Operator { return &closeErrOp{} })
 }
 
 // --- helper ---
@@ -254,6 +291,51 @@ func makeConfig(operators map[string]any, pipelineMap map[string]any, contract m
 }
 
 // --- integration tests ---
+
+func TestEngineCloseTearsDownOperators(t *testing.T) {
+	closeOkCount.Store(0)
+	closeErrCount.Store(0)
+
+	cfg := makeConfig(
+		map[string]any{
+			"ok_op": map[string]any{
+				"type_name": "close_ok",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+			"err_op": map[string]any{
+				"type_name": "close_err",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"ok_op", "err_op"}}},
+		map[string]any{"common_input": []string{}, "common_output": []string{}},
+	)
+
+	engine, err := pine.NewEngine(mustJSON(t, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = engine.Close()
+	if err == nil {
+		t.Fatal("Close() = nil, want error from close_err operator")
+	}
+	if !strings.Contains(err.Error(), "deliberate close error") {
+		t.Errorf("Close() error = %q, want it to contain the close_err message", err.Error())
+	}
+	if got := closeOkCount.Load(); got != 1 {
+		t.Errorf("close_ok Close calls = %d, want 1", got)
+	}
+	if got := closeErrCount.Load(); got != 1 {
+		t.Errorf("close_err Close calls = %d, want 1", got)
+	}
+}
 
 func TestEngineBasicPipeline(t *testing.T) {
 	cfg := makeConfig(

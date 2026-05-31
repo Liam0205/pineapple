@@ -144,7 +144,15 @@ func (s *Server) run(cfg Config) error {
 	}
 
 	s.snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
-	defer s.snapshot.Load().resources.Stop()
+	defer func() {
+		// Load at shutdown time, not defer-registration time: a hot-reload may
+		// have swapped the snapshot, and the live one must be the one torn down.
+		snap := s.snapshot.Load()
+		snap.resources.Stop()
+		if err := snap.engine.Close(); err != nil {
+			log.Printf("[shutdown] engine close: %v", err)
+		}
+	}()
 
 	// Validate resource dependencies against pipeline config.
 	if err := resource.ValidateResourceDeps(configData, rm); err != nil {
@@ -228,6 +236,9 @@ func (s *Server) reloadConfig(path string) error {
 	old := s.snapshot.Swap(&serverSnapshot{engine: engine, resources: newRM})
 	if old != nil {
 		old.resources.Stop()
+		if err := old.engine.Close(); err != nil {
+			log.Printf("[reload] retired engine close: %v", err)
+		}
 	}
 	return nil
 }
