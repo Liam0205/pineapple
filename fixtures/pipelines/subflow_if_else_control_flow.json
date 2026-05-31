@@ -1,7 +1,7 @@
 {
   "name": "SubFlow if/else control flow with namespaced fields",
   "config": {
-    "_PINEAPPLE_VERSION": "0.9.5",
+    "_PINEAPPLE_VERSION": "0.9.6",
     "pipeline_config": {
       "operators": {
         "my_sf::if_1": {
