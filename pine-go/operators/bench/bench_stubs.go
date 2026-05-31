@@ -1,3 +1,5 @@
+//go:build pine_bench
+
 // Package bench provides benchmark-only stub operators and resource fetchers
 // for running realistic production pipeline fixtures without external dependencies.
 package bench

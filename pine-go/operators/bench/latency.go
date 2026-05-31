@@ -1,3 +1,5 @@
+//go:build pine_bench
+
 package bench
 
 import (
