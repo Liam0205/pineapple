@@ -146,6 +146,58 @@ public class IntegrationTest {
     }
 
     @Test
+    void testLuaPoolReuseStats() throws Exception {
+        List<Map<String, Object>> staticItems = new ArrayList<>();
+        Map<String, Object> item1 = new LinkedHashMap<>();
+        item1.put("item_id", "x");
+        item1.put("score", 3.0);
+        staticItems.add(item1);
+
+        String luaScript = "function double_score() return score * 2 end";
+
+        Map<String, Object> luaParams = new LinkedHashMap<>();
+        luaParams.put("lua_script", luaScript);
+        luaParams.put("function_for_item", "double_score");
+
+        Map<String, Object> operators = new LinkedHashMap<>();
+        operators.put("recall", operator("recall_static",
+                Collections.singletonMap("items", staticItems),
+                metadata(Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList(), Arrays.asList("item_id", "score"))));
+        operators.put("lua", operator("transform_by_lua",
+                luaParams,
+                metadata(Collections.emptyList(), Collections.emptyList(),
+                        Collections.singletonList("score"), Collections.singletonList("doubled"))));
+
+        Map<String, Object> flowContract = new LinkedHashMap<>();
+        flowContract.put("common_input", Collections.emptyList());
+        flowContract.put("common_output", Collections.emptyList());
+        flowContract.put("item_output", Arrays.asList("item_id", "score", "doubled"));
+
+        byte[] config = buildConfig(operators, Arrays.asList("recall", "lua"), flowContract);
+        Engine engine = Engine.create(config);
+
+        // Run several times so a state returned to the pool gets reused.
+        for (int i = 0; i < 5; i++) {
+            Engine.Result result = engine.execute(new HashMap<>(), new ArrayList<>());
+            assertNull(result.error);
+        }
+
+        Map<String, Long> lua = engine.operatorCustomStats().get("lua");
+        assertNotNull(lua, "lua operator should expose custom stats");
+        assertTrue(lua.containsKey("reuse_count"), "stats must expose reuse_count");
+
+        long borrow = lua.get("borrow_count");
+        long reuse = lua.get("reuse_count");
+        long create = lua.get("create_count");
+        // Every borrow is a pool hit (reuse) or an on-borrow miss; create_count
+        // also counts the single pre-warm creation, so misses = create_count - 1.
+        assertEquals(borrow, reuse + (create - 1),
+                "borrow_count must equal reuse_count + on-borrow misses");
+        assertTrue(reuse > 0, "repeated executions must reuse pooled states");
+    }
+
+    @Test
     void testFilterAndSort() throws Exception {
         List<Map<String, Object>> staticItems = new ArrayList<>();
         Map<String, Object> item1 = new LinkedHashMap<>();
