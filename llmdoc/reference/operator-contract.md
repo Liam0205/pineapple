@@ -27,9 +27,11 @@ Pine-Java 完整实现了全部内置算子（清单见 `pine-java/.../operators
 
 Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.register(OperatorSchema, Supplier<Operator>)`。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON，供 CI 交叉验证。`validateAndExtractParams()` 执行与 Go 等效的严格校验：过滤保留键、检查必填参数、注入默认值、拒绝未声明参数。
 
-`AllOperators.java` 中的注册清单含两个 benchmark 专用算子（`transform_bench_cpu` / `transform_bench_sleep`），与 pine-go `pine-go/operators/bench/` 对齐；pine-python 不实现这两个算子（其 `Description` 显式标注 "Not available in pine-python"）。
+`AllOperators.java` 中的注册清单含两个 benchmark 专用算子（`transform_bench_cpu` / `transform_bench_sleep`）。这两个算子在 pine-go 0.9.7 起常驻于 `pine-go/operators/transform/`（无构建标签门控），用于跨运行时对照 benchmark；pine-python 仍不实现这两个算子（其 `Description` 显式标注 "Not available in pine-python"）。
 
-新增 Python 不实现的算子时，必须同步把算子名加入 `scripts/cross-validate/01-codegen-schema.sh` 中的 `PYTHON_UNAVAILABLE_OPERATORS` 集合，否则 Go vs Python schema 结构比对会因 "Go-only operator" 在 CI 失败。错误信息会显式提示 `add to PYTHON_UNAVAILABLE_OPERATORS if intentional`。
+更重的 bench stub 集合（`recall_bench_static` / `transform_bench_random_drop` / `reorder_bench_topn_boost` 等）在四个运行时中以构建开关方式对外可见：pine-go 通过 `//go:build pine_bench` 标签的 `all_bench.go` 引入，pine-java 通过 `-Dpine.bench=true` 系统属性，pine-cpp 通过 CMake `-DPINE_BUILD_BENCH_STUBS=ON`，pine-python 不实现。`scripts/bench-cross-runtime.sh` 在调用四个 builder 时统一传入对应开关。
+
+新增 Python 不实现的算子时，必须同步把算子名加入 `scripts/cross-validate/01-codegen-schema.sh` 中的 `PYTHON_UNAVAILABLE_OPERATORS` 集合，否则 Go vs Python schema 结构比对会因 "Go-only operator" 在 CI 失败。错误信息会显式提示 `add to PYTHON_UNAVAILABLE_OPERATORS if intentional`。注：`transform_bench_cpu` / `transform_bench_sleep` 因常驻注册已从该集合中移除。
 
 ## 算子生命周期
 
@@ -232,6 +234,28 @@ C++ 侧提供注册路径：
 - `MetricsAware` 面向外部指标系统，不替代 `/stats`
 - provider 可能是 `metrics.Nop()`，实现必须把 no-op provider 视为正常路径
 - Pineapple core 不依赖具体 Prometheus SDK；算子只依赖 `pine-go/pkg/metrics` 抽象
+
+### `Closer`
+
+若算子持有跨请求资源（Lua state pool、长连接、后台 goroutine、并发 worker 等），可选实现 `Closer` 接口在引擎退役时显式释放。各运行时签名一致：
+
+| 运行时 | 接口位置 | 方法签名 |
+|---|---|---|
+| pine-go | `pine-go/internal/types/operator.go` | `type Closer interface { Close() error }` |
+| pine-java | `pine-java/src/.../Closer.java` | `void close() throws Exception` |
+| pine-python | `pine-python/pine/operator.py` | `class Closer: def close(self) -> None` |
+| pine-cpp | `pine-cpp/include/pine/operator.hpp` | `class Closer { virtual void close() = 0; }` |
+
+引擎退役（hot-reload swap、graceful shutdown）时调用 `Engine.Close()` / `Engine.close()`，依次对每个 `CompiledOperator.Instance` 做 `instanceof Closer` 判定并触发 `Close()`。各运行时把单算子 close 失败聚合上报（pine-go 用 `errors.Join`，pine-java/pine-python 收集 list，pine-cpp 收集 vector），不阻断后续算子的 close。
+
+调用约定：
+
+- `Close()` 在每个引擎实例上**至多调用一次**；幂等不是契约要求
+- 调用时引擎已不再接收新请求，但**未必所有 in-flight 请求都已结束**——server 层需先 drain，再 retire 旧引擎
+- 调用方必须在锁外触发 `Close()`，避免阻塞配置 reload 路径
+- 不实现 `Closer` 的算子由 GC / RAII 回收（Lua pool 等已主动放弃 state retention，依赖 GC 即可）
+
+典型实现：`pine-go/operators/lua/lua.go` 的 `LuaOp.Close()` 调用 pool 的 `Close()`，仅翻转 `closed` 标志阻止后续 `Borrow()` 返回新 state；池内已借出的 state 由 GC 回收。pine-cpp 对应 `TransformByLuaOp::close()`，通过 `LuaPool::close()` 翻转原子标志。
 
 ## 输入/输出 API 契约
 
