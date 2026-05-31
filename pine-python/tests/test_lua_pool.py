@@ -86,3 +86,39 @@ def test_normal_borrow_return_cycle():
     assert pool.return_count == 1
     assert pool.active_count == 0
     pool.close()
+
+
+def test_reuse_count_distinguishes_hits_from_misses():
+    """reuse_count counts pool hits; misses = borrow_count - reuse_count."""
+    pool = _make_pool()
+
+    # Construction pre-warms exactly one state: a creation, not a borrow.
+    assert pool.create_count == 1
+    assert pool.reuse_count == 0
+
+    def check_invariant():
+        # Every borrow is a pool hit (reuse) or an on-borrow miss; create_count
+        # also counts the single pre-warm creation, so misses = create_count - 1.
+        assert pool.borrow_count == pool.reuse_count + (pool.create_count - 1)
+
+    # Sequential reuse: return before borrowing again, so each borrow is a hit.
+    for _ in range(5):
+        rt = pool.borrow()
+        assert rt is not None
+        pool.return_state(rt)
+        check_invariant()
+    assert pool.reuse_count > 0
+
+    # Force a miss: hold two states at once. The pool holds at most one idle
+    # state, so the second borrow must create a fresh one.
+    before_create = pool.create_count
+    a = pool.borrow()
+    b = pool.borrow()
+    assert a is not None and b is not None
+    assert pool.create_count > before_create
+    check_invariant()
+    pool.return_state(a)
+    pool.return_state(b)
+    check_invariant()
+    pool.close()
+

@@ -120,6 +120,7 @@ class TransformByLua(
             "borrow_count": self._pool.borrow_count,
             "return_count": self._pool.return_count,
             "create_count": self._pool.create_count,
+            "reuse_count": self._pool.reuse_count,
             "active_count": self._pool.active_count,
         }
 
@@ -312,6 +313,7 @@ class _LuaPool:
         self.borrow_count = 0
         self.return_count = 0
         self.create_count = 0
+        self.reuse_count = 0
         self.active_count = 0
 
         # Create initial state
@@ -327,6 +329,7 @@ class _LuaPool:
             self.borrow_count += 1
             self.active_count += 1
             if self._pool:
+                self.reuse_count += 1
                 return self._pool.popleft()
             self.create_count += 1
         rt = _create_lua_runtime()
