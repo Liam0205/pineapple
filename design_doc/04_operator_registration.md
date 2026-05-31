@@ -96,7 +96,7 @@ func (f *FilterOperator) Execute(ctx context.Context, input *pine.OperatorInput,
 
 1. **配置加载时**：引擎通过工厂函数为 JSON 中的每个算子定义创建一个实例，调用 `Init(params)` 注入业务参数。
 2. **运行时**：同一个实例被所有并发请求共享，`Execute` 可被多个 goroutine 并发调用。
-3. **配置重新加载时**：引擎创建新实例并切换，旧实例在无引用后由 GC 回收。
+3. **配置重新加载 / 关闭时**：引擎创建新实例并原子切换；被换下的旧引擎随即退役。退役时引擎遍历自己的算子，对实现了 `Closer` 接口的算子调用一次 `Close`，拆除其持有的外部资源（如 Lua 解释器 state 池），避免旧引擎延迟释放或泄漏。无 `Closer` 的算子在无引用后由 GC 回收即可。`Close` 由引擎保证只调用一次，算子实现应做到幂等。详见 [03 数据抽象 — Closer](03_data_abstraction.md#closer--算子资源释放)。
 
 ### 无状态可重入约定
 
