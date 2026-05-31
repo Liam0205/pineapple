@@ -127,6 +127,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 "borrow_count", pool.borrowCount.get(),
                 "return_count", pool.returnCount.get(),
                 "create_count", pool.createCount.get(),
+                "reuse_count", pool.reuseCount.get(),
                 "active_count", pool.activeCount.get()
         );
     }
@@ -276,6 +277,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         final AtomicLong borrowCount = new AtomicLong();
         final AtomicLong returnCount = new AtomicLong();
         final AtomicLong createCount = new AtomicLong();
+        final AtomicLong reuseCount = new AtomicLong();
         final AtomicLong activeCount = new AtomicLong();
 
         private Counter mBorrow, mReturn, mCreate;
@@ -313,6 +315,8 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 if (mCreate != null) mCreate.inc();
                 g = createSandboxedGlobals();
                 g.load(initScript).call();
+            } else {
+                reuseCount.incrementAndGet();
             }
             snapshots.put(g, snapshotBaselineValues(g));
             return g;
