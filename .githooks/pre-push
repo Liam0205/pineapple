@@ -77,22 +77,53 @@ echo "pre-push: all lint checks passed."
 # which re-enters this hook WITH the marker and is let through immediately at
 # the top. Control then returns here and we block on the remote CI.
 #
-# Read the refspec stdin git handed us; skip the CI watch for deletions/no-ops.
-have_ref=0
+# Read the refspecs git handed us on stdin (one per line:
+#   <local ref> <local sha> <remote ref> <remote sha>)
+# and mirror them EXACTLY on the inner push, instead of assuming a single
+# current-branch push. This keeps force-pushes, tag pushes, ref deletions
+# (`git push origin :foo`) and multi-ref pushes (`git push --all`) working.
+zero="0000000000000000000000000000000000000000"
+refspecs=()
+have_update=0   # at least one non-delete ref → CI watch is meaningful
+needs_force=0   # at least one ref is a non-fast-forward update → force needed
+
 while read -r local_ref local_sha remote_ref remote_sha; do
-  [ -z "${local_ref:-}" ] && continue
-  have_ref=1
+  [ -z "${remote_ref:-}" ] && continue
+  if [ "$local_sha" = "$zero" ]; then
+    # Deletion: the refspec is ":<remote_ref>" (empty source).
+    refspecs+=(":${remote_ref}")
+  else
+    refspecs+=("${local_ref}:${remote_ref}")
+    have_update=1
+    # Non-fast-forward (remote has commits not contained in local) ⇒ a plain
+    # push would be rejected, so the user must have used --force. Mirror that
+    # with --force-with-lease so the inner push isn't rejected either.
+    if [ "$remote_sha" != "$zero" ] \
+       && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      needs_force=1
+    fi
+  fi
 done
 
-if [ "$have_ref" -eq 0 ]; then
+# Nothing on stdin → let the outer push proceed normally; nothing to wrap.
+if [ "${#refspecs[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+# Deletions only → no CI to watch. Let the OUTER push perform the delete
+# normally (no self-wrap needed) and return.
+if [ "$have_update" -eq 0 ]; then
   exit 0
 fi
 
 remote_name="${1:-origin}"
-branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+force_args=()
+if [ "$needs_force" -eq 1 ]; then
+  force_args=(--force-with-lease)
+fi
 
-echo "post-push: performing real push to '${remote_name}'..." >&2
-GIT_POSTPUSH=1 git push "${remote_name}" "${branch}"
+echo "post-push: performing real push to '${remote_name}' (${refspecs[*]})..." >&2
+GIT_POSTPUSH=1 git push "${force_args[@]}" "${remote_name}" "${refspecs[@]}"
 push_rc=$?
 if [ "$push_rc" -ne 0 ]; then
   echo "post-push: inner push failed (rc=${push_rc}) — not watching CI." >&2

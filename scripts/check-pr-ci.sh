@@ -17,6 +17,14 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 2
 fi
 
+# jq is required to parse the check list. The gh CLI itself ships jq-style
+# filtering via --jq, but we also do a standalone jq parse below; without it we
+# could silently miss failures (false green), so treat its absence as fatal.
+if ! command -v jq >/dev/null 2>&1; then
+  log "post-push: jq not found — cannot reliably parse CI checks. Failing safe."
+  exit 1
+fi
+
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 
 # Resolve the PR number for this branch. If none, nothing to watch.
@@ -31,13 +39,17 @@ log "post-push: watching CI for PR #${pr_number} (branch '$branch')..."
 
 # After a fresh push, GitHub needs a few seconds to register check runs for the
 # new head commit. Poll until at least one check appears (or give up), so we
-# don't mistake "not created yet" for "no CI".
-for _ in $(seq 1 24); do
+# don't mistake "not created yet" for "no CI". Tunable via env:
+#   PINE_PREPUSH_CHECK_POLL_TRIES    (default 24)
+#   PINE_PREPUSH_CHECK_POLL_INTERVAL (default 5, seconds)
+poll_tries="${PINE_PREPUSH_CHECK_POLL_TRIES:-24}"
+poll_interval="${PINE_PREPUSH_CHECK_POLL_INTERVAL:-5}"
+for _ in $(seq 1 "$poll_tries"); do
   cnt="$(gh pr checks "$pr_number" --json state --jq 'length' 2>/dev/null)"
   if [ -n "$cnt" ] && [ "$cnt" -gt 0 ]; then
     break
   fi
-  sleep 5
+  sleep "$poll_interval"
 done
 
 # Block until all checks finish. --fail-fast returns as soon as one fails.
@@ -52,16 +64,11 @@ if [ -z "$checks_json" ]; then
   exit 2
 fi
 
-# Collect every failing job (bucket == fail or cancel), as a list of "name<TAB>link".
-# Pass JSON via env var so the heredoc keeps stdin free and bash does no escaping.
-failures="$(CHECKS_JSON="$checks_json" python3 - <<'PY'
-import json, os
-data = json.loads(os.environ["CHECKS_JSON"])
-bad = [c for c in data if c.get("bucket") in ("fail", "cancel")]
-for c in bad:
-    print("{}\t{}".format(c.get("name", "?"), c.get("link", "")))
-PY
-)"
+# Collect every failing job (bucket == fail or cancel) as a list of
+# "name<TAB>link" lines. Using jq (required above) keeps this dependency-light
+# and avoids a silent empty result when an interpreter is missing.
+failures="$(printf '%s' "$checks_json" \
+  | jq -r '.[] | select(.bucket=="fail" or .bucket=="cancel") | "\(.name)\t\(.link // "")"')"
 
 review_decision="$(gh pr view "$pr_number" --json reviewDecision --jq '.reviewDecision' 2>/dev/null)"
 [ -z "$review_decision" ] && review_decision="(no review yet)"
