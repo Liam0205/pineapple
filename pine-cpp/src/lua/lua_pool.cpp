@@ -59,6 +59,7 @@ LuaVM* StatePool::acquire_vm(std::map<std::string, int>& out_snap) {
     if (!free_vms_.empty()) {
       vm = free_vms_.back();
       free_vms_.pop_back();
+      reuse_count_.fetch_add(1, std::memory_order_relaxed);
     } else {
       auto fresh = std::make_unique<LuaVM>();
       fresh->load_script(script_, op_name_);
@@ -145,6 +146,7 @@ std::map<std::string, int64_t> StatePool::stats_snapshot() const {
       {"borrow_count", borrow_count_.load(std::memory_order_relaxed)},
       {"return_count", return_count_.load(std::memory_order_relaxed)},
       {"create_count", create_count_.load(std::memory_order_relaxed)},
+      {"reuse_count", reuse_count_.load(std::memory_order_relaxed)},
       {"active_count", active_count_.load(std::memory_order_relaxed)},
   };
 }
