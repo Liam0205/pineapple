@@ -65,9 +65,9 @@ type Result struct {
 ### 设计原则
 
 - **无状态**：`Engine` 在 `NewEngine` 后不可变。不提供 `Reload` 方法。
-- **配置重载由外层负责**：壳子创建新 `Engine`，通过原子替换（`atomic.Pointer` 或类似机制）切换，旧 `Engine` 在无引用后由 GC 回收。
+- **配置重载由外层负责**：壳子创建新 `Engine`，通过原子替换（`atomic.Pointer` 或类似机制）切换，旧 `Engine` 退役。
 - **并发安全**：同一个 `Engine` 可被多个 goroutine 并发调用 `Execute`。
-- **生命周期简单**：`NewEngine` → 反复 `Execute` → 不再引用即回收。无需显式 `Close`。
+- **生命周期简单**：`NewEngine` → 反复 `Execute` → 退役。退役时壳子应调用 `Engine.Close()`，引擎据此拆除持有外部资源的算子（实现了 `Closer` 接口者，如 Lua state 池）。对无此类资源的纯计算引擎，`Close` 是无操作，不再引用即由 GC 回收。`Close` 幂等，重复调用安全。详见 [03 数据抽象 — Closer](03_data_abstraction.md#closer--算子资源释放)。
 
 ## 请求数据流
 

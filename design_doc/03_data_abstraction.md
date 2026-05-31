@@ -451,3 +451,33 @@ flow.reorder_sort(
     order="desc",
 )
 ```
+
+#### Closer — 算子资源释放
+
+多数算子在 `Init` 后只持有只读配置，不再引用即由 GC 回收，无需显式释放。但少数算子持有需要**显式拆除**的资源——典型是 `transform_by_lua` 维护的 Lua 解释器 state 池。当引擎被退役（配置热重载时被新引擎原子替换、或服务关闭）时，若不主动拆除，被换下的旧引擎会持续持有这些资源直到 GC，造成不确定的延迟释放甚至泄漏。
+
+```go
+// Closer is an optional interface. Operators holding teardownable resources
+// (e.g. a pool of interpreter states) implement it; the engine calls Close on
+// every operator that implements it when the engine is retired.
+type Closer interface {
+    Close() error
+}
+```
+
+**规则**：
+
+- 引擎在退役时（热重载 swap 后的旧引擎、或 shutdown）遍历所有算子，对实现了 `Closer` 的算子调用一次 `Close`。
+- `Close` 必须可安全调用一次；引擎保证不对同一实例调用两次。算子内部实现应做到幂等（重复调用不报错），以兼容外层壳子的重复 shutdown。
+- 无外部资源的算子不实现此接口即可。
+
+**四引擎语义一致性**：`Closer` 是一个跨运行时统一的退役契约，四个引擎都以相同语义实现：
+
+| 引擎 | 接口签名 | 检测方式 |
+|------|---------|---------|
+| Go | `Close() error` | 类型断言 `op.(Closer)` |
+| Java | `void close()` | `instanceof Closer` |
+| C++ | `virtual void close() = 0` | `dynamic_cast<Closer*>` |
+| Python | `def close(self) -> None` | `isinstance(op, Closer)` |
+
+C++ 凭 RAII 在 `Engine` 析构时已能确定性释放这些资源，`Closer` 对其**正确性并非必需**；保留它是为了跨运行时语义对等，并让释放点显式、可观测。Lua 算子的 `close()` 只将 state 池标记为已关闭（`closed` 标志），真正的解释器销毁仍交由各语言的资源管理机制（GC / RAII / sync.Pool victim cache）完成，详见 [04 算子注册与生命周期](04_operator_registration.md#生命周期)。
