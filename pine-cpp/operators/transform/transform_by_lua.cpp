@@ -6,7 +6,11 @@
 
 namespace pine {
 
-class TransformByLuaOp : public Operator, public ConcurrentSafe, public StatsProvider, public MetricsAware {
+class TransformByLuaOp : public Operator,
+                         public ConcurrentSafe,
+                         public StatsProvider,
+                         public MetricsAware,
+                         public Closer {
  public:
   void init(const OperatorConfig& cfg) override {
     op_name_ = cfg.name;
@@ -50,6 +54,12 @@ class TransformByLuaOp : public Operator, public ConcurrentSafe, public StatsPro
       return pool_->stats_snapshot();
     }
     return {};
+  }
+
+  void close() override {
+    if (pool_) {
+      pool_->close();
+    }
   }
 
   void execute(const OperatorInput& input, OperatorOutput& out) override {

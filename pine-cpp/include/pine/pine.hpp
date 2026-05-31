@@ -494,6 +494,15 @@ class Engine {
   // StatsProvider. Returns an empty map when no operator reports custom stats.
   std::map<std::string, std::map<std::string, int64_t>> operator_custom_stats() const;
 
+  // close tears down every operator that implements Closer. It is called when
+  // the engine is retired — during a config hot-reload (on the swapped-out
+  // engine) or on shutdown — mirroring pine-go's Engine.Close and pine-java's
+  // Engine.close. C++ already releases operator resources deterministically via
+  // RAII when the Engine is destroyed, so close() is not required for
+  // correctness; it exists for cross-runtime semantic parity and to make the
+  // release point explicit. Idempotent and safe to call before destruction.
+  void close();
+
   // Pre-created scheduler/operator metrics. Public so the scheduler in
   // engine.cpp can record observations; not part of the stable public API.
   struct EngineMetrics;
