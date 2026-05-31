@@ -116,8 +116,16 @@ add_library(pine_cpp_core OBJECT
     src/http/ssrf.cpp
     operators/transform/transform_resource_lookup.cpp
     operators/transform/transform_size.cpp
-    operators/bench_stubs.cpp
 )
+
+# --- Bench stubs (opt-in, for benchmark builds only) ---
+option(PINE_BUILD_BENCH_STUBS "Include benchmark stub operators (conflicts with downstream real operators)" OFF)
+if(PINE_BUILD_BENCH_STUBS)
+    target_sources(pine_cpp_core PRIVATE operators/bench_stubs.cpp)
+    message(STATUS "pine-cpp: bench stubs = ON")
+else()
+    message(STATUS "pine-cpp: bench stubs = OFF (production)")
+endif()
 
 target_include_directories(pine_cpp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(pine_cpp_core PRIVATE ${LUAJIT_INCLUDE} ${CURL_INCLUDE} ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
