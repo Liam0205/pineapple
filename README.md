@@ -133,7 +133,7 @@ Apple DSL 侧同步变更：`OpCall(..., row_dependency=True)` → `OpCall(..., 
 
 ### 环境要求
 
-- Go 1.22+（Pine-Go）
+- Go 1.26+（Pine-Go）
 - Java 21+（Pine-Java）
 - Python 3.11+（Apple DSL + Pine-Python）
 - CMake 3.20+ / C++23 编译器 / LuaJIT（Pine-C++，可选）
