@@ -323,6 +323,16 @@ func (o *LuaOp) OperatorStats() map[string]int64 {
 	return o.pool.statsSnapshot()
 }
 
+// Close implements pine.Closer. It marks the state pool closed so the engine
+// stops handing out states; idle and in-flight states are then reclaimed by
+// the GC once unreferenced. Safe to call on a never-initialized operator.
+func (o *LuaOp) Close() error {
+	if o.pool != nil {
+		o.pool.Close()
+	}
+	return nil
+}
+
 // SetMetricsProvider implements pine.MetricsAware.
 func (o *LuaOp) SetMetricsProvider(p metrics.Provider) {
 	name := o.OperatorName()

@@ -53,6 +53,11 @@ type ResourceSchema = types.ResourceSchema
 // custom runtime statistics to the /stats endpoint.
 type StatsProvider = types.StatsProvider
 
+// Closer is an optional interface for operators that hold resources needing
+// explicit teardown. The engine calls Close when the engine is retired
+// (config hot-reload or shutdown).
+type Closer = types.Closer
+
 // MetricsAware is an optional interface for operators that record
 // metrics to an external provider (e.g., Prometheus).
 type MetricsAware = types.MetricsAware

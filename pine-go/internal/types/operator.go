@@ -264,6 +264,17 @@ type StatsProvider interface {
 	OperatorStats() map[string]int64
 }
 
+// Closer is an optional interface for operators that hold resources needing
+// explicit teardown (e.g., a pool of interpreter states). The engine calls
+// Close on every operator that implements it when the engine is retired —
+// during a config hot-reload, or on shutdown — so a swapped-out engine does
+// not leak its operators' resources. Operators without external resources
+// simply omit it. Close must be safe to call once; it is not called twice on
+// the same instance by the engine.
+type Closer interface {
+	Close() error
+}
+
 // MetricsAware is an optional interface for operators that record
 // metrics to an external provider (e.g., Prometheus). The engine calls
 // SetMetricsProvider after DebugAware injection for operators that
