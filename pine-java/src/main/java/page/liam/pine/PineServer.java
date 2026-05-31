@@ -196,6 +196,17 @@ public class PineServer {
         if (httpExecutor != null) {
             httpExecutor.shutdownNow();
         }
+        // Tear down the live snapshot: a hot-reload may have swapped it, so the
+        // current one (not a captured startup value) is what must be released.
+        Snapshot snap = snapshot.get();
+        if (snap != null) {
+            if (snap.resources instanceof ResourceManager) {
+                ((ResourceManager) snap.resources).stop();
+            }
+            if (snap.engine != null) {
+                snap.engine.close();
+            }
+        }
     }
 
     private void loadConfig(byte[] configData) throws Exception {
@@ -209,8 +220,13 @@ public class PineServer {
             rm.validateDeps(cfg.pipelineConfig.operators);
             Engine engine = Engine.create(configData, rm, metricsProvider);
             Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
-            if (old != null && old.resources instanceof ResourceManager) {
-                ((ResourceManager) old.resources).stop();
+            if (old != null) {
+                if (old.resources instanceof ResourceManager) {
+                    ((ResourceManager) old.resources).stop();
+                }
+                if (old.engine != null) {
+                    old.engine.close();
+                }
             }
         } catch (Exception e) {
             rm.stop();

@@ -508,6 +508,25 @@ public class Engine {
         return result.isEmpty() ? null : result;
     }
 
+    /**
+     * Tears down every operator that implements {@link Closer}. Called when the
+     * engine is retired — during a config hot-reload (on the swapped-out engine)
+     * or on shutdown — so operator-held resources (e.g. Lua state pools) are
+     * released instead of leaking. Exceptions from individual operators are
+     * caught and logged so one failure does not skip the rest.
+     */
+    public void close() {
+        for (CompiledOperator cop : operators) {
+            if (cop.instance instanceof Closer) {
+                try {
+                    ((Closer) cop.instance).close();
+                } catch (Exception e) {
+                    System.err.println("[pine] operator \"" + cop.name + "\" close: " + e.getMessage());
+                }
+            }
+        }
+    }
+
     public String renderDAG(String format, int collapseLevel) {
         if ("mermaid".equals(format)) {
             return collapseLevel > 0

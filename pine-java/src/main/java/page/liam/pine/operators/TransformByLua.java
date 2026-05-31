@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *   ItemInput:    [<item fields — scalars in item mode, lists in common mode>]
  *   ItemOutput:   [<return values from function_for_item>]
  */
-public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider, DebugAware, MetricsAware {
+public class TransformByLua extends AbstractOperator implements ConcurrentSafe, StatsProvider, DebugAware, MetricsAware, page.liam.pine.Closer {
     private String script;
     private String funcName;
     private boolean isItemMode;
@@ -130,6 +130,13 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                 "reuse_count", pool.reuseCount.get(),
                 "active_count", pool.activeCount.get()
         );
+    }
+
+    @Override
+    public void close() {
+        if (pool != null) {
+            pool.close();
+        }
     }
 
     private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
