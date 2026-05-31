@@ -133,15 +133,6 @@ import json, sys
 PYTHON_UNAVAILABLE_OPERATORS = {
     'transform_bench_cpu',
     'transform_bench_sleep',
-    'recall_feed_data',
-    'transform_redis_zrangebyscore',
-    'transform_hydrate',
-    'transform_query_blocked_creators',
-    'filter_impression',
-    'filter_blocked_creator',
-    'reorder_topn_boost',
-    'observe_datahub',
-    'transform_generate_request_id',
 }
 
 def normalize_value(v):
