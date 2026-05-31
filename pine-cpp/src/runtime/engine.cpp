@@ -1033,4 +1033,12 @@ std::map<std::string, std::map<std::string, int64_t>> Engine::operator_custom_st
   return result;
 }
 
+void Engine::close() {
+  for (auto& [name, instance] : operators_) {
+    if (auto* c = dynamic_cast<Closer*>(instance.get())) {
+      c->close();
+    }
+  }
+}
+
 }  // namespace pine

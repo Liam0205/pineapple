@@ -46,6 +46,21 @@ class StatsProvider {
   virtual std::map<std::string, int64_t> operator_stats() const = 0;
 };
 
+// Closer mirrors pine-go's types.Closer / pine-java's Closer optional
+// interface. Operators holding external resources (e.g. a pool of Lua
+// interpreter states) implement it; Engine::close() calls close() on every
+// operator that does when the engine is retired (config hot-reload or
+// shutdown). C++ already releases these resources deterministically via RAII
+// when the Engine is destroyed, so close() is not required for correctness
+// here — it exists for cross-runtime semantic parity and to make the release
+// point explicit and observable. Implementations must be idempotent and leave
+// the operator safe to destroy afterwards.
+class Closer {
+ public:
+  virtual ~Closer() = default;
+  virtual void close() = 0;
+};
+
 // Note: Operator base class is declared in pine/pine.hpp (as class Operator)
 // with execute(const OperatorInput&, OperatorOutput&). Operators receive a
 // pre-projected OperatorInput snapshot with defaults applied.

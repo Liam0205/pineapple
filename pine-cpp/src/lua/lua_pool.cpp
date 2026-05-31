@@ -21,6 +21,16 @@ StatePool::~StatePool() {
   // all_vms_ destruction cleans up LuaVMs
 }
 
+void StatePool::close() {
+  std::lock_guard<std::mutex> lock(mu_);
+  closed_ = true;
+  // VMs are freed by ~StatePool (all_vms_ destruction → lua_close). We do not
+  // free them here: an in-flight BorrowedVM still references its LuaVM through
+  // a raw pointer, and the retired engine is destroyed immediately after close()
+  // anyway, so RAII reclaims everything deterministically. Mirrors pine-go,
+  // whose pool.Close() only flips the closed flag.
+}
+
 void StatePool::Releaser::operator()(LuaVM* vm) const {
   if (pool && vm) {
     // Releaser is a unique_ptr deleter — invoked from ~unique_ptr,

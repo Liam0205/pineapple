@@ -1005,13 +1005,23 @@ bool Server::reload_config() {
     new_resource_manager->validate_resource_deps(new_config);
     new_resource_manager->start();
 
+    std::unique_ptr<Engine> old_engine;
     {
       std::unique_lock lock(engine_mu_);
+      old_engine = std::move(engine_);
       engine_ = std::move(new_engine);
       if (resource_manager_) {
         resource_manager_->stop();
       }
       resource_manager_ = std::move(new_resource_manager);
+    }
+    // Retire the swapped-out engine outside the lock: close() tears down its
+    // operators (e.g. Lua state pools) for parity with pine-go/pine-java; the
+    // unique_ptr then frees it via RAII. No in-flight request can reference it
+    // — handlers hold engine_mu_ shared for the whole execute, so all had
+    // finished before we took the exclusive lock above.
+    if (old_engine) {
+      old_engine->close();
     }
 
     stats_->pre_init(new_expanded.sequence);
@@ -1369,6 +1379,15 @@ int Server::run(const ServerConfig& cfg) {
   {
     std::unique_lock<std::mutex> lk(drain_mu_);
     drain_cv_.wait(lk, [this] { return in_flight_.load(std::memory_order_relaxed) == 0; });
+  }
+  // All in-flight handlers have finished, so the live engine has no remaining
+  // references. Tear down its operators for parity with pine-go/pine-java;
+  // ~Server then frees the engine via RAII.
+  {
+    std::unique_lock lock(engine_mu_);
+    if (engine_) {
+      engine_->close();
+    }
   }
   return 0;
 }

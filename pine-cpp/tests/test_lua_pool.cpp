@@ -50,3 +50,23 @@ TEST_CASE("StatePool reuse_count distinguishes pool hits from misses") {
   auto s2 = pool.stats_snapshot();
   CHECK(stat(s2, "borrow_count") == stat(s2, "reuse_count") + (stat(s2, "create_count") - 1));
 }
+
+TEST_CASE("StatePool::close marks the pool closed and is idempotent") {
+  lua::StatePool pool("function f() return 1 end", "test_op");
+
+  // Borrowing works before close.
+  {
+    auto vm = pool.borrow();
+    CHECK(vm != nullptr);
+  }
+
+  pool.close();
+
+  // After close, borrow() refuses to hand out a state.
+  CHECK_THROWS_AS(pool.borrow(), ExecutionError);
+
+  // close() is idempotent — a second call must not throw or crash, and
+  // borrow() still refuses.
+  pool.close();
+  CHECK_THROWS_AS(pool.borrow(), ExecutionError);
+}

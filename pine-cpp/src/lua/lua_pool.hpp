@@ -37,6 +37,12 @@ class StatePool {
   std::map<std::string, int64_t> stats_snapshot() const;
   void set_metrics(metrics::Provider* provider, const std::string& op_name);
 
+  // close marks the pool closed so borrow() throws; idempotent. The pooled
+  // LuaVMs are freed by ~StatePool (RAII, lua_close per VM), which for a
+  // retired engine runs immediately when the engine is destroyed. Mirrors
+  // pine-go's pool.Close(), which only flips the closed flag.
+  void close();
+
  private:
   LuaVM* acquire_vm(std::map<std::string, int>& out_snap);
   void release_vm(LuaVM* vm, const std::map<std::string, int>& snap);
