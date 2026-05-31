@@ -25,7 +25,8 @@ type statePool struct {
 	// always-on atomic counters (powers /stats)
 	borrowCount int64
 	returnCount int64
-	createCount int64
+	createCount int64 // states constructed from scratch (pre-warm + pool misses)
+	reuseCount  int64 // borrows served by reusing a pooled state (pool hits)
 	activeCount int64
 
 	// external metrics (nil-safe, powers Prometheus)
@@ -48,17 +49,10 @@ func newStatePool(script string) (*statePool, error) {
 	sp.pool.Put(L)
 	atomic.AddInt64(&sp.createCount, 1)
 
-	sp.pool.New = func() any {
-		s, err := sp.newState()
-		if err != nil {
-			return nil
-		}
-		atomic.AddInt64(&sp.createCount, 1)
-		if sp.mCreate != nil {
-			sp.mCreate.Inc()
-		}
-		return s
-	}
+	// Note: we deliberately do NOT set sp.pool.New. Borrow handles the empty-pool
+	// case itself so it can distinguish a pool hit (reuse) from a miss (fresh
+	// creation) for the stats snapshot — sync.Pool.Get gives no way to tell which
+	// path it took when New is set.
 
 	return sp, nil
 }
@@ -108,13 +102,27 @@ func (sp *statePool) Borrow() *glua.LState {
 	if sp.mActive != nil {
 		sp.mActive.Add(1)
 	}
-	v := sp.pool.Get()
-	if v == nil {
-		atomic.AddInt64(&sp.borrowCount, -1)
-		atomic.AddInt64(&sp.activeCount, -1)
-		return nil
+
+	var L *glua.LState
+	if v := sp.pool.Get(); v != nil {
+		// Pool hit: reuse an idle state.
+		L = v.(*glua.LState)
+		atomic.AddInt64(&sp.reuseCount, 1)
+	} else {
+		// Pool miss: build a fresh state. newState refuses once the pool is
+		// closed, in which case the borrow is rolled back and we return nil.
+		s, err := sp.newState()
+		if err != nil {
+			atomic.AddInt64(&sp.borrowCount, -1)
+			atomic.AddInt64(&sp.activeCount, -1)
+			return nil
+		}
+		atomic.AddInt64(&sp.createCount, 1)
+		if sp.mCreate != nil {
+			sp.mCreate.Inc()
+		}
+		L = s
 	}
-	L := v.(*glua.LState)
 	sp.snapshots.Store(L, snapshotBaselineValues(L, sp.baseline))
 	return L
 }
@@ -200,6 +208,7 @@ func (sp *statePool) statsSnapshot() map[string]int64 {
 		"borrow_count": atomic.LoadInt64(&sp.borrowCount),
 		"return_count": atomic.LoadInt64(&sp.returnCount),
 		"create_count": atomic.LoadInt64(&sp.createCount),
+		"reuse_count":  atomic.LoadInt64(&sp.reuseCount),
 		"active_count": atomic.LoadInt64(&sp.activeCount),
 	}
 }
