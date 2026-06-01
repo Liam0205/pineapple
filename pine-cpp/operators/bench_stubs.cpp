@@ -22,7 +22,7 @@ namespace {
 
 const bool _bench_fetcher_feed_data = resource::register_fetcher_factory(
     "feed_data", [](const Variant& /*params*/, metrics::Provider* /*mp*/) -> resource::Fetcher {
-      return []() -> Variant {
+      return []() -> resource::ResourceValue {
         Variant::array_t items;
         items.reserve(3000);
         for (int i = 0; i < 3000; ++i) {
@@ -34,13 +34,13 @@ const bool _bench_fetcher_feed_data = resource::register_fetcher_factory(
           row["created_at"] = Variant("2026-01-01T00:00:00Z");
           items.push_back(Variant(std::move(row)));
         }
-        return Variant(std::move(items));
+        return resource::ResourceValue::data(Variant(std::move(items)));
       };
     });
 
 const bool _bench_fetcher_datahub = resource::register_fetcher_factory(
     "datahub_producer", [](const Variant& /*params*/, metrics::Provider* /*mp*/) -> resource::Fetcher {
-      return []() -> Variant { return Variant(nullptr); };
+      return []() -> resource::ResourceValue { return resource::ResourceValue::data(Variant(nullptr)); };
     });
 
 // Deterministic hash helpers (mirror reorder_shuffle_by_salt) for the
@@ -150,14 +150,25 @@ static const OperatorSchema k_transform_redis_zrangebyscore_schema{
     .type = OpType::Transform,
     .description = "Benchmark stub: simulates Redis ZRANGEBYSCORE.",
     .params =
-        {{"key_prefix",
+        {{"resource_name",
+          {.type = "string",
+           .required = false,
+           .default_value = Variant(""),
+           .description = "Name of a redis_connection resource (ignored in stub)."}},
+         {"key_prefix",
           {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
          {"window_seconds",
           {.type = "int", .required = false, .default_value = Variant(0.0), .description = "Stub param."}},
          {"redis_addr",
-          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+          {.type = "string",
+           .required = false,
+           .default_value = Variant(""),
+           .description = "Legacy stub param."}},
          {"redis_password",
-          {.type = "string", .required = false, .default_value = Variant(""), .description = "Stub param."}},
+          {.type = "string",
+           .required = false,
+           .default_value = Variant(""),
+           .description = "Legacy stub param."}},
          {"bench_profile",
           {.type = "any",
            .required = false,
