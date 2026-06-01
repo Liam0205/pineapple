@@ -3,7 +3,6 @@ package page.liam.pine.operators;
 import page.liam.pine.*;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPoolConfig;
 import redis.clients.jedis.Pipeline;
 
 import java.util.*;
@@ -16,9 +15,15 @@ import java.util.stream.Collectors;
  *   CommonOutput: []
  *   ItemInput:    []
  *   ItemOutput:   []
+ *
+ * <p>The Redis connection pool is owned by the ResourceManager (resource type
+ * redis_connection), not the operator: the pool is borrowed per request via
+ * resource_name. Multiple Redis operators referencing the same resource_name
+ * share one pool.
  */
-public class TransformRedisSet extends AbstractOperator implements ConcurrentSafe {
-    private JedisPool pool;
+public class TransformRedisSet extends AbstractOperator implements ConcurrentSafe, ResourceAware {
+    private String resourceName;
+    private ResourceProvider resourceProvider;
     private String keyPrefix;
     private String dataType = "string";
     private int ttlSeconds;
@@ -26,9 +31,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
 
     @Override
     public void init(OperatorParams params) {
-        String addr = params.getString("redis_addr", "");
-        String password = params.getString("redis_password", "");
-        int db = params.getInt("redis_db", 0);
+        resourceName = params.getString("resource_name", "");
         keyPrefix = params.getString("key_prefix", "");
         Object dt = params.get("data_type");
         if (dt instanceof String && !((String) dt).isEmpty()) {
@@ -37,21 +40,16 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
         ttlSeconds = params.getInt("ttl", 0);
         Object foe = params.get("fail_on_error");
         if (foe instanceof Boolean) failOnError = (Boolean) foe;
+    }
 
-        if (!addr.isEmpty()) {
-            String host = addr.contains(":") ? addr.substring(0, addr.indexOf(':')) : addr;
-            int port = addr.contains(":") ? Integer.parseInt(addr.substring(addr.indexOf(':') + 1)) : 6379;
-            JedisPoolConfig cfg = new JedisPoolConfig();
-            if (password.isEmpty()) {
-                pool = new JedisPool(cfg, host, port, 2000, null, db);
-            } else {
-                pool = new JedisPool(cfg, host, port, 2000, password, db);
-            }
-        }
+    @Override
+    public void setResourceProvider(ResourceProvider provider) {
+        this.resourceProvider = provider;
     }
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+        JedisPool pool = TransformRedisGet.borrowPool(resourceProvider, resourceName);
         if (pool == null) return;
 
         int n = commonInput().size();

@@ -4,7 +4,6 @@ import page.liam.pine.*;
 import page.liam.pine.GoFormat;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPoolConfig;
 
 import java.util.*;
 
@@ -15,18 +14,22 @@ import java.util.*;
  *   CommonOutput: [<result_field>, <cache_hit_field>]
  *   ItemInput:    []
  *   ItemOutput:   []
+ *
+ * <p>The Redis connection pool is owned by the ResourceManager (resource type
+ * redis_connection), not the operator: the pool is borrowed per request via
+ * resource_name. Multiple Redis operators referencing the same resource_name
+ * share one pool.
  */
-public class TransformRedisGet extends AbstractOperator implements ConcurrentSafe {
-    private JedisPool pool;
+public class TransformRedisGet extends AbstractOperator implements ConcurrentSafe, ResourceAware {
+    private String resourceName;
+    private ResourceProvider resourceProvider;
     private String keyPrefix;
     private String dataType = "string";
     private boolean failOnError;
 
     @Override
     public void init(OperatorParams params) {
-        String addr = params.getString("redis_addr", "");
-        String password = params.getString("redis_password", "");
-        int db = params.getInt("redis_db", 0);
+        resourceName = params.getString("resource_name", "");
         keyPrefix = params.getString("key_prefix", "");
         Object dt = params.get("data_type");
         if (dt instanceof String && !((String) dt).isEmpty()) {
@@ -36,17 +39,11 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         if (foe instanceof Boolean) {
             failOnError = (Boolean) foe;
         }
+    }
 
-        if (!addr.isEmpty()) {
-            String host = addr.contains(":") ? addr.substring(0, addr.indexOf(':')) : addr;
-            int port = addr.contains(":") ? Integer.parseInt(addr.substring(addr.indexOf(':') + 1)) : 6379;
-            JedisPoolConfig cfg = new JedisPoolConfig();
-            if (password.isEmpty()) {
-                pool = new JedisPool(cfg, host, port, 2000, null, db);
-            } else {
-                pool = new JedisPool(cfg, host, port, 2000, password, db);
-            }
-        }
+    @Override
+    public void setResourceProvider(ResourceProvider provider) {
+        this.resourceProvider = provider;
     }
 
     @Override
@@ -54,6 +51,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         String resultField = commonOutput().get(0);
         String cacheHitField = commonOutput().get(1);
 
+        JedisPool pool = borrowPool(resourceProvider, resourceName);
         if (pool == null) {
             output.setCommon(cacheHitField, false);
             return;
@@ -118,6 +116,24 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
             }
             output.setCommon(cacheHitField, false);
         }
+    }
+
+    /**
+     * Borrows a {@link JedisPool} from a redis_connection resource by name.
+     * Returns null when no provider is injected, the resource is missing, or its
+     * value is not a JedisPool — in which case the caller degrades (a get treats
+     * it as a cache miss; a set becomes a no-op), mirroring Go's borrowRedis.
+     */
+    static JedisPool borrowPool(ResourceProvider provider, String resourceName) {
+        if (provider == null) {
+            return null;
+        }
+        ResourceProvider.GetResult r = provider.get(resourceName);
+        if (!r.exists()) {
+            return null;
+        }
+        Object v = r.value();
+        return (v instanceof JedisPool) ? (JedisPool) v : null;
     }
 
     static String buildKeySuffix(OperatorInput input, List<String> fields) {
