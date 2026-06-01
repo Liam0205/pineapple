@@ -37,11 +37,12 @@ func (o *testResourceReadOp) Execute(ctx context.Context, _ *pine.OperatorInput,
 	if rp == nil {
 		return fmt.Errorf("no resource provider in context")
 	}
-	val, ok := rp.Get(o.resourceName)
+	h, ok := rp.Get(o.resourceName)
 	if !ok {
 		return fmt.Errorf("resource %q not found", o.resourceName)
 	}
-	out.SetCommon("resource_value", val)
+	defer h.Release()
+	out.SetCommon("resource_value", h.Value())
 	return nil
 }
 

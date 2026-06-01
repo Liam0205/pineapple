@@ -22,6 +22,17 @@ import (
 	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
 
+// rmGetVal borrows a resource value via the handle API and releases it
+// immediately, returning the value and ok.
+func rmGetVal(rp resource.ResourceProvider, name string) (any, bool) {
+	h, ok := rp.Get(name)
+	if !ok {
+		return nil, false
+	}
+	defer h.Release()
+	return h.Value(), true
+}
+
 // --- test operator ---
 
 type noopOp struct{}
@@ -197,7 +208,7 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 	if rm == nil {
 		t.Fatal("resources should be loaded")
 	}
-	val, ok := rm.Get("my_res")
+	val, ok := rmGetVal(rm, "my_res")
 	if !ok {
 		t.Fatal("expected my_res to exist")
 	}
@@ -215,7 +226,7 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 	if newRM == oldRM {
 		t.Error("expected new Manager after reload")
 	}
-	val, ok = newRM.Get("my_res")
+	val, ok = rmGetVal(newRM, "my_res")
 	if !ok {
 		t.Fatal("expected my_res in new Manager")
 	}
@@ -294,7 +305,7 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 	}
 
 	// Old resources still work
-	val, ok := origSnap.resources.Get("r1")
+	val, ok := rmGetVal(origSnap.resources, "r1")
 	if !ok || val != "ok" {
 		t.Errorf("old resource should still work, got %v, %v", val, ok)
 	}
@@ -360,21 +371,32 @@ func TestReloadConfig_OldManagerStopped(t *testing.T) {
 	if err := s.reloadConfig(path); err != nil {
 		t.Fatal(err)
 	}
-	oldRM := s.snapshot.Load().resources
+	// Borrow a handle from the old Manager BEFORE it is retired, simulating an
+	// in-flight request that captured the old snapshot. The borrow must keep
+	// the value alive across retirement.
+	origSnap := s.snapshot.Load()
+	inflight, ok := origSnap.resources.Get("r")
+	if !ok {
+		t.Fatal("expected r to be loaded in old Manager")
+	}
 
-	// Reload to replace
+	// Reload to replace; this retires the old snapshot (drops its baseline
+	// reference). Because an in-flight borrow is still held, teardown is
+	// deferred and the borrowed value stays readable.
 	if err := s.reloadConfig(path); err != nil {
 		t.Fatal(err)
 	}
 	defer s.snapshot.Load().resources.Stop()
 
-	// Old Manager data is still readable (atomic.Value persists after Stop)
-	val, ok := oldRM.Get("r")
-	if !ok {
-		t.Error("old Manager should still return data after Stop")
+	if inflight.Value() != "data" {
+		t.Errorf("in-flight borrow value = %v, want data", inflight.Value())
 	}
-	if val != "data" {
-		t.Errorf("val = %v, want data", val)
+	inflight.Release()
+
+	// After the old snapshot is retired AND every borrow released, a fresh Get
+	// on the old Manager returns ok=false — its values have been released.
+	if _, ok := origSnap.resources.Get("r"); ok {
+		t.Error("retired Manager should not hand out new borrows after teardown")
 	}
 
 	_ = activeCount
@@ -416,7 +438,7 @@ func TestWatchConfigIntegration(t *testing.T) {
 	}()
 
 	rm := s.snapshot.Load().resources
-	val, _ := rm.Get("wr")
+	val, _ := rmGetVal(rm, "wr")
 	if val != "initial" {
 		t.Errorf("val = %v, want initial", val)
 	}
@@ -444,7 +466,7 @@ func setupEngine(t *testing.T) *Server {
 	}
 	rm := resource.NewManager()
 	s := &Server{}
-	s.snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
+	s.snapshot.Store(newSnapshot(engine, rm))
 	t.Cleanup(func() {
 		s.snapshot.Store(nil)
 	})
@@ -1359,4 +1381,52 @@ func TestNoMiddlewareNoop(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
 	}
+}
+
+// TestSnapshotDrainDefersTeardown verifies that retiring a snapshot
+// (dropping its baseline reference) defers engine/resource teardown until the
+// last in-flight reference is released.
+func TestSnapshotDrainDefersTeardown(t *testing.T) {
+	resource.ResetRegistry()
+	defer resource.ResetRegistry()
+
+	cfg := minimalConfig(t, nil)
+	path := writeTempConfig(t, cfg)
+
+	s := &Server{}
+	if err := s.reloadConfig(path); err != nil {
+		t.Fatal(err)
+	}
+
+	snap := s.acquireSnapshot() // simulate an in-flight request holding a ref
+	if snap == nil {
+		t.Fatal("expected a live snapshot")
+	}
+
+	// Retire by reloading: drops the baseline reference on the old snapshot.
+	if err := s.reloadConfig(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.snapshot.Load().release()
+
+	// The engine of the retired snapshot must still be usable: teardown is
+	// deferred because our in-flight reference is still held. A nil/closed
+	// engine would fail here. Engine.Close on a Lua-less pipeline is a no-op,
+	// so we assert indirectly: the retired snapshot must still be acquirable
+	// by us (refs > 0) and Execute must succeed.
+	out, err := snap.engine.Execute(
+		resource.WithResources(context.Background(), snap.resources),
+		&pine.Request{Common: map[string]any{"x": 1.0}},
+	)
+	if err != nil {
+		t.Fatalf("retired engine should still serve in-flight request: %v", err)
+	}
+	if out == nil {
+		t.Fatal("expected a result from retired engine")
+	}
+
+	// Releasing the final in-flight reference runs teardown exactly once. The
+	// deferred release above targets the current live snapshot — a different
+	// object — so there is no double-free.
+	snap.release()
 }

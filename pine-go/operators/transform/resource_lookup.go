@@ -67,10 +67,12 @@ func (o *ResourceLookupOp) Execute(ctx context.Context, in *pine.OperatorInput, 
 	if rp == nil {
 		return fmt.Errorf("transform_resource_lookup: no resource provider in context")
 	}
-	raw, ok := rp.Get(o.resourceName)
+	h, ok := rp.Get(o.resourceName)
 	if !ok {
 		return fmt.Errorf("transform_resource_lookup: resource %q not found", o.resourceName)
 	}
+	defer h.Release()
+	raw := h.Value()
 	table, ok := raw.(map[string]any)
 	if !ok {
 		return fmt.Errorf("transform_resource_lookup: resource %q is %T, want map[string]any", o.resourceName, raw)

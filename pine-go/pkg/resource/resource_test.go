@@ -10,6 +10,18 @@ import (
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
 
+// getVal borrows a resource value via the handle API and releases it
+// immediately, returning the value and ok. For tests that only assert on the
+// snapshot value, not on reference-counting behaviour.
+func getVal(rp ResourceProvider, name string) (any, bool) {
+	h, ok := rp.Get(name)
+	if !ok {
+		return nil, false
+	}
+	defer h.Release()
+	return h.Value(), true
+}
+
 func TestBasicRegisterStartGet(t *testing.T) {
 	m := NewManager()
 	m.Register("counter", func(ctx context.Context) (any, error) {
@@ -21,7 +33,7 @@ func TestBasicRegisterStartGet(t *testing.T) {
 	}
 	defer m.Stop()
 
-	val, ok := m.Get("counter")
+	val, ok := getVal(m, "counter")
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -37,7 +49,7 @@ func TestGetUnknownResource(t *testing.T) {
 	}
 	defer m.Stop()
 
-	_, ok := m.Get("nonexistent")
+	_, ok := getVal(m, "nonexistent")
 	if ok {
 		t.Error("expected ok=false for unknown resource")
 	}
@@ -77,7 +89,7 @@ func TestRefreshFailureKeepsOldValue(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Should still have the initial value
-	val, ok := m.Get("flaky")
+	val, ok := getVal(m, "flaky")
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -105,7 +117,7 @@ func TestRefreshUpdatesValue(t *testing.T) {
 	defer m.Stop()
 
 	// Initial value should be 1
-	val, _ := m.Get("inc")
+	val, _ := getVal(m, "inc")
 	if val != 1 {
 		t.Errorf("initial val = %v, want 1", val)
 	}
@@ -113,7 +125,7 @@ func TestRefreshUpdatesValue(t *testing.T) {
 	// Wait for a refresh
 	time.Sleep(150 * time.Millisecond)
 
-	val, _ = m.Get("inc")
+	val, _ = getVal(m, "inc")
 	if val.(int) <= 1 {
 		t.Errorf("expected updated value > 1, got %v", val)
 	}
@@ -164,12 +176,12 @@ func TestContextInjection(t *testing.T) {
 		t.Fatal("expected non-nil after injection")
 	}
 
-	val, ok := rp.Get("key")
+	val, ok := getVal(rp, "key")
 	if !ok || val != "value" {
 		t.Errorf("Get(key) = %v, %v", val, ok)
 	}
 
-	_, ok = rp.Get("missing")
+	_, ok = getVal(rp, "missing")
 	if ok {
 		t.Error("expected ok=false for missing key")
 	}
@@ -181,17 +193,17 @@ func TestStaticProvider(t *testing.T) {
 		"y": "hello",
 	})
 
-	v, ok := s.Get("x")
+	v, ok := getVal(s, "x")
 	if !ok || v != 1 {
 		t.Errorf("x = %v, %v", v, ok)
 	}
 
-	v, ok = s.Get("y")
+	v, ok = getVal(s, "y")
 	if !ok || v != "hello" {
 		t.Errorf("y = %v, %v", v, ok)
 	}
 
-	_, ok = s.Get("z")
+	_, ok = getVal(s, "z")
 	if ok {
 		t.Error("expected false for z")
 	}
@@ -284,7 +296,7 @@ func TestRegisterAndLoadFromRootConfig(t *testing.T) {
 	}
 	defer m.Stop()
 
-	val, ok := m.Get("my_resource")
+	val, ok := getVal(m, "my_resource")
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -368,7 +380,7 @@ func TestLoadFromRootConfigDefaultInterval(t *testing.T) {
 	}
 	defer m.Stop()
 
-	val, ok := m.Get("res")
+	val, ok := getVal(m, "res")
 	if !ok || val != "ok" {
 		t.Errorf("Get(res) = %v, %v", val, ok)
 	}
@@ -504,11 +516,11 @@ func TestLoadFromRootConfigWithManualRegister(t *testing.T) {
 	}
 	defer m.Stop()
 
-	v1, ok := m.Get("manual_res")
+	v1, ok := getVal(m, "manual_res")
 	if !ok || v1 != "from_manual" {
 		t.Errorf("manual_res = %v, %v", v1, ok)
 	}
-	v2, ok := m.Get("config_res")
+	v2, ok := getVal(m, "config_res")
 	if !ok || v2 != "from_config" {
 		t.Errorf("config_res = %v, %v", v2, ok)
 	}

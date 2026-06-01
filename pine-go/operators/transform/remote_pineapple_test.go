@@ -325,3 +325,28 @@ func TestRemotePineapple_AllowPrivateOverride(t *testing.T) {
 		t.Fatalf("expected Init to succeed with allow_private=true, got: %v", err)
 	}
 }
+
+func TestRemotePineappleOp_Close(t *testing.T) {
+	op := &RemotePineappleOp{}
+	if err := op.Init(map[string]any{
+		"host": "127.0.0.1", "port": float64(8080), "allow_private": true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if op.client == nil {
+		t.Fatal("expected client created")
+	}
+	if err := op.Close(); err != nil {
+		t.Errorf("Close returned error: %v", err)
+	}
+	if op.client != nil {
+		t.Error("Close did not clear client")
+	}
+	if err := op.Close(); err != nil {
+		t.Errorf("second Close returned error: %v", err)
+	}
+}
+
+func TestRemotePineappleOp_ImplementsCloser(t *testing.T) {
+	var _ pine.Closer = (*RemotePineappleOp)(nil)
+}

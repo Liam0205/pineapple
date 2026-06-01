@@ -130,6 +130,20 @@ func (o *RemotePineappleOp) Init(params map[string]any) error {
 	return nil
 }
 
+// Close implements pine.Closer. It releases the HTTP client's idle connection
+// pool (held by its Transport) on engine retirement. Safe to call once; a
+// never-initialized operator (nil client) is a no-op.
+func (o *RemotePineappleOp) Close() error {
+	if o.client == nil {
+		return nil
+	}
+	if tr, ok := o.client.Transport.(*http.Transport); ok {
+		tr.CloseIdleConnections()
+	}
+	o.client = nil
+	return nil
+}
+
 func (o *RemotePineappleOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	commonReqFields := o.commonReq
 	if len(commonReqFields) == 0 {

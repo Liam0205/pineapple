@@ -48,9 +48,74 @@ type Config struct {
 
 // serverSnapshot bundles engine and resources into a single atomic unit
 // so that requests always observe a consistent pair.
+//
+// It carries a reference count so that engine/resource teardown on retirement
+// (config hot-reload or shutdown) is deferred until all in-flight requests
+// that captured this snapshot have finished — guaranteeing no request ever
+// uses an operator resource that has already been closed. The count starts at
+// 1 (the "live" baseline reference held by s.snapshot); retiring the snapshot
+// drops that baseline, and the last reference to reach zero runs teardown.
 type serverSnapshot struct {
 	engine    *pine.Engine
 	resources *resource.Manager
+	refs      atomic.Int64
+}
+
+// newSnapshot builds a live snapshot with the baseline reference held.
+func newSnapshot(engine *pine.Engine, rm *resource.Manager) *serverSnapshot {
+	s := &serverSnapshot{engine: engine, resources: rm}
+	s.refs.Store(1)
+	return s
+}
+
+// acquire takes an in-flight reference, returning false if the snapshot has
+// already been retired (count reached its baseline drop). The CAS only ever
+// increments a positive count, so once teardown is committed (count 0) no new
+// reference can revive it. A request that observes false must fall back to the
+// current live snapshot.
+func (s *serverSnapshot) acquire() bool {
+	for {
+		n := s.refs.Load()
+		if n <= 0 {
+			return false
+		}
+		if s.refs.CompareAndSwap(n, n+1) {
+			return true
+		}
+	}
+}
+
+// release drops one reference. When the count reaches zero (baseline dropped
+// and all in-flight references released) it runs teardown exactly once.
+func (s *serverSnapshot) release() {
+	if s.refs.Add(-1) == 0 {
+		s.teardown()
+	}
+}
+
+// teardown stops the resource manager and closes the engine. Called once, by
+// whichever goroutine drops the final reference.
+func (s *serverSnapshot) teardown() {
+	s.resources.Stop()
+	if err := s.engine.Close(); err != nil {
+		log.Printf("[retire] engine close: %v", err)
+	}
+}
+
+// acquireSnapshot returns the current live snapshot with an in-flight reference
+// held; the caller must release() it when done. It retries if the snapshot is
+// retired between Load and acquire, since a retirement always installs a new
+// live snapshot first. Returns nil only before the initial snapshot is stored.
+func (s *Server) acquireSnapshot() *serverSnapshot {
+	for {
+		snap := s.snapshot.Load()
+		if snap == nil {
+			return nil
+		}
+		if snap.acquire() {
+			return snap
+		}
+	}
 }
 
 // Server holds all instance-level mutable state for the Pine HTTP server.
@@ -143,15 +208,13 @@ func (s *Server) run(cfg Config) error {
 		log.Fatalf("failed to start resource manager: %v", err)
 	}
 
-	s.snapshot.Store(&serverSnapshot{engine: engine, resources: rm})
+	s.snapshot.Store(newSnapshot(engine, rm))
 	defer func() {
 		// Load at shutdown time, not defer-registration time: a hot-reload may
 		// have swapped the snapshot, and the live one must be the one torn down.
-		snap := s.snapshot.Load()
-		snap.resources.Stop()
-		if err := snap.engine.Close(); err != nil {
-			log.Printf("[shutdown] engine close: %v", err)
-		}
+		// Dropping the baseline reference runs teardown once the last in-flight
+		// request releases its reference.
+		s.snapshot.Load().release()
 	}()
 
 	// Validate resource dependencies against pipeline config.
@@ -233,12 +296,13 @@ func (s *Server) reloadConfig(path string) error {
 		return err
 	}
 
-	old := s.snapshot.Swap(&serverSnapshot{engine: engine, resources: newRM})
+	old := s.snapshot.Swap(newSnapshot(engine, newRM))
 	if old != nil {
-		old.resources.Stop()
-		if err := old.engine.Close(); err != nil {
-			log.Printf("[reload] retired engine close: %v", err)
-		}
+		// Drop the baseline reference. Teardown (resource Stop + engine Close)
+		// runs once the last in-flight request that captured the old snapshot
+		// releases its reference, so no request is ever served with a
+		// closed operator resource.
+		old.release()
 	}
 	return nil
 }
@@ -319,11 +383,12 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap := s.snapshot.Load()
+	snap := s.acquireSnapshot()
 	if snap == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "engine not loaded"})
 		return
 	}
+	defer snap.release()
 
 	var req executeRequest
 	r.Body = http.MaxBytesReader(w, r.Body, s.effectiveMaxRequestBodySize())
@@ -394,11 +459,12 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap := s.snapshot.Load()
+	snap := s.acquireSnapshot()
 	if snap == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "engine not loaded"})
 		return
 	}
+	defer snap.release()
 
 	resp := map[string]any{
 		"operators": snap.engine.Stats(),
@@ -428,11 +494,12 @@ func (s *Server) handleDAG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap := s.snapshot.Load()
+	snap := s.acquireSnapshot()
 	if snap == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "engine not loaded"})
 		return
 	}
+	defer snap.release()
 
 	format := r.URL.Query().Get("format")
 	if format == "" {
