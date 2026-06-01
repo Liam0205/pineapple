@@ -10,8 +10,6 @@ FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 
 raw_pass=0
 raw_total=0
-py_raw_pass=0
-py_raw_total=0
 cpp_raw_pass=0
 cpp_raw_total=0
 
@@ -81,7 +79,6 @@ print(len(cases))
 
     go_rc=$(cat "${out_prefix}.go.rc")
     java_rc=$(cat "${out_prefix}.java.rc")
-    py_rc=$(cat "${out_prefix}.py.rc")
 
     if [[ "$go_rc" != "0" ]]; then
       raw_total=$((raw_total - 1)); continue
@@ -122,35 +119,6 @@ print(len(cases))
       fi
     fi
 
-    # Go vs Python raw byte
-    py_raw_total=$((py_raw_total + 1))
-    if [[ "$py_rc" != "0" ]]; then
-      py_raw_total=$((py_raw_total - 1)); continue
-    fi
-
-    py_raw=$(cat "${out_prefix}.py.out")
-
-    if [[ "$norm_fn" == "normalize_json_set" ]]; then
-      go_norm=${go_norm:-$(echo "$go_raw" | normalize_json_set)}
-      py_norm=$(echo "$py_raw" | normalize_json_set)
-      if [[ "$go_norm" == "$py_norm" ]]; then
-        py_raw_pass=$((py_raw_pass + 1))
-      else
-        fail "raw byte divergence (Go vs Python): $fname case $i (values differ, not just key ordering)"
-      fi
-    elif [[ "$go_raw" == "$py_raw" ]]; then
-      py_raw_pass=$((py_raw_pass + 1))
-    else
-      go_norm=${go_norm:-$(echo "$go_raw" | normalize_json)}
-      py_norm=$(echo "$py_raw" | normalize_json)
-      if [[ "$go_norm" == "$py_norm" ]]; then
-        py_raw_pass=$((py_raw_pass + 1))
-        echo "    [W] key ordering differs (Go vs Python): $fname case $i" >&2
-      else
-        fail "raw byte divergence (Go vs Python): $fname case $i (values differ, not just key ordering)"
-      fi
-    fi
-
     # Go vs C++ raw byte
     if [[ -n "${CPP_RUN:-}" && -f "${out_prefix}.cpp.rc" ]]; then
       cpp_raw_total=$((cpp_raw_total + 1))
@@ -188,12 +156,6 @@ if [[ $raw_total -gt 0 && $raw_pass -eq $raw_total ]]; then
   pass "raw byte execution parity Go vs Java ($raw_pass/$raw_total cases)"
 elif [[ $raw_total -eq 0 ]]; then
   pass "raw byte execution parity Go vs Java (no cases, skipped)"
-fi
-
-if [[ $py_raw_total -gt 0 && $py_raw_pass -eq $py_raw_total ]]; then
-  pass "raw byte execution parity Go vs Python ($py_raw_pass/$py_raw_total cases)"
-elif [[ $py_raw_total -eq 0 ]]; then
-  pass "raw byte execution parity Go vs Python (no cases, skipped)"
 fi
 
 if [[ -n "${CPP_RUN:-}" ]]; then

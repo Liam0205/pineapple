@@ -44,10 +44,6 @@ jobs:
         run: go build -o pineapple-run ./cmd/pineapple-run/
         working-directory: pine-go
 
-      - name: Install Python engine
-        run: pip install -e ".[dev]"
-        working-directory: pine-python
-
       - name: Build Java engine
         run: mvn package -B -q -DskipTests
         working-directory: pine-java
@@ -69,7 +65,7 @@ jobs:
             --stability-runs ${{ inputs.stability-runs || '3' }} \
             --go-bin pine-go/pineapple-run \
             --cpp-bin pine-cpp/build/pineapple-run \
-            --engines go,python,java,cpp \
+            --engines go,java,cpp \
             --save-dir /tmp/diff-fuzz-nightly \
             $EXTRA_FLAGS \
             2>&1 | tee diff-fuzz-output.log
@@ -154,18 +150,18 @@ jobs:
              # Go
              cd pine-go && go run ./cmd/pineapple-run/ -config /path/to/config.json -request /path/to/request.json
 
-             # Python
-             cd pine-python && python -m pine.cli.run -config /path/to/config.json -request /path/to/request.json
-
              # Java
              cd pine-java && mvn -q exec:java -Dexec.mainClass="page.liam.pine.Main" -Dexec.args="-config /path/to/config.json -request /path/to/request.json"
+
+             # C++
+             cd pine-cpp && ./build/pineapple-run -config /path/to/config.json -request /path/to/request.json
              \`\`\`
 
           3. Compare outputs. Each case directory contains:
              - \`config.json\` — pipeline configuration
              - \`request.json\` — input request
              - \`info.txt\` — which engines diverged and their return codes
-             - \`{go,python,java}_output.json\` — actual output from each engine
+             - \`{go,java,cpp}_output.json\` — actual output from each engine
 
           ### Last 30 lines of fuzz output
           \`\`\`

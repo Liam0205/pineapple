@@ -8,7 +8,7 @@
     --iterations N          每个 fixture 的顺序请求次数 (默认 200)
     --concurrency C         并发等级列表 (默认 "1,4,16,64")
     --fixtures-dir PATH     benchmark fixture 目录 (默认 fixtures/benchmarks)
-    --engines ENGINES       要测试的引擎列表 (默认 "go,java,python")
+    --engines ENGINES       要测试的引擎列表 (默认 "go,java")
     --output PATH           结果 JSON 文件路径 (默认 bench-results.json)
     --skip-build            跳过引擎编译步骤
     --warmup N              预热请求数 (默认 20)
@@ -43,7 +43,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = REPO_ROOT / "fixtures" / "benchmarks"
 
 # 端口分配
-PORTS = {"go": 9001, "java": 9002, "python": 9003}
+PORTS = {"go": 9001, "java": 9002}
 
 
 # ─── 数据结构 ─────────────────────────────────────────────────────────────────
@@ -115,9 +115,6 @@ def build_engines(engines: list[str], skip_build: bool = False):
         )
         print("[build] Java 编译完成")
 
-    if "python" in engines:
-        print("[build] Python 引擎无需编译")
-
 
 def _wait_for_port(port: int, timeout: float = 30.0) -> bool:
     """等待端口可访问。"""
@@ -186,19 +183,6 @@ def start_engine(engine: str, config_path: str, port: int) -> Generator[subproce
                     "-cp", classpath,
                     "page.liam.pine.PineServer",
                 ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=env,
-            )
-
-        elif engine == "python":
-            proc = subprocess.Popen(
-                [
-                    sys.executable, "-m", "pine.cli.server",
-                    "-config", config_path,
-                    "-addr", f":{port}",
-                ],
-                cwd=REPO_ROOT / "pine-python",
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 env=env,
@@ -476,7 +460,7 @@ def main():
     parser.add_argument("--iterations", type=int, default=200, help="延迟测试迭代次数 (默认 200)")
     parser.add_argument("--concurrency", default="1,4,16,64", help="并发等级列表 (逗号分隔)")
     parser.add_argument("--fixtures-dir", type=Path, default=FIXTURES_DIR, help="fixture 目录")
-    parser.add_argument("--engines", default="go,java,python", help="引擎列表 (逗号分隔)")
+    parser.add_argument("--engines", default="go,java", help="引擎列表 (逗号分隔)")
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "bench-results.json", help="结果输出路径")
     parser.add_argument("--skip-build", action="store_true", help="跳过编译步骤")
     parser.add_argument("--warmup", type=int, default=20, help="预热请求数 (默认 20)")

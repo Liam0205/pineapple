@@ -4,13 +4,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_parallel.sh"
 
 # ---------- 3. Dual-engine execution parity ----------
 echo
-echo "==> [3/$TOTAL_SECTIONS] Execution parity (Go vs Java vs Python vs C++ on same config+request)"
+echo "==> [3/$TOTAL_SECTIONS] Execution parity (Go vs Java vs C++ on same config+request)"
 
 FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 exec_pass=0
 exec_total=0
-py_exec_pass=0
-py_exec_total=0
 cpp_exec_pass=0
 cpp_exec_total=0
 
@@ -56,14 +54,12 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
 " 2>/dev/null || continue
 
   case_results_j=""
-  case_results_p=""
   case_results_c=""
   for ((i=0; i<cases; i++)); do
     req_file="$WORK_DIR/req_${fname}_${i}.json"
     config_file="$WORK_DIR/config_${fname}"
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     exec_total=$((exec_total + 1))
-    py_exec_total=$((py_exec_total + 1))
     if [[ -n "${CPP_RUN:-}" ]]; then
       cpp_exec_total=$((cpp_exec_total + 1))
     fi
@@ -85,23 +81,18 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
 
     go_rc=$(cat "${out_prefix}.go.rc")
     java_rc=$(cat "${out_prefix}.java.rc")
-    py_rc=$(cat "${out_prefix}.py.rc")
 
     if [[ -n "$expect_error" ]]; then
       # All should fail
       if [[ "$go_rc" == "0" ]]; then
-        fail "expect_error but Go succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
+        fail "expect_error but Go succeeded: $fname case $i"; case_results_j+="✗"; case_results_c+="✗"; continue
       fi
       if [[ "$java_rc" == "0" ]]; then
-        fail "expect_error but Java succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
-      fi
-      if [[ "$py_rc" == "0" ]]; then
-        fail "expect_error but Python succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
+        fail "expect_error but Java succeeded: $fname case $i"; case_results_j+="✗"; case_results_c+="✗"; continue
       fi
 
       go_err=$(cat "${out_prefix}.go.err")
       java_err=$(cat "${out_prefix}.java.err")
-      py_err=$(cat "${out_prefix}.py.err")
 
       err_ok=true
       if [[ "$go_err" != *"$expect_error"* ]]; then
@@ -109,9 +100,6 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
       fi
       if [[ "$java_err" != *"$expect_error"* ]]; then
         fail "Java error mismatch: $fname case $i (want '$expect_error')"; err_ok=false
-      fi
-      if [[ "$py_err" != *"$expect_error"* ]]; then
-        fail "Python error mismatch: $fname case $i (want '$expect_error')"; err_ok=false
       fi
 
       # C++ error parity (if available)
@@ -129,16 +117,13 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
 
       if [[ "$err_ok" == "true" ]]; then
         exec_pass=$((exec_pass + 1))
-        py_exec_pass=$((py_exec_pass + 1))
         case_results_j+="✓"
-        case_results_p+="✓"
         if [[ -n "${CPP_RUN:-}" ]]; then
           cpp_exec_pass=$((cpp_exec_pass + 1))
           case_results_c+="✓"
         fi
       else
         case_results_j+="✗"
-        case_results_p+="✗"
         case_results_c+="✗"
       fi
       continue
@@ -146,7 +131,7 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
 
     # Normal case: all should succeed
     if [[ "$go_rc" != "0" ]]; then
-      fail "execution Go failed: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; continue
+      fail "execution Go failed: $fname case $i"; case_results_j+="✗"; continue
     fi
     if [[ "$java_rc" != "0" ]]; then
       fail "execution Java failed: $fname case $i"; case_results_j+="✗"
@@ -175,21 +160,6 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
       fi
     fi
 
-    if [[ "$py_rc" != "0" ]]; then
-      fail "execution Python failed: $fname case $i"; case_results_p+="✗"; continue
-    fi
-
-    py_norm=$(cat "${out_prefix}.py.out" | $norm_fn)
-
-    if [[ "$go_norm" == "$py_norm" ]]; then
-      py_exec_pass=$((py_exec_pass + 1))
-      case_results_p+="✓"
-    else
-      fail "execution divergence (Go vs Python): $fname case $i"
-      diff <(echo "$go_norm" | python3 -m json.tool) <(echo "$py_norm" | python3 -m json.tool) >&2 || true
-      case_results_p+="✗"
-    fi
-
     # C++ comparison (if available)
     if [[ -n "${CPP_RUN:-}" && -f "${out_prefix}.cpp.rc" ]]; then
       cpp_rc=$(cat "${out_prefix}.cpp.rc")
@@ -211,19 +181,13 @@ with open('$WORK_DIR/config_${fname}', 'w') as cf:
   done
   cpp_tag=""
   [[ -n "${CPP_RUN:-}" ]] && cpp_tag="C${case_results_c}"
-  echo "    $fname ($cases cases) [J${case_results_j}P${case_results_p}${cpp_tag}]"
+  echo "    $fname ($cases cases) [J${case_results_j}${cpp_tag}]"
 done
 
 if [[ $exec_total -gt 0 && $exec_pass -eq $exec_total ]]; then
   pass "execution parity Go vs Java ($exec_pass/$exec_total cases)"
 elif [[ $exec_total -eq 0 ]]; then
   pass "execution parity Go vs Java (no pipeline fixture cases found, skipped)"
-fi
-
-if [[ $py_exec_total -gt 0 && $py_exec_pass -eq $py_exec_total ]]; then
-  pass "execution parity Go vs Python ($py_exec_pass/$py_exec_total cases)"
-elif [[ $py_exec_total -eq 0 ]]; then
-  pass "execution parity Go vs Python (no pipeline fixture cases found, skipped)"
 fi
 
 if [[ -n "${CPP_RUN:-}" ]]; then

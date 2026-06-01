@@ -9,8 +9,6 @@ echo "==> [4/$TOTAL_SECTIONS] Column-store execution parity (storage_mode=column
 FIXTURES_DIR="$REPO_ROOT/fixtures/pipelines"
 col_pass=0
 col_total=0
-py_col_pass=0
-py_col_total=0
 cpp_col_pass=0
 cpp_col_total=0
 
@@ -55,14 +53,12 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
 " 2>/dev/null || continue
 
   case_results_j=""
-  case_results_p=""
   case_results_c=""
   for ((i=0; i<cases; i++)); do
     req_file="$WORK_DIR/col_req_${fname}_${i}.json"
     config_file="$WORK_DIR/col_config_${fname}"
     [[ -f "$req_file" && -f "$config_file" ]] || continue
     col_total=$((col_total + 1))
-    py_col_total=$((py_col_total + 1))
     if [[ -n "${CPP_RUN:-}" ]]; then
       cpp_col_total=$((cpp_col_total + 1))
     fi
@@ -84,27 +80,21 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
 
     go_rc=$(cat "${out_prefix}.go.rc")
     java_rc=$(cat "${out_prefix}.java.rc")
-    py_rc=$(cat "${out_prefix}.py.rc")
 
     if [[ -n "$expect_error" ]]; then
       if [[ "$go_rc" == "0" ]]; then
-        fail "column-store expect_error but Go succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
+        fail "column-store expect_error but Go succeeded: $fname case $i"; case_results_j+="✗"; case_results_c+="✗"; continue
       fi
       if [[ "$java_rc" == "0" ]]; then
-        fail "column-store expect_error but Java succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
-      fi
-      if [[ "$py_rc" == "0" ]]; then
-        fail "column-store expect_error but Python succeeded: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; case_results_c+="✗"; continue
+        fail "column-store expect_error but Java succeeded: $fname case $i"; case_results_j+="✗"; case_results_c+="✗"; continue
       fi
 
       go_err=$(cat "${out_prefix}.go.err")
       java_err=$(cat "${out_prefix}.java.err")
-      py_err=$(cat "${out_prefix}.py.err")
 
       err_ok=true
       [[ "$go_err" != *"$expect_error"* ]] && { fail "column-store Go error mismatch: $fname case $i"; err_ok=false; }
       [[ "$java_err" != *"$expect_error"* ]] && { fail "column-store Java error mismatch: $fname case $i"; err_ok=false; }
-      [[ "$py_err" != *"$expect_error"* ]] && { fail "column-store Python error mismatch: $fname case $i"; err_ok=false; }
 
       # C++ error parity (if available)
       if [[ -n "${CPP_RUN:-}" ]]; then
@@ -120,21 +110,21 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
       fi
 
       if [[ "$err_ok" == "true" ]]; then
-        col_pass=$((col_pass + 1)); py_col_pass=$((py_col_pass + 1))
-        case_results_j+="✓"; case_results_p+="✓"
+        col_pass=$((col_pass + 1))
+        case_results_j+="✓"
         if [[ -n "${CPP_RUN:-}" ]]; then
           cpp_col_pass=$((cpp_col_pass + 1))
           case_results_c+="✓"
         fi
       else
-        case_results_j+="✗"; case_results_p+="✗"
+        case_results_j+="✗"
         case_results_c+="✗"
       fi
       continue
     fi
 
     if [[ "$go_rc" != "0" ]]; then
-      fail "column-store Go failed: $fname case $i"; case_results_j+="✗"; case_results_p+="✗"; continue
+      fail "column-store Go failed: $fname case $i"; case_results_j+="✗"; continue
     fi
     if [[ "$java_rc" != "0" ]]; then
       fail "column-store Java failed: $fname case $i"; case_results_j+="✗"
@@ -162,20 +152,6 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
       fi
     fi
 
-    if [[ "$py_rc" != "0" ]]; then
-      fail "column-store Python failed: $fname case $i"; case_results_p+="✗"; continue
-    fi
-
-    py_norm=$(cat "${out_prefix}.py.out" | $norm_fn)
-
-    if [[ "$go_norm" == "$py_norm" ]]; then
-      py_col_pass=$((py_col_pass + 1))
-      case_results_p+="✓"
-    else
-      fail "column-store divergence (Go vs Python): $fname case $i"
-      case_results_p+="✗"
-    fi
-
     # C++ comparison (if available)
     if [[ -n "${CPP_RUN:-}" && -f "${out_prefix}.cpp.rc" ]]; then
       cpp_rc=$(cat "${out_prefix}.cpp.rc")
@@ -197,19 +173,13 @@ with open('$WORK_DIR/col_config_${fname}', 'w') as cf:
   done
   cpp_tag=""
   [[ -n "${CPP_RUN:-}" ]] && cpp_tag="C${case_results_c}"
-  echo "    $fname ($cases cases) [J${case_results_j}P${case_results_p}${cpp_tag}]"
+  echo "    $fname ($cases cases) [J${case_results_j}${cpp_tag}]"
 done
 
 if [[ $col_total -gt 0 && $col_pass -eq $col_total ]]; then
   pass "column-store execution parity Go vs Java ($col_pass/$col_total cases)"
 elif [[ $col_total -eq 0 ]]; then
   pass "column-store execution parity Go vs Java (no cases, skipped)"
-fi
-
-if [[ $py_col_total -gt 0 && $py_col_pass -eq $py_col_total ]]; then
-  pass "column-store execution parity Go vs Python ($py_col_pass/$py_col_total cases)"
-elif [[ $py_col_total -eq 0 ]]; then
-  pass "column-store execution parity Go vs Python (no cases, skipped)"
 fi
 
 if [[ -n "${CPP_RUN:-}" ]]; then

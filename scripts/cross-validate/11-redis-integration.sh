@@ -69,11 +69,6 @@ with open('$REDIS_REQ', 'w') as rf:
       java_redis_result=""
     }
 
-    py_redis_result=$(py_run pine.cli.run -config "$REDIS_CONFIG" -request "$REDIS_REQ" 2>/dev/null) || {
-      fail "redis integration: Python engine failed on set-then-get"
-      py_redis_result=""
-    }
-
     # Run C++ engine (same Redis state)
     cpp_redis_result=""
     if [[ -n "${CPP_RUN:-}" ]]; then
@@ -93,20 +88,6 @@ with open('$REDIS_REQ', 'w') as rf:
       else
         fail "redis integration: set-then-get divergence (Go vs Java)"
         diff <(echo "$go_redis_norm" | python3 -m json.tool) <(echo "$java_redis_norm" | python3 -m json.tool) >&2 || true
-      fi
-    fi
-
-    redis_total=$((redis_total + 1))
-    if [[ -n "$go_redis_result" && -n "$py_redis_result" ]]; then
-      go_redis_norm=$(echo "$go_redis_result" | normalize_json)
-      py_redis_norm=$(echo "$py_redis_result" | normalize_json)
-
-      if [[ "$go_redis_norm" == "$py_redis_norm" ]]; then
-        redis_pass=$((redis_pass + 1))
-        echo "    [A] set-then-get parity Go vs Python → match"
-      else
-        fail "redis integration: set-then-get divergence (Go vs Python)"
-        diff <(echo "$go_redis_norm" | python3 -m json.tool) <(echo "$py_redis_norm" | python3 -m json.tool) >&2 || true
       fi
     fi
 
@@ -187,12 +168,6 @@ GETREQ
       java_get_result=""
     }
 
-    # Run Python engine (same pre-populated Redis key)
-    py_get_result=$(py_run pine.cli.run -config "$REDIS_GET_CONFIG" -request "$REDIS_GET_REQ" 2>/dev/null) || {
-      fail "redis integration: Python engine failed on pre-populated get"
-      py_get_result=""
-    }
-
     # Run C++ engine (same pre-populated Redis key)
     cpp_get_result=""
     if [[ -n "${CPP_RUN:-}" ]]; then
@@ -212,20 +187,6 @@ GETREQ
       else
         fail "redis integration: pre-populated get divergence (Go vs Java)"
         diff <(echo "$go_get_norm" | python3 -m json.tool) <(echo "$java_get_norm" | python3 -m json.tool) >&2 || true
-      fi
-    fi
-
-    redis_total=$((redis_total + 1))
-    if [[ -n "$go_get_result" && -n "$py_get_result" ]]; then
-      go_get_norm=$(echo "$go_get_result" | normalize_json)
-      py_get_norm=$(echo "$py_get_result" | normalize_json)
-
-      if [[ "$go_get_norm" == "$py_get_norm" ]]; then
-        redis_pass=$((redis_pass + 1))
-        echo "    [B] pre-populated get parity Go vs Python → match"
-      else
-        fail "redis integration: pre-populated get divergence (Go vs Python)"
-        diff <(echo "$go_get_norm" | python3 -m json.tool) <(echo "$py_get_norm" | python3 -m json.tool) >&2 || true
       fi
     fi
 

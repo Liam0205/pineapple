@@ -78,18 +78,6 @@ if [[ -n "${CPP_RUN:-}" ]]; then
   fi
 fi
 
-# Test 1c: Python timeout
-cancel_total=$((cancel_total + 1))
-py_exit=0
-timeout 3 bash -c "cd '$REPO_ROOT/pine-python' && python3 -m pine.cli.run -config '$TIMEOUT_CONFIG' -request '$TIMEOUT_REQ'" >/dev/null 2>&1 || py_exit=$?
-
-if [[ $py_exit -ne 0 ]]; then
-  cancel_pass=$((cancel_pass + 1))
-  echo "    [1c] slow Lua + timeout 3s → Python killed (exit=$py_exit)"
-else
-  fail "cancellation parity (Python): Python did not timeout as expected (exit=$py_exit)"
-fi
-
 # Test 2: Lua error produces same error behavior from both engines
 cancel_total=$((cancel_total + 1))
 ERR_LUA_CONFIG="$WORK_DIR/err_lua_config.json"
@@ -158,22 +146,6 @@ if [[ -n "${CPP_RUN:-}" ]]; then
   else
     fail "cancellation parity (C++): C++ did not fail on Lua error (ok=$cpp_lua_ok)"
   fi
-fi
-
-# Test 2c: Python Lua error
-cancel_total=$((cancel_total + 1))
-py_lua_err=$(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.run -config "$ERR_LUA_CONFIG" -request "$TIMEOUT_REQ" 2>&1) && py_lua_ok=true || py_lua_ok=false
-
-if [[ "$py_lua_ok" == "false" ]]; then
-  if echo "$py_lua_err" | grep -qi "intentional"; then
-    cancel_pass=$((cancel_pass + 1))
-    echo "    [2b] Lua error() → Python failed with expected message"
-  else
-    fail "cancellation parity (Python): Lua error message missing 'intentional'"
-    echo "      Python: $py_lua_err" | head -2 >&2
-  fi
-else
-  fail "cancellation parity (Python): Python did not fail on Lua error (ok=$py_lua_ok)"
 fi
 
 if [[ $cancel_total -gt 0 && $cancel_pass -eq $cancel_total ]]; then

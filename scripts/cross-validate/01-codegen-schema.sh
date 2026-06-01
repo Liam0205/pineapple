@@ -9,9 +9,6 @@ echo "    Exporting Go schema..."
 echo "    Exporting Java schema..."
 java_run page.liam.pine.Codegen --export-schema "$WORK_DIR/schema-java.json"
 
-echo "    Exporting Python schema..."
-py_run pine.cli.codegen --export-schema "$WORK_DIR/schema-python.json"
-
 echo "    Comparing structural fields (operator names, param types, required, defaults)..."
 if python3 -c "
 import json, sys
@@ -123,69 +120,7 @@ else
   echo "    (C++ codegen binary not found — skipping C++ schema parity)"
 fi
 
-# 1c. Go vs Python schema parity
-echo "    Comparing Go vs Python schema structure..."
-if python3 -c "
-import json, sys
-
-# Operators intentionally absent from pine-python.
-# Add here when a new operator is registered in Go/Java/C++ but not pine-python.
-PYTHON_UNAVAILABLE_OPERATORS = {
-    'transform_bench_cpu',
-    'transform_bench_sleep',
-}
-
-def normalize_value(v):
-    if isinstance(v, (int, float)):
-        return float(v)
-    return v
-
-def extract_structure(schemas, skip=set()):
-    result = {}
-    for op in schemas:
-        name = op.get('Name', '')
-        if name in skip:
-            continue
-        params = {}
-        for pname, pspec in op.get('Params', {}).items():
-            params[pname] = {
-                'type': pspec.get('Type', ''),
-                'required': pspec.get('Required', False),
-                'default': normalize_value(pspec.get('Default')),
-            }
-        result[name] = params
-    return result
-
-go_data = json.load(open('$WORK_DIR/schema-go.json'))
-py_data = json.load(open('$WORK_DIR/schema-python.json'))
-
-go_struct = extract_structure(go_data, skip=PYTHON_UNAVAILABLE_OPERATORS)
-py_struct = extract_structure(py_data)
-
-if go_struct == py_struct:
-    sys.exit(0)
-else:
-    all_ops = set(go_struct) | set(py_struct)
-    for op in sorted(all_ops):
-        if op not in go_struct:
-            print(f'  Python-only operator: {op}', file=sys.stderr)
-        elif op not in py_struct:
-            print(f'  Go-only operator (unexpected — add to PYTHON_UNAVAILABLE_OPERATORS if intentional): {op}', file=sys.stderr)
-        elif go_struct[op] != py_struct[op]:
-            print(f'  Divergence in {op}:', file=sys.stderr)
-            for p in sorted(set(go_struct[op]) | set(py_struct[op])):
-                gv = go_struct[op].get(p)
-                pv = py_struct[op].get(p)
-                if gv != pv:
-                    print(f'    {p}: Go={gv} Python={pv}', file=sys.stderr)
-    sys.exit(1)
-"; then
-  pass "codegen schema parity Go vs Python (operator names + param types/required/defaults)"
-else
-  fail "codegen schema structural divergence (Go vs Python)"
-fi
-
-# 1b. Codegen Python output byte-level parity
+# 1c. Codegen Python output byte-level parity
 echo "    Comparing generated Python output..."
 "$WORK_DIR/pineapple-codegen" -output "$WORK_DIR/python-go" >/dev/null 2>&1
 java_run page.liam.pine.Codegen --schema-from-registry -output "$WORK_DIR/python-java" >/dev/null 2>&1

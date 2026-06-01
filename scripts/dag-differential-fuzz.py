@@ -5,7 +5,7 @@ This complements differential-fuzz.py (which compares execution outputs) by chec
 that the DAG builder itself produces identical dependency graphs.
 
 Usage:
-    python3 scripts/dag-differential-fuzz.py [--rounds N] [--seed S] [--engines go,python,java]
+    python3 scripts/dag-differential-fuzz.py [--rounds N] [--seed S] [--engines go,java]
 """
 from __future__ import annotations
 
@@ -162,15 +162,6 @@ def run_go_dag(config_file: str) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-def run_python_dag(config_file: str) -> tuple[int, str, str]:
-    result = subprocess.run(
-        [sys.executable, "-m", "pine.cli.dag", "-config", config_file, "-format", "dot"],
-        capture_output=True, text=True, timeout=10,
-        cwd=str(REPO_ROOT / "pine-python"),
-    )
-    return result.returncode, result.stdout, result.stderr
-
-
 def _resolve_java_cp() -> str:
     target = REPO_ROOT / "pine-java" / "target" / "classes"
     if not target.exists():
@@ -196,7 +187,7 @@ def main():
     parser = argparse.ArgumentParser(description="DAG differential fuzzer: three-engine DAG parity")
     parser.add_argument("--rounds", type=int, default=500)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--engines", type=str, default="go,python,java")
+    parser.add_argument("--engines", type=str, default="go,java")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--save-dir", type=str, default="")
     args = parser.parse_args()
@@ -223,7 +214,6 @@ def main():
 
     runners = {
         "go": run_go_dag,
-        "python": run_python_dag,
         "java": lambda f: run_java_dag(f, java_cp),
     }
 

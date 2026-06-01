@@ -25,15 +25,12 @@ print(json.dumps(data['cases'][0]['request']))
 
 GO_PORT=23001
 JAVA_PORT=23002
-PY_PORT=23003
 CPP_PORT=23004
 
 "$WORK_DIR/pineapple-server" -config "$METRICS_CONFIG" -addr ":$GO_PORT" &
 GO_PID=$!
 java -cp "$JAVA_CP" -Dpine.config="$METRICS_CONFIG" -Dpine.port=$JAVA_PORT page.liam.pine.PineServer &
 JAVA_PID=$!
-(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.server -config "$METRICS_CONFIG" -addr ":$PY_PORT") &
-PY_PID=$!
 CPP_PID=""
 if [[ -n "${CPP_SERVER:-}" ]]; then
   "$CPP_SERVER" -config "$METRICS_CONFIG" -addr ":$CPP_PORT" &
@@ -46,7 +43,7 @@ cpp_metrics_pass=0
 cpp_metrics_total=0
 cpp_srv_ready=false
 
-if srv_ready $GO_PORT && srv_ready $JAVA_PORT && srv_ready $PY_PORT; then
+if srv_ready $GO_PORT && srv_ready $JAVA_PORT; then
   if [[ -n "${CPP_SERVER:-}" ]] && srv_ready $CPP_PORT; then
     cpp_srv_ready=true
   fi
@@ -57,25 +54,20 @@ if srv_ready $GO_PORT && srv_ready $JAVA_PORT && srv_ready $PY_PORT; then
   metrics_total=$((metrics_total + 1))
   GO_STATS_COLD=$(curl -s "http://localhost:$GO_PORT/stats")
   JAVA_STATS_COLD=$(curl -s "http://localhost:$JAVA_PORT/stats")
-  PY_STATS_COLD=$(curl -s "http://localhost:$PY_PORT/stats")
 
   preinit_ok=$(python3 -c "
 import json, sys
 go = json.loads('''$GO_STATS_COLD''')
 java = json.loads('''$JAVA_STATS_COLD''')
-py = json.loads('''$PY_STATS_COLD''')
 go_ops = sorted(go.get('operators', {}).keys())
 java_ops = sorted(java.get('operators', {}).keys())
-py_ops = sorted(py.get('operators', {}).keys())
 if not go_ops:
     print('go: no operators in /stats before first request')
 elif go_ops != java_ops:
     print(f'pre-init mismatch: go={go_ops} java={java_ops}')
-elif go_ops != py_ops:
-    print(f'pre-init mismatch: go={go_ops} py={py_ops}')
 else:
     # Verify all counts are zero
-    for engine_name, stats in [('go', go), ('java', java), ('py', py)]:
+    for engine_name, stats in [('go', go), ('java', java)]:
         for op, data in stats.get('operators', {}).items():
             for field in ('exec_count', 'skip_count', 'error_count'):
                 if data.get(field, 0) != 0:
@@ -127,7 +119,6 @@ else:
   for i in $(seq 1 5); do
     curl -s -X POST -H "Content-Type: application/json" -d "$METRICS_REQ" "http://localhost:$GO_PORT/execute" > /dev/null
     curl -s -X POST -H "Content-Type: application/json" -d "$METRICS_REQ" "http://localhost:$JAVA_PORT/execute" > /dev/null
-    curl -s -X POST -H "Content-Type: application/json" -d "$METRICS_REQ" "http://localhost:$PY_PORT/execute" > /dev/null
     if $cpp_srv_ready; then
       curl -s -X POST -H "Content-Type: application/json" -d "$METRICS_REQ" "http://localhost:$CPP_PORT/execute" > /dev/null
     fi
@@ -135,7 +126,6 @@ else:
 
   GO_STATS=$(curl -s "http://localhost:$GO_PORT/stats")
   JAVA_STATS=$(curl -s "http://localhost:$JAVA_PORT/stats")
-  PY_STATS=$(curl -s "http://localhost:$PY_PORT/stats")
   CPP_STATS=""
   if $cpp_srv_ready; then
     CPP_STATS=$(curl -s "http://localhost:$CPP_PORT/stats")
@@ -147,14 +137,12 @@ else:
 import json, sys
 go = json.loads('''$GO_STATS''')
 java = json.loads('''$JAVA_STATS''')
-py = json.loads('''$PY_STATS''')
 go_ops = sorted(go.get('operators', {}).keys())
 java_ops = sorted(java.get('operators', {}).keys())
-py_ops = sorted(py.get('operators', {}).keys())
-if go_ops == java_ops == py_ops:
+if go_ops == java_ops:
     print('match')
 else:
-    print(f'go={go_ops} java={java_ops} py={py_ops}')
+    print(f'go={go_ops} java={java_ops}')
 ")
   if [[ "$op_names_match" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
@@ -187,16 +175,14 @@ print('match' if go_ops == cpp_ops else f'go={go_ops} cpp={cpp_ops}')
 import json, sys
 go = json.loads('''$GO_STATS''')
 java = json.loads('''$JAVA_STATS''')
-py = json.loads('''$PY_STATS''')
 def get_exec_counts(stats):
     return {k: v.get('exec_count', 0) for k, v in stats.get('operators', {}).items()}
 go_ec = get_exec_counts(go)
 java_ec = get_exec_counts(java)
-py_ec = get_exec_counts(py)
-if go_ec == java_ec == py_ec:
+if go_ec == java_ec:
     print('match')
 else:
-    print(f'go={go_ec} java={java_ec} py={py_ec}')
+    print(f'go={go_ec} java={java_ec}')
 ")
   if [[ "$exec_counts_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
@@ -231,16 +217,14 @@ print('match' if go_ec == cpp_ec else f'go={go_ec} cpp={cpp_ec}')
 import json, sys
 go = json.loads('''$GO_STATS''')
 java = json.loads('''$JAVA_STATS''')
-py = json.loads('''$PY_STATS''')
 def get_skip_counts(stats):
     return {k: v.get('skip_count', 0) for k, v in stats.get('operators', {}).items()}
 go_sc = get_skip_counts(go)
 java_sc = get_skip_counts(java)
-py_sc = get_skip_counts(py)
-if go_sc == java_sc == py_sc:
+if go_sc == java_sc:
     print('match')
 else:
-    print(f'go={go_sc} java={java_sc} py={py_sc}')
+    print(f'go={go_sc} java={java_sc}')
 ")
   if [[ "$skip_counts_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
@@ -275,16 +259,14 @@ print('match' if go_sc == cpp_sc else f'go={go_sc} cpp={cpp_sc}')
 import json, sys
 go = json.loads('''$GO_STATS''')
 java = json.loads('''$JAVA_STATS''')
-py = json.loads('''$PY_STATS''')
 def get_error_counts(stats):
     return {k: v.get('error_count', 0) for k, v in stats.get('operators', {}).items()}
 go_errc = get_error_counts(go)
 java_errc = get_error_counts(java)
-py_errc = get_error_counts(py)
-if go_errc == java_errc == py_errc:
+if go_errc == java_errc:
     print('match')
 else:
-    print(f'go={go_errc} java={java_errc} py={py_errc}')
+    print(f'go={go_errc} java={java_errc}')
 ")
   if [[ "$error_counts_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
@@ -319,14 +301,12 @@ print('match' if go_errc == cpp_errc else f'go={go_errc} cpp={cpp_errc}')
 import json, sys
 go = json.loads('''$GO_STATS''')
 java = json.loads('''$JAVA_STATS''')
-py = json.loads('''$PY_STATS''')
 go_te = go.get('scheduler', {}).get('run_count', 0)
 java_te = java.get('scheduler', {}).get('run_count', 0)
-py_te = py.get('scheduler', {}).get('run_count', 0)
-if go_te == java_te == py_te == 5:
+if go_te == java_te == 5:
     print('match')
 else:
-    print(f'go={go_te} java={java_te} py={py_te}')
+    print(f'go={go_te} java={java_te}')
 ")
   if [[ "$total_exec_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
@@ -360,16 +340,15 @@ print(cpp.get('scheduler', {}).get('run_count', 0))
 import json
 go = json.loads('''$GO_STATS''').get('http', {}).get('requests_total', {})
 java = json.loads('''$JAVA_STATS''').get('http', {}).get('requests_total', {})
-py = json.loads('''$PY_STATS''').get('http', {}).get('requests_total', {})
 # Filter to only POST /execute counts (the workload Section 13 generates).
 # Other entries (e.g. /stats GET from the test harness itself) vary by run.
 def execute_count(d):
     return d.get('POST /execute 2xx', 0)
-ge, je, pe = execute_count(go), execute_count(java), execute_count(py)
-if ge == je == pe == 5:
+ge, je = execute_count(go), execute_count(java)
+if ge == je == 5:
     print('match')
 else:
-    print(f'go={ge} java={je} py={pe}; full go={go} java={java} py={py}')
+    print(f'go={ge} java={je}; full go={go} java={java}')
 ")
   if [[ "$http_req_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
@@ -406,12 +385,11 @@ def get_dur_count(stats):
     return stats.get('http', {}).get('request_duration_seconds', {}).get('POST /execute', {}).get('count', 0)
 go = json.loads('''$GO_STATS''')
 java = json.loads('''$JAVA_STATS''')
-py = json.loads('''$PY_STATS''')
-gc, jc, pc = get_dur_count(go), get_dur_count(java), get_dur_count(py)
-if gc == jc == pc == 5:
+gc, jc = get_dur_count(go), get_dur_count(java)
+if gc == jc == 5:
     print('match')
 else:
-    print(f'go={gc} java={jc} py={pc}')
+    print(f'go={gc} java={jc}')
 ")
   if [[ "$http_dur_ok" == "match" ]]; then
     metrics_pass=$((metrics_pass + 1))
@@ -458,7 +436,7 @@ def shape(name, stats):
         if 'count' not in v or 'sum_ns' not in v:
             return f'{name}: duration bucket {k!r} missing count/sum_ns: {v}'
     return None
-for name, stats_str in [('go', '''$GO_STATS'''), ('java', '''$JAVA_STATS'''), ('py', '''$PY_STATS''')]:
+for name, stats_str in [('go', '''$GO_STATS'''), ('java', '''$JAVA_STATS''')]:
     err = shape(name, json.loads(stats_str))
     if err:
         print(err); break
@@ -497,23 +475,21 @@ else:
     fi
   fi
 
-  kill $GO_PID $JAVA_PID $PY_PID 2>/dev/null || true
+  kill $GO_PID $JAVA_PID 2>/dev/null || true
   [[ -n "$CPP_PID" ]] && kill $CPP_PID 2>/dev/null || true
-  wait $GO_PID $JAVA_PID $PY_PID 2>/dev/null || true
+  wait $GO_PID $JAVA_PID 2>/dev/null || true
   [[ -n "$CPP_PID" ]] && wait $CPP_PID 2>/dev/null || true
   GO_PID=""
   JAVA_PID=""
-  PY_PID=""
   CPP_PID=""
 else
   fail "metrics: servers failed to start"
-  kill $GO_PID $JAVA_PID $PY_PID 2>/dev/null || true
+  kill $GO_PID $JAVA_PID 2>/dev/null || true
   [[ -n "$CPP_PID" ]] && kill $CPP_PID 2>/dev/null || true
-  wait $GO_PID $JAVA_PID $PY_PID 2>/dev/null || true
+  wait $GO_PID $JAVA_PID 2>/dev/null || true
   [[ -n "$CPP_PID" ]] && wait $CPP_PID 2>/dev/null || true
   GO_PID=""
   JAVA_PID=""
-  PY_PID=""
   CPP_PID=""
 fi
 

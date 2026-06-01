@@ -8,24 +8,22 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-# --- Collect versions from the 5 authoritative source files ---
+# --- Collect versions from the 4 authoritative source files ---
 
 V_GO=$(grep -oP 'const Version = "\K[^"]+' pine-go/version.go)
 V_PY=$(grep -oP '__version__ = "\K[^"]+' apple/_version.py)
 V_JAVA=$(grep -m1 -oP '(?<=<version>)[^<]+' pine-java/pom.xml)
-V_PYPROJ=$(grep -oP '^version = "\K[^"]+' pine-python/pyproject.toml)
 V_CPP=$(grep -oP 'kVersion = "\K[^"]+' pine-cpp/include/pine/pine.hpp)
 
 echo "Collected versions:"
 echo "  pine-go/version.go         → $V_GO"
 echo "  apple/_version.py          → $V_PY"
 echo "  pine-java/pom.xml          → $V_JAVA"
-echo "  pine-python/pyproject.toml → $V_PYPROJ"
 echo "  pine-cpp/pine.hpp          → $V_CPP"
 
 # --- Validate consistency ---
 
-if [[ "$V_GO" != "$V_PY" || "$V_GO" != "$V_JAVA" || "$V_GO" != "$V_PYPROJ" || "$V_GO" != "$V_CPP" ]]; then
+if [[ "$V_GO" != "$V_PY" || "$V_GO" != "$V_JAVA" || "$V_GO" != "$V_CPP" ]]; then
   echo
   echo "ERROR: version mismatch detected!"
   echo "  Use 'bash scripts/bump-version.sh <version>' to synchronize all files."

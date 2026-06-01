@@ -8,8 +8,6 @@ echo "==> [2/$TOTAL_SECTIONS] Render-DAG parity"
 
 dag_pass=0
 dag_total=0
-py_dag_pass=0
-py_dag_total=0
 cpp_dag_pass=0
 cpp_dag_total=0
 
@@ -38,8 +36,6 @@ with open('$config_file', 'w') as cf:
   "$WORK_DIR/pineapple-dag" -config "$config_file" -format mermaid > "$dag_dir/go.mmd" 2>/dev/null &
   java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot > "$dag_dir/java.dot" 2>/dev/null &
   java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid > "$dag_dir/java.mmd" 2>/dev/null &
-  (cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.dag -config "$config_file" -format dot) > "$dag_dir/py.dot" 2>/dev/null &
-  (cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.dag -config "$config_file" -format mermaid) > "$dag_dir/py.mmd" 2>/dev/null &
   if [[ -n "${CPP_DAG:-}" ]]; then
     "$CPP_DAG" -config "$config_file" -format dot > "$dag_dir/cpp.dot" 2>/dev/null &
     "$CPP_DAG" -config "$config_file" -format mermaid > "$dag_dir/cpp.mmd" 2>/dev/null &
@@ -51,8 +47,6 @@ with open('$config_file', 'w') as cf:
       "$WORK_DIR/pineapple-dag" -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/go.mmd.c${cl}" 2>/dev/null &
       java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/java.dot.c${cl}" 2>/dev/null &
       java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/java.mmd.c${cl}" 2>/dev/null &
-      (cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.dag -config "$config_file" -format dot -collapse "$cl") > "$dag_dir/py.dot.c${cl}" 2>/dev/null &
-      (cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.dag -config "$config_file" -format mermaid -collapse "$cl") > "$dag_dir/py.mmd.c${cl}" 2>/dev/null &
       if [[ -n "${CPP_DAG:-}" ]]; then
         "$CPP_DAG" -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/cpp.dot.c${cl}" 2>/dev/null &
         "$CPP_DAG" -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/cpp.mmd.c${cl}" 2>/dev/null &
@@ -64,9 +58,8 @@ with open('$config_file', 'w') as cf:
 
   # Compare results
   compare_dag() {
-    local label="$1" go_file="$2" java_file="$3" py_file="$4" cpp_file="$5"
+    local label="$1" go_file="$2" java_file="$3" cpp_file="$4"
     dag_total=$((dag_total + 1))
-    py_dag_total=$((py_dag_total + 1))
     if [[ -n "${CPP_DAG:-}" ]]; then
       cpp_dag_total=$((cpp_dag_total + 1))
     fi
@@ -86,17 +79,6 @@ with open('$config_file', 'w') as cf:
       fail "render-dag divergence (Go vs Java): $fname ($label)"
     fi
 
-    if [[ ! -s "$py_file" ]]; then
-      fail "render-dag Python failed: $fname ($label)"; return
-    fi
-
-    if cmp -s "$go_file" "$py_file"; then
-      py_dag_pass=$((py_dag_pass + 1))
-      echo "    [$dag_total] $fname ($label) Go vs Python → match"
-    else
-      fail "render-dag divergence (Go vs Python): $fname ($label)"
-    fi
-
     if [[ -n "${CPP_DAG:-}" ]]; then
       if [[ ! -s "$cpp_file" ]]; then
         fail "render-dag C++ failed: $fname ($label)"; return
@@ -110,13 +92,13 @@ with open('$config_file', 'w') as cf:
     fi
   }
 
-  compare_dag "dot" "$dag_dir/go.dot" "$dag_dir/java.dot" "$dag_dir/py.dot" "$dag_dir/cpp.dot"
-  compare_dag "mermaid" "$dag_dir/go.mmd" "$dag_dir/java.mmd" "$dag_dir/py.mmd" "$dag_dir/cpp.mmd"
+  compare_dag "dot" "$dag_dir/go.dot" "$dag_dir/java.dot" "$dag_dir/cpp.dot"
+  compare_dag "mermaid" "$dag_dir/go.mmd" "$dag_dir/java.mmd" "$dag_dir/cpp.mmd"
 
   if [[ "$has_pipeline_map" == "true" ]]; then
     for cl in 1 2; do
-      compare_dag "dot collapse=$cl" "$dag_dir/go.dot.c${cl}" "$dag_dir/java.dot.c${cl}" "$dag_dir/py.dot.c${cl}" "$dag_dir/cpp.dot.c${cl}"
-      compare_dag "mermaid collapse=$cl" "$dag_dir/go.mmd.c${cl}" "$dag_dir/java.mmd.c${cl}" "$dag_dir/py.mmd.c${cl}" "$dag_dir/cpp.mmd.c${cl}"
+      compare_dag "dot collapse=$cl" "$dag_dir/go.dot.c${cl}" "$dag_dir/java.dot.c${cl}" "$dag_dir/cpp.dot.c${cl}"
+      compare_dag "mermaid collapse=$cl" "$dag_dir/go.mmd.c${cl}" "$dag_dir/java.mmd.c${cl}" "$dag_dir/cpp.mmd.c${cl}"
     done
   fi
 done
@@ -125,12 +107,6 @@ if [[ $dag_total -gt 0 && $dag_pass -eq $dag_total ]]; then
   pass "render-dag parity Go vs Java ($dag_pass/$dag_total fixtures)"
 elif [[ $dag_total -eq 0 ]]; then
   pass "render-dag parity Go vs Java (no fixtures found, skipped)"
-fi
-
-if [[ $py_dag_total -gt 0 && $py_dag_pass -eq $py_dag_total ]]; then
-  pass "render-dag parity Go vs Python ($py_dag_pass/$py_dag_total fixtures)"
-elif [[ $py_dag_total -eq 0 ]]; then
-  pass "render-dag parity Go vs Python (no fixtures found, skipped)"
 fi
 
 if [[ -n "${CPP_DAG:-}" ]]; then

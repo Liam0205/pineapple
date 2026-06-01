@@ -8,7 +8,7 @@ Usage: $0 <pipeline.json> [options]
 Render the DAG of a compiled pipeline config.
 
 Options:
-  --backend go|java|python   Which runtime to use (default: go)
+  --backend go|java   Which runtime to use (default: go)
   -f, --format FORMAT   Output format: dot (default) or mermaid
   -c, --collapse LEVEL  SubFlow collapse level (0 = full graph)
   -o, --output FILE     Write output to file instead of stdout
@@ -17,7 +17,6 @@ Examples:
   $0 pipeline.json
   $0 pipeline.json -f mermaid -c 1
   $0 pipeline.json --backend java -f dot
-  $0 pipeline.json --backend python -f mermaid
   $0 pipeline.json -f dot | dot -Tpng -o dag.png
 EOF
   exit 1
@@ -56,12 +55,6 @@ case "$BACKEND" in
       -Dexec.mainClass="page.liam.pine.RenderDAGCli" \
       -Dexec.args="-config $CONFIG_ABS -format $FORMAT -collapse $COLLAPSE" \
       2>/dev/null)
-    ;;
-  python)
-    RESULT=$(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.dag \
-      -config "$CONFIG_ABS" \
-      -format "$FORMAT" \
-      -collapse "$COLLAPSE")
     ;;
   *)
     echo "Unknown backend: $BACKEND" >&2; usage ;;

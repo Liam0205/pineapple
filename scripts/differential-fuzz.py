@@ -1,6 +1,6 @@
 """Differential fuzzer: generates random configs+requests, runs all engines, reports divergences.
 
-Supported engines: Go, Java, Python, C++ (extensible via --engines flag).
+Supported engines: Go, Java, C++ (extensible via --engines flag).
 Randomization dimensions:
   - Pipeline topology (1-8 ops, 15 operator types, random combinations)
   - Operator parameters (type-specific random values)
@@ -21,7 +21,7 @@ Randomization dimensions:
   - transform_copy all 4 directions (common_to_item, item_to_common, common_to_common, item_to_item)
 
 Usage:
-    python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,python,java,cpp]
+    python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,java,cpp]
 """
 from __future__ import annotations
 
@@ -38,7 +38,6 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PYTHON_DIR = REPO_ROOT / "pine-python"
 JAVA_DIR = REPO_ROOT / "pine-java"
 
 # ---------------------------------------------------------------------------
@@ -716,8 +715,8 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
 
     # Randomly inject storage_mode
     # 50/50 storage_mode split. The prior 75% row / 25% column bias
-    # was inherited from when pine-python and pine-cpp lacked RowFrame
-    # impls — the row mode silently downgraded to column on those engines,
+    # was inherited from when pine-cpp lacked a RowFrame
+    # impl — the row mode silently downgraded to column on that engine,
     # so 75% bias was a way to over-sample what was effectively column.
     # With both impls real on every engine,
     # equal weighting exercises each path equally and surfaces row-vs-
@@ -945,18 +944,6 @@ class GoEngine(Engine):
         return result.returncode, result.stdout, result.stderr
 
 
-class PythonEngine(Engine):
-    name = "python"
-
-    def run(self, config_file: str, request_file: str) -> tuple[int, str, str]:
-        result = subprocess.run(
-            [sys.executable, "-m", "pine.cli.run", "-config", config_file, "-request", request_file],
-            capture_output=True, text=True, timeout=10,
-            cwd=str(PYTHON_DIR),
-        )
-        return result.returncode, result.stdout, result.stderr
-
-
 class JavaEngine(Engine):
     name = "java"
 
@@ -1160,8 +1147,8 @@ def main():
     parser = argparse.ArgumentParser(description="Differential fuzzer: multi-engine parity")
     parser.add_argument("--rounds", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--engines", type=str, default="go,python,java,cpp",
-                        help="Comma-separated engines to compare (go,python,java,cpp)")
+    parser.add_argument("--engines", type=str, default="go,java,cpp",
+                        help="Comma-separated engines to compare (go,java,cpp)")
     parser.add_argument("--go-bin", type=str, default="")
     parser.add_argument("--cpp-bin", type=str, default="",
                         help="Path to pine-cpp pineapple-run binary")
@@ -1191,8 +1178,6 @@ def main():
                     cwd=str(REPO_ROOT / "pine-go"), check=True,
                 )
             engines.append(GoEngine(go_bin))
-        elif name == "python":
-            engines.append(PythonEngine())
         elif name == "java":
             try:
                 cp = _resolve_java_cp()

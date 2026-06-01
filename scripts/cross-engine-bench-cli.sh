@@ -39,8 +39,6 @@ mkdir -p "${REPO_ROOT}/bin"
 
 echo "[build] 编译 Java 引擎..."
 (cd "${REPO_ROOT}/pine-java" && mvn package -q -DskipTests -Dmaven.javadoc.skip=true)
-
-echo "[build] Python 引擎无需编译"
 echo
 
 # ─── 获取 Java classpath ──────────────────────────────────────────────────────
@@ -72,11 +70,6 @@ run_java() {
   java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$config" -request "$request" > /dev/null 2>&1
 }
 
-run_python() {
-  local config="$1" request="$2"
-  (cd "${REPO_ROOT}/pine-python" && python3 -m pine.cli.run -config "$config" -request "$request" > /dev/null 2>&1)
-}
-
 # ─── Benchmark 执行 ──────────────────────────────────────────────────────────
 
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -85,8 +78,8 @@ echo "║  iterations=$ITERATIONS, tiers=$TIERS                       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo
 
-printf "| %-20s | %-12s | %-12s | %-12s |\n" "Fixture" "Go (ms)" "Java (ms)" "Python (ms)"
-printf "|%s|%s|%s|%s|\n" "$(printf '%.0s-' {1..22})" "$(printf '%.0s-' {1..14})" "$(printf '%.0s-' {1..14})" "$(printf '%.0s-' {1..14})"
+printf "| %-20s | %-12s | %-12s |\n" "Fixture" "Go (ms)" "Java (ms)"
+printf "|%s|%s|%s|\n" "$(printf '%.0s-' {1..22})" "$(printf '%.0s-' {1..14})" "$(printf '%.0s-' {1..14})"
 
 IFS=',' read -ra TIER_LIST <<< "$TIERS"
 
@@ -127,17 +120,7 @@ for config_file in "${FIXTURES_DIR}"/*_config.json; do
   done
   java_avg=$((java_total / ITERATIONS))
 
-  # Python benchmark
-  py_total=0
-  for ((i=0; i<ITERATIONS; i++)); do
-    start=$(time_ms)
-    run_python "$config_file" "$request_file" || true
-    end=$(time_ms)
-    py_total=$((py_total + end - start))
-  done
-  py_avg=$((py_total / ITERATIONS))
-
-  printf "| %-20s | %10d   | %10d   | %10d   |\n" "$fixture_name" "$go_avg" "$java_avg" "$py_avg"
+  printf "| %-20s | %10d   | %10d   |\n" "$fixture_name" "$go_avg" "$java_avg"
 done
 
 echo

@@ -88,10 +88,6 @@ java_run() {
   java -cp "$JAVA_CP" "$@"
 }
 
-py_run() {
-  (cd "$REPO_ROOT/pine-python" && python3 -m "$@")
-}
-
 srv_ready() {
   local port=$1 max_wait=10 elapsed=0
   while ! curl -s "http://localhost:$port/health" >/dev/null 2>&1; do
