@@ -19,17 +19,21 @@ std::unique_ptr<Client> ConnectionPool::acquire(const std::string& host, int por
         auto entry = std::move(it->second.back());
         it->second.pop_back();
         if (now - entry.queued_at <= kIdleTimeout && entry.client->connected()) {
+          in_use_.fetch_add(1, std::memory_order_relaxed);
           return std::move(entry.client);
         }
         // entry.client destructs here, closing the stale socket.
       }
     }
   }
+  in_use_.fetch_add(1, std::memory_order_relaxed);
   return std::make_unique<Client>(host, port, password, db);
 }
 
 void ConnectionPool::release(const std::string& host, int port, const std::string& password, int db,
                              std::unique_ptr<Client> c) {
+  // A connection leaves the in-use set whether it is pooled or discarded.
+  in_use_.fetch_sub(1, std::memory_order_relaxed);
   if (!c || !c->connected()) {
     return;
   }
@@ -43,6 +47,15 @@ void ConnectionPool::release(const std::string& host, int port, const std::strin
     return;  // c destructs here
   }
   bucket.push_back({std::move(c), std::chrono::steady_clock::now()});
+}
+
+std::size_t ConnectionPool::idle_count() const {
+  std::lock_guard<std::mutex> lk(mu_);
+  std::size_t total = 0;
+  for (const auto& kv : idle_) {
+    total += kv.second.size();
+  }
+  return total;
 }
 
 }  // namespace redis

@@ -739,6 +739,15 @@ void Server::handle_stats(int client_fd, const std::string& method) {
     body += ",\"http\":" + http_json;
   }
 
+  // Build resources JSON (mirrors pine-go /stats.resources). The collector's
+  // to_json() is already key-sorted and byte-exact with the Go/Java collectors.
+  {
+    std::shared_lock<std::shared_mutex> lock(engine_mu_);
+    if (resource_metrics_) {
+      body += ",\"resources\":" + resource_metrics_->to_json();
+    }
+  }
+
   {
     std::shared_lock<std::shared_mutex> lock(engine_mu_);
     if (engine_) {
@@ -1001,8 +1010,13 @@ bool Server::reload_config() {
     // Build and start the new ResourceManager BEFORE the Engine: the Engine
     // injects the ResourceProvider into ResourceAware operators at construction
     // time, so the provider pointer must be live first. Handle-typed resources
-    // (connection pools) are created here in start().
-    auto new_resource_manager = std::make_unique<resource::Manager>();
+    // (connection pools) are created here in start(). The manager writes through
+    // a fresh tee into both the injected provider and a per-reload collector
+    // exposed under /stats.resources.
+    auto new_resource_metrics = std::make_unique<metrics::Collector>();
+    auto new_resource_tee = std::make_unique<metrics::TeeProvider>(
+        std::vector<metrics::Provider*>{provider, new_resource_metrics.get()});
+    auto new_resource_manager = std::make_unique<resource::Manager>(new_resource_tee.get());
     new_resource_manager->load_from_config(new_config);
     new_resource_manager->validate_resource_deps(new_config);
     new_resource_manager->start();
@@ -1013,12 +1027,18 @@ bool Server::reload_config() {
 
     std::unique_ptr<Engine> old_engine;
     std::unique_ptr<resource::Manager> old_resource_manager;
+    std::unique_ptr<metrics::Provider> old_resource_tee;
+    std::unique_ptr<metrics::Collector> old_resource_metrics;
     {
       std::unique_lock lock(engine_mu_);
       old_engine = std::move(engine_);
       engine_ = std::move(new_engine);
       old_resource_manager = std::move(resource_manager_);
       resource_manager_ = std::move(new_resource_manager);
+      old_resource_tee = std::move(resource_tee_);
+      resource_tee_ = std::move(new_resource_tee);
+      old_resource_metrics = std::move(resource_metrics_);
+      resource_metrics_ = std::move(new_resource_metrics);
     }
     // Retire the swapped-out engine outside the lock: close() tears down its
     // operators (e.g. Lua state pools) for parity with pine-go/pine-java; the
@@ -1026,7 +1046,9 @@ bool Server::reload_config() {
     // — handlers hold engine_mu_ shared for the whole execute, so all had
     // finished before we took the exclusive lock above. Stop the old manager
     // AFTER the old engine is closed so no borrowed handle outlives its pool;
-    // the same engine_mu_ drain guarantees no execute still holds a borrow.
+    // the same engine_mu_ drain guarantees no execute still holds a borrow. The
+    // old tee/collector are freed at scope exit, after the manager is stopped,
+    // so no resource's metric pointer dangles during teardown.
     if (old_engine) {
       old_engine->close();
     }
@@ -1137,8 +1159,14 @@ int Server::run(const ServerConfig& cfg) {
 
     // Build and start the ResourceManager BEFORE the Engine so the
     // ResourceProvider is live when the Engine injects it into ResourceAware
-    // operators at construction time.
-    resource_manager_ = std::make_unique<resource::Manager>();
+    // operators at construction time. The manager writes through a tee into
+    // both the injected provider (e.g. Prometheus) and a dedicated collector
+    // exposed under /stats.resources; the engine uses `provider` directly so
+    // engine metrics stay out of the resources subtree.
+    resource_metrics_ = std::make_unique<metrics::Collector>();
+    resource_tee_ = std::make_unique<metrics::TeeProvider>(
+        std::vector<metrics::Provider*>{provider, resource_metrics_.get()});
+    resource_manager_ = std::make_unique<resource::Manager>(resource_tee_.get());
     resource_manager_->load_from_config(config);
     resource_manager_->validate_resource_deps(config);
     resource_manager_->start();

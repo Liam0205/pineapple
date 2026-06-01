@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pine/pine.hpp"
+#include "pine/metrics_collector.hpp"
 #include "pine/resource.hpp"
 
 #include <atomic>
@@ -183,6 +184,12 @@ class Server {
   mutable std::shared_mutex engine_mu_;
   std::unique_ptr<Engine> engine_;
   std::unique_ptr<resource::Manager> resource_manager_;
+  // Aggregating collector exposed under /stats.resources, plus the Tee provider
+  // that fans resource metrics into both it and the engine's provider. Both are
+  // swapped together with resource_manager_ under engine_mu_ and must outlive
+  // it (the manager's resources hold raw metric pointers into the tee).
+  std::unique_ptr<metrics::Collector> resource_metrics_;
+  std::unique_ptr<metrics::Provider> resource_tee_;
   std::unique_ptr<Stats> stats_;
   ServerConfig config_;
   std::atomic<bool> running_{false};

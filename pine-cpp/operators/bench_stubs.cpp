@@ -21,7 +21,8 @@ namespace pine {
 namespace {
 
 const bool _bench_fetcher_feed_data =
-    resource::register_fetcher_factory("feed_data", [](const Variant& /*params*/) -> resource::Fetcher {
+    resource::register_fetcher_factory("feed_data", [](const Variant& /*params*/,
+                                                       metrics::Provider* /*mp*/) -> resource::Fetcher {
       return []() -> Variant {
         Variant::array_t items;
         items.reserve(3000);
@@ -39,7 +40,7 @@ const bool _bench_fetcher_feed_data =
     });
 
 const bool _bench_fetcher_datahub = resource::register_fetcher_factory(
-    "datahub_producer", [](const Variant& /*params*/) -> resource::Fetcher {
+    "datahub_producer", [](const Variant& /*params*/, metrics::Provider* /*mp*/) -> resource::Fetcher {
       return []() -> Variant { return Variant(nullptr); };
     });
 

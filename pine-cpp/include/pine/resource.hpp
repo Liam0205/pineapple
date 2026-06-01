@@ -9,6 +9,7 @@
 // pine-go's resource.Register).
 
 #include "pine/pine.hpp"
+#include "pine/metrics.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -97,9 +98,12 @@ class ResourceValue {
 // data resources) or once at start() (for handle / never-refresh resources).
 using Fetcher = std::function<ResourceValue()>;
 
-// FetcherFactory creates a Fetcher from config params. Business code
-// registers factories at static init time, keyed by ResourceEntry.type.
-using FetcherFactory = std::function<Fetcher(const Variant& params)>;
+// FetcherFactory creates a Fetcher from config params. It also receives the
+// active metrics::Provider, so long-lived resources (e.g. connection pools) can
+// create their own metrics instead of relying on global collectors. The
+// provider is never null — callers with no provider receive metrics::nop_provider().
+// Business code registers factories at static init time, keyed by ResourceEntry.type.
+using FetcherFactory = std::function<Fetcher(const Variant& params, metrics::Provider* mp)>;
 
 // Register a fetcher factory under a type name. Throws if name is duplicated.
 // Returns true for static-init use:
@@ -120,7 +124,10 @@ void reset_fetcher_registry();
 // from by ResourceAware operators.
 class Manager : public ResourceProvider {
  public:
-  Manager();
+  // Construct a Manager whose resource factories receive the given
+  // metrics::Provider, so long-lived resources can emit their own metrics. A
+  // null provider is replaced with metrics::nop_provider().
+  explicit Manager(metrics::Provider* mp = nullptr);
   ~Manager();
   Manager(const Manager&) = delete;
   Manager& operator=(const Manager&) = delete;
@@ -173,6 +180,7 @@ class Manager : public ResourceProvider {
   void refresh_loop(Managed* r);
 
   mutable std::shared_mutex mu_;
+  metrics::Provider* metrics_ = nullptr;
   std::map<std::string, std::unique_ptr<Managed>> resources_;
   std::vector<std::thread> refresh_threads_;
   std::mutex stop_mu_;

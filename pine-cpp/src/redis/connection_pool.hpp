@@ -1,13 +1,17 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <vector>
 
+#include "pine/metrics.hpp"
 #include "redis/redis_client.hpp"
 
 namespace pine {
@@ -49,6 +53,16 @@ class ConnectionPool {
   // (`!c->connected()`) it is destroyed instead of returned.
   void release(const std::string& host, int port, const std::string& password, int db,
                std::unique_ptr<Client> c);
+
+  // Number of connections currently checked out (acquired but not yet
+  // released). Used by RedisConnResource to compute the total-conns gauge.
+  std::size_t in_use_count() const {
+    return in_use_.load(std::memory_order_relaxed);
+  }
+
+  // Number of connections sitting idle across all keys. Used for the
+  // idle-conns gauge.
+  std::size_t idle_count() const;
 
   // ScopedClient is the RAII handle returned by acquire_scoped. It owns
   // the Client and bundles the pool + key so the destructor can release
@@ -141,8 +155,9 @@ class ConnectionPool {
     std::unique_ptr<Client> client;
     std::chrono::steady_clock::time_point queued_at;
   };
-  std::mutex mu_;
+  mutable std::mutex mu_;
   std::map<Key, std::vector<IdleEntry>> idle_;
+  std::atomic<std::size_t> in_use_{0};
 };
 
 // RedisConnResource is the handle stored by the `redis_connection` resource
@@ -155,12 +170,50 @@ class ConnectionPool {
 // mirroring pine-go's *redis.Client being closed on resource retirement.
 class RedisConnResource {
  public:
-  RedisConnResource(std::string host, int port, std::string password, int db)
+  // Probe cadence: how often the background thread samples pool stats and
+  // pings the server. Fixed across runtimes so metric cadence is comparable
+  // (matches pine-go's redisProbeInterval / pine-java's PROBE_INTERVAL_SECONDS).
+  static constexpr std::chrono::seconds kProbeInterval{15};
+
+  // Constructs the resource. When metrics_name is empty (or mp is null) no
+  // metrics are created and no probe thread is started, mirroring pine-go's
+  // newRedisConnResource gate.
+  RedisConnResource(std::string host, int port, std::string password, int db,
+                    const std::string& metrics_name = "", metrics::Provider* mp = nullptr)
       : host_(std::move(host)), port_(port), password_(std::move(password)), db_(db) {
+    if (metrics_name.empty() || mp == nullptr) {
+      return;
+    }
+    const std::vector<std::string> labels{metrics_name};
+    total_conns_ = mp->new_gauge({"pine_redis_pool_total_conns",
+                                  "Total Redis connections in the pool (idle + in-use).", {"name"}})
+                       ->with(labels);
+    idle_conns_ = mp->new_gauge({"pine_redis_pool_idle_conns", "Idle Redis connections in the pool.", {"name"}})
+                      ->with(labels);
+    metrics::HistogramOpts hopts;
+    hopts.opts = {"pine_redis_ping_duration_seconds", "Redis PING probe latency in seconds.", {"name"}};
+    ping_duration_ = mp->new_histogram(hopts)->with(labels);
+    up_ = mp->new_gauge({"pine_redis_up",
+                         "Whether the last Redis PING probe succeeded (1) or failed (0).", {"name"}})
+              ->with(labels);
+    probe_thread_ = std::thread([this] { probe_loop(); });
   }
 
   RedisConnResource(const RedisConnResource&) = delete;
   RedisConnResource& operator=(const RedisConnResource&) = delete;
+
+  // Stops the probe thread (if any). The pool — and all its idle connections —
+  // is destroyed afterward.
+  ~RedisConnResource() {
+    {
+      std::lock_guard<std::mutex> lk(stop_mu_);
+      stopping_ = true;
+    }
+    stop_cv_.notify_all();
+    if (probe_thread_.joinable()) {
+      probe_thread_.join();
+    }
+  }
 
   ConnectionPool::ScopedClient acquire() {
     return pool_.acquire_scoped(host_, port_, password_, db_);
@@ -171,11 +224,53 @@ class RedisConnResource {
   }
 
  private:
+  // probe_loop samples pool stats and PING latency every kProbeInterval until
+  // the destructor signals stop. It runs one probe immediately so the metrics
+  // are populated before the first tick.
+  void probe_loop() {
+    auto probe = [this] {
+      total_conns_->set(static_cast<double>(pool_.in_use_count() + pool_.idle_count()));
+      idle_conns_->set(static_cast<double>(pool_.idle_count()));
+      const auto start = std::chrono::steady_clock::now();
+      bool ok = false;
+      try {
+        auto c = pool_.acquire_scoped(host_, port_, password_, db_);
+        ok = c && c->ping();
+      } catch (...) {
+        ok = false;
+      }
+      ping_duration_->observe(
+          metrics::duration_seconds(std::chrono::steady_clock::now() - start));
+      up_->set(ok ? 1.0 : 0.0);
+    };
+    probe();
+    std::unique_lock<std::mutex> lk(stop_mu_);
+    while (!stopping_) {
+      if (stop_cv_.wait_for(lk, kProbeInterval, [this] { return stopping_; })) {
+        return;
+      }
+      lk.unlock();
+      probe();
+      lk.lock();
+    }
+  }
+
   std::string host_;
   int port_ = 0;
   std::string password_;
   int db_ = 0;
   ConnectionPool pool_;
+
+  // Metrics handles are owned by the Provider; nullptr when metrics disabled.
+  metrics::Gauge* total_conns_ = nullptr;
+  metrics::Gauge* idle_conns_ = nullptr;
+  metrics::Histogram* ping_duration_ = nullptr;
+  metrics::Gauge* up_ = nullptr;
+
+  std::thread probe_thread_;
+  std::mutex stop_mu_;
+  std::condition_variable stop_cv_;
+  bool stopping_ = false;
 };
 
 }  // namespace redis
