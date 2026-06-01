@@ -136,7 +136,7 @@ def gen_dag_config(rng: random.Random) -> tuple[dict, list[str]]:
                 op["consumes_row_set"] = True
 
     config = {
-        "_PINEAPPLE_VERSION": "0.9.8",
+        "_PINEAPPLE_VERSION": "0.9.9",
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": {},
@@ -295,7 +295,11 @@ def main():
             elapsed = time.time() - start
             rate = (i + 1) / elapsed if elapsed > 0 else 0
             pct = (i + 1) * 100 // args.rounds
-            sys.stderr.write(f"\r  {pct:3d}% ({i+1}/{args.rounds}) pass={passed} fail={failed} err={errors} [{rate:.1f} rnd/s]")
+            sys.stderr.write(
+                f"\r  {pct:3d}% ({i+1}/{args.rounds})"
+                f" pass={passed} fail={failed}"
+                f" err={errors} [{rate:.1f} rnd/s]"
+            )
             sys.stderr.flush()
 
     sys.stderr.write("\n")

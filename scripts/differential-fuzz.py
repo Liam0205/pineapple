@@ -36,7 +36,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 JAVA_DIR = REPO_ROOT / "pine-java"
 
@@ -78,30 +77,68 @@ EDGE_SCALARS: list[Any] = [
 LUA_ITEM_FUNCTIONS = [
     ("function compute()\n  return item_score * 2\nend", ["item_score"], ["item_result"]),
     ("function compute()\n  return item_score + 1\nend", ["item_score"], ["item_result"]),
-    ("function compute()\n  if item_score > 50 then return 1 else return 0 end\nend", ["item_score"], ["item_result"]),
-    ("function compute()\n  return item_price * item_weight\nend", ["item_price", "item_weight"], ["item_result"]),
-    ("function compute()\n  return item_score * 0.1 + 0.2\nend", ["item_score"], ["item_result"]),
-    ("function compute()\n  if item_score == 0 then return -1 else return item_score end\nend", ["item_score"], ["item_result"]),
-    ("function compute()\n  return item_count + item_level\nend", ["item_count", "item_level"], ["item_result"]),
+    (
+        "function compute()\n  if item_score > 50 then return 1 else return 0 end\nend",
+        ["item_score"], ["item_result"],
+    ),
+    (
+        "function compute()\n  return item_price * item_weight\nend",
+        ["item_price", "item_weight"], ["item_result"],
+    ),
+    (
+        "function compute()\n  return item_score * 0.1 + 0.2\nend",
+        ["item_score"], ["item_result"],
+    ),
+    (
+        "function compute()\n  if item_score == 0 then return -1 else return item_score end\nend",
+        ["item_score"], ["item_result"],
+    ),
+    (
+        "function compute()\n  return item_count + item_level\nend",
+        ["item_count", "item_level"], ["item_result"],
+    ),
     # Float precision edge cases
     ("function compute()\n  return item_score * 0.1 * 0.1\nend", ["item_score"], ["item_result"]),
     ("function compute()\n  return (item_score + 0.1) + 0.2\nend", ["item_score"], ["item_result"]),
     ("function compute()\n  return item_score / 3.0\nend", ["item_score"], ["item_result"]),
-    ("function compute()\n  return item_score * 1e-10 + 1e-10\nend", ["item_score"], ["item_result"]),
-    ("function compute()\n  return item_score * item_score * item_score\nend", ["item_score"], ["item_result"]),
-    ("function compute()\n  return (item_score - 0.3) * 1000000\nend", ["item_score"], ["item_result"]),
+    (
+        "function compute()\n  return item_score * 1e-10 + 1e-10\nend",
+        ["item_score"], ["item_result"],
+    ),
+    (
+        "function compute()\n  return item_score * item_score * item_score\nend",
+        ["item_score"], ["item_result"],
+    ),
+    (
+        "function compute()\n  return (item_score - 0.3) * 1000000\nend",
+        ["item_score"], ["item_result"],
+    ),
     # Table input/output cases
     ("function compute()\n  return #item_tags\nend", ["item_tags"], ["item_result"]),
-    ("function compute()\n  local s = 0\n  for i = 1, #item_vals do s = s + item_vals[i] end\n  return s\nend", ["item_vals"], ["item_result"]),
-    ("function compute()\n  return {item_score * 2, item_score * 3}\nend", ["item_score"], ["item_result"]),
+    (
+        "function compute()\n  local s = 0\n"
+        "  for i = 1, #item_vals do s = s + item_vals[i] end\n"
+        "  return s\nend",
+        ["item_vals"], ["item_result"],
+    ),
+    (
+        "function compute()\n  return {item_score * 2, item_score * 3}\nend",
+        ["item_score"], ["item_result"],
+    ),
 ]
 
 LUA_COMMON_FUNCTIONS = [
     ("function process()\n  return value * 2\nend", ["value"], ["doubled"]),
     ("function process()\n  return score + 10\nend", ["score"], ["boosted"]),
-    ("function process()\n  if user_age > 18 then return 1 else return 0 end\nend", ["user_age"], ["is_adult"]),
+    (
+        "function process()\n  if user_age > 18 then return 1 else return 0 end\nend",
+        ["user_age"], ["is_adult"],
+    ),
     ("function process()\n  return value * 0.1 + 0.2\nend", ["value"], ["computed"]),
-    ("function process()\n  if value == 0 then return -999 else return value * value end\nend", ["value"], ["computed"]),
+    (
+        "function process()\n  if value == 0 then return -999 else return value * value end\nend",
+        ["value"], ["computed"],
+    ),
     # Float precision edge cases
     ("function process()\n  return value / 7.0\nend", ["value"], ["computed"]),
     ("function process()\n  return value * 1e-15 + 1e-15\nend", ["value"], ["computed"]),
@@ -143,7 +180,10 @@ def random_numeric(rng: random.Random, edge_weight: float = 0.3) -> float | int:
     return round(rng.uniform(-100, 100), 4)
 
 
-def random_items(rng: random.Random, fields: list[str], count: int, edge_weight: float = 0.15) -> list[dict[str, Any]]:
+def random_items(
+    rng: random.Random, fields: list[str], count: int,
+    edge_weight: float = 0.15,
+) -> list[dict[str, Any]]:
     items = []
     for i in range(count):
         item: dict[str, Any] = {}
@@ -282,7 +322,10 @@ def gen_operator(rng: random.Random, name: str,
                 del config["data_parallel"]
 
     elif op_type == "transform_copy":
-        direction = rng.choice(["common_to_item", "item_to_common", "common_to_common", "item_to_item"])
+        direction = rng.choice([
+            "common_to_item", "item_to_common",
+            "common_to_common", "item_to_item",
+        ])
         config["direction"] = direction
         if direction == "common_to_item":
             field = rng.choice(prev_common_outputs) if prev_common_outputs else "tag"
@@ -327,8 +370,12 @@ def gen_operator(rng: random.Random, name: str,
     elif op_type == "transform_normalize":
         config["method"] = "min_max"
         if prev_item_outputs:
-            numeric_fields = [f for f in prev_item_outputs
-                              if "score" in f or "price" in f or "weight" in f or "count" in f or "level" in f]
+            numeric_fields = [
+                f for f in prev_item_outputs
+                if any(k in f for k in (
+                    "score", "price", "weight", "count", "level",
+                ))
+            ]
             norm_field = rng.choice(numeric_fields) if numeric_fields else prev_item_outputs[0]
             item_in = [norm_field]
         else:
@@ -344,7 +391,8 @@ def gen_operator(rng: random.Random, name: str,
     elif op_type == "merge_dedup":
         config["strategy"] = "first"
         if prev_item_outputs:
-            dedup_keys = rng.sample(prev_item_outputs, min(rng.randint(1, 2), len(prev_item_outputs)))
+            n = min(rng.randint(1, 2), len(prev_item_outputs))
+            dedup_keys = rng.sample(prev_item_outputs, n)
             item_in = dedup_keys
         else:
             item_in = ["item_id"]
@@ -356,7 +404,8 @@ def gen_operator(rng: random.Random, name: str,
         else:
             item_in = ["item_id"]
         if prev_common_outputs:
-            common_in = rng.sample(prev_common_outputs, min(rng.randint(1, 2), len(prev_common_outputs)))
+            n = min(rng.randint(1, 2), len(prev_common_outputs))
+            common_in = rng.sample(prev_common_outputs, n)
         config.pop("data_parallel", None)
 
     elif op_type == "filter_paginate":
@@ -504,7 +553,9 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     for f in common_fields:
         if "age" in f or "count" in f or "level" in f:
             common[f] = rng.choice([0, 1, 17, 18, 60, 61, 80, -1, 2147483647])
-        elif "score" in f or "price" in f or "weight" in f or "ratio" in f or "amount" in f or "value" in f:
+        elif any(k in f for k in (
+            "score", "price", "weight", "ratio", "amount", "value",
+        )):
             common[f] = random_numeric(rng, edge_weight=0.4)
         elif "flag" in f:
             common[f] = rng.choice([True, False])
@@ -724,7 +775,7 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     storage_mode = rng.choice(["row", "column"])
 
     config: dict[str, Any] = {
-        "_PINEAPPLE_VERSION": "0.9.8",
+        "_PINEAPPLE_VERSION": "0.9.9",
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": pipeline_map,
@@ -1051,16 +1102,26 @@ def save_divergence(save_dir: Path, round_num: int, config: dict, request: dict,
     return d
 
 
-def check_stability(engines: list[Engine], config_file: str, request_file: str,
-                    runs: int) -> tuple[bool, str]:
-    """Run each engine multiple times, return (stable, detail) — detects non-determinism in values/count."""
+def check_stability(
+    engines: list[Engine], config_file: str,
+    request_file: str, runs: int,
+) -> tuple[bool, str]:
+    """Run each engine multiple times, return (stable, detail).
+
+    Detects non-determinism in values/count.
+    """
     for engine in engines:
         outputs = []
         for _ in range(runs):
             rc, out, _ = engine.run(config_file, request_file)
             outputs.append(normalize_json(out, sort_items=True))
         if len(set(outputs)) > 1:
-            return False, f"{engine.name}: {len(set(outputs))} distinct outputs in {runs} runs"
+            n_distinct = len(set(outputs))
+            return (
+                False,
+                f"{engine.name}: {n_distinct} distinct"
+                f" outputs in {runs} runs",
+            )
     return True, ""
 
 
@@ -1068,7 +1129,6 @@ def shrink_pipeline(config: dict, request: dict, engines: list[Engine],
                     tmpdir: str) -> dict:
     """Try removing operators one by one to find minimal diverging pipeline."""
     pc = config.get("pipeline_config", {})
-    operators = pc.get("operators", {})
     pm = pc.get("pipeline_map", {})
 
     if pm:
@@ -1095,7 +1155,6 @@ def shrink_pipeline(config: dict, request: dict, engines: list[Engine],
             if len(candidate_pipeline) < 1:
                 continue
 
-            op_name = group[idx]
             candidate_ops = {k: v for k, v in best["pipeline_config"]["operators"].items()
                             if k in candidate_pipeline}
 
@@ -1154,8 +1213,11 @@ def main():
                         help="Path to pine-cpp pineapple-run binary")
     parser.add_argument("--save-dir", type=str, default="")
     parser.add_argument("--verbose", "-v", action="store_true")
-    parser.add_argument("--stability-runs", type=int, default=0,
-                        help="Run each pipeline N extra times per engine to detect non-determinism (0=disabled)")
+    parser.add_argument(
+        "--stability-runs", type=int, default=0,
+        help="Run each pipeline N extra times per engine"
+             " to detect non-determinism (0=disabled)",
+    )
     parser.add_argument("--shrink", action="store_true",
                         help="Minimize diverging pipelines by removing operators")
     args = parser.parse_args()
@@ -1188,7 +1250,11 @@ def main():
             cpp_bin = args.cpp_bin or str(REPO_ROOT / "pine-cpp" / "build" / "pineapple-run")
             if not Path(cpp_bin).exists():
                 print(f"  WARNING: pine-cpp binary not found at {cpp_bin}, skipping")
-                print(f"           build first: cmake -S pine-cpp -B pine-cpp/build && cmake --build pine-cpp/build")
+                print(
+                    "           build first: cmake -S pine-cpp"
+                    " -B pine-cpp/build && cmake"
+                    " --build pine-cpp/build"
+                )
                 continue
             engines.append(CppEngine(cpp_bin))
         else:
@@ -1299,7 +1365,10 @@ def main():
                         stats["debug"] += 1
                     if any(op.get("sources") for op in ops.values()):
                         stats["sources"] += 1
-                    if any(op.get("item_defaults") or op.get("common_defaults") for op in ops.values()):
+                    if any(
+                        op.get("item_defaults") or op.get("common_defaults")
+                        for op in ops.values()
+                    ):
                         stats["defaults"] += 1
 
                 with open(config_file, "w") as f:
@@ -1350,8 +1419,16 @@ def main():
 
                     # Both succeed → compare output
                     has_trace = common.get("_return_trace") is True
-                    ref_norm = normalize_json(ref_out, sort_items=not strict_order, strip_trace=has_trace)
-                    e_norm = normalize_json(e_out, sort_items=not strict_order, strip_trace=has_trace)
+                    ref_norm = normalize_json(
+                        ref_out,
+                        sort_items=not strict_order,
+                        strip_trace=has_trace,
+                    )
+                    e_norm = normalize_json(
+                        e_out,
+                        sort_items=not strict_order,
+                        strip_trace=has_trace,
+                    )
                     if ref_norm != e_norm:
                         all_match = False
                         divergent_pair = (ref_name, engine.name)
@@ -1387,18 +1464,38 @@ def main():
                             alt_rc, alt_out, _ = go_engine.run(alt_config_file, request_file)
                             if alt_rc == ref_rc:
                                 has_trace = common.get("_return_trace") is True
-                                ref_norm2 = normalize_json(ref_out, sort_items=not strict_order, strip_trace=has_trace)
-                                alt_norm2 = normalize_json(alt_out, sort_items=not strict_order, strip_trace=has_trace)
+                                ref_norm2 = normalize_json(
+                                    ref_out,
+                                    sort_items=not strict_order,
+                                    strip_trace=has_trace,
+                                )
+                                alt_norm2 = normalize_json(
+                                    alt_out,
+                                    sort_items=not strict_order,
+                                    strip_trace=has_trace,
+                                )
                                 if ref_norm2 != alt_norm2:
-                                    stats["cross_storage_diverge"] = stats.get("cross_storage_diverge", 0) + 1
-                                    d = save_divergence(save_dir, i, config, request,
-                                                        {f"go_{orig_mode}": (ref_rc, ref_out),
-                                                         f"go_{alt_mode}": (alt_rc, alt_out)},
-                                                        (f"go_{orig_mode}", f"go_{alt_mode}"),
-                                                        kind="cross_storage")
-                                    print(f"  [{i+1}] CROSS-STORAGE divergence ({orig_mode} vs {alt_mode}): → {d}")
+                                    stats["cross_storage_diverge"] = (
+                                        stats.get("cross_storage_diverge", 0) + 1
+                                    )
+                                    d = save_divergence(
+                                        save_dir, i, config, request,
+                                        {f"go_{orig_mode}": (ref_rc, ref_out),
+                                         f"go_{alt_mode}": (alt_rc, alt_out)},
+                                        (f"go_{orig_mode}", f"go_{alt_mode}"),
+                                        kind="cross_storage",
+                                    )
+                                    print(
+                                        f"  [{i+1}] CROSS-STORAGE"
+                                        f" divergence"
+                                        f" ({orig_mode} vs"
+                                        f" {alt_mode}):"
+                                        f" → {d}"
+                                    )
                                 else:
-                                    stats["cross_storage_pass"] = stats.get("cross_storage_pass", 0) + 1
+                                    stats["cross_storage_pass"] = (
+                                        stats.get("cross_storage_pass", 0) + 1
+                                    )
                         except (subprocess.TimeoutExpired, Exception):
                             pass  # skip cross-storage check on timeout
                 else:
@@ -1417,7 +1514,12 @@ def main():
                         d = save_divergence(save_dir, i, config, request, outputs, divergent_pair)
 
                     sys.stderr.write("\n")
-                    print(f"  [{i+1}] DIVERGENCE ({divergent_pair[0]} vs {divergent_pair[1]}): → {d}")
+                    print(
+                        f"  [{i+1}] DIVERGENCE"
+                        f" ({divergent_pair[0]}"
+                        f" vs {divergent_pair[1]}):"
+                        f" → {d}"
+                    )
                     if args.verbose:
                         for name, (rc, out, err) in results.items():
                             print(f"       {name}: rc={rc} out={out[:100]}")
@@ -1445,15 +1547,47 @@ def main():
     if args.stability_runs > 0:
         print(f"  UNSTABLE: {unstable}")
     print(f"  ERROR: {errors}")
-    print(f"  Coverage: flat={stats['flat']} subflow={stats['subflow']} nested={stats['nested']} deep_nested={stats['deep_nested']}")
-    print(f"            row={stats['row']} column={stats['column']} skip={stats['skip']} data_parallel={stats['data_parallel']}")
-    print(f"            strict_order={stats['strict_order']} error_path={stats['error_path']}")
-    print(f"  New dims: request_items={stats['request_items']} resources={stats['resources']} debug={stats['debug']} return_trace={stats['return_trace']}")
-    print(f"            sources={stats['sources']} defaults={stats['defaults']}")
-    print(f"            merge_dedup={stats['merge_dedup']} shuffle_by_salt={stats['shuffle_by_salt']} paginate={stats['paginate']}")
-    print(f"            resource_lookup={stats['resource_lookup']} recall_resource={stats['recall_resource']}")
+    print(
+        f"  Coverage: flat={stats['flat']}"
+        f" subflow={stats['subflow']}"
+        f" nested={stats['nested']}"
+        f" deep_nested={stats['deep_nested']}"
+    )
+    print(
+        f"            row={stats['row']}"
+        f" column={stats['column']}"
+        f" skip={stats['skip']}"
+        f" data_parallel={stats['data_parallel']}"
+    )
+    print(
+        f"            strict_order={stats['strict_order']}"
+        f" error_path={stats['error_path']}"
+    )
+    print(
+        f"  New dims: request_items={stats['request_items']}"
+        f" resources={stats['resources']}"
+        f" debug={stats['debug']}"
+        f" return_trace={stats['return_trace']}"
+    )
+    print(
+        f"            sources={stats['sources']}"
+        f" defaults={stats['defaults']}"
+    )
+    print(
+        f"            merge_dedup={stats['merge_dedup']}"
+        f" shuffle_by_salt={stats['shuffle_by_salt']}"
+        f" paginate={stats['paginate']}"
+    )
+    print(
+        f"            resource_lookup={stats['resource_lookup']}"
+        f" recall_resource={stats['recall_resource']}"
+    )
     # Stratified summary:
-    print(f"  Storage stratified pass/fail:  row={stats['pass_row']}/{stats['fail_row']}  column={stats['pass_column']}/{stats['fail_column']}")
+    print(
+        f"  Storage stratified pass/fail:"
+        f"  row={stats['pass_row']}/{stats['fail_row']}"
+        f"  column={stats['pass_column']}/{stats['fail_column']}"
+    )
     if failed > 0:
         print(f"  Divergences: {save_dir}")
     print(f"{'='*60}")
