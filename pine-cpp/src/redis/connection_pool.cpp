@@ -45,10 +45,5 @@ void ConnectionPool::release(const std::string& host, int port, const std::strin
   bucket.push_back({std::move(c), std::chrono::steady_clock::now()});
 }
 
-ConnectionPool& shared_pool() {
-  static ConnectionPool pool;
-  return pool;
-}
-
 }  // namespace redis
 }  // namespace pine

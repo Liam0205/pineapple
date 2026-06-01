@@ -56,18 +56,5 @@ std::string build_key_suffix(const Frame& frame, const std::vector<std::string>&
 std::string build_key_suffix(const OperatorInput& input, const std::vector<std::string>& fields);
 std::vector<std::string> json_to_string_slice(const Variant& v);
 
-struct RedisParams {
-  std::string host;
-  int port = 6379;
-  std::string password;
-  int db = 0;
-  std::string key_prefix;
-  std::string data_type = "string";
-  int ttl = 0;
-  bool fail_on_error = false;
-};
-
-RedisParams parse_redis_params(const OperatorConfig& op);
-
 }  // namespace operators
 }  // namespace pine

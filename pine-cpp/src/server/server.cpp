@@ -997,31 +997,41 @@ bool Server::reload_config() {
     if (config_.shard_pool_size > 0) {
       engine_opts.shard_pool_size = config_.shard_pool_size;
     }
-    auto new_engine = std::make_unique<Engine>(new_config, std::move(engine_opts));
-    auto new_expanded = expand_operator_sequence_with_subflows(new_config);
 
+    // Build and start the new ResourceManager BEFORE the Engine: the Engine
+    // injects the ResourceProvider into ResourceAware operators at construction
+    // time, so the provider pointer must be live first. Handle-typed resources
+    // (connection pools) are created here in start().
     auto new_resource_manager = std::make_unique<resource::Manager>();
     new_resource_manager->load_from_config(new_config);
     new_resource_manager->validate_resource_deps(new_config);
     new_resource_manager->start();
+    engine_opts.resource_provider = new_resource_manager.get();
+
+    auto new_engine = std::make_unique<Engine>(new_config, std::move(engine_opts));
+    auto new_expanded = expand_operator_sequence_with_subflows(new_config);
 
     std::unique_ptr<Engine> old_engine;
+    std::unique_ptr<resource::Manager> old_resource_manager;
     {
       std::unique_lock lock(engine_mu_);
       old_engine = std::move(engine_);
       engine_ = std::move(new_engine);
-      if (resource_manager_) {
-        resource_manager_->stop();
-      }
+      old_resource_manager = std::move(resource_manager_);
       resource_manager_ = std::move(new_resource_manager);
     }
     // Retire the swapped-out engine outside the lock: close() tears down its
     // operators (e.g. Lua state pools) for parity with pine-go/pine-java; the
     // unique_ptr then frees it via RAII. No in-flight request can reference it
     // — handlers hold engine_mu_ shared for the whole execute, so all had
-    // finished before we took the exclusive lock above.
+    // finished before we took the exclusive lock above. Stop the old manager
+    // AFTER the old engine is closed so no borrowed handle outlives its pool;
+    // the same engine_mu_ drain guarantees no execute still holds a borrow.
     if (old_engine) {
       old_engine->close();
+    }
+    if (old_resource_manager) {
+      old_resource_manager->stop();
     }
 
     stats_->pre_init(new_expanded.sequence);
@@ -1124,12 +1134,17 @@ int Server::run(const ServerConfig& cfg) {
     if (cfg.shard_pool_size > 0) {
       engine_opts.shard_pool_size = cfg.shard_pool_size;
     }
-    engine_ = std::make_unique<Engine>(config, std::move(engine_opts));
 
+    // Build and start the ResourceManager BEFORE the Engine so the
+    // ResourceProvider is live when the Engine injects it into ResourceAware
+    // operators at construction time.
     resource_manager_ = std::make_unique<resource::Manager>();
     resource_manager_->load_from_config(config);
     resource_manager_->validate_resource_deps(config);
     resource_manager_->start();
+    engine_opts.resource_provider = resource_manager_.get();
+
+    engine_ = std::make_unique<Engine>(config, std::move(engine_opts));
   } catch (const std::exception& e) {
     std::cerr << "failed to load engine/resources: " << e.what() << "\n";
     return 1;
@@ -1387,6 +1402,13 @@ int Server::run(const ServerConfig& cfg) {
     std::unique_lock lock(engine_mu_);
     if (engine_) {
       engine_->close();
+    }
+    // Stop the ResourceManager after the engine is closed so handle-typed
+    // resources (connection pools) are torn down only once no operator can
+    // still borrow them. ~Manager would also stop(), but doing it here keeps
+    // the engine-then-resources ordering explicit and observable.
+    if (resource_manager_) {
+      resource_manager_->stop();
     }
   }
   return 0;

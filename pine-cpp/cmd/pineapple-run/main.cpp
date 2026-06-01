@@ -59,11 +59,17 @@ int main(int argc, char** argv) {
   std::unique_ptr<pine::resource::Manager> resource_manager;
   try {
     auto config = pine::load_config_from_json(config_data);
-    engine = std::make_unique<pine::Engine>(config);
 
+    // Build and start the ResourceManager before the Engine so the
+    // ResourceProvider is live when the Engine injects it into ResourceAware
+    // operators (e.g. Redis operators borrowing a redis_connection pool).
     resource_manager = std::make_unique<pine::resource::Manager>();
     resource_manager->load_from_config(config);
     resource_manager->start();
+
+    pine::EngineOptions engine_opts;
+    engine_opts.resource_provider = resource_manager.get();
+    engine = std::make_unique<pine::Engine>(config, std::move(engine_opts));
   } catch (const std::exception& err) {
     std::cerr << "error creating engine: " << err.what() << "\n";
     return 1;
