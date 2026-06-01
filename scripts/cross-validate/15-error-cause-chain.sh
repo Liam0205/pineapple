@@ -9,7 +9,6 @@ echo "    ExecutionError preserves the inner object so downstream code can"
 echo "    recover it via the language's native unwrap idiom:"
 echo "      Go     errors.As(outer, &inner)"
 echo "      Java   outer.getCause() instanceof Inner"
-echo "      Python isinstance(outer.__cause__, Inner)"
 echo "      C++    pine::error_as<Inner>(outer)"
 
 # Read the expected probe output from the fixture so the
@@ -51,10 +50,6 @@ probe_check "go" "$GO_OUT"
 # Java probe
 JAVA_OUT=$(java -cp "$JAVA_CP" page.liam.pine.CauseChainProbe 2>&1 || true)
 probe_check "java" "$JAVA_OUT"
-
-# Python probe
-PY_OUT=$(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.cause_chain_probe 2>&1 || true)
-probe_check "python" "$PY_OUT"
 
 # C++ probe (gated on prebuild)
 if [[ -n "${CPP_CAUSE_CHAIN_PROBE:-}" && -x "$CPP_CAUSE_CHAIN_PROBE" ]]; then

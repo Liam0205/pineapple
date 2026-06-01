@@ -56,7 +56,6 @@ jobs:
           python-version: "3.13"
       - run: pip install ruff
       - run: ruff check apple/
-      - run: ruff check pine-python/
 
   java-lint:
     runs-on: ubuntu-latest
@@ -111,27 +110,6 @@ jobs:
         with:
           name: python-coverage
           path: coverage.xml
-          retention-days: 30
-
-  pine-python-test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: pine-python
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - run: pip install -e ".[dev]"
-      - run: pip install pytest-cov
-      - run: python -m pytest tests/ -v --timeout=30 --cov=pine --cov-report=xml:coverage.xml
-      - name: Upload pine-python coverage
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: pine-python-coverage
-          path: pine-python/coverage.xml
           retention-days: 30
 
   java-test:
@@ -294,54 +272,6 @@ jobs:
         working-directory: pine-cpp/build-tests
         run: ctest --output-on-failure
 
-  pine-python-fuzz:
-    runs-on: ubuntu-latest
-    needs: pine-python-test
-    defaults:
-      run:
-        working-directory: pine-python
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - run: pip install -e ".[dev]"
-      - name: Fuzz config/DAG/engine (hypothesis, 500 examples each)
-        run: |
-          python3 -m pytest tests/test_fuzz.py -v -m fuzz \
-            --hypothesis-seed=0 \
-            -o "hypothesis_settings_max_examples=500"
-
-  pine-python-benchmark:
-    runs-on: ubuntu-latest
-    needs: pine-python-test
-    defaults:
-      run:
-        working-directory: pine-python
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - run: pip install -e ".[dev]"
-      - name: Run benchmarks
-        shell: bash
-        run: |
-          python3 -m pytest tests/test_bench.py -v -m benchmark \
-            --benchmark-enable \
-            --benchmark-sort=name | tee benchmark-python.txt
-      - name: Write benchmark summary
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo "### Pine-Python Benchmark results"
-            echo
-            echo '```text'
-            grep -A 50 "benchmark:" benchmark-python.txt || cat benchmark-python.txt | tail -30
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
   java-benchmark:
     runs-on: ubuntu-latest
     needs: java-test
@@ -396,7 +326,7 @@ jobs:
 
   cross-validation:
     runs-on: ubuntu-latest
-    needs: [go-test, java-test, pine-python-test, cpp-build]
+    needs: [go-test, java-test, cpp-build]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -411,15 +341,13 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: Install pine-python deps
-        run: pip install -e pine-python/
       - name: Install redis-server and LuaJIT
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             redis-server=5:7.* cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
           redis-server --version
-      - name: Cross-validate Go vs Java vs Python vs C++
+      - name: Cross-validate Go vs Java vs C++
         run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
       - name: Fail on any divergence
         run: |
@@ -535,7 +463,7 @@ jobs:
 
   differential-fuzz:
     runs-on: ubuntu-latest
-    needs: [go-test, java-test, pine-python-test]
+    needs: [go-test, java-test]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -550,8 +478,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: Install pine-python
-        run: pip install -e pine-python/
       - name: Build Go binary
         run: go build -o pineapple-run ./cmd/pineapple-run/
         working-directory: pine-go
@@ -576,7 +502,7 @@ jobs:
             --rounds 100 \
             --stability-runs 2 \
             --seed "$SEED" \
-            --engines go,python,java,cpp \
+            --engines go,java,cpp \
             --cpp-bin pine-cpp/build/pineapple-run \
             --save-dir /tmp/diff-fuzz-ci | tee diff-fuzz-output.txt
       - name: Upload divergences

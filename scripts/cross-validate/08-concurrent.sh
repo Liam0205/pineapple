@@ -25,11 +25,10 @@ print(json.dumps(data['cases'][0]['request']))
 
 GO_CONC_PORT=19001
 JAVA_CONC_PORT=19002
-PY_CONC_PORT=19003
 CPP_CONC_PORT=19004
 
 # Kill any leftover processes on these ports from previous runs
-for p in $GO_CONC_PORT $JAVA_CONC_PORT $PY_CONC_PORT $CPP_CONC_PORT; do
+for p in $GO_CONC_PORT $JAVA_CONC_PORT $CPP_CONC_PORT; do
   lsof -ti:"$p" 2>/dev/null | xargs kill 2>/dev/null || true
 done
 sleep 0.5
@@ -38,8 +37,6 @@ sleep 0.5
 GO_SRV_PID=$!
 java -cp "$JAVA_CP" -Dpine.config="$CONC_CONFIG" -Dpine.port=$JAVA_CONC_PORT page.liam.pine.PineServer &
 JAVA_SRV_PID=$!
-(cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.server -config "$CONC_CONFIG" -addr ":$PY_CONC_PORT") &
-PY_SRV_PID=$!
 CPP_SRV_PID=""
 if [[ -n "${CPP_SERVER:-}" ]]; then
   "$CPP_SERVER" -config "$CONC_CONFIG" -addr ":$CPP_CONC_PORT" &
@@ -52,7 +49,7 @@ cpp_conc_pass=0
 cpp_conc_total=0
 cpp_srv_ready=false
 
-if srv_ready $GO_CONC_PORT && srv_ready $JAVA_CONC_PORT && srv_ready $PY_CONC_PORT; then
+if srv_ready $GO_CONC_PORT && srv_ready $JAVA_CONC_PORT; then
   if [[ -n "${CPP_SERVER:-}" ]] && srv_ready $CPP_CONC_PORT; then
     cpp_srv_ready=true
   fi
@@ -70,14 +67,6 @@ if srv_ready $GO_CONC_PORT && srv_ready $JAVA_CONC_PORT && srv_ready $PY_CONC_PO
   curl_pids=()
   for i in $(seq 1 10); do
     curl -s -X POST -H "Content-Type: application/json" -d "$CONC_REQ" "http://localhost:$JAVA_CONC_PORT/execute" > "$WORK_DIR/conc_java_$i.json" &
-    curl_pids+=($!)
-  done
-  wait "${curl_pids[@]}"
-
-  # Send 10 concurrent requests to Python
-  curl_pids=()
-  for i in $(seq 1 10); do
-    curl -s -X POST -H "Content-Type: application/json" -d "$CONC_REQ" "http://localhost:$PY_CONC_PORT/execute" > "$WORK_DIR/conc_py_$i.json" &
     curl_pids+=($!)
   done
   wait "${curl_pids[@]}"
@@ -114,16 +103,6 @@ if srv_ready $GO_CONC_PORT && srv_ready $JAVA_CONC_PORT && srv_ready $PY_CONC_PO
     fi
   done
 
-  py_first=$(cat "$WORK_DIR/conc_py_1.json" | normalize_json)
-  py_all_match=true
-  for i in $(seq 2 10); do
-    py_i=$(cat "$WORK_DIR/conc_py_$i.json" | normalize_json)
-    if [[ "$py_first" != "$py_i" ]]; then
-      py_all_match=false
-      break
-    fi
-  done
-
   cpp_first=""
   cpp_all_match=true
   if $cpp_srv_ready; then
@@ -137,11 +116,11 @@ if srv_ready $GO_CONC_PORT && srv_ready $JAVA_CONC_PORT && srv_ready $PY_CONC_PO
     done
   fi
 
-  if [[ "$go_all_match" == "true" && "$java_all_match" == "true" && "$py_all_match" == "true" ]]; then
+  if [[ "$go_all_match" == "true" && "$java_all_match" == "true" ]]; then
     conc_pass=$((conc_pass + 1))
     echo "    [1] All 10 concurrent responses identical within each engine"
   else
-    fail "concurrent: responses differ within engine (Go=$go_all_match, Java=$java_all_match, Python=$py_all_match)"
+    fail "concurrent: responses differ within engine (Go=$go_all_match, Java=$java_all_match)"
   fi
 
   if $cpp_srv_ready; then
@@ -162,16 +141,6 @@ if srv_ready $GO_CONC_PORT && srv_ready $JAVA_CONC_PORT && srv_ready $PY_CONC_PO
   else
     fail "concurrent: Go vs Java divergence under concurrent load"
     diff <(echo "$go_first" | python3 -m json.tool) <(echo "$java_first" | python3 -m json.tool) >&2 || true
-  fi
-
-  # Go and Python results should match
-  conc_total=$((conc_total + 1))
-  if [[ "$go_first" == "$py_first" ]]; then
-    conc_pass=$((conc_pass + 1))
-    echo "    [3] Go vs Python concurrent response → match"
-  else
-    fail "concurrent: Go vs Python divergence under concurrent load"
-    diff <(echo "$go_first" | python3 -m json.tool) <(echo "$py_first" | python3 -m json.tool) >&2 || true
   fi
 
   # Go and C++ results should match
@@ -202,19 +171,12 @@ ops = d.get('operators', {})
 counts = [v.get('exec_count', 0) for v in ops.values()]
 print(min(counts), max(counts))
 ")
-  py_exec_counts=$(curl -s "http://localhost:$PY_CONC_PORT/stats" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-ops = d.get('operators', {})
-counts = [v.get('exec_count', 0) for v in ops.values()]
-print(min(counts), max(counts))
-")
 
-  if [[ "$go_exec_counts" == "10 10" && "$java_exec_counts" == "10 10" && "$py_exec_counts" == "10 10" ]]; then
+  if [[ "$go_exec_counts" == "10 10" && "$java_exec_counts" == "10 10" ]]; then
     conc_pass=$((conc_pass + 1))
     echo "    [4] Stats exec_count = 10 for all operators (all engines)"
   else
-    fail "concurrent: stats exec_count mismatch (Go=$go_exec_counts, Java=$java_exec_counts, Python=$py_exec_counts)"
+    fail "concurrent: stats exec_count mismatch (Go=$go_exec_counts, Java=$java_exec_counts)"
   fi
 
   # C++ stats check
@@ -235,22 +197,20 @@ print(min(counts), max(counts))
     fi
   fi
 
-  kill $GO_SRV_PID $JAVA_SRV_PID $PY_SRV_PID 2>/dev/null || true
+  kill $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
   [[ -n "$CPP_SRV_PID" ]] && kill $CPP_SRV_PID 2>/dev/null || true
-  wait $GO_SRV_PID $JAVA_SRV_PID $PY_SRV_PID 2>/dev/null || true
+  wait $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
   [[ -n "$CPP_SRV_PID" ]] && wait $CPP_SRV_PID 2>/dev/null || true
   GO_SRV_PID=""
   JAVA_SRV_PID=""
-  PY_SRV_PID=""
 else
   fail "concurrent: servers failed to start"
-  kill $GO_SRV_PID $JAVA_SRV_PID $PY_SRV_PID 2>/dev/null || true
+  kill $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
   [[ -n "$CPP_SRV_PID" ]] && kill $CPP_SRV_PID 2>/dev/null || true
-  wait $GO_SRV_PID $JAVA_SRV_PID $PY_SRV_PID 2>/dev/null || true
+  wait $GO_SRV_PID $JAVA_SRV_PID 2>/dev/null || true
   [[ -n "$CPP_SRV_PID" ]] && wait $CPP_SRV_PID 2>/dev/null || true
   GO_SRV_PID=""
   JAVA_SRV_PID=""
-  PY_SRV_PID=""
 fi
 
 if [[ $conc_total -gt 0 && $conc_pass -eq $conc_total ]]; then

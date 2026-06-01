@@ -4,7 +4,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ROUNDS="${1:-1000}"
 SEED="${2:-}"
-ENGINES="${3:-go,python,java}"
+ENGINES="${3:-go,java}"
 
 echo "==> Differential fuzz: $ENGINES ($ROUNDS rounds)"
 

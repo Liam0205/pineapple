@@ -7,8 +7,8 @@
 [[ $CV_JOBS -gt 16 ]] && CV_JOBS=16
 
 # run_engines_parallel config request out_prefix [res_args...]
-# Runs Go, Java, Python (and optionally C++) on the same config+request in parallel.
-# Results are written to $out_prefix.{go,java,py,cpp}.{out,err,rc}
+# Runs Go, Java (and optionally C++) on the same config+request in parallel.
+# Results are written to $out_prefix.{go,java,cpp}.{out,err,rc}
 run_engines_parallel() {
   local config="$1" request="$2" out_prefix="$3"
   shift 3
@@ -23,10 +23,6 @@ run_engines_parallel() {
       > "${out_prefix}.java.out" 2>"${out_prefix}.java.err" || _rc=$?; echo "$_rc" > "${out_prefix}.java.rc"; } &
   local java_pid=$!
 
-  { _rc=0; cd "$REPO_ROOT/pine-python" && python3 -m pine.cli.run -config "$config" -request "$request" "${res_args[@]}" \
-      > "${out_prefix}.py.out" 2>"${out_prefix}.py.err" || _rc=$?; echo "$_rc" > "${out_prefix}.py.rc"; } &
-  local py_pid=$!
-
   local cpp_pid=""
   if [[ -n "${CPP_RUN:-}" ]]; then
     { _rc=0; "$CPP_RUN" -config "$config" -request "$request" "${res_args[@]}" \
@@ -34,7 +30,7 @@ run_engines_parallel() {
     cpp_pid=$!
   fi
 
-  wait $go_pid $java_pid $py_pid ${cpp_pid:+$cpp_pid} 2>/dev/null || true
+  wait $go_pid $java_pid ${cpp_pid:+$cpp_pid} 2>/dev/null || true
 }
 
 # job_pool_wait — wait for background jobs to drop below CV_JOBS
