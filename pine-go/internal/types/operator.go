@@ -254,7 +254,7 @@ type OperatorSchema struct {
 type ResourceSchema struct {
 	Name            string               // Resource type name (e.g. "feed_data").
 	Description     string               // One-line summary.
-	DefaultInterval int                  // Default refresh interval in seconds; 0 → 10min.
+	DefaultInterval int                  // Default refresh interval in seconds; 0 → 10min; <0 → never refresh.
 	Params          map[string]ParamSpec // Reuses operator ParamSpec.
 }
 

@@ -3,12 +3,15 @@
 // Description: Generic Redis read operator. Reads a value by key and outputs the result and a cache-hit flag.
 //
 // Params:
-//   - redis_addr (string, required): Redis server address (host:port).
-//   - redis_password (string, optional, default=""): Redis password.
-//   - redis_db (int, optional, default=0): Redis DB number.
+//   - resource_name (string, required): Name of a redis_connection resource to borrow the client from.
 //   - key_prefix (string, required): Key prefix prepended to the suffix built from common_input fields.
 //   - data_type (string, optional, default="string"): Redis data type: "set", "string", or "list".
 //   - fail_on_error (bool, optional, default=false): Return fatal error on Redis infrastructure failure instead of treating as cache miss.
+//
+// The Redis connection pool is owned by the ResourceManager (resource type
+// redis_connection), not the operator: the client is borrowed per request and
+// released when Execute returns. Multiple Redis operators referencing the same
+// resource_name share one pool.
 //
 // Key construction: key_prefix + join(common_input values, ":").
 // common_output[0] = result value, common_output[1] = cache hit flag (bool).
@@ -25,6 +28,7 @@ import (
 	"fmt"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
+	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -34,53 +38,37 @@ func init() {
 		Type:        pine.OpTypeTransform,
 		Description: "Generic Redis read operator. Reads a value by key and outputs the result and a cache-hit flag.",
 		Params: map[string]pine.ParamSpec{
-			"redis_addr":     {Type: "string", Required: true, Description: "Redis server address (host:port)."},
-			"redis_password": {Type: "string", Required: false, Default: "", Description: "Redis password."},
-			"redis_db":       {Type: "int", Required: false, Default: 0, Description: "Redis DB number."},
-			"key_prefix":     {Type: "string", Required: true, Description: "Key prefix prepended to the suffix built from common_input fields."},
-			"data_type":      {Type: "string", Required: false, Default: "string", Description: `Redis data type: "set", "string", or "list".`},
-			"fail_on_error":  {Type: "bool", Required: false, Default: false, Description: "Return fatal error on Redis infrastructure failure instead of treating as cache miss."},
+			"resource_name": {Type: "string", Required: true, Description: "Name of a redis_connection resource to borrow the client from."},
+			"key_prefix":    {Type: "string", Required: true, Description: "Key prefix prepended to the suffix built from common_input fields."},
+			"data_type":     {Type: "string", Required: false, Default: "string", Description: `Redis data type: "set", "string", or "list".`},
+			"fail_on_error": {Type: "bool", Required: false, Default: false, Description: "Return fatal error on Redis infrastructure failure instead of treating as cache miss."},
 		},
 	}, func() pine.Operator {
 		return &RedisGetOp{}
 	})
 }
 
-// RedisGetOp reads a value from Redis by constructed key.
+// RedisGetOp reads a value from Redis by constructed key. The Redis client is
+// borrowed from a redis_connection resource per request; the operator holds no
+// connection of its own.
 type RedisGetOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
-	rdb         *redis.Client
-	keyPrefix   string
-	dataType    string
-	failOnError bool
+	resourceName string
+	keyPrefix    string
+	dataType     string
+	failOnError  bool
 }
 
 func (o *RedisGetOp) Init(params map[string]any) error {
-	addr, _ := params["redis_addr"].(string)
-	password, _ := params["redis_password"].(string)
-	db := 0
-	if v, ok := params["redis_db"]; ok {
-		db = int(toInt64Param(v))
-	}
+	o.resourceName, _ = params["resource_name"].(string)
 	o.keyPrefix, _ = params["key_prefix"].(string)
 	o.dataType, _ = params["data_type"].(string)
 	if o.dataType == "" {
 		o.dataType = "string"
 	}
-
-	if v, ok := params["fail_on_error"]; ok {
-		if b, ok := v.(bool); ok {
-			o.failOnError = b
-		}
-	}
-
-	if addr != "" {
-		o.rdb = redis.NewClient(&redis.Options{
-			Addr:     addr,
-			Password: password,
-			DB:       db,
-		})
+	if v, ok := params["fail_on_error"].(bool); ok {
+		o.failOnError = v
 	}
 	return nil
 }
@@ -89,16 +77,18 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	resultField := o.CommonOutput[0]
 	cacheHitField := o.CommonOutput[1]
 
-	if o.rdb == nil {
+	rdb, release, ok := borrowRedis(ctx, o.resourceName)
+	if !ok {
 		out.SetCommon(cacheHitField, false)
 		return nil
 	}
+	defer release()
 
 	key := o.keyPrefix + buildKeySuffix(in, o.CommonInput)
 
 	switch o.dataType {
 	case "set":
-		members, err := o.rdb.SMembers(ctx, key).Result()
+		members, err := rdb.SMembers(ctx, key).Result()
 		if err != nil && err != redis.Nil {
 			out.SetWarning(fmt.Errorf("transform_redis_get: %s(%s): %v", "SMembers", key, err))
 			if o.failOnError {
@@ -115,7 +105,7 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 		}
 
 	case "list":
-		vals, err := o.rdb.LRange(ctx, key, 0, -1).Result()
+		vals, err := rdb.LRange(ctx, key, 0, -1).Result()
 		if err != nil && err != redis.Nil {
 			out.SetWarning(fmt.Errorf("transform_redis_get: %s(%s): %v", "LRange", key, err))
 			if o.failOnError {
@@ -132,7 +122,7 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 		}
 
 	case "string":
-		val, err := o.rdb.Get(ctx, key).Result()
+		val, err := rdb.Get(ctx, key).Result()
 		if err != nil && err != redis.Nil {
 			out.SetWarning(fmt.Errorf("transform_redis_get: %s(%s): %v", "Get", key, err))
 			if o.failOnError {
@@ -153,6 +143,27 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	}
 
 	return nil
+}
+
+// borrowRedis borrows a *redis.Client from a redis_connection resource by name.
+// It returns the client, a release function the caller must defer, and ok=false
+// (with a no-op release) when no provider is injected, the resource is missing,
+// or its value is not a *redis.Client — in which case the caller degrades.
+func borrowRedis(ctx context.Context, name string) (*redis.Client, func(), bool) {
+	rp := resource.FromContext(ctx)
+	if rp == nil {
+		return nil, func() {}, false
+	}
+	h, ok := rp.Get(name)
+	if !ok {
+		return nil, func() {}, false
+	}
+	rdb, ok := h.Value().(*redis.Client)
+	if !ok {
+		h.Release()
+		return nil, func() {}, false
+	}
+	return rdb, h.Release, true
 }
 
 // buildKeySuffix joins the values of the given common fields with ":".

@@ -12,15 +12,16 @@ import (
 func TestRedisSetOp_Init(t *testing.T) {
 	op := &RedisSetOp{}
 	err := op.Init(map[string]any{
-		"redis_addr":     "localhost:6379",
-		"redis_password": "secret",
-		"redis_db":       float64(3),
-		"key_prefix":     "wp:",
-		"data_type":      "list",
-		"ttl":            float64(60),
+		"resource_name": "conn",
+		"key_prefix":    "wp:",
+		"data_type":     "list",
+		"ttl":           float64(60),
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if op.resourceName != "conn" {
+		t.Errorf("resourceName = %q, want conn", op.resourceName)
 	}
 	if op.keyPrefix != "wp:" {
 		t.Errorf("keyPrefix = %q, want wp:", op.keyPrefix)
@@ -31,16 +32,13 @@ func TestRedisSetOp_Init(t *testing.T) {
 	if op.ttl.Seconds() != 60 {
 		t.Errorf("ttl = %v, want 60s", op.ttl)
 	}
-	if op.rdb == nil {
-		t.Error("expected redis client to be created")
-	}
 }
 
 func TestRedisSetOp_InitDefaults(t *testing.T) {
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": "localhost:6379",
-		"key_prefix": "p:",
+		"resource_name": "conn",
+		"key_prefix":    "p:",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -52,9 +50,11 @@ func TestRedisSetOp_InitDefaults(t *testing.T) {
 	}
 }
 
-func TestRedisSetOp_NilClient(t *testing.T) {
+// TestRedisSetOp_NoProvider verifies graceful no-op when no resource provider
+// is injected.
+func TestRedisSetOp_NoProvider(t *testing.T) {
 	op := &RedisSetOp{}
-	if err := op.Init(map[string]any{"key_prefix": "k:"}); err != nil {
+	if err := op.Init(map[string]any{"resource_name": "conn", "key_prefix": "k:"}); err != nil {
 		t.Fatal(err)
 	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
@@ -63,18 +63,20 @@ func TestRedisSetOp_NilClient(t *testing.T) {
 	out := pine.NewOperatorOutput()
 	err := op.Execute(context.Background(), in, out)
 	if err != nil {
-		t.Errorf("nil client should return nil, got %v", err)
+		t.Errorf("no provider should return nil, got %v", err)
 	}
 }
 
 func TestRedisSetOp_String(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
-		"data_type":  "string",
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
+		"data_type":     "string",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +84,7 @@ func TestRedisSetOp_String(t *testing.T) {
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "hello"}, nil)
 	out := pine.NewOperatorOutput()
-	if err := op.Execute(context.Background(), in, out); err != nil {
+	if err := op.Execute(ctx, in, out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,12 +99,14 @@ func TestRedisSetOp_String(t *testing.T) {
 
 func TestRedisSetOp_StringBadType(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
-		"data_type":  "string",
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
+		"data_type":     "string",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +114,7 @@ func TestRedisSetOp_StringBadType(t *testing.T) {
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": 12345}, nil)
 	out := pine.NewOperatorOutput()
-	err := op.Execute(context.Background(), in, out)
+	err := op.Execute(ctx, in, out)
 	if err != nil {
 		t.Errorf("bad type should degrade gracefully, got error: %v", err)
 	}
@@ -118,12 +122,14 @@ func TestRedisSetOp_StringBadType(t *testing.T) {
 
 func TestRedisSetOp_Set(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
-		"data_type":  "set",
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
+		"data_type":     "set",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +140,7 @@ func TestRedisSetOp_Set(t *testing.T) {
 		"tags": []string{"a", "b", "c"},
 	}, nil)
 	out := pine.NewOperatorOutput()
-	if err := op.Execute(context.Background(), in, out); err != nil {
+	if err := op.Execute(ctx, in, out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,12 +155,14 @@ func TestRedisSetOp_Set(t *testing.T) {
 
 func TestRedisSetOp_List(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
-		"data_type":  "list",
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
+		"data_type":     "list",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +173,7 @@ func TestRedisSetOp_List(t *testing.T) {
 		"items": []any{"x", "y", "z"},
 	}, nil)
 	out := pine.NewOperatorOutput()
-	if err := op.Execute(context.Background(), in, out); err != nil {
+	if err := op.Execute(ctx, in, out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -180,13 +188,15 @@ func TestRedisSetOp_List(t *testing.T) {
 
 func TestRedisSetOp_WithTTL(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
-		"data_type":  "string",
-		"ttl":        float64(300),
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
+		"data_type":     "string",
+		"ttl":           float64(300),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +204,7 @@ func TestRedisSetOp_WithTTL(t *testing.T) {
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "data"}, nil)
 	out := pine.NewOperatorOutput()
-	if err := op.Execute(context.Background(), in, out); err != nil {
+	if err := op.Execute(ctx, in, out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -206,11 +216,13 @@ func TestRedisSetOp_WithTTL(t *testing.T) {
 
 func TestRedisSetOp_TooFewFields(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +230,7 @@ func TestRedisSetOp_TooFewFields(t *testing.T) {
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1"}, nil)
 	out := pine.NewOperatorOutput()
-	err := op.Execute(context.Background(), in, out)
+	err := op.Execute(ctx, in, out)
 	if err == nil {
 		t.Error("expected error for too few common_input fields")
 	}
@@ -226,12 +238,14 @@ func TestRedisSetOp_TooFewFields(t *testing.T) {
 
 func TestRedisSetOp_UnsupportedType(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
-		"data_type":  "hash",
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
+		"data_type":     "hash",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +253,7 @@ func TestRedisSetOp_UnsupportedType(t *testing.T) {
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "v"}, nil)
 	out := pine.NewOperatorOutput()
-	err := op.Execute(context.Background(), in, out)
+	err := op.Execute(ctx, in, out)
 	if err == nil {
 		t.Error("expected error for unsupported data_type")
 	}
@@ -247,12 +261,14 @@ func TestRedisSetOp_UnsupportedType(t *testing.T) {
 
 func TestRedisSetOp_SetEmptyMembers(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr": s.Addr(),
-		"key_prefix": "prefix:",
-		"data_type":  "set",
+		"resource_name": "conn",
+		"key_prefix":    "prefix:",
+		"data_type":     "set",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +279,7 @@ func TestRedisSetOp_SetEmptyMembers(t *testing.T) {
 		"tags": []string{},
 	}, nil)
 	out := pine.NewOperatorOutput()
-	err := op.Execute(context.Background(), in, out)
+	err := op.Execute(ctx, in, out)
 	if err != nil {
 		t.Errorf("empty set should be no-op, got %v", err)
 	}
@@ -274,10 +290,12 @@ func TestRedisSetOp_SetEmptyMembers(t *testing.T) {
 
 func TestRedisSetOp_FailOnError_True(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr":    s.Addr(),
+		"resource_name": "conn",
 		"key_prefix":    "prefix:",
 		"data_type":     "string",
 		"fail_on_error": true,
@@ -286,12 +304,12 @@ func TestRedisSetOp_FailOnError_True(t *testing.T) {
 	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
 
-	// Close miniredis to simulate infrastructure failure
+	// Close miniredis to simulate infrastructure failure.
 	s.Close()
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "hello"}, nil)
 	out := pine.NewOperatorOutput()
-	err := op.Execute(context.Background(), in, out)
+	err := op.Execute(ctx, in, out)
 	if err == nil {
 		t.Fatal("expected fatal error with fail_on_error=true")
 	}
@@ -302,10 +320,12 @@ func TestRedisSetOp_FailOnError_True(t *testing.T) {
 
 func TestRedisSetOp_FailOnError_False_SetWarning(t *testing.T) {
 	s := miniredis.RunT(t)
+	ctx, client := redisCtx(s.Addr())
+	defer client.Close()
 
 	op := &RedisSetOp{}
 	if err := op.Init(map[string]any{
-		"redis_addr":    s.Addr(),
+		"resource_name": "conn",
 		"key_prefix":    "prefix:",
 		"data_type":     "string",
 		"fail_on_error": false,
@@ -314,12 +334,12 @@ func TestRedisSetOp_FailOnError_False_SetWarning(t *testing.T) {
 	}
 	op.SetMetadata([]string{"uid", "val"}, nil, nil, nil)
 
-	// Close miniredis to simulate infrastructure failure
+	// Close miniredis to simulate infrastructure failure.
 	s.Close()
 
 	in := pine.NewOperatorInput(map[string]any{"uid": "u1", "val": "hello"}, nil)
 	out := pine.NewOperatorOutput()
-	err := op.Execute(context.Background(), in, out)
+	err := op.Execute(ctx, in, out)
 	if err != nil {
 		t.Errorf("expected nil error (default fail_on_error=false), got %v", err)
 	}
