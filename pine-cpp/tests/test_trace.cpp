@@ -9,7 +9,7 @@ using namespace pine;
 namespace {
 
 constexpr const char* kBaseConfigNoDebug = R"({
-  "_PINEAPPLE_VERSION": "0.9.8",
+  "_PINEAPPLE_VERSION": "0.9.9",
   "pipeline_config": {
     "operators": {
       "op": {
