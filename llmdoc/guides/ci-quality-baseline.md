@@ -18,10 +18,10 @@
 | Job | 职责 | 依赖 |
 |-----|------|------|
 | go-lint | golangci-lint | 无 |
-| python-lint | ruff check（apple DSL） | 无 |
+| apple-lint | ruff check（apple DSL） | 无 |
 | go-test | Go 测试 + 覆盖率 | 无 |
 | java-test | Java 测试 + 覆盖率 | 无 |
-| python-test | Apple DSL 测试 + 覆盖率 | 无 |
+| apple-test | Apple DSL 测试 + 覆盖率 | 无 |
 | cpp-build | pine-cpp Release 构建（4 个可执行文件） | 无 |
 | cpp-sanitizer | pine-cpp ASan/UBSan smoke | cpp-build |
 | cpp-lint | pine-cpp `-Werror` 严格构建 + 基础卫生检查 | 无 |
