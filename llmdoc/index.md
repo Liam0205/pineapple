@@ -19,7 +19,7 @@
 ## guides/
 
 - `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步。
-- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint（含 Java checkstyle `failOnViolation=true` + `OneStatementPerLine`、C++ clang-format）/ test / coverage / fuzz / differential-fuzz / cross-validate / nightly cross-runtime benchmark / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径）。
+- `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint（含 Java checkstyle `failOnViolation=true` + `OneStatementPerLine`、C++ clang-format）/ test / coverage / fuzz / differential-fuzz / cross-validate / nightly cross-runtime benchmark / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径），以及本地 `.githooks/` 体系（`pre-commit` staged-only 格式 gate + `pre-push` 工程级 lint + 自包装 CI watch）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则。
 - `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价）。
 
