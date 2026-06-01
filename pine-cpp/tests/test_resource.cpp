@@ -92,3 +92,38 @@ TEST_CASE("resource: background refresh updates the value") {
   CHECK(next > initial);
   mgr.stop();
 }
+
+TEST_CASE("resource: interval=-1 never refreshes") {
+  std::atomic<int> calls{0};
+  resource::Manager mgr;
+  // interval -1 → fetched once at start, no refresh thread scheduled.
+  mgr.register_resource(
+      "conn", [&calls]() { return Variant(calls.fetch_add(1) + 1); }, std::chrono::seconds(-1));
+  mgr.start();
+
+  CHECK(mgr.snapshot()["conn"].as_number() == 1.0);
+  // Wait well beyond any plausible tick; the fetcher must still have run once.
+  std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+  CHECK(calls.load() == 1);
+  CHECK(mgr.snapshot()["conn"].as_number() == 1.0);
+  mgr.stop();
+}
+
+TEST_CASE("resource: interval=-1 survives load_from_config") {
+  RegistryFixture _;
+  std::atomic<int> calls{0};
+  resource::register_fetcher_factory("never_refresh", [&calls](const Variant& /*params*/) {
+    return resource::Fetcher{[&calls]() { return Variant(calls.fetch_add(1) + 1); }};
+  });
+
+  Config cfg;
+  cfg.resource_config["db"] = ResourceEntry{"never_refresh", -1, Variant{}};
+
+  resource::Manager mgr;
+  mgr.load_from_config(cfg);
+  mgr.start();
+  CHECK(mgr.snapshot()["db"].as_number() == 1.0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+  CHECK(calls.load() == 1);
+  mgr.stop();
+}

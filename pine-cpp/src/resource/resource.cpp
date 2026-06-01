@@ -85,8 +85,14 @@ void Manager::register_resource(const std::string& name, Fetcher fetcher, std::c
   if (resources_.count(name)) {
     throw std::runtime_error("resource: duplicate resource name \"" + name + "\"");
   }
-  if (interval <= std::chrono::seconds(0)) {
+  // Interval semantics mirror pine-go / pine-java: 0 means "use the default",
+  // a negative value means "never refresh" (fetched once at start, held until
+  // stop — used by long-lived resources such as connection pools that have no
+  // meaningful refresh). A positive value is the refresh period in seconds.
+  if (interval == std::chrono::seconds(0)) {
     interval = std::chrono::minutes(10);
+  } else if (interval < std::chrono::seconds(0)) {
+    interval = std::chrono::seconds(-1);
   }
   auto m = std::make_unique<Managed>();
   m->name = name;
@@ -106,8 +112,11 @@ void Manager::load_from_config(const Config& config) {
                                name + "\"");
     }
     Fetcher fetcher = (*factory)(entry.params);
-    auto interval = entry.interval > 0 ? std::chrono::seconds(entry.interval) : std::chrono::seconds(0);
-    register_resource(name, std::move(fetcher), interval);
+    // Pass the sign through verbatim so register_resource can apply the
+    // three-state rule (0 → default, <0 → never-refresh, >0 → period). A
+    // negative interval must not collapse to 0, or a never-refresh resource
+    // (e.g. a connection pool) would be rescheduled on the default period.
+    register_resource(name, std::move(fetcher), std::chrono::seconds(entry.interval));
   }
   // Every load_from_config call now validates resource dependencies
   // against the operators in the same config. The previous design ran
@@ -143,7 +152,11 @@ void Manager::start() {
       }
       r->value = fut.get();
       r->loaded = true;
-      to_refresh.push_back(r.get());
+      // A non-positive interval (the -1 never-refresh sentinel) holds the
+      // value fetched above until stop(); no refresh thread is scheduled.
+      if (r->interval > std::chrono::seconds(0)) {
+        to_refresh.push_back(r.get());
+      }
     }
     started_ = true;
   }
