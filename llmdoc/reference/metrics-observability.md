@@ -26,10 +26,9 @@
 - `pine-cpp/src/server/http_metrics.cpp` — `http_metrics_middleware(provider)` 工厂
 - `pine-cpp/include/pine/pine.hpp` — `EngineOptions::metrics_provider`、`Engine::peak_concurrency()`
 
-### pine-java / pine-python
+### pine-java
 
 - pine-java: 参考 `Registry` / `metrics/Provider.java` 模块；同名指标与桶通过 cross-validate metrics-parity section 保证一致
-- pine-python: `pine-python/pine/engine_metrics.py` 提供完整的 `EngineMetrics` 实现，与 Go/Java/C++ 对等（含算子级、DAG 级、调度器级指标预创建和热路径记录）；同名指标与桶通过 cross-validate metrics-parity section 保证一致
 
 ## 设计目标
 
@@ -183,7 +182,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 #### C++ 端的等价中间件
 
-C++ `Server::run()` 现在与 Go/Java/Python 一致，无条件注入 `http_metrics_middleware`（`NopProvider` 兜底当 `metrics_provider` 为 nullptr），用户无需显式 `push_back`。middleware 同时写入外部 Provider 与内置 `HttpStats` 原子累加器（数据流入 `/stats.http` 子树）。`MiddlewareContext::status` 通过 `send_response` 内的 `thread_local` 指针写回。`Provider*` 由调用方持有，必须保证生命周期覆盖 server 运行期。
+C++ `Server::run()` 现在与 Go/Java 一致，无条件注入 `http_metrics_middleware`（`NopProvider` 兜底当 `metrics_provider` 为 nullptr），用户无需显式 `push_back`。middleware 同时写入外部 Provider 与内置 `HttpStats` 原子累加器（数据流入 `/stats.http` 子树）。`MiddlewareContext::status` 通过 `send_response` 内的 `thread_local` 指针写回。`Provider*` 由调用方持有，必须保证生命周期覆盖 server 运行期。
 
 `Middlewares` 与 metrics 注入是正交能力：middleware 包装发生在内部路由注册完成之后、`ListenAndServe` 启动之前，对 `/health`、`/execute`、`/stats`、`/dag` 一并生效，但不改变 `/stats` 数据来源、reload 计数逻辑或引擎内的 metrics provider 传递。
 
@@ -207,7 +206,7 @@ C++ `Server::run()` 现在与 Go/Java/Python 一致，无条件注入 `http_metr
 - `scheduler` — 来自 `Engine.SchedulerStats()` 的调度器统计
 - `server` — 配置热加载相关统计
 - `operator_detail` — 仅当至少一个算子实现 `StatsProvider` 时出现
-- `http`（0.6.7 起,四运行时一致）:
+- `http`（0.6.7 起,三运行时一致）:
   - `requests_total`: `map<"<METHOD> <path> <status_bucket>", int64>`
   - `request_duration_seconds`: `map<"<METHOD> <path>", {count: int64, sum_ns: int64}>`
   - key 字典序输出；duration bucket 字段顺序 count -> sum_ns
@@ -252,7 +251,7 @@ Lua runtime 现在同时实现两种扩展接口：
 - `borrow_count` — 累计借用次数
 - `return_count` — 累计归还次数
 - `create_count` — 实际新建 state 的次数（pool miss）
-- `reuse_count` — 命中池内闲置 state 的次数（pool hit，0.9.7 起新增四运行时一致）
+- `reuse_count` — 命中池内闲置 state 的次数（pool hit，0.9.7 起新增三运行时一致）
 - `active_count` — 当前借出未归还的 state 数
 
 `reuse_count + create_count == borrow_count` 恒成立（borrow 要么命中已有 state 计入 reuse，要么走 newState 计入 create）。运维可由此直接计算命中率 `reuse_count / borrow_count`，无需额外采样。
@@ -290,9 +289,9 @@ cross-validate metrics-parity section（`scripts/cross-validate/13-metrics-parit
 - skip_count match：跳过计数一致
 - error_count match：错误计数一致
 - scheduler.run_count match：调度器运行计数一致
-- http.requests_total 中 `POST /execute 2xx` 计数四方一致
-- http.request_duration_seconds 中 `POST /execute` 的 count 字段四方一致（sum_ns 因 host load 差异不强制）
-- `/stats.http` 子树 schema shape：四方都有 `requests_total` + `request_duration_seconds` 两 key，每个 duration bucket 含 `count` + `sum_ns` 字段
+- http.requests_total 中 `POST /execute 2xx` 计数三方一致
+- http.request_duration_seconds 中 `POST /execute` 的 count 字段三方一致（sum_ns 因 host load 差异不强制）
+- `/stats.http` 子树 schema shape：三方都有 `requests_total` + `request_duration_seconds` 两 key，每个 duration bucket 含 `count` + `sum_ns` 字段
 
 C++ 端是否参与某次比对取决于该 section 中对 `CPP_SERVER` 的引用以及 `scripts/cross-validate/_prebuild.sh` 是否成功构建 cpp 二进制。
 

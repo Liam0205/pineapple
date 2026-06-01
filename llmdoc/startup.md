@@ -5,7 +5,7 @@
 1. `llmdoc/must/conventions.md` — 跨代码库约定：JSON 边界、各运行时副作用注册（含 C++ `PINE_REGISTER_OPERATOR_T`）、命名规范、版本同步、codegen 新鲜度、测试规范、各运行时对等约束、禁止硬编码定量描述。
    - 深入阅读场景：涉及发布/版本、生成文件、算子命名、全仓贡献模式、跨运行时对齐的任务。
 
-2. `llmdoc/overview/project-overview.md` — 项目定位、系统边界，以及为何 Pineapple 拆分为 Apple DSL 声明 + Go / Java / Python / C++ 四运行时执行。
+2. `llmdoc/overview/project-overview.md` — 项目定位、系统边界，以及为何 Pineapple 拆分为 Apple DSL 声明 + Go / Java / C++ 三运行时执行。
    - 深入阅读场景：涉及入口点、包分发、公共 API 或变更归属判断的任务。
 
 3. `llmdoc/architecture/dag-engine.md` — 核心执行模型：引擎编译、DAG 推导（三标记 + auto-inject 模型）、调度器、DataFrame 语义、算子类型规则、行集依赖。
