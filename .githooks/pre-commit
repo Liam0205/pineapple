@@ -1,0 +1,80 @@
+#!/bin/bash
+# pre-commit: block commit if a STAGED source file fails its formatter/linter.
+#
+# Scope: only files staged for THIS commit (git diff --cached), so unrelated
+# in-tree violations never slow down or block an isolated commit. Each language
+# is checked with a file-level tool:
+#   - C++  (.cpp/.hpp)  → clang-format --dry-run --Werror
+#   - Go   (.go)        → gofmt -l
+#   - Py   (.py)        → ruff check
+#
+# Checks run against the staged content as it sits in the working tree. Mixed
+# staged/unstaged hunks are uncommon here; if a file has both, the working-tree
+# version is what gets checked — re-stage after fixing.
+set -uo pipefail
+
+if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+
+if [ -f ".venv/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
+
+# Staged files, added/copied/modified only (skip deletions/renames-away).
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
+if [ "${#staged[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+cpp_files=()
+go_files=()
+py_files=()
+for f in "${staged[@]}"; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    *.cpp|*.hpp|*.cc|*.h) cpp_files+=("$f") ;;
+    *.go)                 go_files+=("$f")  ;;
+    *.py)                 py_files+=("$f")  ;;
+  esac
+done
+
+errors=""
+
+# C++ — clang-format
+if [ "${#cpp_files[@]}" -gt 0 ] && command -v clang-format &>/dev/null; then
+  cpp_out=$(clang-format --dry-run --Werror "${cpp_files[@]}" 2>&1)
+  if [ $? -ne 0 ]; then
+    errors+="=== clang-format (staged C++) ===\n${cpp_out}\n"
+    errors+="fix: clang-format -i ${cpp_files[*]} && git add <files>\n\n"
+  fi
+fi
+
+# Go — gofmt
+if [ "${#go_files[@]}" -gt 0 ] && command -v gofmt &>/dev/null; then
+  gofmt_out=$(gofmt -l "${go_files[@]}" 2>&1)
+  if [ -n "$gofmt_out" ]; then
+    errors+="=== gofmt (staged Go, files need formatting) ===\n${gofmt_out}\n"
+    errors+="fix: gofmt -w ${go_files[*]} && git add <files>\n\n"
+  fi
+fi
+
+# Python — ruff
+if [ "${#py_files[@]}" -gt 0 ] && command -v ruff &>/dev/null; then
+  ruff_out=$(ruff check "${py_files[@]}" 2>&1)
+  if [ $? -ne 0 ]; then
+    errors+="=== ruff check (staged Python) ===\n${ruff_out}\n"
+    errors+="fix: ruff check --fix ${py_files[*]} && git add <files>\n\n"
+  fi
+fi
+
+if [ -n "$errors" ]; then
+  echo -e "\npre-commit: staged files failed lint/format checks:\n" >&2
+  echo -e "$errors" >&2
+  exit 1
+fi
+
+exit 0
