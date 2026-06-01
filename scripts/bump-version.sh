@@ -101,7 +101,7 @@ echo "[9/11] Running Java tests"
 
 # --- 10. C++ build + test ---
 echo "[10/11] Building and testing pine-cpp"
-(cd pine-cpp && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPINE_CPP_BUILD_TESTS=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build -j2 && ./build/pine_cpp_tests)
+(cd pine-cpp && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPINE_CPP_BUILD_TESTS=ON -DPINE_BUILD_BENCH_STUBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build -j2 && ./build/pine_cpp_tests)
 
 # --- 11. Cross-validation ---
 echo "[11/11] Running cross-validation"
