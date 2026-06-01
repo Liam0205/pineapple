@@ -94,8 +94,14 @@ public class ResourceManager implements ResourceProvider {
         if (resources.containsKey(name)) {
             throw new IllegalStateException("resource: duplicate resource name \"" + name + "\"");
         }
-        if (intervalSeconds <= 0) {
+        // Interval semantics mirror Go: 0 means "use the default", a negative
+        // value means "never refresh" (fetched once at start, held until stop —
+        // used by long-lived resources such as connection pools that have no
+        // meaningful refresh). A positive value is the refresh period in seconds.
+        if (intervalSeconds == 0) {
             intervalSeconds = DEFAULT_INTERVAL_SECONDS;
+        } else if (intervalSeconds < 0) {
+            intervalSeconds = -1;
         }
         resources.put(name, new ManagedResource(name, fetcher, intervalSeconds));
     }
@@ -167,8 +173,13 @@ public class ResourceManager implements ResourceProvider {
             });
 
             for (ManagedResource r : resources.values()) {
-                executor.scheduleAtFixedRate(() -> refresh(r),
-                        r.intervalSeconds, r.intervalSeconds, TimeUnit.SECONDS);
+                // A non-positive interval means "never refresh": the value
+                // fetched above is held until stop(). Scheduling is skipped (a
+                // negative period would also throw in scheduleAtFixedRate).
+                if (r.intervalSeconds > 0) {
+                    executor.scheduleAtFixedRate(() -> refresh(r),
+                            r.intervalSeconds, r.intervalSeconds, TimeUnit.SECONDS);
+                }
             }
         }
     }

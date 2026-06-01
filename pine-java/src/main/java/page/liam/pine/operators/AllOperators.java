@@ -1,9 +1,14 @@
 package page.liam.pine.operators;
 
+import page.liam.pine.Codegen;
 import page.liam.pine.OperatorSchema;
 import page.liam.pine.OperatorType;
 import page.liam.pine.ParamSpec;
 import page.liam.pine.Registry;
+import page.liam.pine.ResourceManager;
+import page.liam.pine.ResourceRegistry;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
 
 import java.util.Collections;
 import java.util.Map;
@@ -106,12 +111,8 @@ public class AllOperators {
                         OperatorType.TRANSFORM,
                         "Generic Redis read operator. Reads a value by key and outputs the result and a cache-hit flag.",
                         Map.of(
-                                "redis_addr", ParamSpec.required("string",
-                                        "Redis server address (host:port)."),
-                                "redis_password", ParamSpec.optional("string", "",
-                                        "Redis password."),
-                                "redis_db", ParamSpec.optional("int", 0L,
-                                        "Redis DB number."),
+                                "resource_name", ParamSpec.required("string",
+                                        "Name of a redis_connection resource to borrow the client from."),
                                 "key_prefix", ParamSpec.required("string",
                                         "Key prefix prepended to the suffix built from common_input fields."),
                                 "data_type", ParamSpec.optional("string", "string",
@@ -128,12 +129,8 @@ public class AllOperators {
                         OperatorType.TRANSFORM,
                         "Generic Redis write operator. Writes a value by key with optional TTL.",
                         Map.of(
-                                "redis_addr", ParamSpec.required("string",
-                                        "Redis server address (host:port)."),
-                                "redis_password", ParamSpec.optional("string", "",
-                                        "Redis password."),
-                                "redis_db", ParamSpec.optional("int", 0L,
-                                        "Redis DB number."),
+                                "resource_name", ParamSpec.required("string",
+                                        "Name of a redis_connection resource to borrow the client from."),
                                 "key_prefix", ParamSpec.required("string",
                                         "Key prefix prepended to the suffix built from common_input fields."),
                                 "data_type", ParamSpec.optional("string", "string",
@@ -303,8 +300,62 @@ public class AllOperators {
                         )),
                 TransformBenchSleep::new);
 
+        registerRedisConnectionResource();
+
         if (Boolean.getBoolean("pine.bench")) {
             page.liam.pine.operators.bench.BenchStubs.ensureRegistered();
         }
+    }
+
+    /**
+     * Registers the built-in redis_connection resource type: a shared JedisPool
+     * borrowed by transform_redis_get/set via resource_name, mirroring Go's
+     * operators/transform/redis_connection.go. DefaultInterval is -1 (never
+     * refresh): a connection pool has no meaningful refresh and is held until the
+     * ResourceManager retires, at which point stop() closes the pool.
+     */
+    private static void registerRedisConnectionResource() {
+        ResourceManager.registerFactory("redis_connection", params -> {
+            Object addrObj = params.get("addr");
+            String addr = addrObj instanceof String ? (String) addrObj : "";
+            if (addr.isEmpty()) {
+                throw new IllegalArgumentException("redis_connection: addr is required");
+            }
+            Object pwObj = params.get("password");
+            String password = pwObj instanceof String ? (String) pwObj : "";
+            Object dbObj = params.get("db");
+            int db = dbObj instanceof Number ? ((Number) dbObj).intValue() : 0;
+            return () -> {
+                String host = addr.contains(":") ? addr.substring(0, addr.indexOf(':')) : addr;
+                int port = addr.contains(":") ? Integer.parseInt(addr.substring(addr.indexOf(':') + 1)) : 6379;
+                JedisPoolConfig cfg = new JedisPoolConfig();
+                // JedisPool construction is lazy (no connect here), so a never-refresh
+                // pool can be created at start even when Redis is unavailable; the
+                // failure surfaces at borrow time and degrades per fail_on_error.
+                return password.isEmpty()
+                        ? new JedisPool(cfg, host, port, 2000, null, db)
+                        : new JedisPool(cfg, host, port, 2000, password, db);
+            };
+        });
+
+        Codegen.ResourceSchema schema = new Codegen.ResourceSchema();
+        schema.name = "redis_connection";
+        schema.description = "Shared Redis connection pool borrowed by Redis operators via resource_name.";
+        schema.defaultInterval = -1;
+        schema.params = Map.of(
+                "addr", codegenParam("string", true, null, "Redis server address (host:port)."),
+                "password", codegenParam("string", false, "", "Redis password."),
+                "db", codegenParam("int", false, 0L, "Redis DB number.")
+        );
+        ResourceRegistry.register(schema);
+    }
+
+    private static Codegen.ParamSpec codegenParam(String type, boolean required, Object defaultValue, String description) {
+        Codegen.ParamSpec ps = new Codegen.ParamSpec();
+        ps.type = type;
+        ps.required = required;
+        ps.defaultValue = defaultValue;
+        ps.description = description;
+        return ps;
     }
 }
