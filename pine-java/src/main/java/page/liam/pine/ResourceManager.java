@@ -174,7 +174,12 @@ public class ResourceManager implements ResourceProvider {
     }
 
     /**
-     * Shuts down the background refresh executor.
+     * Shuts down the background refresh executor, then closes any resource value
+     * that owns an external handle (a value implementing {@link AutoCloseable},
+     * e.g. a Redis connection pool). Mirrors Go's ResourceManager dropping its
+     * baseline reference on each value at retirement. Server callers gate stop()
+     * behind a snapshot reference count, so no in-flight request still borrows a
+     * value being closed. Idempotent: only the first call tears down.
      */
     public synchronized void stop() {
         if (!started) {
@@ -188,6 +193,17 @@ public class ResourceManager implements ResourceProvider {
                 Thread.currentThread().interrupt();
             }
             executor = null;
+        }
+        for (ManagedResource r : resources.values()) {
+            Object v = r.value;
+            if (v instanceof AutoCloseable) {
+                try {
+                    ((AutoCloseable) v).close();
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING,
+                            "resource: close \"" + r.name + "\" failed: " + e.getMessage());
+                }
+            }
         }
         started = false;
     }

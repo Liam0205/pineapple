@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -37,12 +38,70 @@ public class PineServer {
 
     private final HttpStats httpStats = new HttpStats();
 
-    private static class Snapshot {
+    private static final class Snapshot {
         final Engine engine;
         final ResourceProvider resources;
+
+        // Reference count so that engine/resource teardown on retirement (config
+        // hot-reload or shutdown) is deferred until every in-flight request that
+        // captured this snapshot has finished — no request ever uses an operator
+        // resource (e.g. a Redis connection pool) that has already been closed.
+        // Starts at 1 (the live baseline held by the snapshot field); retiring
+        // drops that baseline, and the last reference to reach zero runs teardown.
+        private final AtomicInteger refs = new AtomicInteger(1);
+
         Snapshot(Engine engine, ResourceProvider resources) {
             this.engine = engine;
             this.resources = resources;
+        }
+
+        // Takes an in-flight reference, returning false once the baseline has
+        // been dropped and teardown is committed (count <= 0). The CAS only ever
+        // increments a positive count, so a retired snapshot can never be
+        // revived; the caller must fall back to the current live snapshot.
+        boolean acquire() {
+            for (;;) {
+                int n = refs.get();
+                if (n <= 0) {
+                    return false;
+                }
+                if (refs.compareAndSet(n, n + 1)) {
+                    return true;
+                }
+            }
+        }
+
+        // Drops one reference. When the count reaches zero (baseline dropped and
+        // all in-flight references released) it runs teardown exactly once.
+        void release() {
+            if (refs.decrementAndGet() == 0) {
+                teardown();
+            }
+        }
+
+        private void teardown() {
+            if (resources instanceof ResourceManager) {
+                ((ResourceManager) resources).stop();
+            }
+            if (engine != null) {
+                engine.close();
+            }
+        }
+    }
+
+    // Returns the current live snapshot with an in-flight reference held; the
+    // caller must release() it when done. Retries if the snapshot is retired
+    // between the read and the acquire, since a retirement always installs a new
+    // live snapshot first. Returns null only before the initial snapshot is stored.
+    private Snapshot acquireSnapshot() {
+        for (;;) {
+            Snapshot snap = snapshot.get();
+            if (snap == null) {
+                return null;
+            }
+            if (snap.acquire()) {
+                return snap;
+            }
         }
     }
 
@@ -198,14 +257,11 @@ public class PineServer {
         }
         // Tear down the live snapshot: a hot-reload may have swapped it, so the
         // current one (not a captured startup value) is what must be released.
+        // Dropping the baseline reference runs teardown once the last in-flight
+        // request releases its reference.
         Snapshot snap = snapshot.get();
         if (snap != null) {
-            if (snap.resources instanceof ResourceManager) {
-                ((ResourceManager) snap.resources).stop();
-            }
-            if (snap.engine != null) {
-                snap.engine.close();
-            }
+            snap.release();
         }
     }
 
@@ -221,12 +277,11 @@ public class PineServer {
             Engine engine = Engine.create(configData, rm, metricsProvider);
             Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
             if (old != null) {
-                if (old.resources instanceof ResourceManager) {
-                    ((ResourceManager) old.resources).stop();
-                }
-                if (old.engine != null) {
-                    old.engine.close();
-                }
+                // Drop the baseline reference. Teardown (resource stop + engine
+                // close) runs once the last in-flight request that captured the
+                // old snapshot releases its reference, so no request is ever
+                // served with a closed operator resource.
+                old.release();
             }
         } catch (Exception e) {
             rm.stop();
@@ -277,7 +332,7 @@ public class PineServer {
             return;
         }
 
-        Snapshot snap = snapshot.get();
+        Snapshot snap = acquireSnapshot();
         if (snap == null) {
             sendResponse(exchange, 503, Map.of("error", "engine not loaded"));
             return;
@@ -353,6 +408,8 @@ public class PineServer {
             sendResponse(exchange, 400, errResp);
         } catch (Exception e) {
             sendResponse(exchange, 500, Map.of("error", e.getMessage()));
+        } finally {
+            snap.release();
         }
     }
 
@@ -361,21 +418,25 @@ public class PineServer {
             sendResponse(exchange, 405, Map.of("error", "method not allowed"));
             return;
         }
-        Snapshot snap = snapshot.get();
+        Snapshot snap = acquireSnapshot();
         if (snap == null) {
             sendResponse(exchange, 503, Map.of("error", "engine not loaded"));
             return;
         }
-        Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("operators", snap.engine.stats());
-        resp.put("scheduler", snap.engine.schedulerStats());
-        resp.put("server", serverStats());
-        resp.put("http", httpStats.snapshot());
-        Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
-        if (custom != null) {
-            resp.put("operator_detail", custom);
+        try {
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("operators", snap.engine.stats());
+            resp.put("scheduler", snap.engine.schedulerStats());
+            resp.put("server", serverStats());
+            resp.put("http", httpStats.snapshot());
+            Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
+            if (custom != null) {
+                resp.put("operator_detail", custom);
+            }
+            sendResponse(exchange, 200, resp);
+        } finally {
+            snap.release();
         }
-        sendResponse(exchange, 200, resp);
     }
 
     private void handleDAG(HttpExchange exchange) throws IOException {
@@ -384,47 +445,51 @@ public class PineServer {
             return;
         }
 
-        Snapshot snap = snapshot.get();
+        Snapshot snap = acquireSnapshot();
         if (snap == null) {
             sendResponse(exchange, 503, Map.of("error", "engine not loaded"));
             return;
         }
 
-        String query = exchange.getRequestURI().getQuery();
-        String format = "dot";
-        int collapse = 0;
-        if (query != null) {
-            for (String param : query.split("&")) {
-                String[] kv = param.split("=", 2);
-                if (kv.length == 2) {
-                    if ("format".equals(kv[0])) format = kv[1];
-                    else if ("collapse".equals(kv[0])) {
-                        try { collapse = Integer.parseInt(kv[1]); }
-                        catch (NumberFormatException e) {
-                            sendResponse(exchange, 400, Map.of("error", "collapse must be a non-negative integer"));
-                            return;
-                        }
-                        if (collapse < 0) {
-                            sendResponse(exchange, 400, Map.of("error", "collapse must be a non-negative integer"));
-                            return;
+        try {
+            String query = exchange.getRequestURI().getQuery();
+            String format = "dot";
+            int collapse = 0;
+            if (query != null) {
+                for (String param : query.split("&")) {
+                    String[] kv = param.split("=", 2);
+                    if (kv.length == 2) {
+                        if ("format".equals(kv[0])) format = kv[1];
+                        else if ("collapse".equals(kv[0])) {
+                            try { collapse = Integer.parseInt(kv[1]); }
+                            catch (NumberFormatException e) {
+                                sendResponse(exchange, 400, Map.of("error", "collapse must be a non-negative integer"));
+                                return;
+                            }
+                            if (collapse < 0) {
+                                sendResponse(exchange, 400, Map.of("error", "collapse must be a non-negative integer"));
+                                return;
+                            }
                         }
                     }
                 }
             }
-        }
 
-        try {
-            String output = snap.engine.renderDAG(format, collapse);
+            try {
+                String output = snap.engine.renderDAG(format, collapse);
 
-            String contentType = "dot".equals(format) ? "text/vnd.graphviz" : "text/plain";
-            byte[] responseBytes = output.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", contentType + "; charset=utf-8");
-            exchange.sendResponseHeaders(200, responseBytes.length);
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(responseBytes);
+                String contentType = "dot".equals(format) ? "text/vnd.graphviz" : "text/plain";
+                byte[] responseBytes = output.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", contentType + "; charset=utf-8");
+                exchange.sendResponseHeaders(200, responseBytes.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(responseBytes);
+                }
+            } catch (Exception e) {
+                sendResponse(exchange, 400, Map.of("error", e.getMessage()));
             }
-        } catch (Exception e) {
-            sendResponse(exchange, 400, Map.of("error", e.getMessage()));
+        } finally {
+            snap.release();
         }
     }
 
