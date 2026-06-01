@@ -17,11 +17,15 @@
 - `pine-go/operators/lua/pool.go`
 - `pine-go/pkg/server/server.go`
 - `pine-go/pkg/server/http_metrics.go`
+- `pine-go/pkg/metrics/collector.go` — 资源级指标聚合 `Collector`（`/stats.resources` 数据源）
+- `pine-go/pkg/metrics/tee.go` — fan-out `Tee(Provider...)`，把同一指标写入多个下游 Provider
 
 ### pine-cpp（C++ 对等实现）
 
 - `pine-cpp/include/pine/metrics.hpp` — `Provider` / `Counter` / `Gauge` / `Histogram` 接口
 - `pine-cpp/src/runtime/metrics_nop.cpp` — `nop_provider()` 单例
+- `pine-cpp/include/pine/metrics_collector.hpp` — `metrics::Collector` + `metrics::TeeProvider`
+- `pine-cpp/src/runtime/metrics_collector.cpp` — Collector 聚合快照 + Tee fan-out 实现
 - `pine-cpp/src/server/server.hpp` — `MiddlewareContext` / `Middleware` / `ServerConfig::middlewares`
 - `pine-cpp/src/server/http_metrics.cpp` — `http_metrics_middleware(provider)` 工厂
 - `pine-cpp/include/pine/pine.hpp` — `EngineOptions::metrics_provider`、`Engine::peak_concurrency()`
@@ -29,6 +33,8 @@
 ### pine-java
 
 - pine-java: 参考 `Registry` / `metrics/Provider.java` 模块；同名指标与桶通过 cross-validate metrics-parity section 保证一致
+- `metrics/MetricsCollector.java` — 资源级指标聚合 Collector
+- `metrics/TeeProvider.java` — fan-out Provider
 
 ## 设计目标
 
@@ -211,6 +217,11 @@ C++ `Server::run()` 现在与 Go/Java 一致，无条件注入 `http_metrics_mid
   - `request_duration_seconds`: `map<"<METHOD> <path>", {count: int64, sum_ns: int64}>`
   - key 字典序输出；duration bucket 字段顺序 count -> sum_ns
   - 由内置 http_metrics middleware 实时填充，与外部 Provider Counter/Histogram 平行，构成"双通道观测模型"
+- `resources`（三运行时一致）：资源级指标的 metric-centric 快照 `{指标名: {标签值组合: 值}}`
+  - counter/gauge 为标量，histogram 为 `{count, sum_ns}`（整数纳秒）
+  - 每层键字典序排序，保证三运行时字节级一致
+  - 该键**恒存在**（Collector 随 ResourceManager 一起无条件创建）；无资源指标时为 `{}`
+  - 数据源是 fan-out 路由中的专用 Collector，详见下文"资源级指标 fan-out 路由"
 
 这意味着：
 
@@ -269,6 +280,39 @@ Lua pool 还会创建以下 provider metrics，并绑定 `operator` label：
 
 label 值取自 `DebugHolder.OperatorName()`，所以 Lua 算子的 metrics 注入依赖固定顺序：MetadataAware → DebugAware → MetricsAware。
 
+## 资源级指标 fan-out 路由
+
+内置 `redis_connection` 资源在 `metrics_name` 非空时发出 4 个资源级指标（标签名 `name` 取该参数值）：
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `pine_redis_pool_total_conns` | Gauge(name) | 连接池总连接数（空闲 + 使用中） |
+| `pine_redis_pool_idle_conns` | Gauge(name) | 连接池空闲连接数 |
+| `pine_redis_ping_duration_seconds` | Histogram(name) | 后台 PING 探针往返耗时 |
+| `pine_redis_up` | Gauge(name) | 最近一次 PING 成功为 1，失败为 0 |
+
+`metrics_name` 为空（默认）时不发出任何指标，也不启动探针线程。探针在资源 `Start()` 时立即跑一次（probe-once-then-tick），随后固定 15s 一跳，三运行时一致——因此首个请求前指标即已就绪。
+
+### fan-out（Tee）路由
+
+资源级指标走 **fan-out（Tee）** 路由，与引擎指标解耦。bundled server 给 `ResourceManager` 注入的不是裸 Provider，而是 `Tee(注入的Provider, 专用Collector)`：
+
+- 每条资源指标同时写入**调用方注入的 Provider**（如 Prometheus 适配器）和**专用 Collector**；
+- 引擎指标仍直接走注入的 Provider，**不**进入 Collector，因此 `/stats.resources` 子树天然只含资源级指标（当前 4 个 redis），不掺入引擎/服务级指标——scope 隔离靠"谁通过 Tee 写入"实现，而非在 Collector 内按名字过滤；
+- `/stats.resources` 读取 Collector 的聚合快照，无需外部 Prometheus 后端即可观测；
+- 下游无需任何改动即可从 `/stats.resources` 读到新指标；已接 Prometheus 的下游照常经注入 Provider 导出，两条路径并存。
+
+Collector 与 Tee 随 `ResourceManager` 在热重载时一同原子替换，且生命周期长于它（资源持有指向 Tee 的裸指针）。
+
+### Collector 契约
+
+- 聚合快照形状与 `/stats.http` 同构：`{指标名: {标签值组合: 值}}`，counter/gauge 为标量、histogram 为 `{count, sum_ns}`（整数纳秒）。
+- histogram 纳秒取整：Go `int64(math.Round(value*1e9))`、Java `Math.round(value*1e9)`、C++ `static_cast<int64_t>(std::llround(value*1e9))`。
+- 每层键字典序排序，保证三运行时字节级一致。
+- 即使指标被声明但从未 observe，也以空对象出现（`{"pine_redis_up": {}}`），便于跨运行时形状断言。
+
+三运行时实现（Go `pkg/metrics` Collector+Tee、Java `MetricsCollector`+`TeeProvider`、C++ `metrics::Collector`+`metrics::TeeProvider`）行为字节级对齐，由 cross-validate resource-metrics section（`scripts/cross-validate/16-resource-metrics.sh`）锁定。
+
 ## Prometheus 适配边界
 
 Pineapple 仓库内不提供 Prometheus 具体实现。推荐模式是：
@@ -294,6 +338,16 @@ cross-validate metrics-parity section（`scripts/cross-validate/13-metrics-parit
 - `/stats.http` 子树 schema shape：三方都有 `requests_total` + `request_duration_seconds` 两 key，每个 duration bucket 含 `count` + `sum_ns` 字段
 
 C++ 端是否参与某次比对取决于该 section 中对 `CPP_SERVER` 的引用以及 `scripts/cross-validate/_prebuild.sh` 是否成功构建 cpp 二进制。
+
+### 资源级指标 parity（section 16）
+
+cross-validate resource-metrics section（`scripts/cross-validate/16-resource-metrics.sh`）锁定 `/stats.resources` 子树的形状与正确性，需要真实 redis-server（缺失时整段干净跳过）：
+
+- 正例（`metrics_name="cache"`）：
+  - Go 正确性——4 个指标齐全、`pine_redis_up.cache == 1`、ping `count >= 1`、histogram cell 含 `sum_ns`
+  - Go vs Java：指标名 + 标签 key 集合一致、`pine_redis_up` 数值一致、ping count 均 ≥1
+  - Go vs C++：同上形状 + 正确性 parity
+- 负例（无 `metrics_name`）：三运行时 `resources == {}`（恒存在键的干净负断言）
 
 ## 版本边界
 
