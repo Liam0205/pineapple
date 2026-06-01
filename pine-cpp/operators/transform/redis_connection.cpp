@@ -15,11 +15,12 @@
 
 #include "pine/pine.hpp"
 #include "pine/resource.hpp"
-#include "redis/connection_pool.hpp"
 
 #include <memory>
 #include <stdexcept>
 #include <string>
+
+#include "redis/connection_pool.hpp"
 
 namespace pine {
 namespace {

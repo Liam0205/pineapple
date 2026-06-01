@@ -47,9 +47,9 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
   void execute(const OperatorInput& input, OperatorOutput& out) override {
     // A null borrow (no provider, missing resource, or wrong handle type) is a
     // silent no-op, mirroring pine-go's borrowRedis ok=false path.
-    auto conn = provider_ ? std::static_pointer_cast<redis::RedisConnResource>(
-                                provider_->borrow(resource_name_))
-                          : nullptr;
+    auto conn = provider_
+                    ? std::static_pointer_cast<redis::RedisConnResource>(provider_->borrow(resource_name_))
+                    : nullptr;
     if (!conn) {
       return;
     }
