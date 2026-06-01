@@ -11,9 +11,7 @@ Generic Redis write operator. Writes a value by key with optional TTL.
 | data_type | string | No | `"string"` | Redis data type: "set", "string", or "list". |
 | fail_on_error | bool | No | `False` | Return fatal error on Redis infrastructure failure instead of logging and continuing. |
 | key_prefix | string | Yes | - | Key prefix prepended to the suffix built from common_input fields. |
-| redis_addr | string | Yes | - | Redis server address (host:port). |
-| redis_db | int | No | `0` | Redis DB number. |
-| redis_password | string | No | `""` | Redis password. |
+| resource_name | string | Yes | - | Name of a redis_connection resource to borrow the client from. |
 | ttl | int | No | `0` | TTL in seconds. 0 means no expiry. |
 
 ## Metadata Contract
@@ -32,9 +30,7 @@ flow.transform_redis_set(
     data_type=...,
     fail_on_error=...,
     key_prefix=...,
-    redis_addr=...,
-    redis_db=...,
-    redis_password=...,
+    resource_name=...,
     ttl=...,
     common_input=[...],
     item_input=[...],
