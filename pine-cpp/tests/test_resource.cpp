@@ -120,11 +120,11 @@ TEST_CASE("resource: interval=-1 never refreshes") {
 TEST_CASE("resource: interval=-1 survives load_from_config") {
   RegistryFixture _;
   std::atomic<int> calls{0};
-  resource::register_fetcher_factory("never_refresh", [&calls](const Variant& /*params*/,
-                                                               metrics::Provider* /*mp*/) {
-    return resource::Fetcher{
-        [&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); }};
-  });
+  resource::register_fetcher_factory(
+      "never_refresh", [&calls](const Variant& /*params*/, metrics::Provider* /*mp*/) {
+        return resource::Fetcher{
+            [&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); }};
+      });
 
   Config cfg;
   cfg.resource_config["db"] = ResourceEntry{"never_refresh", -1, Variant{}};

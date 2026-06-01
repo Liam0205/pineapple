@@ -1,7 +1,7 @@
 #pragma once
 
-#include "pine/pine.hpp"
 #include "pine/metrics_collector.hpp"
+#include "pine/pine.hpp"
 #include "pine/resource.hpp"
 
 #include <atomic>

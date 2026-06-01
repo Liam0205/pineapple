@@ -29,8 +29,7 @@ namespace pine {
 namespace {
 
 const bool _redis_connection_init = [] {
-  resource::register_fetcher_factory("redis_connection", [](const Variant& params,
-                                                            metrics::Provider* mp) {
+  resource::register_fetcher_factory("redis_connection", [](const Variant& params, metrics::Provider* mp) {
     const auto& obj = params.as_object();
 
     std::string host;

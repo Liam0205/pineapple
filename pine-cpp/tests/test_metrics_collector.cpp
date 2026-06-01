@@ -1,5 +1,5 @@
-#include "pine/metrics_collector.hpp"
 #include "pine/metrics.hpp"
+#include "pine/metrics_collector.hpp"
 
 #include <doctest/doctest.h>
 
@@ -23,22 +23,29 @@ class RecProvider : public metrics::Provider {
       last_labels = lv;
       return this;
     }
-    void inc() override { inc_calls++; }
+    void inc() override {
+      inc_calls++;
+    }
   };
   struct GaugeImpl : metrics::Gauge {
     double last_set = 0;
     int64_t set_calls = 0;
-    metrics::Gauge* with(const std::vector<std::string>&) override { return this; }
+    metrics::Gauge* with(const std::vector<std::string>&) override {
+      return this;
+    }
     void set(double v) override {
       last_set = v;
       set_calls++;
     }
-    void add(double) override {}
+    void add(double) override {
+    }
   };
   struct HistogramImpl : metrics::Histogram {
     int64_t observe_calls = 0;
     double last_observe = 0;
-    metrics::Histogram* with(const std::vector<std::string>&) override { return this; }
+    metrics::Histogram* with(const std::vector<std::string>&) override {
+      return this;
+    }
     void observe(double v) override {
       observe_calls++;
       last_observe = v;
@@ -55,8 +62,12 @@ class RecProvider : public metrics::Provider {
     return histograms_.emplace(o.opts.name, std::make_unique<HistogramImpl>()).first->second.get();
   }
 
-  CounterImpl* counter(const std::string& n) { return counters_.count(n) ? counters_[n].get() : nullptr; }
-  GaugeImpl* gauge(const std::string& n) { return gauges_.count(n) ? gauges_[n].get() : nullptr; }
+  CounterImpl* counter(const std::string& n) {
+    return counters_.count(n) ? counters_[n].get() : nullptr;
+  }
+  GaugeImpl* gauge(const std::string& n) {
+    return gauges_.count(n) ? gauges_[n].get() : nullptr;
+  }
   HistogramImpl* histogram(const std::string& n) {
     return histograms_.count(n) ? histograms_[n].get() : nullptr;
   }

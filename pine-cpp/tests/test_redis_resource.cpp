@@ -106,26 +106,35 @@ class RecordingProvider : public metrics::Provider {
 
  private:
   struct NopCounter : metrics::Counter {
-    Counter* with(const std::vector<std::string>&) override { return this; }
-    void inc() override {}
+    Counter* with(const std::vector<std::string>&) override {
+      return this;
+    }
+    void inc() override {
+    }
   };
   struct NopGauge : metrics::Gauge {
-    Gauge* with(const std::vector<std::string>&) override { return this; }
-    void set(double) override {}
-    void add(double) override {}
+    Gauge* with(const std::vector<std::string>&) override {
+      return this;
+    }
+    void set(double) override {
+    }
+    void add(double) override {
+    }
   };
   struct NopHistogram : metrics::Histogram {
-    Histogram* with(const std::vector<std::string>&) override { return this; }
-    void observe(double) override {}
+    Histogram* with(const std::vector<std::string>&) override {
+      return this;
+    }
+    void observe(double) override {
+    }
   };
   std::vector<std::unique_ptr<NopCounter>> counters_;
   std::vector<std::unique_ptr<NopGauge>> gauges_;
   std::vector<std::unique_ptr<NopHistogram>> histograms_;
 };
 
-const std::vector<std::string> kRedisMetrics = {
-    "pine_redis_pool_total_conns", "pine_redis_pool_idle_conns",
-    "pine_redis_ping_duration_seconds", "pine_redis_up"};
+const std::vector<std::string> kRedisMetrics = {"pine_redis_pool_total_conns", "pine_redis_pool_idle_conns",
+                                                "pine_redis_ping_duration_seconds", "pine_redis_up"};
 
 }  // namespace
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "pine/metrics.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -11,7 +13,6 @@
 #include <tuple>
 #include <vector>
 
-#include "pine/metrics.hpp"
 #include "redis/redis_client.hpp"
 
 namespace pine {
@@ -186,15 +187,17 @@ class RedisConnResource {
     }
     const std::vector<std::string> labels{metrics_name};
     total_conns_ = mp->new_gauge({"pine_redis_pool_total_conns",
-                                  "Total Redis connections in the pool (idle + in-use).", {"name"}})
+                                  "Total Redis connections in the pool (idle + in-use).",
+                                  {"name"}})
                        ->with(labels);
-    idle_conns_ = mp->new_gauge({"pine_redis_pool_idle_conns", "Idle Redis connections in the pool.", {"name"}})
-                      ->with(labels);
+    idle_conns_ =
+        mp->new_gauge({"pine_redis_pool_idle_conns", "Idle Redis connections in the pool.", {"name"}})
+            ->with(labels);
     metrics::HistogramOpts hopts;
     hopts.opts = {"pine_redis_ping_duration_seconds", "Redis PING probe latency in seconds.", {"name"}};
     ping_duration_ = mp->new_histogram(hopts)->with(labels);
-    up_ = mp->new_gauge({"pine_redis_up",
-                         "Whether the last Redis PING probe succeeded (1) or failed (0).", {"name"}})
+    up_ = mp->new_gauge(
+                {"pine_redis_up", "Whether the last Redis PING probe succeeded (1) or failed (0).", {"name"}})
               ->with(labels);
     probe_thread_ = std::thread([this] { probe_loop(); });
   }
@@ -239,8 +242,7 @@ class RedisConnResource {
       } catch (...) {
         ok = false;
       }
-      ping_duration_->observe(
-          metrics::duration_seconds(std::chrono::steady_clock::now() - start));
+      ping_duration_->observe(metrics::duration_seconds(std::chrono::steady_clock::now() - start));
       up_->set(ok ? 1.0 : 0.0);
     };
     probe();
