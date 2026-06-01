@@ -25,9 +25,9 @@
 
 ## reference/
 
-- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）、Redis 算子句柄型资源借用契约（`transform_redis_get`/`transform_redis_set` 按 `resource_name` 借用 `redis_connection`、借用失败静默降级）。
+- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）、Redis 算子句柄型资源借用契约（`transform_redis_get`/`transform_redis_set` 按 `resource_name` 借用 `redis_connection`、借用失败静默降级；`redis_connection` 参数含 `metrics_name` 资源级指标开关）。
 - `llmdoc/reference/apple-control-template-syntax.md` — Apple DSL 控制流条件参考：`if_` / `elseif_` 需要使用 `{{field_name}}` 模板语法显式标记字段引用，编译器据此提取依赖并在发射 Lua 前去掉模板标记。
-- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 子树 schema）、内置 HTTP metrics middleware（各运行时 default-on）、Prometheus 适配边界。
+- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 与 `/stats.resources` 子树 schema）、内置 HTTP metrics middleware（各运行时 default-on）、资源级指标 fan-out（Tee）路由与 Collector 契约、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
 
 ## memory/
@@ -95,3 +95,4 @@
 - `llmdoc/memory/reflections/dag-ready-queue-scheduler.md` — v0.9.2 DAG ready-queue 调度器重写复盘，记录双隔离线程池架构、seed loop 竞态根因（读取 mutable atomic 而非 immutable preds）、eventfd 零延迟唤醒、跨运行时 benchmark 工具链建设，以及 C++ 比 Go 快 60-80% 的吞吐结果。
 - `llmdoc/memory/reflections/benchmark-infra-and-cross-runtime-perf.md` — Benchmark 基础设施建设与跨运行时性能优化战役复盘（56 commits），记录 fixture-driven benchmark 工具链、四运行时 bench stub 算子设计、C++ PERF-9~18 优化系列（FlatMap/Variant/RapidJSON/jemalloc/arena/bitmap）、Go/Java lazy proxy + bitmap + GOGC=400 优化、profiling 驱动 ROI 验证、Section 8 端口残留修复。
 - `llmdoc/memory/reflections/redis-resourcemanager-migration-and-pine-python-removal.md` — Redis→ResourceManager 句柄型资源迁移 + pine-python 运行时下线 PR 收尾复盘，记录"难而正确"归属判据（可共享/可声明/配置驱动→ResourceManager，算子私有→Closer）、"Python"双义陷阱、llmdoc baseline 先 fetch 教训、clang-format commit 阶段无 gate、ruleset 无 required_status_checks 核查路径、pre-push 自包装 hook 行为。
+- `llmdoc/memory/reflections/resource-metrics-fanout-stats.md` — 资源级指标 fan-out 与 `/stats.resources` 复盘，记录 fan-out（Tee）路由相对 Collector-only/现状的三选一决策、resources 恒存在键作为跨运行时强断言、探针 probe-once-then-tick 便于测试，以及"scope 靠路由而非过滤"两条教训。

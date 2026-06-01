@@ -147,7 +147,15 @@ C++ 侧提供注册路径：
 
 ### Redis 算子契约（句柄型资源借用）
 
-`transform_redis_get` / `transform_redis_set` 不再内联 `redis_addr` / `redis_db` / `redis_password` 等连接参数，而是按 `resource_name` 借用一个内置的 `redis_connection` **句柄型资源**。连接参数（addr / password / db / interval）在统一 JSON 的 `resource_config` 中声明，其中 `interval: -1` 表示该句柄永不刷新。多个 Redis 算子引用同一 `resource_name` 时共享同一连接池；连接池由 ResourceManager 拥有，客户端按请求借用、`Execute` 返回时释放。
+`transform_redis_get` / `transform_redis_set` 不再内联 `redis_addr` / `redis_db` / `redis_password` 等连接参数，而是按 `resource_name` 借用一个内置的 `redis_connection` **句柄型资源**。连接参数（addr / password / db / interval / metrics_name）在统一 JSON 的 `resource_config` 中声明，其中 `interval: -1` 表示该句柄永不刷新。多个 Redis 算子引用同一 `resource_name` 时共享同一连接池；连接池由 ResourceManager 拥有，客户端按请求借用、`Execute` 返回时释放。
+
+`redis_connection` 资源参数：
+
+- `addr` (string, required) — Redis 地址 `host:port`
+- `password` (string, optional) — 认证密码
+- `db` (int, optional, default `0`) — 选择的 DB 编号
+- `interval` (int) — 句柄刷新间隔；`-1` 表示永不刷新
+- `metrics_name` (string, optional, default `""`) — 资源级指标的 `name` 标签值。**非空时**资源发出 4 个指标（`pine_redis_pool_total_conns` / `pine_redis_pool_idle_conns` / `pine_redis_ping_duration_seconds` / `pine_redis_up`）并启动 15s PING 探针线程（`Start()` 时立即跑一次）；**为空（默认）时**不发任何指标、不启探针。指标经 fan-out（Tee）同时进入注入的 Provider 和 `/stats.resources`，详见 `metrics-observability.md` 的"资源级指标 fan-out 路由"。
 
 参数契约：
 
