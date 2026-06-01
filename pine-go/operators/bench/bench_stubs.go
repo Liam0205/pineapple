@@ -15,6 +15,7 @@ import (
 	"strconv"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
 
@@ -114,7 +115,7 @@ func init() {
 		Params: map[string]pine.ParamSpec{
 			"mysql_dsn": {Type: "string", Required: false, Default: "", Description: "Stub param."},
 		},
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			items := make([]map[string]any, 3000)
 			for i := range items {
@@ -141,7 +142,7 @@ func init() {
 			"topic":      {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"user_agent": {Type: "string", Required: false, Default: "", Description: "Stub param."},
 		},
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		return func(ctx context.Context) (any, error) { return "nop", nil }, nil
 	})
 }
