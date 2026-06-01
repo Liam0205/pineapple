@@ -109,6 +109,7 @@ add_library(pine_cpp_core OBJECT
     operators/transform/transform_copy.cpp
     operators/transform/transform_dispatch.cpp
     operators/transform/transform_normalize.cpp
+    operators/transform/redis_connection.cpp
     operators/transform/transform_redis_get.cpp
     operators/transform/transform_redis_set.cpp
     operators/transform/transform_remote_pineapple.cpp
@@ -231,6 +232,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_register_operator.cpp
         tests/test_metrics.cpp
         tests/test_resource.cpp
+        tests/test_redis_resource.cpp
         tests/test_http_metrics.cpp
         tests/test_http_stats.cpp
         tests/test_metrics_aware.cpp

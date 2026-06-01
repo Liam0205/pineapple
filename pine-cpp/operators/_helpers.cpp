@@ -311,40 +311,5 @@ std::vector<std::string> json_to_string_slice(const Variant& v) {
   return out;
 }
 
-RedisParams parse_redis_params(const OperatorConfig& op) {
-  RedisParams rp;
-  const auto& params = op.params.as_object();
-  auto addr_it = params.find("redis_addr");
-  if (addr_it != params.end() && addr_it->second.is_string()) {
-    const auto& addr = addr_it->second.as_string();
-    auto colon = addr.rfind(':');
-    if (colon != std::string::npos) {
-      rp.host = addr.substr(0, colon);
-      rp.port = std::stoi(addr.substr(colon + 1));
-    } else {
-      rp.host = addr;
-    }
-  }
-  if (auto it = params.find("redis_password"); it != params.end() && it->second.is_string()) {
-    rp.password = it->second.as_string();
-  }
-  if (auto it = params.find("redis_db"); it != params.end() && it->second.is_number()) {
-    rp.db = static_cast<int>(it->second.as_number());
-  }
-  if (auto it = params.find("key_prefix"); it != params.end() && it->second.is_string()) {
-    rp.key_prefix = it->second.as_string();
-  }
-  if (auto it = params.find("data_type"); it != params.end() && it->second.is_string()) {
-    rp.data_type = it->second.as_string();
-  }
-  if (auto it = params.find("ttl"); it != params.end() && it->second.is_number()) {
-    rp.ttl = static_cast<int>(it->second.as_number());
-  }
-  if (auto it = params.find("fail_on_error"); it != params.end() && it->second.is_bool()) {
-    rp.fail_on_error = it->second.as_bool();
-  }
-  return rp;
-}
-
 }  // namespace operators
 }  // namespace pine

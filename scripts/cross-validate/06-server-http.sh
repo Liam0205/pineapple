@@ -939,11 +939,18 @@ fi
 SRV_WARN_CONFIG="$WORK_DIR/srv_warn_config.json"
 cat > "$SRV_WARN_CONFIG" << 'CFGEOF'
 {
+  "resource_config": {
+    "redis_conn": {
+      "type": "redis_connection",
+      "interval": -1,
+      "params": {"addr": "127.0.0.1:1"}
+    }
+  },
   "pipeline_config": {
     "operators": {
       "redis_getter": {
         "type_name": "transform_redis_get",
-        "redis_addr": "127.0.0.1:1",
+        "resource_name": "redis_conn",
         "key_prefix": "test:",
         "fail_on_error": false,
         "$metadata": {

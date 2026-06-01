@@ -145,9 +145,38 @@ class ConnectionPool {
   std::map<Key, std::vector<IdleEntry>> idle_;
 };
 
-// Process-wide pool. Lives as long as the binary; suitable for both the
-// HTTP server and the run CLI.
-ConnectionPool& shared_pool();
+// RedisConnResource is the handle stored by the `redis_connection` resource
+// (operators/transform/redis_connection.cpp) and borrowed by Redis operators
+// via resource_name. It owns a ConnectionPool scoped to a single
+// (host,port,password,db); acquire() hands out a pooled client. Multiple
+// operators referencing the same resource_name share one RedisConnResource
+// (one pool). The pool — and all its idle connections — is torn down when the
+// ResourceManager retires and the last borrower releases its shared_ptr,
+// mirroring pine-go's *redis.Client being closed on resource retirement.
+class RedisConnResource {
+ public:
+  RedisConnResource(std::string host, int port, std::string password, int db)
+      : host_(std::move(host)), port_(port), password_(std::move(password)), db_(db) {
+  }
+
+  RedisConnResource(const RedisConnResource&) = delete;
+  RedisConnResource& operator=(const RedisConnResource&) = delete;
+
+  ConnectionPool::ScopedClient acquire() {
+    return pool_.acquire_scoped(host_, port_, password_, db_);
+  }
+
+  const std::string& host() const {
+    return host_;
+  }
+
+ private:
+  std::string host_;
+  int port_ = 0;
+  std::string password_;
+  int db_ = 0;
+  ConnectionPool pool_;
+};
 
 }  // namespace redis
 }  // namespace pine
