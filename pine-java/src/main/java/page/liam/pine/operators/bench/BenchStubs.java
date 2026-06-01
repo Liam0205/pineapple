@@ -37,10 +37,11 @@ public class BenchStubs {
                         OperatorType.TRANSFORM,
                         "Benchmark stub: simulates Redis ZRANGEBYSCORE.",
                         Map.ofEntries(
+                                Map.entry("resource_name", ParamSpec.optional("string", "", "Name of a redis_connection resource (ignored in stub).")),
                                 Map.entry("key_prefix", ParamSpec.optional("string", "", "Stub param.")),
                                 Map.entry("window_seconds", ParamSpec.optional("int", 0L, "Stub param.")),
-                                Map.entry("redis_addr", ParamSpec.optional("string", "", "Stub param.")),
-                                Map.entry("redis_password", ParamSpec.optional("string", "", "Stub param.")),
+                                Map.entry("redis_addr", ParamSpec.optional("string", "", "Legacy stub param.")),
+                                Map.entry("redis_password", ParamSpec.optional("string", "", "Legacy stub param.")),
                                 Map.entry("bench_profile", ParamSpec.optional("any", null, "Latency profile."))
                         )),
                 TransformRedisZrangebyscoreStub::new);
