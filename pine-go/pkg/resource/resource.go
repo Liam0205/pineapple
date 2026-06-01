@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
 // Fetcher loads a resource value. Called by the background refresh loop.
@@ -167,12 +169,20 @@ type Manager struct {
 	wg        sync.WaitGroup
 	started   bool
 	retired   bool
+	metrics   metrics.Provider // never nil; defaults to metrics.Nop()
 }
 
-// NewManager creates an empty Manager. Register resources before calling Start.
-func NewManager() *Manager {
+// NewManager creates an empty Manager whose resource factories receive the
+// given metrics.Provider, so long-lived resources can emit their own metrics.
+// A nil provider is replaced with metrics.Nop(). Register resources before
+// calling Start.
+func NewManager(mp metrics.Provider) *Manager {
+	if mp == nil {
+		mp = metrics.Nop()
+	}
 	return &Manager{
 		resources: make(map[string]*managedResource),
+		metrics:   mp,
 	}
 }
 
@@ -220,12 +230,16 @@ func (m *Manager) LoadFromRootConfig(data []byte) error {
 
 // loadResources is the shared implementation for registering resources from config.
 func (m *Manager) loadResources(configs map[string]resourceConfig) error {
+	mp := m.metrics
+	if mp == nil {
+		mp = metrics.Nop()
+	}
 	for name, cfg := range configs {
 		factory := lookupFactory(cfg.Type)
 		if factory == nil {
 			return fmt.Errorf("resource: unknown fetcher type %q for resource %q", cfg.Type, name)
 		}
-		fetcher, err := factory(cfg.Params)
+		fetcher, err := factory(cfg.Params, mp)
 		if err != nil {
 			return fmt.Errorf("resource: failed to create fetcher for %q: %w", name, err)
 		}

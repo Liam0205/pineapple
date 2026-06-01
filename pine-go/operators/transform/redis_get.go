@@ -148,7 +148,7 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 // borrowRedis borrows a *redis.Client from a redis_connection resource by name.
 // It returns the client, a release function the caller must defer, and ok=false
 // (with a no-op release) when no provider is injected, the resource is missing,
-// or its value is not a *redis.Client — in which case the caller degrades.
+// or its value is not a *RedisConnResource — in which case the caller degrades.
 func borrowRedis(ctx context.Context, name string) (*redis.Client, func(), bool) {
 	rp := resource.FromContext(ctx)
 	if rp == nil {
@@ -158,12 +158,12 @@ func borrowRedis(ctx context.Context, name string) (*redis.Client, func(), bool)
 	if !ok {
 		return nil, func() {}, false
 	}
-	rdb, ok := h.Value().(*redis.Client)
+	conn, ok := h.Value().(*RedisConnResource)
 	if !ok {
 		h.Release()
 		return nil, func() {}, false
 	}
-	return rdb, h.Release, true
+	return conn.Client(), h.Release, true
 }
 
 // buildKeySuffix joins the values of the given common fields with ":".

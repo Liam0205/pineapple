@@ -6,11 +6,15 @@ import (
 	"sync"
 
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
-// FetcherFactory creates a Fetcher from config params.
+// FetcherFactory creates a Fetcher from config params. It also receives the
+// active metrics.Provider, so long-lived resources (e.g. connection pools) can
+// create their own metrics instead of relying on global collectors. The
+// provider is never nil — callers with no provider receive metrics.Nop().
 // Business code registers factories in init(), keyed by ResourceSchema.Name.
-type FetcherFactory func(params map[string]any) (Fetcher, error)
+type FetcherFactory func(params map[string]any, mp metrics.Provider) (Fetcher, error)
 
 type registryEntry struct {
 	schema  types.ResourceSchema

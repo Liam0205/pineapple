@@ -9,6 +9,7 @@ import (
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 	_ "github.com/Liam0205/pineapple/pine-go/operators"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
 
@@ -55,14 +56,14 @@ func main() {
 		Name:            "static",
 		Description:     "static test resource",
 		DefaultInterval: 3600,
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		val := params["value"]
 		return func(ctx context.Context) (any, error) {
 			return val, nil
 		}, nil
 	})
 
-	rm := resource.NewManager()
+	rm := resource.NewManager(nil)
 	if err := rm.LoadFromRootConfig(configData); err == nil {
 		if err := rm.Start(ctx); err == nil {
 			ctx = resource.WithResources(ctx, rm)
