@@ -20,9 +20,8 @@ namespace pine {
 
 namespace {
 
-const bool _bench_fetcher_feed_data =
-    resource::register_fetcher_factory("feed_data", [](const Variant& /*params*/,
-                                                       metrics::Provider* /*mp*/) -> resource::Fetcher {
+const bool _bench_fetcher_feed_data = resource::register_fetcher_factory(
+    "feed_data", [](const Variant& /*params*/, metrics::Provider* /*mp*/) -> resource::Fetcher {
       return []() -> Variant {
         Variant::array_t items;
         items.reserve(3000);

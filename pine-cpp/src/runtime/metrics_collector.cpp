@@ -25,12 +25,24 @@ std::string json_escape_str(const std::string& s) {
   out.reserve(s.size() + 2);
   for (char c : s) {
     switch (c) {
-      case '"': out += "\\\""; break;
-      case '\\': out += "\\\\"; break;
-      case '\n': out += "\\n"; break;
-      case '\r': out += "\\r"; break;
-      case '\t': out += "\\t"; break;
-      default: out += c; break;
+      case '"':
+        out += "\\\"";
+        break;
+      case '\\':
+        out += "\\\\";
+        break;
+      case '\n':
+        out += "\\n";
+        break;
+      case '\r':
+        out += "\\r";
+        break;
+      case '\t':
+        out += "\\t";
+        break;
+      default:
+        out += c;
+        break;
     }
   }
   return out;
@@ -43,11 +55,14 @@ std::string json_escape_str(const std::string& s) {
 class Collector::CollectorCounter : public Counter {
  public:
   CollectorCounter(Collector* c, std::string name, std::string key)
-      : c_(c), name_(std::move(name)), key_(std::move(key)) {}
+      : c_(c), name_(std::move(name)), key_(std::move(key)) {
+  }
   Counter* with(const std::vector<std::string>& label_values) override {
     return c_->intern_counter(name_, label_key(label_values));
   }
-  void inc() override { c_->inc_counter(name_, key_); }
+  void inc() override {
+    c_->inc_counter(name_, key_);
+  }
 
  private:
   Collector* c_;
@@ -58,12 +73,17 @@ class Collector::CollectorCounter : public Counter {
 class Collector::CollectorGauge : public Gauge {
  public:
   CollectorGauge(Collector* c, std::string name, std::string key)
-      : c_(c), name_(std::move(name)), key_(std::move(key)) {}
+      : c_(c), name_(std::move(name)), key_(std::move(key)) {
+  }
   Gauge* with(const std::vector<std::string>& label_values) override {
     return c_->intern_gauge(name_, label_key(label_values));
   }
-  void set(double value) override { c_->set_gauge(name_, key_, value); }
-  void add(double delta) override { c_->add_gauge(name_, key_, delta); }
+  void set(double value) override {
+    c_->set_gauge(name_, key_, value);
+  }
+  void add(double delta) override {
+    c_->add_gauge(name_, key_, delta);
+  }
 
  private:
   Collector* c_;
@@ -74,11 +94,14 @@ class Collector::CollectorGauge : public Gauge {
 class Collector::CollectorHistogram : public Histogram {
  public:
   CollectorHistogram(Collector* c, std::string name, std::string key)
-      : c_(c), name_(std::move(name)), key_(std::move(key)) {}
+      : c_(c), name_(std::move(name)), key_(std::move(key)) {
+  }
   Histogram* with(const std::vector<std::string>& label_values) override {
     return c_->intern_histogram(name_, label_key(label_values));
   }
-  void observe(double value) override { c_->observe_hist(name_, key_, value); }
+  void observe(double value) override {
+    c_->observe_hist(name_, key_, value);
+  }
 
  private:
   Collector* c_;
@@ -219,7 +242,8 @@ std::string Collector::to_json() const {
 
 class TeeProvider::TeeCounter : public Counter {
  public:
-  TeeCounter(TeeProvider* p, std::vector<Counter*> children) : p_(p), children_(std::move(children)) {}
+  TeeCounter(TeeProvider* p, std::vector<Counter*> children) : p_(p), children_(std::move(children)) {
+  }
   Counter* with(const std::vector<std::string>& label_values) override {
     std::vector<Counter*> cs;
     cs.reserve(children_.size());
@@ -241,7 +265,8 @@ class TeeProvider::TeeCounter : public Counter {
 
 class TeeProvider::TeeGauge : public Gauge {
  public:
-  TeeGauge(TeeProvider* p, std::vector<Gauge*> children) : p_(p), children_(std::move(children)) {}
+  TeeGauge(TeeProvider* p, std::vector<Gauge*> children) : p_(p), children_(std::move(children)) {
+  }
   Gauge* with(const std::vector<std::string>& label_values) override {
     std::vector<Gauge*> gs;
     gs.reserve(children_.size());
@@ -268,8 +293,8 @@ class TeeProvider::TeeGauge : public Gauge {
 
 class TeeProvider::TeeHistogram : public Histogram {
  public:
-  TeeHistogram(TeeProvider* p, std::vector<Histogram*> children)
-      : p_(p), children_(std::move(children)) {}
+  TeeHistogram(TeeProvider* p, std::vector<Histogram*> children) : p_(p), children_(std::move(children)) {
+  }
   Histogram* with(const std::vector<std::string>& label_values) override {
     std::vector<Histogram*> hs;
     hs.reserve(children_.size());
@@ -291,7 +316,8 @@ class TeeProvider::TeeHistogram : public Histogram {
 
 // ─── TeeProvider ─────────────────────────────────────────────────────────────
 
-TeeProvider::TeeProvider(std::vector<Provider*> providers) : providers_(std::move(providers)) {}
+TeeProvider::TeeProvider(std::vector<Provider*> providers) : providers_(std::move(providers)) {
+}
 TeeProvider::~TeeProvider() = default;
 
 Counter* TeeProvider::new_counter(const MetricOpts& opts) {

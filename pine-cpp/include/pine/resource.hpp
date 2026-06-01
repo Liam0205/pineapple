@@ -8,8 +8,8 @@
 // FetcherFactory implementations via `register_fetcher_factory` (analog of
 // pine-go's resource.Register).
 
-#include "pine/pine.hpp"
 #include "pine/metrics.hpp"
+#include "pine/pine.hpp"
 
 #include <atomic>
 #include <chrono>
