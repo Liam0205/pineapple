@@ -37,11 +37,32 @@ ResourceManager 与 Engine 的生命周期完全独立：
 
 ```go
 type ResourceProvider interface {
-    Get(name string) (any, bool)
+    Get(name string) (ResourceHandle, bool)
+}
+
+// ResourceHandle 是对资源值的引用计数借用。持有者必须且只能调用一次 Release，
+// 惯用法是 Get 成功后立即 defer。Value() 返回的值不得在配对的 Release 之后继续
+// 使用、保存或传出作用域——最后一个借用释放后，实现了 io.Closer 的值会被关闭，
+// 之后再用即 use-after-close。
+type ResourceHandle interface {
+    Value() any
+    Release()
 }
 ```
 
-算子只依赖此接口，不感知刷新逻辑。
+算子只依赖此接口，不感知刷新逻辑。`Get` 返回的是一个**引用计数借用**而非裸值，
+这是 GC 语言对 C++ `shared_ptr` 的等价模拟：持有 handle 可让底层值在并发的
+刷新 / 退休中保持存活，值只有在最后一个引用释放后才被销毁。算子内惯用法：
+
+```go
+h, ok := rp.Get("user_feature_index")
+if !ok {
+    // 资源未就绪，降级
+}
+defer h.Release()
+table := h.Value().(*FeatureTable)
+// 使用 table ...（不得把 table 保存到算子字段或传出 Execute 作用域）
+```
 
 ### ResourceManager（壳子侧完整管理器）
 
@@ -67,7 +88,11 @@ ctx = resource.WithResources(ctx, rm)
 
 // 算子在 Execute 中提取
 rp := resource.FromContext(ctx)
-val, ok := rp.Get("user_feature_index")
+h, ok := rp.Get("user_feature_index")
+if ok {
+    defer h.Release()
+    val := h.Value()
+}
 ```
 
 通过 `context.Context` 传递，与 Pine 的 `Engine.Execute(ctx, req)` 自然对接。
@@ -83,14 +108,15 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
         return nil
     }
 
-    idx, ok := rp.Get("user_feature_index")
+    h, ok := rp.Get("user_feature_index")
     if !ok {
         // 资源尚未就绪，降级
         out.SetCommon("score", 0.0)
         return nil
     }
+    defer h.Release() // 借用立即 defer 释放，禁止保存或传出本作用域
 
-    table := idx.(*FeatureTable)
+    table := h.Value().(*FeatureTable)
     // 使用 table 查询特征 ...
     return nil
 }
@@ -363,9 +389,21 @@ flow.transform_resource_lookup(
 
 `ResourceProvider.Get` 返回 `nil, false` 时，算子自行决定是报错还是降级。框架不强制统一行为。
 
-### 4. 无锁读
+### 4. 无锁读 + 引用计数借用
 
-使用 `atomic.Value` 实现读写分离。读路径零锁竞争，不影响请求延迟。刷新 goroutine 构建完整新版本后原子替换。
+每个资源的当前值用 `atomic.Pointer[refValue]` 持有，读路径零锁竞争。`refValue`
+是对底层值的引用计数包装（GC 语言对 C++ `shared_ptr` 的等价模拟）：
+
+- 创建时持有一个基线引用（refs=1），代表「Manager 当前指向它」。
+- `Get` 通过 acquire-if-positive 的 CAS 借用一份引用；只要计数 > 0 就 +1 并返回
+  handle，计数已归零（值正在退休）则重试读取最新指针。这个偏置计数消除了
+  「先 Load 再 Add」之间的竞争窗口。
+- handle 的 `Release` 将计数 -1；最后一个引用释放（计数归零）时，若值实现了
+  `io.Closer` 则 `Close` 一次（`sync.Once` 保护，错误记日志）。
+
+刷新 goroutine 构建完整新版本后 `Swap` 指针，并对旧 `refValue` 调用一次
+`release()` 丢弃基线引用——若此刻仍有 in-flight 借用，Close 被推迟到最后一个
+借用释放，杜绝 use-after-close。
 
 ### 5. 可测试性
 
@@ -380,7 +418,16 @@ ctx := resource.WithResources(ctx, mock)
 
 ### 6. 优雅关闭
 
-`Stop()` 取消所有刷新 goroutine 的 context，等待退出。确保壳子关闭时不泄漏 goroutine。
+`Stop()` 取消所有刷新 goroutine 的 context 并等待退出，确保壳子关闭时不泄漏
+goroutine。同时对每个资源的当前 `refValue` 丢弃基线引用（`release()`）：
+
+- 若无 in-flight 借用，基线引用即最后一个引用，立即触发实现了 `io.Closer` 的
+  值的 `Close`（连接池、文件句柄等被释放）。
+- 若仍有 in-flight 借用，Close 被推迟到最后一个借用 `Release` 之后，保证
+  in-flight 业务代码读到的值始终存活。
+
+注意：因 Close 可能被推迟到借用释放线程上执行，`Stop()` 无法同步上报 Close
+错误，错误一律记日志。`Stop()` 幂等。
 
 ### 7. 配置热加载
 
@@ -406,10 +453,23 @@ oldRM.Stop() — 停止旧 Manager 的后台刷新
 
 并发安全保证：
 
-- `resources` 使用 `atomic.Pointer[resource.Manager]`，与 `enginePtr` 对称
-- `handleExecute` 在请求开始时捕获 Manager 指针为局部变量，整个请求使用同一份快照
-- 旧 Manager 的 `atomic.Value` 数据在 `Stop()` 后仍可读，in-flight 请求不受影响
-- Go GC 保证旧对象在所有引用释放前不被回收
+- `resources` 使用 `atomic.Pointer[resource.Manager]`，与 `enginePtr` 对称；
+  `pkg/server` 进一步将 Engine 与 Manager 打包为 `serverSnapshot`，用一个
+  引用计数统一管理整个快照的退休（见下）。
+- `handleExecute` 在请求开始时 `acquire` 当前快照（计数 +1），整个请求使用
+  同一份快照，请求结束 `defer release`。
+- 旧快照被换下时调用 `release()` 丢弃基线引用；若仍有 in-flight 请求持有它，
+  Engine.Close 与 Manager.Stop 被推迟到最后一个请求释放后才执行——in-flight
+  请求既不会读到半关闭的 Engine，也不会读到已 Close 的资源值。
+- 资源值层面再有一层 `refValue` 引用计数：即便 Manager 已 `Stop`，被算子借用
+  的资源值在 handle `Release` 前不会被 Close。两层引用计数共同保证零
+  use-after-close。
+
+> Parity 说明：C++ 用原生 `shared_ptr` + RAII 自然获得同等语义（拷贝即 +1，
+> 析构即 -1，零 in-flight 风险）；Go/Java/Python 缺少随值拷贝流动的引用计数，
+> 改用手写引用计数 + 作用域退出钩子（Go `defer`、Java try-with-resources、
+> Python `with`）。对外契约一致：「退休 = 释放引用，最后一个引用关闭，绝不泄漏」。
+> 代价是借用必须在取得后立即 `defer Release`，且不得保存到字段或传出作用域。
 
 失败回滚：
 
