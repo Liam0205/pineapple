@@ -294,6 +294,7 @@ CI 在每次 push/PR 时自动运行：
 7. **Cancellation parity** — 超时和运行时错误的取消行为一致
 8. **Metrics parity** — `/stats` 结构和数值一致
 9. **Cause chain parity** — ExecutionError 因果链可解包一致
+10. **Resource metrics parity** — `/stats.resources` 子树（redis 资源级指标）结构与正确性一致，含 `metrics_name` 为空的负例
 
 ### 为下游构建 Cross-Validation 体系
 
