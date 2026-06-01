@@ -4,17 +4,17 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / Python `__init__.py` / C++ `PINE_REGISTER_OPERATOR_T`）、版本同步（五处，含 pine-cpp `kVersion`）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述、InputFieldSpec 三态模型（Nullable/Strict/Defaulted）、operator-level debug 三态继承。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / C++ `PINE_REGISTER_OPERATOR_T`）、版本同步（含 pine-cpp `kVersion`）、codegen 新鲜度、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述、InputFieldSpec 三态模型（Nullable/Strict/Defaulted）、operator-level debug 三态继承。
 
 ## overview/
 
-- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Apple DSL + Go / Java / Python / C++ 四运行时拆分的设计决策；包含各运行时 CLI/HTTP 入口点（含 pine-cpp server timeout / max-body-size / dag-pool-size / shard-pool-size flag）。
+- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Apple DSL 声明层 + Go / Java / C++ 三运行时拆分的设计决策（含 pine-python 运行时已于 v0.9.7 后移除、资源数据型/句柄型区分）；包含各运行时 CLI/HTTP 入口点（含 pine-cpp server timeout / max-body-size / dag-pool-size / shard-pool-size flag）。
 
 ## architecture/
 
-- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义（含 InputFieldSpec 三态模型：Nullable/Strict/Defaulted）、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入（含 debug nullable 三态继承）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、ExecutionError/PanicError 因果链（四运行时 cause chain parity）、Pine-Java 完整功能对等描述、Pine-Python 功能对等描述。
+- `llmdoc/architecture/dag-engine.md` — 核心引擎架构：配置编译流水线、DAG 推导规则（三标记 + auto-inject 模型：ConsumesRowSet/MutatesRowSet/AdditiveWritesRowSet 标记与 item 字段自动注入）、调度模型、DataFrame 语义（含 InputFieldSpec 三态模型：Nullable/Strict/Defaulted）、算子类型约束、行集依赖行为，以及引擎级 option / 根级配置注入（含 debug nullable 三态继承）、Server struct 生命周期与 context 传播、服务端 reload 集成与 HTTP middleware 包装边界、双通道运行时观测、ExecutionError/PanicError 因果链（三运行时 cause chain parity）、资源数据型（snapshot 导出）/句柄型（borrow 借用，如 redis_connection）区分、Pine-Java 完整功能对等描述。
 - `llmdoc/architecture/apple-compiler.md` — Python DSL 架构：Flow 声明 API、SubFlow 契约声明（`common_input`/`common_output`/`item_input`/`item_output`/`required_resources`）、编译流水线、校验规则、控制流降级（含 `_rename_field` Lua `_G[]` 语法处理）、资源声明处理，以及根级配置字段扩展路径（如 `storage_mode`、`log_prefix`、`debug`）。
-- `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时架构：作为完整第四运行时的定位、错误/fixture parity 契约、CLI 与 HTTP 入口（含 HTTP/1.1 keep-alive / read-header-timeout / idle-timeout / max-body-size / middleware / graceful shutdown / 客户端断连取消 eventfd 零延迟唤醒）、`metrics::Provider` 与 `resource::Manager` 对等、Frame 多态基类 + ColumnFrame/RowFrame 双物理实现（C++23）、Column 类型层级、`PINE_REGISTER_OPERATOR_T` 注册模型、ValidateOutput 类型约束、NaN/Inf 校验、PanicError stacktrace、外部 stop_token 取消、ready-queue DAG 调度器（双隔离线程池 + in-degree 原子追踪）、observe_log/pine-debug 日志。
+- `llmdoc/architecture/pine-cpp-runtime.md` — Pine-C++ 运行时架构：作为标杆运行时的定位、错误/fixture parity 契约、CLI 与 HTTP 入口（含 HTTP/1.1 keep-alive / read-header-timeout / idle-timeout / max-body-size / middleware / graceful shutdown / 客户端断连取消 eventfd 零延迟唤醒）、`metrics::Provider` 与 `resource::Manager` 对等（`ResourceValue` 数据 `Variant` XOR 句柄 `shared_ptr<void>` 双通道，数据型走 `snapshot()`、句柄型走 `borrow()`，RAII 拆除）、Frame 多态基类 + ColumnFrame/RowFrame 双物理实现（C++23）、Column 类型层级、`PINE_REGISTER_OPERATOR_T` 注册模型、ValidateOutput 类型约束、NaN/Inf 校验、PanicError stacktrace、外部 stop_token 取消、ready-queue DAG 调度器（双隔离线程池 + in-degree 原子追踪）、observe_log/pine-debug 日志。
 
 ## guides/
 
@@ -25,9 +25,9 @@
 
 ## reference/
 
-- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）。
+- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）、Redis 算子句柄型资源借用契约（`transform_redis_get`/`transform_redis_set` 按 `resource_name` 借用 `redis_connection`、借用失败静默降级）。
 - `llmdoc/reference/apple-control-template-syntax.md` — Apple DSL 控制流条件参考：`if_` / `elseif_` 需要使用 `{{field_name}}` 模板语法显式标记字段引用，编译器据此提取依赖并在发射 Lua 前去掉模板标记。
-- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-python/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 子树 schema）、内置 HTTP metrics middleware（四运行时 default-on）、Prometheus 适配边界。
+- `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 子树 schema）、内置 HTTP metrics middleware（各运行时 default-on）、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
 
 ## memory/

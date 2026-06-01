@@ -27,11 +27,9 @@ Pine-Java 完整实现了全部内置算子（清单见 `pine-java/.../operators
 
 Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.register(OperatorSchema, Supplier<Operator>)`。`Registry.exportSchemaJSON()` 导出与 Go 格式一致的 JSON，供 CI 交叉验证。`validateAndExtractParams()` 执行与 Go 等效的严格校验：过滤保留键、检查必填参数、注入默认值、拒绝未声明参数。
 
-`AllOperators.java` 中的注册清单含两个 benchmark 专用算子（`transform_bench_cpu` / `transform_bench_sleep`）。这两个算子在 pine-go 0.9.7 起常驻于 `pine-go/operators/transform/`（无构建标签门控），用于跨运行时对照 benchmark；pine-python 仍不实现这两个算子（其 `Description` 显式标注 "Not available in pine-python"）。
+`AllOperators.java` 中的注册清单含两个 benchmark 专用算子（`transform_bench_cpu` / `transform_bench_sleep`）。这两个算子在 pine-go 0.9.7 起常驻于 `pine-go/operators/transform/`（无构建标签门控），用于跨运行时对照 benchmark。
 
-更重的 bench stub 集合（`recall_bench_static` / `transform_bench_random_drop` / `reorder_bench_topn_boost` 等）在四个运行时中以构建开关方式对外可见：pine-go 通过 `//go:build pine_bench` 标签的 `all_bench.go` 引入，pine-java 通过 `-Dpine.bench=true` 系统属性，pine-cpp 通过 CMake `-DPINE_BUILD_BENCH_STUBS=ON`，pine-python 不实现。`scripts/bench-cross-runtime.sh` 在调用四个 builder 时统一传入对应开关。
-
-新增 Python 不实现的算子时，必须同步把算子名加入 `scripts/cross-validate/01-codegen-schema.sh` 中的 `PYTHON_UNAVAILABLE_OPERATORS` 集合，否则 Go vs Python schema 结构比对会因 "Go-only operator" 在 CI 失败。错误信息会显式提示 `add to PYTHON_UNAVAILABLE_OPERATORS if intentional`。注：`transform_bench_cpu` / `transform_bench_sleep` 因常驻注册已从该集合中移除。
+更重的 bench stub 集合（`recall_bench_static` / `transform_bench_random_drop` / `reorder_bench_topn_boost` 等）在各运行时中以构建开关方式对外可见：pine-go 通过 `//go:build pine_bench` 标签的 `all_bench.go` 引入，pine-java 通过 `-Dpine.bench=true` 系统属性，pine-cpp 通过 CMake `-DPINE_BUILD_BENCH_STUBS=ON`。`scripts/bench-cross-runtime.sh` 在调用各 builder 时统一传入对应开关。
 
 ## 算子生命周期
 
@@ -145,6 +143,25 @@ C++ 侧提供注册路径：
 
 - `recall_resource` — 资源值为 `[]map[string]any`，逐个 `AddItem`
 - `transform_resource_lookup` — 资源值为 `map[string]any`（lookup table），按 item 字段值查找写入。非 string key 自动 coerce（float64 整数 → string）。Apple 编译器校验 `lookup_key` ∈ `item_input`、`output_field` ∈ `item_output`
+- `transform_redis_get` / `transform_redis_set` — **句柄型资源消费者**，借用 `redis_connection` 资源（见下文）
+
+### Redis 算子契约（句柄型资源借用）
+
+`transform_redis_get` / `transform_redis_set` 不再内联 `redis_addr` / `redis_db` / `redis_password` 等连接参数，而是按 `resource_name` 借用一个内置的 `redis_connection` **句柄型资源**。连接参数（addr / password / db / interval）在统一 JSON 的 `resource_config` 中声明，其中 `interval: -1` 表示该句柄永不刷新。多个 Redis 算子引用同一 `resource_name` 时共享同一连接池；连接池由 ResourceManager 拥有，客户端按请求借用、`Execute` 返回时释放。
+
+参数契约：
+
+- `resource_name` (string, required) — 要借用的 `redis_connection` 资源名
+- `key_prefix` (string, required) — 与 common_input 字段拼出的 key 后缀组合成最终 key（`key_prefix + join(common_input values, ":")`）
+- `data_type` (string, optional, default `"string"`) — `"set"` / `"string"` / `"list"`
+- `fail_on_error` (bool, optional, default `false`) — 基础设施错误是否升级为致命错误
+
+降级语义（三运行时 Go/Java/C++ 字节级对齐）：
+
+- **借用失败 = 静默降级**：未注入 provider、资源不存在、或值类型不符时，不连接 Redis；`transform_redis_get` 输出 `cache_hit=false` 且不写 value，`transform_redis_set` 为 no-op
+- **借用成功但命令/连接出错**：记 warning 日志（`output.SetWarning`）；若配置 `fail_on_error`，则进一步抛出致命错误使算子失败，否则 `get` 视为 cache miss（`cache_hit=false`）、`set` 跳过
+
+`transform_redis_get` 的 `common_output[0]` 为结果值、`common_output[1]` 为 cache-hit 布尔标志。
 
 ## 保留 JSON/配置键
 
@@ -243,10 +260,9 @@ C++ 侧提供注册路径：
 |---|---|---|
 | pine-go | `pine-go/internal/types/operator.go` | `type Closer interface { Close() error }` |
 | pine-java | `pine-java/src/.../Closer.java` | `void close() throws Exception` |
-| pine-python | `pine-python/pine/operator.py` | `class Closer: def close(self) -> None` |
 | pine-cpp | `pine-cpp/include/pine/operator.hpp` | `class Closer { virtual void close() = 0; }` |
 
-引擎退役（hot-reload swap、graceful shutdown）时调用 `Engine.Close()` / `Engine.close()`，依次对每个 `CompiledOperator.Instance` 做 `instanceof Closer` 判定并触发 `Close()`。各运行时把单算子 close 失败聚合上报（pine-go 用 `errors.Join`，pine-java/pine-python 收集 list，pine-cpp 收集 vector），不阻断后续算子的 close。
+引擎退役（hot-reload swap、graceful shutdown）时调用 `Engine.Close()` / `Engine.close()`，依次对每个 `CompiledOperator.Instance` 做 `instanceof Closer` 判定并触发 `Close()`。各运行时把单算子 close 失败聚合上报（pine-go 用 `errors.Join`，pine-java 收集 list，pine-cpp 收集 vector），不阻断后续算子的 close。
 
 调用约定：
 
@@ -279,18 +295,18 @@ C++ 侧提供注册路径：
 
 #### 字段模式 JSON 键 ↔ 各层字段映射
 
-| JSON 键 | Apple DSL（OpCall 字段） | pine-go（OperatorConfig） | pine-java | pine-python | pine-cpp |
-|---|---|---|---|---|---|
-| `strict_common` | `strict_common` | `StrictCommon` | `strictCommon` | `strict_common` | `strict_common` |
-| `strict_item` | `strict_item` | `StrictItem` | `strictItem` | `strict_item` | `strict_item` |
-| `common_defaults` | `common_defaults` | `CommonDefaults` | `commonDefaults` | `common_defaults` | `common_defaults` |
-| `item_defaults` | `item_defaults` | `ItemDefaults` | `itemDefaults` | `item_defaults` | `item_defaults` |
+| JSON 键 | Apple DSL（OpCall 字段） | pine-go（OperatorConfig） | pine-java | pine-cpp |
+|---|---|---|---|---|
+| `strict_common` | `strict_common` | `StrictCommon` | `strictCommon` | `strict_common` |
+| `strict_item` | `strict_item` | `StrictItem` | `strictItem` | `strict_item` |
+| `common_defaults` | `common_defaults` | `CommonDefaults` | `commonDefaults` | `common_defaults` |
+| `item_defaults` | `item_defaults` | `ItemDefaults` | `itemDefaults` | `item_defaults` |
 
 当涉及字段模式相关的 JSON 键名变更时，必须同步检查此表中所有列。历史教训：v0.9.0 翻转默认模式时运行时完成迁移但 Apple DSL 侧遗漏，导致声明能力丧失（详见 `memory/reflections/v090-nullable-strict-apple-desync.md`）。
 
 ### Pine-C++ OperatorInput 投影层
 
-C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputFieldSpec 之上的 lazy read-only proxy。与 Go/Java/Python 的 eager map 构建不同，C++ 采用按需读取策略：
+C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputFieldSpec 之上的 lazy read-only proxy。与 Go/Java 的 eager map 构建不同，C++ 采用按需读取策略：
 
 - `build_operator_input(frame, op_name, spec)` 先批量校验 strict 字段（`Frame::batch_validate_strict_items` 虚方法，ColumnFrame/RowFrame 各自实现最优路径），校验通过后构造 proxy
 - `common(field)` / `item(i, field)` 在调用时才从 Frame 读取，自动替换 defaulted 字段的 nil 值为默认值
@@ -419,12 +435,12 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 ### Lua Bridge 跨运行时数据转换约定
 
-`transform_by_lua` 算子在 Go/Java/Python/C++ 四运行时之间通过 Lua bridge 完成 host ↔ Lua 的双向转换。统一的命名与语义：
+`transform_by_lua` 算子在 Go/Java/C++ 三运行时之间通过 Lua bridge 完成 host ↔ Lua 的双向转换。统一的命名与语义：
 
-- **`toLua(host)` ↔ `fromLua(lua)`**：四运行时使用对称命名（pine-go `toLua`/`fromLua`、pine-java `toLua`/`fromLua`、pine-python `_to_lua`/`_from_lua`、pine-cpp `to_lua`/`from_lua`）。历史命名（`goToLua`/`luaToGo`、`toJava`、`push_value`/`to_value`、`_to_python`）已统一收敛。
+- **`toLua(host)` ↔ `fromLua(lua)`**：三运行时使用对称命名（pine-go `toLua`/`fromLua`、pine-java `toLua`/`fromLua`、pine-cpp `to_lua`/`from_lua`）。历史命名（`goToLua`/`luaToGo`、`toJava`、`push_value`/`to_value`）已统一收敛。
 - **复合类型双向支持**：host slice/list/array → Lua array table（1-indexed），host map/dict → Lua hash table。Lua table 在 `fromLua` 时按"数字键 1..N 连续"判定为 array，否则为 map。
 - **非字符串 key 拒绝**：Lua table 含非 string key（如 `{[10]=1}` 或 `{[true]='bad'}`）时，`fromLua` 返回 `lua: table has non-string key of type "<type>"` 错误。各运行时的报错文案在字节级一致，由 `fixtures/errors/runtime_lua_non_string_table_key.json` 锁定。
-- **空表约定**：Lua 空 table 在四运行时一致编码为空 array `[]`（而非空 map `{}`），避免跨运行时 JSON 序列化产生差异。
+- **空表约定**：Lua 空 table 在三运行时一致编码为空 array `[]`（而非空 map `{}`），避免跨运行时 JSON 序列化产生差异。
 - **Sequence 检测严格性**（pine-go）：`fromLua` 要求 `1..N` 严格连续才识别为 array，遇到 `nil` 中断即降级为 map（避免误判稀疏数组）。
 - **错误前缀去重**（pine-go）：`fromLua` 的内部错误已带 `lua:` 前缀，外层 `executeForItem` / `executeForCommon` 不再二次包裹。
 
@@ -463,7 +479,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 Pine-Java 的 `Codegen.java` 支持双模式生成：
 
 - `--export-schema <path>` — 从内部 Registry 导出 Schema JSON（供 CI 交叉验证）
-- `--schema-from-registry` — 从内部 Registry 直接生成 Python DSL 产物
+- `--schema-from-registry` — 从内部 Registry 直接生成 Apple DSL 产物（`apple_generated/`）（供 CI 交叉验证）
 - `-schema <path>` — legacy 模式（读取外部 JSON，保留兼容性）
 
 两侧 codegen 输出保持一致（`operators.py`、`resources.py`、`__init__.py`、`doc/operators/`）。
