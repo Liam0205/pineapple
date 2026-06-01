@@ -19,6 +19,7 @@ import (
 	pine "github.com/Liam0205/pineapple/pine-go"
 	"github.com/Liam0205/pineapple/pine-go/internal/registry"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
 
@@ -171,7 +172,7 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 		Name:            "test_res",
 		Description:     "test resource",
 		DefaultInterval: 3600,
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			callCount++
 			return fmt.Sprintf("value_%d", callCount), nil
@@ -243,7 +244,7 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 		Name:            "good_res",
 		Description:     "always works",
 		DefaultInterval: 3600,
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return "ok", nil
 		}, nil
@@ -253,7 +254,7 @@ func TestReloadConfig_ResourceStartFailure(t *testing.T) {
 		Name:            "bad_res",
 		Description:     "always fails on fetch",
 		DefaultInterval: 3600,
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return nil, fmt.Errorf("connection refused")
 		}, nil
@@ -351,7 +352,7 @@ func TestReloadConfig_OldManagerStopped(t *testing.T) {
 		Name:            "track_res",
 		Description:     "tracks active fetches",
 		DefaultInterval: 3600,
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return "data", nil
 		}, nil
@@ -410,7 +411,7 @@ func TestWatchConfigIntegration(t *testing.T) {
 		Name:            "watch_res",
 		Description:     "for watch test",
 		DefaultInterval: 3600,
-	}, func(params map[string]any) (resource.Fetcher, error) {
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return "initial", nil
 		}, nil
@@ -464,9 +465,9 @@ func setupEngine(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rm := resource.NewManager()
+	rm := resource.NewManager(nil)
 	s := &Server{}
-	s.snapshot.Store(newSnapshot(engine, rm))
+	s.snapshot.Store(newSnapshot(engine, rm, nil))
 	t.Cleanup(func() {
 		s.snapshot.Store(nil)
 	})

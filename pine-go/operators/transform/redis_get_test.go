@@ -15,7 +15,7 @@ import (
 func redisCtx(addr string) (context.Context, *redis.Client) {
 	client := redis.NewClient(&redis.Options{Addr: addr})
 	ctx := resource.WithResources(context.Background(),
-		resource.NewStatic(map[string]any{"conn": client}))
+		resource.NewStatic(map[string]any{"conn": newRedisConnResource(client, "", nil)}))
 	return ctx, client
 }
 

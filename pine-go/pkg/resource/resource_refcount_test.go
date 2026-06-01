@@ -32,7 +32,7 @@ func TestRefreshClosesSupersededValue(t *testing.T) {
 	var closedIDs []int
 	var counter int32
 
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("res", func(ctx context.Context) (any, error) {
 		id := int(atomic.AddInt32(&counter, 1))
 		return &closerValue{id: id, onClose: func(id int) {
@@ -70,7 +70,7 @@ func TestRefreshClosesSupersededValue(t *testing.T) {
 func TestStopClosesCurrentValue(t *testing.T) {
 	cv := &closerValue{id: 1}
 
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("res", func(ctx context.Context) (any, error) {
 		return cv, nil
 	}, time.Hour) // long interval: no refresh during test
@@ -94,7 +94,7 @@ func TestStopClosesCurrentValue(t *testing.T) {
 func TestInFlightBorrowDefersClose(t *testing.T) {
 	cv := &closerValue{id: 1}
 
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("res", func(ctx context.Context) (any, error) {
 		return cv, nil
 	}, time.Hour)
@@ -132,7 +132,7 @@ func TestRefreshDefersCloseWhileBorrowed(t *testing.T) {
 	first := &closerValue{id: 1}
 	second := &closerValue{id: 2}
 
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("res", func(ctx context.Context) (any, error) {
 		n := atomic.AddInt32(&counter, 1)
 		if n == 1 {
@@ -178,7 +178,7 @@ func TestRefreshDefersCloseWhileBorrowed(t *testing.T) {
 // TestNonCloserValueIsSkipped verifies that resource values that do not
 // implement io.Closer are handled without error on refresh and Stop.
 func TestNonCloserValueIsSkipped(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("plain", func(ctx context.Context) (any, error) {
 		return "just a string", nil
 	}, 40*time.Millisecond)

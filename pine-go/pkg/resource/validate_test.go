@@ -7,7 +7,7 @@ import (
 )
 
 func TestValidateResourceDeps(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("feed_data", func(ctx context.Context) (any, error) { return "ok", nil }, time.Hour)
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestValidateResourceDeps(t *testing.T) {
 }
 
 func TestValidateResourceDepsMissing(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestValidateResourceDepsMissing(t *testing.T) {
 }
 
 func TestValidateResourceDepsNoResourceRefs(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestValidateResourceDepsNoResourceRefs(t *testing.T) {
 }
 
 func TestValidateResourceDepsInvalidJSON(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	err := ValidateResourceDeps([]byte(`{invalid`), m)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")

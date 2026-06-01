@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
 // getVal borrows a resource value via the handle API and releases it
@@ -23,7 +24,7 @@ func getVal(rp ResourceProvider, name string) (any, bool) {
 }
 
 func TestBasicRegisterStartGet(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("counter", func(ctx context.Context) (any, error) {
 		return 42, nil
 	}, time.Hour)
@@ -43,7 +44,7 @@ func TestBasicRegisterStartGet(t *testing.T) {
 }
 
 func TestGetUnknownResource(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestGetUnknownResource(t *testing.T) {
 }
 
 func TestInitialLoadFailure(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("bad", func(ctx context.Context) (any, error) {
 		return nil, fmt.Errorf("connection refused")
 	}, time.Hour)
@@ -71,7 +72,7 @@ func TestInitialLoadFailure(t *testing.T) {
 func TestRefreshFailureKeepsOldValue(t *testing.T) {
 	var callCount atomic.Int32
 
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("flaky", func(ctx context.Context) (any, error) {
 		n := callCount.Add(1)
 		if n == 1 {
@@ -106,7 +107,7 @@ func TestRefreshFailureKeepsOldValue(t *testing.T) {
 func TestRefreshUpdatesValue(t *testing.T) {
 	var counter atomic.Int32
 
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("inc", func(ctx context.Context) (any, error) {
 		return int(counter.Add(1)), nil
 	}, 50*time.Millisecond)
@@ -132,7 +133,7 @@ func TestRefreshUpdatesValue(t *testing.T) {
 }
 
 func TestStopDoesNotLeak(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("a", func(ctx context.Context) (any, error) {
 		return "a", nil
 	}, 50*time.Millisecond)
@@ -210,7 +211,7 @@ func TestStaticProvider(t *testing.T) {
 }
 
 func TestDuplicateRegisterPanics(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("dup", func(ctx context.Context) (any, error) { return nil, nil }, time.Hour)
 
 	defer func() {
@@ -222,7 +223,7 @@ func TestDuplicateRegisterPanics(t *testing.T) {
 }
 
 func TestRegisterAfterStartPanics(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestRegisterAfterStartPanics(t *testing.T) {
 }
 
 func TestDoubleStartReturnsError(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -273,14 +274,14 @@ func TestLoadFromRootConfigNeverRefresh(t *testing.T) {
 	defer ResetRegistry()
 
 	var calls atomic.Int32
-	Register(testSchema("conn"), func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("conn"), func(params map[string]any, _ metrics.Provider) (Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			calls.Add(1)
 			return "pool", nil
 		}, nil
 	})
 
-	m := NewManager()
+	m := NewManager(nil)
 	// interval -1 → never refresh: fetched once at Start, no refresh loop ticks.
 	config := wrapResourceConfig(`{
 		"db": {
@@ -313,14 +314,14 @@ func TestRegisterAndLoadFromRootConfig(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()
 
-	Register(testSchema("test_type"), func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("test_type"), func(params map[string]any, _ metrics.Provider) (Fetcher, error) {
 		prefix, _ := params["prefix"].(string)
 		return func(ctx context.Context) (any, error) {
 			return prefix + "_loaded", nil
 		}, nil
 	})
 
-	m := NewManager()
+	m := NewManager(nil)
 	config := wrapResourceConfig(`{
 		"my_resource": {
 			"type": "test_type",
@@ -350,7 +351,7 @@ func TestLoadFromRootConfigUnknownType(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()
 
-	m := NewManager()
+	m := NewManager(nil)
 	config := wrapResourceConfig(`{
 		"bad": {
 			"type": "nonexistent_type",
@@ -368,11 +369,11 @@ func TestLoadFromRootConfigFactoryError(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()
 
-	Register(testSchema("fail_type"), func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("fail_type"), func(params map[string]any, _ metrics.Provider) (Fetcher, error) {
 		return nil, fmt.Errorf("missing required param")
 	})
 
-	m := NewManager()
+	m := NewManager(nil)
 	config := wrapResourceConfig(`{
 		"broken": {
 			"type": "fail_type",
@@ -387,7 +388,7 @@ func TestLoadFromRootConfigFactoryError(t *testing.T) {
 }
 
 func TestLoadFromRootConfigInvalidJSON(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	err := m.LoadFromRootConfig([]byte(`{invalid`))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -398,13 +399,13 @@ func TestLoadFromRootConfigDefaultInterval(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()
 
-	Register(testSchema("simple"), func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("simple"), func(params map[string]any, _ metrics.Provider) (Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return "ok", nil
 		}, nil
 	})
 
-	m := NewManager()
+	m := NewManager(nil)
 	config := wrapResourceConfig(`{
 		"res": {
 			"type": "simple",
@@ -428,7 +429,7 @@ func TestLoadFromRootConfigDefaultInterval(t *testing.T) {
 }
 
 func TestLoadFromRootConfigNoResources(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	// Valid JSON but no resource_config key
 	config := `{"_PINEAPPLE_VERSION": "0.2.8", "pipeline_config": {}}`
 	if err := m.LoadFromRootConfig([]byte(config)); err != nil {
@@ -443,7 +444,7 @@ func TestDuplicateRegisterResourcePanics(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()
 
-	factory := func(params map[string]any) (Fetcher, error) { return nil, nil }
+	factory := func(params map[string]any, _ metrics.Provider) (Fetcher, error) { return nil, nil }
 	Register(testSchema("dup_type"), factory)
 
 	defer func() {
@@ -458,7 +459,7 @@ func TestAll(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()
 
-	factory := func(params map[string]any) (Fetcher, error) { return nil, nil }
+	factory := func(params map[string]any, _ metrics.Provider) (Fetcher, error) { return nil, nil }
 	Register(types.ResourceSchema{
 		Name:            "bravo_res",
 		Description:     "bravo",
@@ -499,7 +500,7 @@ func TestAllEmpty(t *testing.T) {
 }
 
 func TestNames(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	m.Register("bravo", func(ctx context.Context) (any, error) { return nil, nil }, time.Hour)
 	m.Register("alpha", func(ctx context.Context) (any, error) { return nil, nil }, time.Hour)
 	m.Register("charlie", func(ctx context.Context) (any, error) { return nil, nil }, time.Hour)
@@ -517,7 +518,7 @@ func TestNames(t *testing.T) {
 }
 
 func TestNamesEmpty(t *testing.T) {
-	m := NewManager()
+	m := NewManager(nil)
 	names := m.Names()
 	if len(names) != 0 {
 		t.Errorf("Names() = %v, want empty", names)
@@ -528,13 +529,13 @@ func TestLoadFromRootConfigWithManualRegister(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()
 
-	Register(testSchema("cfg_type"), func(params map[string]any) (Fetcher, error) {
+	Register(testSchema("cfg_type"), func(params map[string]any, _ metrics.Provider) (Fetcher, error) {
 		return func(ctx context.Context) (any, error) {
 			return "from_config", nil
 		}, nil
 	})
 
-	m := NewManager()
+	m := NewManager(nil)
 	// Manual register first
 	m.Register("manual_res", func(ctx context.Context) (any, error) {
 		return "from_manual", nil

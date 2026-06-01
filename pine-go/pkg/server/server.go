@@ -58,12 +58,17 @@ type Config struct {
 type serverSnapshot struct {
 	engine    *pine.Engine
 	resources *resource.Manager
-	refs      atomic.Int64
+	// resourceMetrics aggregates resource-level Provider metrics for /stats. It
+	// is the provider handed to this snapshot's ResourceManager, so it is
+	// recreated on every hot-reload alongside the manager. May be nil when the
+	// caller supplied its own pre-built manager.
+	resourceMetrics *metrics.Collector
+	refs            atomic.Int64
 }
 
 // newSnapshot builds a live snapshot with the baseline reference held.
-func newSnapshot(engine *pine.Engine, rm *resource.Manager) *serverSnapshot {
-	s := &serverSnapshot{engine: engine, resources: rm}
+func newSnapshot(engine *pine.Engine, rm *resource.Manager, rmMetrics *metrics.Collector) *serverSnapshot {
+	s := &serverSnapshot{engine: engine, resources: rm, resourceMetrics: rmMetrics}
 	s.refs.Store(1)
 	return s
 }
@@ -191,12 +196,20 @@ func (s *Server) run(cfg Config) error {
 
 	// Initialize ResourceManager.
 	// If the caller supplied a pre-registered manager, use it;
-	// otherwise create an empty one.
+	// otherwise create an empty one whose resource metrics flow into a
+	// dedicated Collector serialized under /stats.resources (keeping engine
+	// metrics out of that subtree).
 	var rm *resource.Manager
+	var rmMetrics *metrics.Collector
 	if cfg.Resources != nil {
 		rm = cfg.Resources
 	} else {
-		rm = resource.NewManager()
+		rmMetrics = metrics.NewCollector()
+		// Fan out resource metrics to both the caller-injected provider (e.g.
+		// Prometheus) and the dedicated collector for /stats.resources. Only the
+		// ResourceManager writes through this tee, so the collector stays scoped
+		// to resource metrics; engine metrics use mp directly.
+		rm = resource.NewManager(metrics.Tee(mp, rmMetrics))
 	}
 
 	// Load resource config from unified JSON.
@@ -208,7 +221,7 @@ func (s *Server) run(cfg Config) error {
 		log.Fatalf("failed to start resource manager: %v", err)
 	}
 
-	s.snapshot.Store(newSnapshot(engine, rm))
+	s.snapshot.Store(newSnapshot(engine, rm, rmMetrics))
 	defer func() {
 		// Load at shutdown time, not defer-registration time: a hot-reload may
 		// have swapped the snapshot, and the live one must be the one torn down.
@@ -283,7 +296,8 @@ func (s *Server) reloadConfig(path string) error {
 		return err
 	}
 
-	newRM := resource.NewManager()
+	rmMetrics := metrics.NewCollector()
+	newRM := resource.NewManager(metrics.Tee(s.metricsProvider, rmMetrics))
 	if err := newRM.LoadFromRootConfig(data); err != nil {
 		return err
 	}
@@ -296,7 +310,7 @@ func (s *Server) reloadConfig(path string) error {
 		return err
 	}
 
-	old := s.snapshot.Swap(newSnapshot(engine, newRM))
+	old := s.snapshot.Swap(newSnapshot(engine, newRM, rmMetrics))
 	if old != nil {
 		// Drop the baseline reference. Teardown (resource Stop + engine Close)
 		// runs once the last in-flight request that captured the old snapshot
@@ -473,6 +487,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.httpStats != nil {
 		resp["http"] = s.httpStats.Snapshot()
+	}
+	if snap.resourceMetrics != nil {
+		resp["resources"] = snap.resourceMetrics.Snapshot()
 	}
 	if custom := snap.engine.OperatorCustomStats(); custom != nil {
 		resp["operator_detail"] = custom
