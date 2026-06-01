@@ -11,6 +11,7 @@ class RedisConnectionResource(BaseResource):
     _params_schema = {
         "addr": {"type": "string", "required": True},
         "db": {"type": "int", "required": False, "default": 0},
+        "metrics_name": {"type": "string", "required": False, "default": ""},
         "password": {"type": "string", "required": False, "default": ""},
     }
 
@@ -19,6 +20,7 @@ class RedisConnectionResource(BaseResource):
         *,
         addr: str = ...,
         db: int = 0,
+        metrics_name: str = "",
         password: str = "",
         interval: int = -1,
     ):
@@ -26,5 +28,6 @@ class RedisConnectionResource(BaseResource):
             interval=interval,
             addr=addr,
             db=db,
+            metrics_name=metrics_name,
             password=password,
         )
