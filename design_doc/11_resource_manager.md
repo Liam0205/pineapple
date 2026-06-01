@@ -375,6 +375,55 @@ flow.transform_resource_lookup(
 | `recall_resource` | `[]map[string]any` 或 `[]any` | 每个元素是一个 item map |
 | `transform_resource_lookup` | `map[string]any` | 键为查找值，值为目标值 |
 
+### redis_connection（句柄型资源）
+
+上面两个算子消费的是**数据型资源**：资源值是可序列化的纯数据（item 列表 /
+lookup 表），随刷新整体替换。Redis 连接池则是另一类资源——**句柄型资源**：
+资源值是一个携带活动连接的不可序列化对象，由 ResourceManager 持有其生命周期，
+算子按名借用、用完归还，绝不拥有。
+
+`redis_connection` 是内置的句柄型资源类型，在统一 JSON 的 `resource_config`
+中声明：
+
+```json
+{
+  "resource_config": {
+    "resources": {
+      "redis_conn": {
+        "type_name": "redis_connection",
+        "addr": "127.0.0.1:6379",
+        "password": "",
+        "db": 0,
+        "interval": -1
+      }
+    }
+  }
+}
+```
+
+`interval: -1` 表示永不刷新——连接池一旦建立即长期复用，由 ResourceManager 在
+退休 / 关闭时统一拆除。`transform_redis_get` / `transform_redis_set` 不再内联
+`redis_addr`，改为按 `resource_name` 借用共享连接池：
+
+```python
+flow.transform_redis_get(
+    resource_name="redis_conn",   # 借用 redis_connection 资源
+    key_prefix="k:",
+    data_type="string",
+)
+```
+
+借用失败语义与数据型资源一致，由算子降级决策：
+
+- 借用失败（无 provider / 资源未就绪 / 类型不匹配）→ 静默降级：
+  `redis_get` 报 `cache_hit=false` 且不写 value，`redis_set` 直接 no-op，
+  均不尝试连接。
+- 借用成功但命令 / 连接出错 → 记 warning 日志；若算子配置了
+  `fail_on_error` 则抛错，否则吞掉继续。
+
+这样连接池得以在多个算子、多个 pipeline 之间共享，并在热重载时随 Manager 原子
+替换，而非每个算子各自持有一份连接。
+
 ## 设计要点
 
 ### 1. 首次加载同步，后续异步
@@ -470,6 +519,17 @@ oldRM.Stop() — 停止旧 Manager 的后台刷新
 > 改用手写引用计数 + 作用域退出钩子（Go `defer`、Java try-with-resources、
 > Python `with`）。对外契约一致：「退休 = 释放引用，最后一个引用关闭，绝不泄漏」。
 > 代价是借用必须在取得后立即 `defer Release`，且不得保存到字段或传出作用域。
+>
+> 数据型 vs 句柄型：C++ 将资源值显式建模为 `ResourceValue`，内部是
+> 「数据 `Variant`」XOR「句柄 `shared_ptr<void>`」二选一——句柄刻意排除在
+> `Variant` 之外，保证 `Variant` 始终是可 `dump_json` / `parse_json` 的纯 JSON。
+> 数据型资源走 `snapshot()` 整体导出（与 Go/Java 的快照导出对齐），句柄型资源
+> 走 `ResourceProvider::borrow(name)` 返回 `shared_ptr<void>`（数据型 / 缺失 /
+> 未加载一律返回 `nullptr`，调用方降级）。算子拿到后 `static_pointer_cast` 到
+> 具体类型（如 `RedisConnResource`）。退休时 `Manager::stop()` 把句柄型
+> `ResourceValue` 重置，最后一个借用者析构其 `shared_ptr` 时连接池才真正拆除，
+> 配合 `engine_mu_` 锁序保证无 in-flight 借用——这正是 Go 双层引用计数、Java
+> 快照引用计数在 C++ 里的等价落地。
 
 失败回滚：
 
