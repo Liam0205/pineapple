@@ -36,10 +36,11 @@ func init() {
 		Name: "transform_redis_zrangebyscore", Type: pine.OpTypeTransform,
 		Description: "Benchmark stub: simulates Redis ZRANGEBYSCORE.",
 		Params: map[string]pine.ParamSpec{
+			"resource_name":  {Type: "string", Required: false, Default: "", Description: "Name of a redis_connection resource (ignored in stub)."},
 			"key_prefix":     {Type: "string", Required: false, Default: "", Description: "Stub param."},
 			"window_seconds": {Type: "int", Required: false, Default: int(0), Description: "Stub param."},
-			"redis_addr":     {Type: "string", Required: false, Default: "", Description: "Stub param."},
-			"redis_password": {Type: "string", Required: false, Default: "", Description: "Stub param."},
+			"redis_addr":     {Type: "string", Required: false, Default: "", Description: "Legacy stub param."},
+			"redis_password": {Type: "string", Required: false, Default: "", Description: "Legacy stub param."},
 			"bench_profile":  {Type: "any", Required: false, Default: nil, Description: "Latency profile."},
 		},
 	}, func() pine.Operator { return &transformRedisZrangebyscoreStub{} })
