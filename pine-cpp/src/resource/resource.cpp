@@ -39,7 +39,7 @@ bool register_fetcher_factory(const std::string& type_name, FetcherFactory facto
 // This allows both server-side mtime config reload and CLI parsing to resolve "type": "static" on
 // resource_config out-of-the-box.
 const bool _static_fetcher_init = [] {
-  register_fetcher_factory("static", [](const Variant& params) {
+  register_fetcher_factory("static", [](const Variant& params, metrics::Provider*) {
     auto val_it = params.as_object().find("value");
     Variant val = (val_it != params.as_object().end()) ? val_it->second : Variant();
     return Fetcher{[val]() { return ResourceValue::data(val); }};
@@ -71,7 +71,8 @@ void reset_fetcher_registry() {
   factory_registry().clear();
 }
 
-Manager::Manager() = default;
+Manager::Manager(metrics::Provider* mp) : metrics_(mp ? mp : metrics::nop_provider()) {
+}
 
 Manager::~Manager() {
   stop();
@@ -111,7 +112,7 @@ void Manager::load_from_config(const Config& config) {
       throw std::runtime_error("resource: unknown fetcher type \"" + entry.type + "\" for resource \"" +
                                name + "\"");
     }
-    Fetcher fetcher = (*factory)(entry.params);
+    Fetcher fetcher = (*factory)(entry.params, metrics_);
     // Pass the sign through verbatim so register_resource can apply the
     // three-state rule (0 → default, <0 → never-refresh, >0 → period). A
     // negative interval must not collapse to 0, or a never-refresh resource

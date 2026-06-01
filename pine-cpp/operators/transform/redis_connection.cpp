@@ -12,6 +12,9 @@
 //   - addr (string, required): Redis server address (host:port).
 //   - password (string, optional, default=""): Redis password.
 //   - db (int, optional, default=0): Redis DB number.
+//   - metrics_name (string, optional, default=""): When set, the pool emits its
+//     own metrics (pool gauges + PING-probe latency) labelled name=<metrics_name>.
+//     Empty disables resource-level metrics.
 
 #include "pine/pine.hpp"
 #include "pine/resource.hpp"
@@ -26,7 +29,8 @@ namespace pine {
 namespace {
 
 const bool _redis_connection_init = [] {
-  resource::register_fetcher_factory("redis_connection", [](const Variant& params) {
+  resource::register_fetcher_factory("redis_connection", [](const Variant& params,
+                                                            metrics::Provider* mp) {
     const auto& obj = params.as_object();
 
     std::string host;
@@ -53,10 +57,14 @@ const bool _redis_connection_init = [] {
     if (auto it = obj.find("db"); it != obj.end() && it->second.is_number()) {
       db = static_cast<int>(it->second.as_number());
     }
+    std::string metrics_name;
+    if (auto it = obj.find("metrics_name"); it != obj.end() && it->second.is_string()) {
+      metrics_name = it->second.as_string();
+    }
 
-    return resource::Fetcher{[host, port, password, db]() {
+    return resource::Fetcher{[host, port, password, db, metrics_name, mp]() {
       return resource::ResourceValue::handle(
-          std::make_shared<redis::RedisConnResource>(host, port, password, db));
+          std::make_shared<redis::RedisConnResource>(host, port, password, db, metrics_name, mp));
     }};
   });
   return true;

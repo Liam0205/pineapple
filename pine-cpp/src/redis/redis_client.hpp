@@ -17,6 +17,10 @@ class Client {
 
   bool connected() const;
 
+  // Sends PING and returns true iff the server replies +PONG. Throws on a
+  // socket/protocol error so the probe can record the connection as down.
+  bool ping();
+
   std::optional<std::string> get(const std::string& key);
   void set(const std::string& key, const std::string& value, int ttl_seconds = 0);
 

@@ -84,6 +84,22 @@ bool Client::connected() const {
   return fd_ >= 0;
 }
 
+bool Client::ping() {
+  send_command({"PING"});
+  char type = read_type();
+  if (type == '+') {
+    return read_simple_string() == "PONG";
+  }
+  if (type == '$') {
+    auto bulk = read_bulk_string();
+    return bulk && *bulk == "PONG";
+  }
+  if (type == '-') {
+    throw std::runtime_error("redis error: " + read_error());
+  }
+  throw std::runtime_error("redis: unexpected response type for PING");
+}
+
 void Client::send_command(const std::vector<std::string>& args) {
   std::string data = encode_command(args);
   const char* ptr = data.c_str();
