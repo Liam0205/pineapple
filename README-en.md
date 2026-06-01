@@ -269,6 +269,7 @@ CI runs automatically on every push/PR:
 5. **Error parity** — Invalid configs/requests must produce the same error classification and messages
 6. **Server parity** — HTTP endpoints must return matching status codes, body structure, and Content-Type
 7. **Cancellation parity** — Timeout and runtime error cancellation behavior must match
+8. **Resource metrics parity** — `/stats.resources` subtree (redis resource-level metrics) matches in shape and correctness across engines, including the empty-`metrics_name` negative case
 
 ### Building Cross-Validation for Downstream Projects
 
