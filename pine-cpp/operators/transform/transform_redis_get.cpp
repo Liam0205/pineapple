@@ -39,9 +39,9 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
     // Borrow the connection pool from the redis_connection resource. A null
     // borrow (no provider, missing resource, or wrong handle type) degrades to
     // a cache miss, mirroring pine-go's borrowRedis ok=false path.
-    auto conn = provider_ ? std::static_pointer_cast<redis::RedisConnResource>(
-                                provider_->borrow(resource_name_))
-                          : nullptr;
+    auto conn = provider_
+                    ? std::static_pointer_cast<redis::RedisConnResource>(provider_->borrow(resource_name_))
+                    : nullptr;
     if (!conn) {
       out.set_common(cache_hit_field_, Variant(false));
       return;

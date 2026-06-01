@@ -26,7 +26,9 @@ struct RegistryFixture {
 
 TEST_CASE("resource: register_resource + snapshot returns loaded values") {
   resource::Manager mgr;
-  mgr.register_resource("static_one", []() { return resource::ResourceValue::data(Variant(std::string("v1"))); }, std::chrono::seconds(60));
+  mgr.register_resource(
+      "static_one", []() { return resource::ResourceValue::data(Variant(std::string("v1"))); },
+      std::chrono::seconds(60));
   mgr.start();
 
   auto snap = mgr.snapshot();
@@ -37,10 +39,12 @@ TEST_CASE("resource: register_resource + snapshot returns loaded values") {
 
 TEST_CASE("resource: duplicate name throws") {
   resource::Manager mgr;
-  mgr.register_resource("dup", []() { return resource::ResourceValue::data(Variant(1)); }, std::chrono::seconds(60));
-  CHECK_THROWS_AS(mgr.register_resource(
-                      "dup", []() { return resource::ResourceValue::data(Variant(2)); }, std::chrono::seconds(60)),
-                  std::runtime_error);
+  mgr.register_resource(
+      "dup", []() { return resource::ResourceValue::data(Variant(1)); }, std::chrono::seconds(60));
+  CHECK_THROWS_AS(
+      mgr.register_resource(
+          "dup", []() { return resource::ResourceValue::data(Variant(2)); }, std::chrono::seconds(60)),
+      std::runtime_error);
 }
 
 TEST_CASE("resource: factory registry roundtrip") {
@@ -81,7 +85,8 @@ TEST_CASE("resource: background refresh updates the value") {
   std::atomic<int> counter{0};
   resource::Manager mgr;
   mgr.register_resource(
-      "tick", [&counter]() { return resource::ResourceValue::data(Variant(counter.fetch_add(1) + 1)); }, std::chrono::seconds(1));
+      "tick", [&counter]() { return resource::ResourceValue::data(Variant(counter.fetch_add(1) + 1)); },
+      std::chrono::seconds(1));
   mgr.start();
 
   auto initial = mgr.snapshot()["tick"].as_number();
@@ -99,7 +104,8 @@ TEST_CASE("resource: interval=-1 never refreshes") {
   resource::Manager mgr;
   // interval -1 → fetched once at start, no refresh thread scheduled.
   mgr.register_resource(
-      "conn", [&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); }, std::chrono::seconds(-1));
+      "conn", [&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); },
+      std::chrono::seconds(-1));
   mgr.start();
 
   CHECK(mgr.snapshot()["conn"].as_number() == 1.0);
@@ -114,7 +120,8 @@ TEST_CASE("resource: interval=-1 survives load_from_config") {
   RegistryFixture _;
   std::atomic<int> calls{0};
   resource::register_fetcher_factory("never_refresh", [&calls](const Variant& /*params*/) {
-    return resource::Fetcher{[&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); }};
+    return resource::Fetcher{
+        [&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); }};
   });
 
   Config cfg;
@@ -157,7 +164,8 @@ TEST_CASE("resource: handle-typed value is borrowable but absent from snapshot")
 TEST_CASE("resource: borrow returns null for data-typed and missing names") {
   resource::Manager mgr;
   mgr.register_resource(
-      "value", []() { return resource::ResourceValue::data(Variant(std::string("v"))); }, std::chrono::seconds(-1));
+      "value", []() { return resource::ResourceValue::data(Variant(std::string("v"))); },
+      std::chrono::seconds(-1));
   mgr.start();
 
   // Data-typed resource: borrow() degrades to nullptr (use snapshot instead).
@@ -193,4 +201,3 @@ TEST_CASE("resource: stop() tears down handle resources") {
   // down via shared_ptr RAII — mirrors Go/Java stop() closing the resource.
   CHECK(weak.expired());
 }
-
