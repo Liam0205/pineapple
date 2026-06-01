@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -25,7 +26,7 @@ struct RegistryFixture {
 
 TEST_CASE("resource: register_resource + snapshot returns loaded values") {
   resource::Manager mgr;
-  mgr.register_resource("static_one", []() { return Variant(std::string("v1")); }, std::chrono::seconds(60));
+  mgr.register_resource("static_one", []() { return resource::ResourceValue::data(Variant(std::string("v1"))); }, std::chrono::seconds(60));
   mgr.start();
 
   auto snap = mgr.snapshot();
@@ -36,9 +37,9 @@ TEST_CASE("resource: register_resource + snapshot returns loaded values") {
 
 TEST_CASE("resource: duplicate name throws") {
   resource::Manager mgr;
-  mgr.register_resource("dup", []() { return Variant(1); }, std::chrono::seconds(60));
+  mgr.register_resource("dup", []() { return resource::ResourceValue::data(Variant(1)); }, std::chrono::seconds(60));
   CHECK_THROWS_AS(mgr.register_resource(
-                      "dup", []() { return Variant(2); }, std::chrono::seconds(60)),
+                      "dup", []() { return resource::ResourceValue::data(Variant(2)); }, std::chrono::seconds(60)),
                   std::runtime_error);
 }
 
@@ -47,7 +48,7 @@ TEST_CASE("resource: factory registry roundtrip") {
   int factory_calls = 0;
   resource::register_fetcher_factory("test_factory", [&factory_calls](const Variant& /*params*/) {
     factory_calls++;
-    return resource::Fetcher{[]() { return Variant(std::string("hello")); }};
+    return resource::Fetcher{[]() { return resource::ResourceValue::data(Variant(std::string("hello"))); }};
   });
   CHECK(resource::lookup_fetcher_factory("test_factory") != nullptr);
   CHECK(resource::lookup_fetcher_factory("missing") == nullptr);
@@ -80,7 +81,7 @@ TEST_CASE("resource: background refresh updates the value") {
   std::atomic<int> counter{0};
   resource::Manager mgr;
   mgr.register_resource(
-      "tick", [&counter]() { return Variant(counter.fetch_add(1) + 1); }, std::chrono::seconds(1));
+      "tick", [&counter]() { return resource::ResourceValue::data(Variant(counter.fetch_add(1) + 1)); }, std::chrono::seconds(1));
   mgr.start();
 
   auto initial = mgr.snapshot()["tick"].as_number();
@@ -98,7 +99,7 @@ TEST_CASE("resource: interval=-1 never refreshes") {
   resource::Manager mgr;
   // interval -1 → fetched once at start, no refresh thread scheduled.
   mgr.register_resource(
-      "conn", [&calls]() { return Variant(calls.fetch_add(1) + 1); }, std::chrono::seconds(-1));
+      "conn", [&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); }, std::chrono::seconds(-1));
   mgr.start();
 
   CHECK(mgr.snapshot()["conn"].as_number() == 1.0);
@@ -113,7 +114,7 @@ TEST_CASE("resource: interval=-1 survives load_from_config") {
   RegistryFixture _;
   std::atomic<int> calls{0};
   resource::register_fetcher_factory("never_refresh", [&calls](const Variant& /*params*/) {
-    return resource::Fetcher{[&calls]() { return Variant(calls.fetch_add(1) + 1); }};
+    return resource::Fetcher{[&calls]() { return resource::ResourceValue::data(Variant(calls.fetch_add(1) + 1)); }};
   });
 
   Config cfg;
@@ -127,3 +128,69 @@ TEST_CASE("resource: interval=-1 survives load_from_config") {
   CHECK(calls.load() == 1);
   mgr.stop();
 }
+
+namespace {
+struct FakeHandle {
+  int id;
+};
+}  // namespace
+
+TEST_CASE("resource: handle-typed value is borrowable but absent from snapshot") {
+  auto handle = std::make_shared<FakeHandle>(FakeHandle{42});
+  resource::Manager mgr;
+  // interval -1: handle resources are long-lived, fetched once, never refreshed.
+  mgr.register_resource(
+      "pool", [handle]() { return resource::ResourceValue::handle(handle); }, std::chrono::seconds(-1));
+  mgr.start();
+
+  // Handle resources are NOT exported into the per-execute data snapshot.
+  CHECK(mgr.snapshot().count("pool") == 0);
+
+  // ...but are reachable via borrow(), cast back to the concrete type.
+  auto borrowed = std::static_pointer_cast<FakeHandle>(mgr.borrow("pool"));
+  REQUIRE(borrowed != nullptr);
+  CHECK(borrowed->id == 42);
+
+  mgr.stop();
+}
+
+TEST_CASE("resource: borrow returns null for data-typed and missing names") {
+  resource::Manager mgr;
+  mgr.register_resource(
+      "value", []() { return resource::ResourceValue::data(Variant(std::string("v"))); }, std::chrono::seconds(-1));
+  mgr.start();
+
+  // Data-typed resource: borrow() degrades to nullptr (use snapshot instead).
+  CHECK(mgr.borrow("value") == nullptr);
+  // Unknown name: nullptr.
+  CHECK(mgr.borrow("nope") == nullptr);
+  // Data resource is still visible in the snapshot.
+  CHECK(mgr.snapshot()["value"].as_string() == "v");
+
+  mgr.stop();
+}
+
+TEST_CASE("resource: stop() tears down handle resources") {
+  std::weak_ptr<FakeHandle> weak;
+  resource::Manager mgr;
+  // The fetcher creates the handle internally and returns it, so the only
+  // strong reference after start() lives in the Manager's stored value — not
+  // in the fetcher closure (which captures weak by reference only).
+  mgr.register_resource(
+      "pool",
+      [&weak]() {
+        auto h = std::make_shared<FakeHandle>(FakeHandle{7});
+        weak = h;
+        return resource::ResourceValue::handle(h);
+      },
+      std::chrono::seconds(-1));
+  mgr.start();
+  // Manager holds the only strong reference.
+  CHECK(weak.lock() != nullptr);
+
+  mgr.stop();
+  // stop() released the Manager's handle reference, so the live object is torn
+  // down via shared_ptr RAII — mirrors Go/Java stop() closing the resource.
+  CHECK(weak.expired());
+}
+

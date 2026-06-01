@@ -37,6 +37,19 @@ class MetricsAware {
   virtual void set_metrics_provider(metrics::Provider* provider) = 0;
 };
 
+// ResourceAware mirrors pine-go / pine-java's ResourceAware optional
+// interface. Operators that borrow handle-typed resources (e.g. a Redis
+// connection pool) by name implement this; Engine injects the configured
+// ResourceProvider after init() but before the first execute() call, in the
+// same place and ordering as MetricsAware. The injected pointer may be null
+// (no resource provider configured), in which case the operator degrades at
+// execute time. The borrowed handle must not be cached across execute() calls.
+class ResourceAware {
+ public:
+  virtual ~ResourceAware() = default;
+  virtual void set_resource_provider(const ResourceProvider* provider) = 0;
+};
+
 // StatsProvider mirrors pine-go's types.StatsProvider optional interface.
 // Operators that expose internal counters/gauges for the /stats endpoint
 // implement this. The Engine polls OperatorStats() during stats collection.
