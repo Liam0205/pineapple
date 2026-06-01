@@ -1,7 +1,7 @@
 {
   "name": "implicit row-set: filter then common-only transform (no dependency needed)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.9.7",
+    "_PINEAPPLE_VERSION": "0.9.8",
     "pipeline_config": {
       "operators": {
         "recall_items": {
