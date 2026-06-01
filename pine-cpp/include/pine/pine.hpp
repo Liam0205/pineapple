@@ -407,6 +407,23 @@ struct TracedResult {
   std::vector<std::string> warnings;
 };
 
+// ResourceProvider is the read-only view an operator uses to borrow a
+// handle-typed resource (e.g. a Redis connection pool) by name. Mirrors
+// pine-go / pine-java's ResourceProvider. resource::Manager implements it.
+// The returned shared_ptr is a process-internal handle, type-erased as
+// shared_ptr<void>; the caller static_pointer_casts it to the concrete type
+// the matching fetcher stored. Returns nullptr when the resource is absent,
+// not yet loaded, or not handle-typed — in which case the caller degrades.
+//
+// The borrowed handle must only be used within a single execute() call and
+// must not be cached across calls: teardown safety relies on the engine's
+// retirement lock ordering, which only guards in-flight executes.
+class ResourceProvider {
+ public:
+  virtual ~ResourceProvider() = default;
+  virtual std::shared_ptr<void> borrow(const std::string& name) const = 0;
+};
+
 struct EngineOptions {
   // When set, forces debug snapshot collection on/off, overriding Config.debug
   // and any per-operator debug flag in JSON. Mirrors Go's pine.WithDebug.
@@ -417,6 +434,11 @@ struct EngineOptions {
   // Optional metrics provider. Defaults to metrics::nop_provider().
   // Mirrors Go's pine.WithMetrics.
   metrics::Provider* metrics_provider = nullptr;
+  // Optional resource provider, used by ResourceAware operators to borrow
+  // handle-typed resources (e.g. connection pools) by name. Defaults to null,
+  // in which case those operators degrade at execute time. Mirrors pine-go /
+  // pine-java's ResourceProvider injection.
+  const ResourceProvider* resource_provider = nullptr;
   // DAG scheduler thread pool size. Default: nproc * 4.
   std::optional<std::size_t> dag_pool_size;
   // data_parallel shard thread pool size. Default: nproc * 2.
@@ -516,6 +538,7 @@ class Engine {
   std::string log_prefix_;
   std::unique_ptr<std::atomic<int64_t>> peak_concurrency_;
   metrics::Provider* metrics_provider_ = nullptr;
+  const ResourceProvider* resource_provider_ = nullptr;
   std::unique_ptr<EngineMetrics> engine_metrics_;
   struct PoolHolder;
   std::unique_ptr<PoolHolder> dag_pool_;

@@ -25,8 +25,77 @@
 namespace pine {
 namespace resource {
 
-// Fetcher loads a resource value. Called by the background refresh loop.
-using Fetcher = std::function<Variant()>;
+// ResourceValue is what a Fetcher produces and what the Manager stores per
+// resource. It carries EITHER a plain data Variant (the common case: a value
+// refreshed on an interval and exported via snapshot() into the per-execute
+// resources map) OR a process-internal handle (e.g. a Redis connection pool)
+// type-erased as shared_ptr<void>. The two are mutually exclusive.
+//
+// Handles are deliberately kept out of Variant: Variant participates in
+// dump_json / parse_json and must stay a pure JSON value, whereas a handle is
+// a live object that can't be serialized. Operators borrow handles by name via
+// Manager::borrow (the ResourceProvider interface) and static_pointer_cast the
+// returned shared_ptr<void> back to the concrete type the fetcher stored.
+//
+// This mirrors pine-go's resource value model (interface{} holding either a
+// JSON value or a live handle) and pine-java's Object resource values, giving
+// C++ full cross-runtime parity rather than a data-only subset.
+class ResourceValue {
+ public:
+  ResourceValue() : data_(Variant()), is_handle_(false) {
+  }
+
+  static ResourceValue data(Variant v) {
+    ResourceValue rv;
+    rv.data_ = std::move(v);
+    rv.is_handle_ = false;
+    return rv;
+  }
+
+  static ResourceValue handle(std::shared_ptr<void> h) {
+    ResourceValue rv;
+    rv.handle_ = std::move(h);
+    rv.is_handle_ = true;
+    return rv;
+  }
+
+  bool is_handle() const {
+    return is_handle_;
+  }
+  bool is_data() const {
+    return !is_handle_;
+  }
+
+  const Variant& as_data() const {
+    return data_;
+  }
+
+  // Cast the type-erased handle to its concrete type. Returns nullptr when this
+  // value is data-typed (caller should degrade). The cast is by convention:
+  // the fetcher that produced the handle and the operator that borrows it must
+  // agree on T.
+  template <typename T>
+  std::shared_ptr<T> handle_as() const {
+    if (!is_handle_) {
+      return nullptr;
+    }
+    return std::static_pointer_cast<T>(handle_);
+  }
+
+  // Raw type-erased handle (nullptr when data-typed). Used by Manager::borrow.
+  std::shared_ptr<void> raw_handle() const {
+    return is_handle_ ? handle_ : nullptr;
+  }
+
+ private:
+  Variant data_;
+  std::shared_ptr<void> handle_;
+  bool is_handle_ = false;
+};
+
+// Fetcher loads a resource value. Called by the background refresh loop (for
+// data resources) or once at start() (for handle / never-refresh resources).
+using Fetcher = std::function<ResourceValue()>;
 
 // FetcherFactory creates a Fetcher from config params. Business code
 // registers factories at static init time, keyed by ResourceEntry.type.
@@ -46,8 +115,10 @@ std::vector<std::string> registered_fetcher_types();
 // For tests only.
 void reset_fetcher_registry();
 
-// Manager owns a set of named resources with background refresh.
-class Manager {
+// Manager owns a set of named resources with background refresh. It implements
+// ResourceProvider so it can be passed directly into EngineOptions and borrowed
+// from by ResourceAware operators.
+class Manager : public ResourceProvider {
  public:
   Manager();
   ~Manager();
@@ -71,12 +142,20 @@ class Manager {
   // state; safe to call multiple times.
   void stop();
 
-  // Returns a snapshot of all currently-loaded resources. Pass to
+  // Returns a snapshot of all currently-loaded DATA resources. Handle-typed
+  // resources (connection pools etc.) are excluded — they are not JSON values
+  // and are reached via borrow() instead. Pass the result to
   // `Engine::execute(request, snapshot)`.
   std::map<std::string, Variant> snapshot() const;
 
   // Returns the registered resource names, sorted.
   std::vector<std::string> names() const;
+
+  // ResourceProvider: borrow a handle-typed resource by name. Returns the
+  // type-erased handle, or nullptr when the resource is absent, not yet
+  // loaded, or data-typed (in which case the caller degrades). The handle is
+  // process-internal and must only be used within a single execute() call.
+  std::shared_ptr<void> borrow(const std::string& name) const override;
 
   // ValidateResourceDeps checks that every resource_name referenced in the
   // Config's operators is registered in the Manager. Throws on missing.
@@ -87,7 +166,7 @@ class Manager {
     std::string name;
     Fetcher fetcher;
     std::chrono::seconds interval{0};
-    Variant value;
+    ResourceValue value;
     bool loaded = false;
   };
 

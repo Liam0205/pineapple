@@ -42,7 +42,7 @@ const bool _static_fetcher_init = [] {
   register_fetcher_factory("static", [](const Variant& params) {
     auto val_it = params.as_object().find("value");
     Variant val = (val_it != params.as_object().end()) ? val_it->second : Variant();
-    return Fetcher{[val]() { return val; }};
+    return Fetcher{[val]() { return ResourceValue::data(val); }};
   });
   return true;
 }();
@@ -181,6 +181,19 @@ void Manager::stop() {
   }
   refresh_threads_.clear();
   std::unique_lock<std::shared_mutex> lk(mu_);
+  // Release handle-typed values so the underlying live object (e.g. a Redis
+  // connection pool) is torn down at retirement, mirroring pine-go /
+  // pine-java's stop() closing AutoCloseable resources. Destruction runs via
+  // shared_ptr RAII once the last in-flight borrower drops its reference;
+  // engine_mu_ lock ordering in the server guarantees no execute() is in
+  // flight when stop() runs. Data values are left intact. Resetting to a
+  // default (data) ResourceValue also makes a second stop() a no-op.
+  for (auto& [name, r] : resources_) {
+    if (r->loaded && r->value.is_handle()) {
+      r->value = ResourceValue();
+      r->loaded = false;
+    }
+  }
   started_ = false;
   stopping_.store(false, std::memory_order_release);
 }
@@ -189,11 +202,23 @@ std::map<std::string, Variant> Manager::snapshot() const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   std::map<std::string, Variant> out;
   for (const auto& [name, r] : resources_) {
-    if (r->loaded) {
-      out.emplace(name, r->value);
+    // Only data resources are exported into the per-execute resources map;
+    // handle-typed resources (connection pools) are reached via borrow().
+    if (r->loaded && r->value.is_data()) {
+      out.emplace(name, r->value.as_data());
     }
   }
   return out;
+}
+
+std::shared_ptr<void> Manager::borrow(const std::string& name) const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  auto it = resources_.find(name);
+  if (it == resources_.end() || !it->second->loaded) {
+    return nullptr;
+  }
+  // Returns nullptr for data-typed values; callers degrade.
+  return it->second->value.raw_handle();
 }
 
 std::vector<std::string> Manager::names() const {
@@ -247,7 +272,7 @@ void Manager::refresh_loop(Managed* r) {
     }
     lk.unlock();
     try {
-      Variant val = r->fetcher();
+      ResourceValue val = r->fetcher();
       std::unique_lock<std::shared_mutex> wlk(mu_);
       r->value = std::move(val);
     } catch (const std::exception& e) {

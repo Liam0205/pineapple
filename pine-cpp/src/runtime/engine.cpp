@@ -296,6 +296,7 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
   log_prefix_ = options.log_prefix.has_value() ? *options.log_prefix : config_.log_prefix;
   peak_concurrency_ = std::make_unique<std::atomic<int64_t>>(0);
   metrics_provider_ = options.metrics_provider ? options.metrics_provider : metrics::nop_provider();
+  resource_provider_ = options.resource_provider;
   {
     unsigned hw = std::thread::hardware_concurrency();
     if (hw == 0) {
@@ -329,6 +330,13 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     // pine-go pine.go:170 — init first, then provider injection.
     if (auto* ma = dynamic_cast<MetricsAware*>(instance.get())) {
       ma->set_metrics_provider(metrics_provider_);
+    }
+    // Inject resource provider for operators that borrow handle-typed
+    // resources by name. May be null (no provider configured), in which case
+    // the operator degrades at execute time. Same ordering as metrics: init
+    // first, then provider injection.
+    if (auto* ra = dynamic_cast<ResourceAware*>(instance.get())) {
+      ra->set_resource_provider(resource_provider_);
     }
     operators_.emplace(op_name, std::move(instance));
     // Pre-compute InputFieldSpec for the BuildInput projection layer.
