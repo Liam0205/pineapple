@@ -47,7 +47,7 @@ jobs:
         with:
           working-directory: pine-go
 
-  python-lint:
+  apple-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -91,7 +91,7 @@ jobs:
           path: pine-go/coverage.out
           retention-days: 30
 
-  python-test:
+  apple-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: python-coverage
+          name: apple-coverage
           path: coverage.xml
           retention-days: 30
 
