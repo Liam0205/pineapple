@@ -29,7 +29,7 @@ if [[ -d "$REPO_ROOT/pine-cpp" ]]; then
     CPP_BUILD_LOG="$WORK_DIR/cpp-build.log"
     mkdir -p "$REPO_ROOT/pine-cpp/build"
     if ! (cd "$REPO_ROOT/pine-cpp/build" \
-            && cmake .. -DCMAKE_BUILD_TYPE=Release 2>&1 \
+            && cmake .. -DCMAKE_BUILD_TYPE=Release -DPINE_BUILD_BENCH_STUBS=OFF 2>&1 \
             && make -j"$(nproc 2>/dev/null || echo 4)" 2>&1) | tee "$CPP_BUILD_LOG" >/dev/null; then
         echo "    C++ build FAILED — last 50 lines of $CPP_BUILD_LOG:" >&2
         tail -n 50 "$CPP_BUILD_LOG" >&2
