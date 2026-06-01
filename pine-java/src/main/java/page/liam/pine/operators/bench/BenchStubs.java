@@ -123,7 +123,7 @@ public class BenchStubs {
                         )),
                 TransformGenerateRequestIdStub::new);
 
-        ResourceManager.registerFactory("feed_data", params -> () -> {
+        ResourceManager.registerFactory("feed_data", (params, metrics) -> () -> {
             List<Map<String, Object>> items = new ArrayList<>(3000);
             for (int i = 0; i < 3000; i++) {
                 Map<String, Object> row = new LinkedHashMap<>();
@@ -137,7 +137,7 @@ public class BenchStubs {
             return items;
         });
 
-        ResourceManager.registerFactory("datahub_producer", params -> () -> "nop");
+        ResourceManager.registerFactory("datahub_producer", (params, metrics) -> () -> "nop");
 
         Codegen.ResourceSchema feedDataSchema = new Codegen.ResourceSchema();
         feedDataSchema.name = "feed_data";

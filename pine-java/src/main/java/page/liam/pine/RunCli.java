@@ -66,7 +66,7 @@ public class RunCli {
         // pine-{go,cpp}, so unified configs with resource_config blocks
         // load out-of-the-box.
         try {
-            ResourceManager.registerFactory("static", params -> {
+            ResourceManager.registerFactory("static", (params, metrics) -> {
                 Object value = params.get("value");
                 return () -> value;
             });
@@ -75,7 +75,7 @@ public class RunCli {
         }
 
         try {
-            rm = new ResourceManager();
+            rm = new ResourceManager(null);
             rm.loadFromConfig(configData);
             rm.start();
             rp = rm;

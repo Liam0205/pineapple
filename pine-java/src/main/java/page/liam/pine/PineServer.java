@@ -41,6 +41,10 @@ public class PineServer {
     private static final class Snapshot {
         final Engine engine;
         final ResourceProvider resources;
+        // Aggregates resource-level Provider metrics for /stats. It is the
+        // provider handed to this snapshot's ResourceManager, so it is recreated
+        // on every hot-reload alongside the manager.
+        final page.liam.pine.metrics.MetricsCollector resourceMetrics;
 
         // Reference count so that engine/resource teardown on retirement (config
         // hot-reload or shutdown) is deferred until every in-flight request that
@@ -50,9 +54,10 @@ public class PineServer {
         // drops that baseline, and the last reference to reach zero runs teardown.
         private final AtomicInteger refs = new AtomicInteger(1);
 
-        Snapshot(Engine engine, ResourceProvider resources) {
+        Snapshot(Engine engine, ResourceProvider resources, page.liam.pine.metrics.MetricsCollector resourceMetrics) {
             this.engine = engine;
             this.resources = resources;
+            this.resourceMetrics = resourceMetrics;
         }
 
         // Takes an in-flight reference, returning false once the baseline has
@@ -268,14 +273,21 @@ public class PineServer {
     private void loadConfig(byte[] configData) throws Exception {
         long start = System.nanoTime();
         page.liam.pine.operators.AllOperators.ensureRegistered();
-        ResourceManager rm = new ResourceManager();
+        // Dedicated aggregating collector exposed under /stats.resources. The
+        // ResourceManager writes through a tee into both the caller-injected
+        // provider (e.g. Prometheus) and this collector, so resource metrics
+        // reach Prometheus AND /stats while engine metrics (which use
+        // metricsProvider directly) stay out of the resources subtree.
+        page.liam.pine.metrics.MetricsCollector resourceMetrics = new page.liam.pine.metrics.MetricsCollector();
+        ResourceManager rm = new ResourceManager(
+                new page.liam.pine.metrics.TeeProvider(metricsProvider, resourceMetrics));
         rm.loadFromConfig(configData);
         try {
             rm.start();
             Config cfg = Config.load(configData);
             rm.validateDeps(cfg.pipelineConfig.operators);
             Engine engine = Engine.create(configData, rm, metricsProvider);
-            Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm));
+            Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm, resourceMetrics));
             if (old != null) {
                 // Drop the baseline reference. Teardown (resource stop + engine
                 // close) runs once the last in-flight request that captured the
@@ -429,6 +441,9 @@ public class PineServer {
             resp.put("scheduler", snap.engine.schedulerStats());
             resp.put("server", serverStats());
             resp.put("http", httpStats.snapshot());
+            if (snap.resourceMetrics != null) {
+                resp.put("resources", snap.resourceMetrics.snapshot());
+            }
             Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
             if (custom != null) {
                 resp.put("operator_detail", custom);

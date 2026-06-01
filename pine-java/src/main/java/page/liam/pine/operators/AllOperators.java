@@ -315,7 +315,7 @@ public class AllOperators {
      * ResourceManager retires, at which point stop() closes the pool.
      */
     private static void registerRedisConnectionResource() {
-        ResourceManager.registerFactory("redis_connection", params -> {
+        ResourceManager.registerFactory("redis_connection", (params, metrics) -> {
             Object addrObj = params.get("addr");
             String addr = addrObj instanceof String ? (String) addrObj : "";
             if (addr.isEmpty()) {
@@ -325,6 +325,8 @@ public class AllOperators {
             String password = pwObj instanceof String ? (String) pwObj : "";
             Object dbObj = params.get("db");
             int db = dbObj instanceof Number ? ((Number) dbObj).intValue() : 0;
+            Object mnObj = params.get("metrics_name");
+            String metricsName = mnObj instanceof String ? (String) mnObj : "";
             return () -> {
                 String host = addr.contains(":") ? addr.substring(0, addr.indexOf(':')) : addr;
                 int port = addr.contains(":") ? Integer.parseInt(addr.substring(addr.indexOf(':') + 1)) : 6379;
@@ -332,9 +334,10 @@ public class AllOperators {
                 // JedisPool construction is lazy (no connect here), so a never-refresh
                 // pool can be created at start even when Redis is unavailable; the
                 // failure surfaces at borrow time and degrades per fail_on_error.
-                return password.isEmpty()
+                JedisPool pool = password.isEmpty()
                         ? new JedisPool(cfg, host, port, 2000, null, db)
                         : new JedisPool(cfg, host, port, 2000, password, db);
+                return new RedisConnResource(pool, metricsName, metrics);
             };
         });
 
@@ -345,7 +348,8 @@ public class AllOperators {
         schema.params = Map.of(
                 "addr", codegenParam("string", true, null, "Redis server address (host:port)."),
                 "password", codegenParam("string", false, "", "Redis password."),
-                "db", codegenParam("int", false, 0L, "Redis DB number.")
+                "db", codegenParam("int", false, 0L, "Redis DB number."),
+                "metrics_name", codegenParam("string", false, "", "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics.")
         );
         ResourceRegistry.register(schema);
     }

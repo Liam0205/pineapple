@@ -2,6 +2,8 @@ package page.liam.pine;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import page.liam.pine.metrics.NopProvider;
+import page.liam.pine.metrics.Provider;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -14,7 +16,7 @@ import java.util.logging.Logger;
  *
  * <p>Usage:
  * <pre>
- *   ResourceManager mgr = new ResourceManager();
+ *   ResourceManager mgr = new ResourceManager(metricsProvider);
  *   mgr.register("myData", () -> fetchFromRemote(), 60);
  *   mgr.start();
  *   // ... use mgr as ResourceProvider ...
@@ -34,10 +36,15 @@ public class ResourceManager implements ResourceProvider {
         Object fetch() throws Exception;
     }
 
-    /** Creates a Fetcher from configuration params. Registered globally by plugin code. */
+    /**
+     * Creates a Fetcher from configuration params. Registered globally by plugin code.
+     * It also receives the active metrics {@link Provider}, so long-lived resources
+     * (e.g. connection pools) can emit their own metrics. The provider is never null —
+     * callers with no provider receive a {@link NopProvider}.
+     */
     @FunctionalInterface
     public interface FetcherFactory {
-        Fetcher create(Map<String, Object> params) throws Exception;
+        Fetcher create(Map<String, Object> params, Provider metrics) throws Exception;
     }
 
     // --- Global factory registry ---
@@ -80,8 +87,18 @@ public class ResourceManager implements ResourceProvider {
     // --- Instance state ---
 
     private final Map<String, ManagedResource> resources = new LinkedHashMap<>();
+    private final Provider metrics;
     private ScheduledExecutorService executor;
     private boolean started;
+
+    /**
+     * Creates a ResourceManager whose resource factories receive the given
+     * metrics {@link Provider}, so long-lived resources can emit their own
+     * metrics. A null provider is replaced with a {@link NopProvider}.
+     */
+    public ResourceManager(Provider metrics) {
+        this.metrics = (metrics != null) ? metrics : NopProvider.getInstance();
+    }
 
     /**
      * Registers a named resource with its fetcher and refresh interval.
@@ -142,7 +159,7 @@ public class ResourceManager implements ResourceProvider {
                         "resource: unknown fetcher type \"" + type + "\" for resource \"" + name + "\"");
             }
 
-            Fetcher fetcher = factory.create(params);
+            Fetcher fetcher = factory.create(params, metrics);
             register(name, fetcher, interval);
         }
     }
