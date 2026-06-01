@@ -121,8 +121,8 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     /**
      * Borrows a {@link JedisPool} from a redis_connection resource by name.
      * Returns null when no provider is injected, the resource is missing, or its
-     * value is not a JedisPool — in which case the caller degrades (a get treats
-     * it as a cache miss; a set becomes a no-op), mirroring Go's borrowRedis.
+     * value is not a RedisConnResource — in which case the caller degrades (a get
+     * treats it as a cache miss; a set becomes a no-op), mirroring Go's borrowRedis.
      */
     static JedisPool borrowPool(ResourceProvider provider, String resourceName) {
         if (provider == null) {
@@ -133,7 +133,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
             return null;
         }
         Object v = r.value();
-        return (v instanceof JedisPool) ? (JedisPool) v : null;
+        return (v instanceof RedisConnResource) ? ((RedisConnResource) v).pool() : null;
     }
 
     static String buildKeySuffix(OperatorInput input, List<String> fields) {

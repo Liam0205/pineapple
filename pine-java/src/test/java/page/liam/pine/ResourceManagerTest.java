@@ -16,7 +16,7 @@ public class ResourceManagerTest {
     @Test
     void negativeIntervalNeverRefreshes() throws Exception {
         AtomicInteger calls = new AtomicInteger();
-        ResourceManager rm = new ResourceManager();
+        ResourceManager rm = new ResourceManager(null);
         // interval -1 → fetched once at start, no refresh loop scheduled.
         rm.register("conn", () -> {
             calls.incrementAndGet();
@@ -38,7 +38,7 @@ public class ResourceManagerTest {
         AtomicInteger closes = new AtomicInteger();
         AutoCloseable value = closes::incrementAndGet;
 
-        ResourceManager rm = new ResourceManager();
+        ResourceManager rm = new ResourceManager(null);
         rm.register("handle", () -> value, -1);
         rm.start();
         assertSame(value, rm.get("handle").value());
@@ -56,12 +56,12 @@ public class ResourceManagerTest {
         ResourceManager.resetFactories();
         try {
             AtomicInteger calls = new AtomicInteger();
-            ResourceManager.registerFactory("test_conn", params -> () -> {
+            ResourceManager.registerFactory("test_conn", (params, metrics) -> () -> {
                 calls.incrementAndGet();
                 return "value";
             });
 
-            ResourceManager rm = new ResourceManager();
+            ResourceManager rm = new ResourceManager(null);
             String config = "{\"resource_config\": {"
                     + "\"db\": {\"type\": \"test_conn\", \"interval\": -1, \"params\": {}}"
                     + "}}";
