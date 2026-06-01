@@ -13,9 +13,9 @@ var errPoolClosed = errors.New("lua statePool: pool is closed")
 
 // defaultMinIdleStates is how many warm states each pool keeps resident by
 // strong reference. This bounds memory (fixing the unbounded leak of #61) while
-// keeping a small set of states alive across GC cycles so the steady-state hot
-// path reuses them instead of rebuilding (fixing the per-GC rebuild of #67).
-const defaultMinIdleStates = 4
+// keeping states alive across GC cycles so the steady-state hot path reuses
+// them instead of rebuilding (fixing the per-GC rebuild of #67).
+const defaultMinIdleStates = 100
 
 // statePool manages a pool of Lua states sharing the same loaded script.
 // Each state is independent and safe for single-goroutine use.
