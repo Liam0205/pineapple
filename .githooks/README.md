@@ -9,6 +9,24 @@ git config core.hooksPath .githooks
 (CI sets `CI` / `GITHUB_ACTIONS`, which the hook detects and skips, so this is
 safe to enable locally without affecting automation.)
 
+## `pre-commit`
+
+A **fast, staged-only** lint gate. It checks just the files staged for the
+current commit (`git diff --cached`), so unrelated in-tree violations never
+block or slow down an isolated commit. Each language uses a file-level tool:
+
+| Files | Tool | Check |
+| --- | --- | --- |
+| `*.cpp` `*.hpp` `*.cc` `*.h` | `clang-format` | `--dry-run --Werror` |
+| `*.go` | `gofmt` | `gofmt -l` (lists unformatted files) |
+| `*.py` | `ruff` | `ruff check` |
+
+Any violation aborts the commit and prints the exact `fix:` command to run
+(e.g. `clang-format -i <files> && git add <files>`). A tool that isn't
+installed is skipped silently, and CI (`CI` / `GITHUB_ACTIONS`) short-circuits
+the whole hook. The heavier project-wide linters still run at push time — see
+`pre-push` below.
+
 ## `pre-push`
 
 Two responsibilities, in order:
