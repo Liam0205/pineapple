@@ -11,14 +11,30 @@ import (
 
 var errPoolClosed = errors.New("lua statePool: pool is closed")
 
+// defaultMinIdleStates is how many warm states each pool keeps resident by
+// strong reference. This bounds memory (fixing the unbounded leak of #61) while
+// keeping a small set of states alive across GC cycles so the steady-state hot
+// path reuses them instead of rebuilding (fixing the per-GC rebuild of #67).
+const defaultMinIdleStates = 4
+
 // statePool manages a pool of Lua states sharing the same loaded script.
 // Each state is independent and safe for single-goroutine use.
+//
+// Idle states live in two tiers:
+//   - warm: a bounded set (minIdle) held by strong reference so it survives GC
+//     and keeps the hot path rebuild-free.
+//   - pool: a sync.Pool holding the overflow, which the GC may reclaim.
+//
+// Memory is therefore bounded by minIdle + in-flight borrows, independent of
+// uptime or GC frequency.
 type statePool struct {
 	pool     sync.Pool
 	script   string
 	baseline map[string]struct{} // _G key names present after script load
 
 	mu        sync.Mutex
+	minIdle   int            // cap on warm; states beyond this go to sync.Pool
+	warm      []*glua.LState // bounded strong-ref idle states (len <= minIdle)
 	closed    bool
 	snapshots sync.Map // *glua.LState → map[string]glua.LValue (borrow-time values)
 
@@ -38,15 +54,16 @@ type statePool struct {
 
 // newStatePool creates a pool that lazily creates Lua states with the given script loaded.
 func newStatePool(script string) (*statePool, error) {
-	sp := &statePool{script: script}
+	sp := &statePool{script: script, minIdle: defaultMinIdleStates}
 
-	// Create the first state to validate the script and capture baseline
+	// Create the first state to validate the script and capture baseline. It is
+	// held as a warm (strong-ref) idle state so the hot path can reuse it.
 	L, err := sp.newState()
 	if err != nil {
 		return nil, err
 	}
 	sp.baseline = snapshotGlobals(L)
-	sp.pool.Put(L)
+	sp.warm = append(sp.warm, L)
 	atomic.AddInt64(&sp.createCount, 1)
 
 	// Note: we deliberately do NOT set sp.pool.New. Borrow handles the empty-pool
@@ -104,13 +121,17 @@ func (sp *statePool) Borrow() *glua.LState {
 	}
 
 	var L *glua.LState
-	if v := sp.pool.Get(); v != nil {
-		// Pool hit: reuse an idle state.
+	if w := sp.takeWarm(); w != nil {
+		// Warm hit: reuse a resident state.
+		L = w
+		atomic.AddInt64(&sp.reuseCount, 1)
+	} else if v := sp.pool.Get(); v != nil {
+		// Pool hit: reuse an overflow state before it is GC-reclaimed.
 		L = v.(*glua.LState)
 		atomic.AddInt64(&sp.reuseCount, 1)
 	} else {
-		// Pool miss: build a fresh state. newState refuses once the pool is
-		// closed, in which case the borrow is rolled back and we return nil.
+		// Both tiers empty: build a fresh state. newState refuses once the pool
+		// is closed, in which case the borrow is rolled back and we return nil.
 		s, err := sp.newState()
 		if err != nil {
 			atomic.AddInt64(&sp.borrowCount, -1)
@@ -127,7 +148,24 @@ func (sp *statePool) Borrow() *glua.LState {
 	return L
 }
 
-// Return cleans up non-baseline globals and puts the state back in the pool.
+// takeWarm pops a resident warm state, or returns nil if none are available.
+func (sp *statePool) takeWarm() *glua.LState {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	n := len(sp.warm)
+	if n == 0 {
+		return nil
+	}
+	L := sp.warm[n-1]
+	sp.warm[n-1] = nil
+	sp.warm = sp.warm[:n-1]
+	return L
+}
+
+// Return cleans up non-baseline globals and puts the state back. It refills the
+// bounded warm set first (keeping states resident across GC); states beyond
+// minIdle go to sync.Pool, which the GC may reclaim. This bounds the resident
+// set at minIdle while keeping the steady-state hot path rebuild-free.
 func (sp *statePool) Return(L *glua.LState) {
 	sp.mu.Lock()
 	closed := sp.closed
@@ -141,7 +179,15 @@ func (sp *statePool) Return(L *glua.LState) {
 			snap = v.(map[string]glua.LValue)
 		}
 		resetToBaseline(L, sp.baseline, snap)
-		sp.pool.Put(L)
+
+		sp.mu.Lock()
+		if !sp.closed && len(sp.warm) < sp.minIdle {
+			sp.warm = append(sp.warm, L)
+			sp.mu.Unlock()
+		} else {
+			sp.mu.Unlock()
+			sp.pool.Put(L)
+		}
 	}
 
 	atomic.AddInt64(&sp.returnCount, 1)
@@ -213,15 +259,23 @@ func (sp *statePool) statsSnapshot() map[string]int64 {
 	}
 }
 
-// Close marks the pool as closed. States already idle in the pool, and any
-// states still checked out, are reclaimed by the GC once unreferenced — we do
-// not retain a strong reference to every state (that would pin them forever and
-// defeat sync.Pool's GC-driven shrinking). After Close, newState refuses to
-// hand out fresh states and Return drops states instead of recycling them.
+// Close marks the pool as closed and releases the bounded warm set (which is
+// safe to close eagerly because it is capped at minIdle, unlike the unbounded
+// allStates of #61). Overflow states in sync.Pool, and any states still checked
+// out, are reclaimed by the GC once unreferenced. After Close, newState refuses
+// to hand out fresh states and Return drops states instead of recycling them.
 func (sp *statePool) Close() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
+	if sp.closed {
+		return
+	}
 	sp.closed = true
+	for i, L := range sp.warm {
+		L.Close()
+		sp.warm[i] = nil
+	}
+	sp.warm = nil
 }
 
 func (sp *statePool) setMetrics(borrow, ret, create metrics.Counter, active metrics.Gauge) {

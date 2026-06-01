@@ -166,35 +166,85 @@ func TestPoolReturnRestoresModifiedBaseline(t *testing.T) {
 	}
 }
 
-// TestPoolDoesNotRetainStates is the regression test for the unbounded leak
-// (issue #61). The pool must NOT hold a strong reference to every state it ever
-// created: once a returned state is evicted from sync.Pool by GC and the caller
-// drops its reference, it must become collectable. We can't use a finalizer
-// here — gopher-lua's LState contains internal reference cycles
+// TestPoolWarmSetBoundedOverflowCollectable is the regression test for the
+// unbounded leak (issue #61) under the min-idle warm-set design. The pool keeps
+// a *bounded* set of warm states resident by strong reference (sp.minIdle);
+// everything beyond that overflows to sync.Pool and MUST become collectable
+// once the caller drops its reference and GC evicts it. If the pool pinned every
+// state (the #61 bug), none of the overflow would ever be collected. We can't
+// use a finalizer here — gopher-lua's LState contains internal reference cycles
 // (LState.G.MainThread == LState), and Go does not guarantee finalizers run for
-// objects in a cycle. A weak pointer has no such restriction, so we observe
-// collection through it instead. sync.Pool drains over two GC cycles
-// (local → victim → cleared), so we run several before giving up.
-func TestPoolDoesNotRetainStates(t *testing.T) {
+// objects in a cycle. A weak pointer has no such restriction. sync.Pool drains
+// over two GC cycles (local → victim → cleared), so we run several.
+func TestPoolWarmSetBoundedOverflowCollectable(t *testing.T) {
 	sp, err := newStatePool(`function f() return 1 end`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	const extra = 8
+	total := sp.minIdle + extra
 
-	var wp weak.Pointer[glua.LState]
+	wps := make([]weak.Pointer[glua.LState], 0, total)
 	func() {
-		L := sp.Borrow()
-		wp = weak.Make(L)
-		sp.Return(L)
+		// Hold all states at once so each is a distinct object, then return them:
+		// the first minIdle refill the warm set, the rest overflow to sync.Pool.
+		states := make([]*glua.LState, total)
+		for i := range states {
+			states[i] = sp.Borrow()
+			wps = append(wps, weak.Make(states[i]))
+		}
+		for _, L := range states {
+			sp.Return(L)
+		}
 	}()
 
+	var collected int
 	for i := 0; i < 8; i++ {
 		runtime.GC()
-		if wp.Value() == nil {
-			return // state was collected — pool retains no strong reference
+		collected = 0
+		for _, wp := range wps {
+			if wp.Value() == nil {
+				collected++
+			}
+		}
+		if collected >= extra {
+			break
 		}
 	}
-	t.Fatal("returned state was never collected — pool is still pinning states (issue #61 leak)")
+	if collected < extra {
+		t.Fatalf("only %d/%d overflow states collected — pool is pinning states (issue #61 leak)", collected, extra)
+	}
+	// Conversely, the resident set stays bounded: at most minIdle survive.
+	if survivors := total - collected; survivors > sp.minIdle {
+		t.Fatalf("%d states still resident, exceeds minIdle=%d — warm set is unbounded", survivors, sp.minIdle)
+	}
+}
+
+// TestWarmStatesSurviveGC is the regression test for the per-GC rebuild (issue
+// #67). Before the warm set existed, idle states lived only in sync.Pool, which
+// GC clears every cycle, so the next borrow rebuilt a state from scratch and
+// create_count tracked GC frequency. The bounded warm set holds states by strong
+// reference across GC, so steady-state borrows must reuse without creating.
+func TestWarmStatesSurviveGC(t *testing.T) {
+	sp, err := newStatePool(`function f() return 1 end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Warm up so at least one state is resident in the warm set.
+	sp.Return(sp.Borrow())
+
+	createBefore := atomic.LoadInt64(&sp.createCount)
+	for i := 0; i < 5; i++ {
+		runtime.GC()
+		L := sp.Borrow()
+		if L == nil {
+			t.Fatal("unexpected nil borrow")
+		}
+		sp.Return(L)
+	}
+	if c := atomic.LoadInt64(&sp.createCount); c != createBefore {
+		t.Fatalf("create_count rose from %d to %d across GC cycles — warm states not surviving GC (issue #67)", createBefore, c)
+	}
 }
 
 func TestPoolCloseIdempotent(t *testing.T) {
@@ -311,4 +361,3 @@ func TestPoolReuseCountAccounting(t *testing.T) {
 		t.Fatal("statsSnapshot missing reuse_count key")
 	}
 }
-
