@@ -48,6 +48,9 @@ java-pine/target/
 # Redis dump file from local testing
 dump.rdb
 
+# cifuzz fuzzing corpus (local)
+pine-java/.cifuzz-corpus/
+
 # C++ build artifacts (all build-* variants)
 pine-cpp/build*/
 Testing/
