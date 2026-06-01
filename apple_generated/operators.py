@@ -636,9 +636,7 @@ class TransformRedisGetOp(BaseOp):
         "data_type": {"type": "string", "required": False, "default": "string"},
         "fail_on_error": {"type": "bool", "required": False, "default": False},
         "key_prefix": {"type": "string", "required": True},
-        "redis_addr": {"type": "string", "required": True},
-        "redis_db": {"type": "int", "required": False, "default": 0},
-        "redis_password": {"type": "string", "required": False, "default": ""},
+        "resource_name": {"type": "string", "required": True},
     }
 
     def __call__(
@@ -647,9 +645,7 @@ class TransformRedisGetOp(BaseOp):
         data_type: str = "string",
         fail_on_error: bool = False,
         key_prefix: str = ...,
-        redis_addr: str = ...,
-        redis_db: int = 0,
-        redis_password: str = "",
+        resource_name: str = ...,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -664,9 +660,7 @@ class TransformRedisGetOp(BaseOp):
             "data_type": data_type,
             "fail_on_error": fail_on_error,
             "key_prefix": key_prefix,
-            "redis_addr": redis_addr,
-            "redis_db": redis_db,
-            "redis_password": redis_password,
+            "resource_name": resource_name,
         }
         return self._apply(
             params=_params,
@@ -688,9 +682,7 @@ class TransformRedisSetOp(BaseOp):
         "data_type": {"type": "string", "required": False, "default": "string"},
         "fail_on_error": {"type": "bool", "required": False, "default": False},
         "key_prefix": {"type": "string", "required": True},
-        "redis_addr": {"type": "string", "required": True},
-        "redis_db": {"type": "int", "required": False, "default": 0},
-        "redis_password": {"type": "string", "required": False, "default": ""},
+        "resource_name": {"type": "string", "required": True},
         "ttl": {"type": "int", "required": False, "default": 0},
     }
 
@@ -700,9 +692,7 @@ class TransformRedisSetOp(BaseOp):
         data_type: str = "string",
         fail_on_error: bool = False,
         key_prefix: str = ...,
-        redis_addr: str = ...,
-        redis_db: int = 0,
-        redis_password: str = "",
+        resource_name: str = ...,
         ttl: int = 0,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
@@ -718,9 +708,7 @@ class TransformRedisSetOp(BaseOp):
             "data_type": data_type,
             "fail_on_error": fail_on_error,
             "key_prefix": key_prefix,
-            "redis_addr": redis_addr,
-            "redis_db": redis_db,
-            "redis_password": redis_password,
+            "resource_name": resource_name,
             "ttl": ttl,
         }
         return self._apply(
