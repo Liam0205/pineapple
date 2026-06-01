@@ -137,11 +137,18 @@ with open('$REDIS_REQ', 'w') as rf:
     REDIS_GET_REQ="$WORK_DIR/redis_get_req.json"
     cat > "$REDIS_GET_CONFIG" << GETCFG
 {
+  "resource_config": {
+    "redis_conn": {
+      "type": "redis_connection",
+      "interval": -1,
+      "params": {"addr": "127.0.0.1:$REDIS_PORT"}
+    }
+  },
   "pipeline_config": {
     "operators": {
       "get_cache": {
         "type_name": "transform_redis_get",
-        "redis_addr": "127.0.0.1:$REDIS_PORT",
+        "resource_name": "redis_conn",
         "key_prefix": "test:",
         "fail_on_error": true,
         "\$metadata": {

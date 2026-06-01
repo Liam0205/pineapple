@@ -268,6 +268,47 @@ func wrapResourceConfig(inner string) string {
 	return `{"resource_config": ` + inner + `}`
 }
 
+func TestLoadFromRootConfigNeverRefresh(t *testing.T) {
+	ResetRegistry()
+	defer ResetRegistry()
+
+	var calls atomic.Int32
+	Register(testSchema("conn"), func(params map[string]any) (Fetcher, error) {
+		return func(ctx context.Context) (any, error) {
+			calls.Add(1)
+			return "pool", nil
+		}, nil
+	})
+
+	m := NewManager()
+	// interval -1 → never refresh: fetched once at Start, no refresh loop ticks.
+	config := wrapResourceConfig(`{
+		"db": {
+			"type": "conn",
+			"interval": -1,
+			"params": {}
+		}
+	}`)
+	if err := m.LoadFromRootConfig([]byte(config)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+
+	val, ok := getVal(m, "db")
+	if !ok || val != "pool" {
+		t.Fatalf("Get(db) = %v, %v", val, ok)
+	}
+
+	// Wait well beyond any plausible tick; fetcher must still have run only once.
+	time.Sleep(120 * time.Millisecond)
+	if n := calls.Load(); n != 1 {
+		t.Errorf("fetcher called %d times, want exactly 1 (never refresh)", n)
+	}
+}
+
 func TestRegisterAndLoadFromRootConfig(t *testing.T) {
 	ResetRegistry()
 	defer ResetRegistry()

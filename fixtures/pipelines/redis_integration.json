@@ -2,11 +2,18 @@
   "name": "redis integration set-then-get parity",
   "requires": ["redis"],
   "config": {
+    "resource_config": {
+      "redis_conn": {
+        "type": "redis_connection",
+        "interval": -1,
+        "params": {"addr": "PLACEHOLDER"}
+      }
+    },
     "pipeline_config": {
       "operators": {
         "set_cache": {
           "type_name": "transform_redis_set",
-          "redis_addr": "PLACEHOLDER",
+          "resource_name": "redis_conn",
           "key_prefix": "test:",
           "$metadata": {
             "common_input": ["uid", "payload"],
@@ -17,7 +24,7 @@
         },
         "get_cache": {
           "type_name": "transform_redis_get",
-          "redis_addr": "PLACEHOLDER",
+          "resource_name": "redis_conn",
           "key_prefix": "test:",
           "sources": ["set_cache"],
           "$metadata": {

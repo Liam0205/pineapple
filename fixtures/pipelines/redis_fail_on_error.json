@@ -2,6 +2,13 @@
   "name": "redis unavailable with fail_on_error=true",
   "requires": ["redis-unavailable"],
   "config": {
+    "resource_config": {
+      "redis_conn": {
+        "type": "redis_connection",
+        "interval": -1,
+        "params": {"addr": "127.0.0.1:1"}
+      }
+    },
     "pipeline_config": {
       "operators": {
         "recall_items": {
@@ -19,7 +26,7 @@
         },
         "get_cache": {
           "type_name": "transform_redis_get",
-          "redis_addr": "127.0.0.1:1",
+          "resource_name": "redis_conn",
           "key_prefix": "unavail:",
           "fail_on_error": true,
           "$metadata": {

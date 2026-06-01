@@ -3,13 +3,16 @@
 // Description: Generic Redis write operator. Writes a value by key with optional TTL.
 //
 // Params:
-//   - redis_addr (string, required): Redis server address (host:port).
-//   - redis_password (string, optional, default=""): Redis password.
-//   - redis_db (int, optional, default=0): Redis DB number.
+//   - resource_name (string, required): Name of a redis_connection resource to borrow the client from.
 //   - key_prefix (string, required): Key prefix prepended to the suffix built from common_input fields.
 //   - data_type (string, optional, default="string"): Redis data type: "set", "string", or "list".
 //   - ttl (int, optional, default=0): TTL in seconds. 0 means no expiry.
 //   - fail_on_error (bool, optional, default=false): Return fatal error on Redis infrastructure failure instead of logging and continuing.
+//
+// The Redis connection pool is owned by the ResourceManager (resource type
+// redis_connection), not the operator: the client is borrowed per request and
+// released when Execute returns. Multiple Redis operators referencing the same
+// resource_name share one pool.
 //
 // Key construction: key_prefix + join(first N-1 common_input values, ":").
 // Value is the last common_input field.
@@ -28,7 +31,6 @@ import (
 	"time"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
-	"github.com/redis/go-redis/v9"
 )
 
 func init() {
@@ -37,37 +39,32 @@ func init() {
 		Type:        pine.OpTypeTransform,
 		Description: "Generic Redis write operator. Writes a value by key with optional TTL.",
 		Params: map[string]pine.ParamSpec{
-			"redis_addr":     {Type: "string", Required: true, Description: "Redis server address (host:port)."},
-			"redis_password": {Type: "string", Required: false, Default: "", Description: "Redis password."},
-			"redis_db":       {Type: "int", Required: false, Default: 0, Description: "Redis DB number."},
-			"key_prefix":     {Type: "string", Required: true, Description: "Key prefix prepended to the suffix built from common_input fields."},
-			"data_type":      {Type: "string", Required: false, Default: "string", Description: `Redis data type: "set", "string", or "list".`},
-			"ttl":            {Type: "int", Required: false, Default: 0, Description: "TTL in seconds. 0 means no expiry."},
-			"fail_on_error":  {Type: "bool", Required: false, Default: false, Description: "Return fatal error on Redis infrastructure failure instead of logging and continuing."},
+			"resource_name": {Type: "string", Required: true, Description: "Name of a redis_connection resource to borrow the client from."},
+			"key_prefix":    {Type: "string", Required: true, Description: "Key prefix prepended to the suffix built from common_input fields."},
+			"data_type":     {Type: "string", Required: false, Default: "string", Description: `Redis data type: "set", "string", or "list".`},
+			"ttl":           {Type: "int", Required: false, Default: 0, Description: "TTL in seconds. 0 means no expiry."},
+			"fail_on_error": {Type: "bool", Required: false, Default: false, Description: "Return fatal error on Redis infrastructure failure instead of logging and continuing."},
 		},
 	}, func() pine.Operator {
 		return &RedisSetOp{}
 	})
 }
 
-// RedisSetOp writes a value to Redis by constructed key.
+// RedisSetOp writes a value to Redis by constructed key. The Redis client is
+// borrowed from a redis_connection resource per request; the operator holds no
+// connection of its own.
 type RedisSetOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
-	rdb         *redis.Client
-	keyPrefix   string
-	dataType    string
-	ttl         time.Duration
-	failOnError bool
+	resourceName string
+	keyPrefix    string
+	dataType     string
+	ttl          time.Duration
+	failOnError  bool
 }
 
 func (o *RedisSetOp) Init(params map[string]any) error {
-	addr, _ := params["redis_addr"].(string)
-	password, _ := params["redis_password"].(string)
-	db := 0
-	if v, ok := params["redis_db"]; ok {
-		db = int(toInt64Param(v))
-	}
+	o.resourceName, _ = params["resource_name"].(string)
 	o.keyPrefix, _ = params["key_prefix"].(string)
 	o.dataType, _ = params["data_type"].(string)
 	if o.dataType == "" {
@@ -79,21 +76,15 @@ func (o *RedisSetOp) Init(params map[string]any) error {
 	if v, ok := params["fail_on_error"].(bool); ok {
 		o.failOnError = v
 	}
-
-	if addr != "" {
-		o.rdb = redis.NewClient(&redis.Options{
-			Addr:     addr,
-			Password: password,
-			DB:       db,
-		})
-	}
 	return nil
 }
 
 func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
-	if o.rdb == nil {
+	rdb, release, ok := borrowRedis(ctx, o.resourceName)
+	if !ok {
 		return nil
 	}
+	defer release()
 
 	n := len(o.CommonInput)
 	if n < 2 {
@@ -114,7 +105,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 		if len(members) == 0 {
 			return nil
 		}
-		pipe := o.rdb.Pipeline()
+		pipe := rdb.Pipeline()
 		pipe.Del(ctx, key)
 		pipe.SAdd(ctx, key, strSliceToAny(members)...)
 		if o.ttl > 0 {
@@ -131,7 +122,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 		if len(members) == 0 {
 			return nil
 		}
-		pipe := o.rdb.Pipeline()
+		pipe := rdb.Pipeline()
 		pipe.Del(ctx, key)
 		pipe.RPush(ctx, key, strSliceToAny(members)...)
 		if o.ttl > 0 {
@@ -145,7 +136,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 			log.Printf("transform_redis_set: value for key %s is not string", key)
 			return nil
 		}
-		err = o.rdb.Set(ctx, key, s, o.ttl).Err()
+		err = rdb.Set(ctx, key, s, o.ttl).Err()
 
 	default:
 		return fmt.Errorf("transform_redis_set: unsupported data_type %q", o.dataType)

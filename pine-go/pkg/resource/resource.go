@@ -230,7 +230,13 @@ func (m *Manager) loadResources(configs map[string]resourceConfig) error {
 			return fmt.Errorf("resource: failed to create fetcher for %q: %w", name, err)
 		}
 		interval := time.Duration(cfg.Interval) * time.Second
-		if interval <= 0 {
+		switch {
+		case cfg.Interval < 0:
+			// Negative interval means "never refresh": fetch once at Start and
+			// hold the value until retirement. Used by long-lived resources such
+			// as connection pools that have no meaningful refresh.
+			interval = -1
+		case cfg.Interval == 0:
 			interval = 10 * time.Minute // default
 		}
 		m.Register(name, fetcher, interval)
@@ -348,6 +354,13 @@ func (m *Manager) isRetired() bool {
 
 func (m *Manager) refreshLoop(ctx context.Context, r *managedResource) {
 	defer m.wg.Done()
+	// A non-positive interval means "never refresh": the value fetched at Start
+	// is held until the manager is stopped. This also defends time.NewTicker,
+	// which panics on a non-positive duration.
+	if r.interval <= 0 {
+		<-ctx.Done()
+		return
+	}
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
 
