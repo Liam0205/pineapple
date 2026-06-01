@@ -78,8 +78,7 @@
         ],
         "key_prefix": "user:realshow:",
         "window_seconds": 86400,
-        "redis_addr": "127.0.0.1:6379",
-        "redis_password": "REDACTED"
+        "resource_name": "redis_conn_bench"
       },
       "fetch_impression_history::else_2": {
         "type_name": "transform_by_lua",
@@ -608,8 +607,7 @@
         ],
         "key_prefix": "user:blocked_creators:",
         "data_type": "set",
-        "redis_addr": "127.0.0.1:6379",
-        "redis_password": "REDACTED"
+        "resource_name": "redis_conn_bench"
       },
       "filter_blocked_creators::if_2": {
         "type_name": "transform_by_lua",
@@ -679,8 +677,7 @@
         "key_prefix": "user:blocked_creators:",
         "data_type": "set",
         "ttl": 3600,
-        "redis_addr": "127.0.0.1:6379",
-        "redis_password": "REDACTED"
+        "resource_name": "redis_conn_bench"
       },
       "filter_blocked_creator_728ACE": {
         "type_name": "filter_blocked_creator",
@@ -914,6 +911,14 @@
         "project": "bench_project",
         "topic": "bench_servershow_log",
         "user_agent": "bench-app"
+      }
+    },
+    "redis_conn_bench": {
+      "type": "redis_connection",
+      "interval": -1,
+      "params": {
+        "addr": "127.0.0.1:6379",
+        "password": ""
       }
     }
   }
