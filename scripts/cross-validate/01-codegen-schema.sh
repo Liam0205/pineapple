@@ -131,5 +131,23 @@ else
   diff -r "$WORK_DIR/python-go" "$WORK_DIR/python-java" >&2 || true
 fi
 
+# 1d. Codegen Python output Go vs C++ byte-level parity.
+# Distinguishes "no cpp codegen binary" (skipped) from "cpp present and
+# diverges" (fail) so a regression to byte-level parity doesn't hide silently.
+if [[ -n "${CPP_CODEGEN:-}" ]]; then
+  rm -rf "$WORK_DIR/python-cpp"
+  mkdir -p "$WORK_DIR/python-cpp"
+  if ! "$CPP_CODEGEN" -output "$WORK_DIR/python-cpp" >/dev/null 2>&1; then
+    fail "C++ codegen failed to produce Python output"
+  elif diff -r "$WORK_DIR/python-go" "$WORK_DIR/python-cpp" >/dev/null 2>&1; then
+    pass "codegen Python output parity Go vs C++ (byte-level match)"
+  else
+    fail "codegen Python output divergence (Go vs C++)"
+    diff -r "$WORK_DIR/python-go" "$WORK_DIR/python-cpp" >&2 || true
+  fi
+else
+  echo "    (C++ codegen binary not found — skipping C++ Python output parity)"
+fi
+
 # Return to caller if sourced, exit if run directly
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit $_CV_FAIL || true
