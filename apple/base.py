@@ -136,6 +136,18 @@ class BaseOp:
         # Caller-supplied consumes_row_set (legacy API on BaseOp.__call__) wins
         # if explicitly True — preserves the hand-rolled override path while
         # defaulting to the marker-derived value otherwise.
+        #
+        # Note on intentional asymmetry with _FlowBase._add_op: only
+        # consumes_row_set is surfaced as a widen-knob on _apply (and the
+        # codegen-emitted Op.__call__). additive_writes_row_set and
+        # mutates_row_set are taken purely from the marker registry — there
+        # is no operator-author use case for hand-flipping those bits at the
+        # call site, and exposing them would invite DSL drift from the Go
+        # interface assertions that remain the source of truth. _add_op
+        # accepts all three because it is the back-channel dynamic-dispatch
+        # path where callers occasionally need to widen markers on operators
+        # that have not yet declared the matching marker interface on the Go
+        # side.
         effective_consumes = consumes_row_set or markers["consumes_row_set"]
 
         call = OpCall(
