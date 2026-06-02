@@ -47,7 +47,15 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
       return;
     }
 
-    std::string key = key_prefix_ + operators::build_key_suffix(input, common_input_);
+    // key_prefix is templatable (#74). When the DSL configured a {{field}}
+    // marker the engine resolved it against this request's common frame
+    // before execute; otherwise the raw init-time string is used.
+    std::string prefix = key_prefix_;
+    Variant resolved = input.templated_param("key_prefix");
+    if (resolved.is_string()) {
+      prefix = resolved.as_string();
+    }
+    std::string key = prefix + operators::build_key_suffix(input, common_input_);
 
     auto client = conn->acquire();
     redis::Client* cli = client.get();
@@ -137,7 +145,9 @@ static const OperatorSchema k_transform_redis_get_schema{
              {.type = "string",
               .required = true,
               .default_value = Variant(nullptr),
-              .description = "Key prefix prepended to the suffix built from common_input fields."}},
+              .description = "Key prefix prepended to the suffix built from common_input fields. "
+                             "Supports {{field}} interpolation.",
+              .templatable = true}},
             {"data_type",
              {.type = "string",
               .required = false,
