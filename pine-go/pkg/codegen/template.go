@@ -215,6 +215,45 @@ const initTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
 __all__ = [{{range .}}"{{camelCase .Name}}Op", {{end}}]
 `
 
+// markersTemplate renders apple_generated/markers.py — a static lookup table
+// keyed by operator type_name, exposing the row-set marker bools (probed
+// from the Go factory at codegen time). Apple OpCall consults this table to
+// auto-populate additive_writes_row_set / consumes_row_set / mutates_row_set,
+// keeping the Go marker contract as the single source of truth.
+const markersTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
+"""Row-set marker bools per operator, probed from Go factories at codegen time.
+
+The Go side declares row-set semantics via marker interfaces
+(AdditiveWritesRowSet, ConsumesRowSet, MutatesRowSet). This file mirrors
+those flags so Apple OpCall and the validator can judge row-set behavior
+directly instead of inferring from operator name prefix.
+"""
+from __future__ import annotations
+
+OPERATOR_MARKERS: dict[str, dict[str, bool]] = {
+{{- range .}}
+    "{{.Name}}": {
+        "additive_writes_row_set": {{if .AdditiveWritesRowSet}}True{{else}}False{{end}},
+        "consumes_row_set": {{if .ConsumesRowSet}}True{{else}}False{{end}},
+        "mutates_row_set": {{if .MutatesRowSet}}True{{else}}False{{end}},
+    },
+{{- end}}
+}
+
+
+def get_markers(type_name: str) -> dict[str, bool]:
+    """Return the marker dict for type_name, or all-False defaults if unknown.
+
+    Unknown operators (e.g., custom ops registered after codegen) are
+    treated as having no row-set semantics; the Go side remains authoritative.
+    """
+    return OPERATOR_MARKERS.get(type_name, {
+        "additive_writes_row_set": False,
+        "consumes_row_set": False,
+        "mutates_row_set": False,
+    })
+`
+
 // --- Markdown documentation templates ---
 
 // DocData combines registry schema and parsed doc comments for template rendering.
@@ -369,6 +408,10 @@ func parseTemplates() (*template.Template, *template.Template, error) {
 		return nil, nil, err
 	}
 	return opTmpl, initTmpl, nil
+}
+
+func parseMarkersTemplate() (*template.Template, error) {
+	return template.New("markers").Funcs(funcMap).Parse(markersTemplate)
 }
 
 func parseResourceTemplates() (*template.Template, *template.Template, error) {
