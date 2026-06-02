@@ -147,7 +147,7 @@ def validate_write_without_read(
         for field in op.item_output:
             if field.startswith("_"):
                 continue
-            if field in writers_item:
+            if field in writers_item and not op.recall:
                 prior_name, prior_skip = writers_item[field]
                 if not _are_mutually_exclusive(prior_skip, op.skip):
                     if field not in op.item_input:
