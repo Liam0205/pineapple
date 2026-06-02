@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-def _lookup_markers(type_name: str) -> dict[str, bool]:
+def lookup_markers(type_name: str) -> dict[str, bool]:
     """Look up row-set marker bools for ``type_name`` from the codegen table.
 
     Returns all-False if ``apple_generated.markers`` is unavailable (e.g.,
@@ -132,7 +132,7 @@ class BaseOp:
         # Pull row-set markers from the codegen-generated table. The Go side
         # is the source of truth; this lookup mirrors AdditiveWritesRowSet /
         # ConsumesRowSet / MutatesRowSet interface assertions.
-        markers = _lookup_markers(self._name)
+        markers = lookup_markers(self._name)
         # Caller-supplied consumes_row_set (legacy API on BaseOp.__call__) wins
         # if explicitly True — preserves the hand-rolled override path while
         # defaulting to the marker-derived value otherwise.
