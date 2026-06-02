@@ -49,6 +49,8 @@ Metadata parse_metadata(const Variant::object_t& obj) {
   }
   const auto& mo = it->second.as_object();
   meta.common_input = as_string_list(mo, "common_input");
+  meta.common_input_skip = as_string_list(mo, "common_input_skip");
+  meta.common_input_template = as_string_list(mo, "common_input_template");
   meta.common_output = as_string_list(mo, "common_output");
   meta.item_input = as_string_list(mo, "item_input");
   meta.item_output = as_string_list(mo, "item_output");
@@ -138,10 +140,17 @@ void validate_config(const Config& config) {
         throw ConfigError("operator \"" + name + "\": skip field \"" + skip +
                           "\" must start with '_' (control fields are engine-internal)");
       }
+      // Skip fields may live in either common_input (legacy layout)
+      // or common_input_skip (#74 buckets). Either is sufficient for
+      // DAG ordering; the operator-visible input filter strips them
+      // regardless.
       const auto& ci = op.metadata.common_input;
-      if (std::find(ci.begin(), ci.end(), skip) == ci.end()) {
+      const auto& cis = op.metadata.common_input_skip;
+      if (std::find(ci.begin(), ci.end(), skip) == ci.end() &&
+          std::find(cis.begin(), cis.end(), skip) == cis.end()) {
         throw ConfigError("operator \"" + name + "\": skip field \"" + skip +
-                          "\" must also appear in $metadata.common_input to ensure correct DAG ordering");
+                          "\" must also appear in $metadata.common_input or $metadata.common_input_skip to "
+                          "ensure correct DAG ordering");
       }
     }
     for (const auto& src : op.sources) {

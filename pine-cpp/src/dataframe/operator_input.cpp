@@ -86,8 +86,17 @@ Variant OperatorInput::templated_param(const std::string& name) const {
 InputFieldSpec compute_input_field_spec(const OperatorConfig& config) {
   InputFieldSpec spec;
 
-  // Build skip and strict sets for O(1) lookup
+  // Engine-internal fields hidden from the operator's input view:
+  //   * skip control fields (e.g. _if_*) — kept in metadata for DAG
+  //     ordering only.
+  //   * common_input_template source fields (#74) — surfaced via
+  //     OperatorInput::templated_param, not OperatorInput::common.
+  // Both are excluded unconditionally so legacy configs (skip fields
+  // inline in common_input) and #74 configs (disjoint bucket lists)
+  // produce the same operator-visible input.
   std::set<std::string> skip_set(config.skip.begin(), config.skip.end());
+  skip_set.insert(config.metadata.common_input_skip.begin(), config.metadata.common_input_skip.end());
+  skip_set.insert(config.metadata.common_input_template.begin(), config.metadata.common_input_template.end());
   std::set<std::string> strict_common_set(config.strict_common.begin(), config.strict_common.end());
   std::set<std::string> strict_item_set(config.strict_item.begin(), config.strict_item.end());
 

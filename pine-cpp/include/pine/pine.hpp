@@ -14,6 +14,7 @@
 #include <stop_token>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -195,9 +196,47 @@ std::string dump_json(const Variant& value, int indent = 2);
 
 struct Metadata {
   std::vector<std::string> common_input;
+  // Engine-internal control fields (e.g. `_if_*`) declared separately
+  // from the business common_input bucket (issue #74). They contribute
+  // to DAG ordering via common_read_fields() but are excluded from the
+  // operator-visible input by compute_input_field_spec. Optional —
+  // absent/empty preserves legacy layout where skip fields live inline
+  // in common_input.
+  std::vector<std::string> common_input_skip;
+  // Source fields referenced by `{{field}}` markers in templated
+  // params (issue #74). Resolved against the request frame before
+  // execute and surfaced via OperatorInput::templated_param; excluded
+  // from OperatorInput::common. Optional.
+  std::vector<std::string> common_input_template;
   std::vector<std::string> common_output;
   std::vector<std::string> item_input;
   std::vector<std::string> item_output;
+
+  // Returns the union of common_input / common_input_skip /
+  // common_input_template in declaration order (business → skip →
+  // template), deduped. Used by the DAG to derive per-operator read
+  // dependencies; the operator-visible input is filtered separately
+  // via compute_input_field_spec.
+  std::vector<std::string> common_read_fields() const {
+    if (common_input_skip.empty() && common_input_template.empty()) {
+      return common_input;
+    }
+    std::vector<std::string> out;
+    out.reserve(common_input.size() + common_input_skip.size() + common_input_template.size());
+    std::unordered_set<std::string> seen;
+    seen.reserve(out.capacity());
+    auto add = [&](const std::vector<std::string>& src) {
+      for (const auto& f : src) {
+        if (seen.insert(f).second) {
+          out.push_back(f);
+        }
+      }
+    };
+    add(common_input);
+    add(common_input_skip);
+    add(common_input_template);
+    return out;
+  }
 };
 
 struct OperatorConfig {

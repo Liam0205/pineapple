@@ -31,7 +31,7 @@ void scan_fields(Graph& graph, const ExpandedSequence& expanded, bool common) {
   std::map<std::string, FieldTracker> trackers;
   for (std::size_t i = 0; i < expanded.sequence.size(); ++i) {
     const auto& op = *graph.nodes[i].config;
-    std::vector<std::string> reads = common ? op.metadata.common_input : op.metadata.item_input;
+    std::vector<std::string> reads = common ? op.metadata.common_read_fields() : op.metadata.item_input;
     std::vector<std::string> writes = common ? op.metadata.common_output : op.metadata.item_output;
     const bool additive = !common && op.additive_writes_row_set;
     if (!common) {
