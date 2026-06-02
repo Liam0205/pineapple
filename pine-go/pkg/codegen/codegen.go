@@ -23,6 +23,43 @@ type Config struct {
 	OpsDir    string // Go operator source directory for doc-comment parsing
 }
 
+// EnrichedSchema augments OperatorSchema with row-set marker bools probed
+// from the operator factory. Markers are interface-based contracts (declared
+// by embedding *Marker structs) and are the source of truth for whether an
+// operator additively writes, consumes, or mutates the row set. We surface
+// them here so the Apple validator can judge row-set semantics directly
+// rather than via type-name prefix.
+type EnrichedSchema struct {
+	types.OperatorSchema
+	AdditiveWritesRowSet bool
+	ConsumesRowSet       bool
+	MutatesRowSet        bool
+}
+
+// enrichSchemas probes every registered operator's marker interfaces by
+// instantiating its factory once and packaging the bools alongside the
+// schema for template consumption.
+func enrichSchemas(schemas []types.OperatorSchema) []EnrichedSchema {
+	out := make([]EnrichedSchema, 0, len(schemas))
+	for _, s := range schemas {
+		e := EnrichedSchema{OperatorSchema: s}
+		if _, factory, ok := registry.Lookup(s.Name); ok && factory != nil {
+			op := factory()
+			if _, ok := op.(types.AdditiveWritesRowSet); ok {
+				e.AdditiveWritesRowSet = true
+			}
+			if _, ok := op.(types.ConsumesRowSet); ok {
+				e.ConsumesRowSet = true
+			}
+			if _, ok := op.(types.MutatesRowSet); ok {
+				e.MutatesRowSet = true
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // Run reads all registered operator schemas from the global registry and
 // generates Python bindings and (optionally) Markdown documentation.
 func Run(cfg Config) error {
@@ -40,6 +77,8 @@ func Run(cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("parse templates: %w", err)
 	}
+
+	enriched := enrichSchemas(schemas)
 
 	// Generate operators.py
 	opPath := filepath.Join(cfg.OutputDir, "operators.py")
@@ -66,6 +105,23 @@ func Run(cfg Config) error {
 		return fmt.Errorf("render __init__.py: %w", err)
 	}
 	fmt.Printf("generated %s\n", initPath)
+
+	// Generate markers.py — operator → row-set marker bools, looked up at
+	// runtime by Apple OpCall to populate additive_writes_row_set / etc.
+	markersTmpl, err := parseMarkersTemplate()
+	if err != nil {
+		return fmt.Errorf("parse markers template: %w", err)
+	}
+	markersPath := filepath.Join(cfg.OutputDir, "markers.py")
+	markersFile, err := os.Create(markersPath)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", markersPath, err)
+	}
+	defer markersFile.Close()
+	if err := markersTmpl.Execute(markersFile, enriched); err != nil {
+		return fmt.Errorf("render markers.py: %w", err)
+	}
+	fmt.Printf("generated %s\n", markersPath)
 
 	// Generate operator documentation if doc-dir is specified
 	if cfg.DocDir != "" {

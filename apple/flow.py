@@ -21,7 +21,7 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from apple.base import OpCall
+from apple.base import OpCall, _lookup_markers
 from apple.compiler import compile_flow, compile_to_json
 from apple.control import (
     ControlBlock,
@@ -117,6 +117,9 @@ class _FlowBase:
         # Recall is inferred from operator name prefix, not user-passed
         is_recall = type_name.startswith("recall_")
 
+        # Pull row-set markers from the codegen table (Go side is source of truth).
+        markers = _lookup_markers(type_name)
+
         call = OpCall(
             type_name=type_name,
             params=params,
@@ -130,6 +133,9 @@ class _FlowBase:
             strict_item=meta.get("strict_item", []),
             recall=is_recall,
             sources=meta.get("sources"),
+            consumes_row_set=markers["consumes_row_set"],
+            additive_writes_row_set=markers["additive_writes_row_set"],
+            mutates_row_set=markers["mutates_row_set"],
             debug=meta.get("debug", False),
             data_parallel=meta.get("data_parallel", 0),
             code_info=code_info,

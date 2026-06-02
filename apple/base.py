@@ -11,6 +11,24 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+def _lookup_markers(type_name: str) -> dict[str, bool]:
+    """Look up row-set marker bools for ``type_name`` from the codegen table.
+
+    Returns all-False if ``apple_generated.markers`` is unavailable (e.g.,
+    codegen has not been run yet) or the operator is unknown. The Go side
+    remains the source of truth — this table is a static mirror.
+    """
+    try:
+        from apple_generated.markers import get_markers  # type: ignore
+    except ImportError:
+        return {
+            "additive_writes_row_set": False,
+            "consumes_row_set": False,
+            "mutates_row_set": False,
+        }
+    return get_markers(type_name)
+
+
 @dataclass
 class OpCall:
     """Record of a single operator invocation in a flow."""
@@ -30,6 +48,8 @@ class OpCall:
     skip: list[str] = field(default_factory=list)
     for_branch_control: bool = False
     consumes_row_set: bool = False
+    additive_writes_row_set: bool = False
+    mutates_row_set: bool = False
     data_parallel: int = 0
     debug: bool = False
     # Debug info
@@ -64,6 +84,8 @@ class OpCall:
             tuple(self.skip) if self.skip else (),
             self.for_branch_control,
             self.consumes_row_set,
+            self.additive_writes_row_set,
+            self.mutates_row_set,
             self.data_parallel,
             self.debug,
             self.subflow_path,
@@ -107,6 +129,15 @@ class BaseOp:
         except (IndexError, AttributeError):
             pass
 
+        # Pull row-set markers from the codegen-generated table. The Go side
+        # is the source of truth; this lookup mirrors AdditiveWritesRowSet /
+        # ConsumesRowSet / MutatesRowSet interface assertions.
+        markers = _lookup_markers(self._name)
+        # Caller-supplied consumes_row_set (legacy API on BaseOp.__call__) wins
+        # if explicitly True — preserves the hand-rolled override path while
+        # defaulting to the marker-derived value otherwise.
+        effective_consumes = consumes_row_set or markers["consumes_row_set"]
+
         call = OpCall(
             type_name=self._name,
             params=params,
@@ -118,7 +149,9 @@ class BaseOp:
             common_defaults=common_defaults,
             recall=recall,
             sources=sources,
-            consumes_row_set=consumes_row_set,
+            consumes_row_set=effective_consumes,
+            additive_writes_row_set=markers["additive_writes_row_set"],
+            mutates_row_set=markers["mutates_row_set"],
             debug=debug,
             code_info=code_info,
             name=name,
