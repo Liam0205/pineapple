@@ -865,7 +865,7 @@
   },
   "storage_mode": "row",
   "log_prefix": "[bench-for-you] ",
-  "debug": true,
+  "debug": false,
   "resource_config": {
     "feed_data": {
       "type": "feed_data",
