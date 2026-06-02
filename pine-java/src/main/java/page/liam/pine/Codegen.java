@@ -66,6 +66,9 @@ public class Codegen {
 
         generateOperatorsPy(schemas, outputDir);
         generateInitPy(schemas, outputDir);
+        if (schemaFromRegistry) {
+            generateMarkersPy(schemas, outputDir);
+        }
         System.out.printf("generated %d operators in %s%n", schemas.size(), outputDir);
 
         // Generate resources: from explicit path, or from ResourceRegistry in registry mode
@@ -208,6 +211,62 @@ public class Codegen {
                 w.println("            name=name or \"\",");
                 w.println("        )");
             }
+        }
+    }
+
+    /**
+     * Generate apple_generated/markers.py — operator → row-set marker bools,
+     * probed from registered factory instances via instanceof checks against
+     * the three marker interfaces (AdditiveWritesRowSet / ConsumesRowSet /
+     * MutatesRowSet). Output must match the Go codegen byte-for-byte; the
+     * cross-validation harness diffs the two trees.
+     *
+     * Only valid in --schema-from-registry mode; the JSON-schema path has no
+     * way to recover marker information.
+     */
+    private static void generateMarkersPy(List<OperatorSchema> schemas, String outputDir) throws IOException {
+        Path path = Paths.get(outputDir, "markers.py");
+        try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
+            w.println("# auto-generated from pine operator schema — DO NOT EDIT");
+            w.println("\"\"\"Row-set marker bools per operator, probed from Go factories at codegen time.");
+            w.println();
+            w.println("The Go side declares row-set semantics via marker interfaces");
+            w.println("(AdditiveWritesRowSet, ConsumesRowSet, MutatesRowSet). This file mirrors");
+            w.println("those flags so Apple OpCall and the validator can judge row-set behavior");
+            w.println("directly instead of inferring from operator name prefix.");
+            w.println("\"\"\"");
+            w.println("from __future__ import annotations");
+            w.println();
+            w.println("OPERATOR_MARKERS: dict[str, dict[str, bool]] = {");
+            for (OperatorSchema schema : schemas) {
+                Optional<Operator> opt = Registry.global().instantiate(schema.name);
+                boolean additive = false, consumes = false, mutates = false;
+                if (opt.isPresent()) {
+                    Operator op = opt.get();
+                    additive = op instanceof AdditiveWritesRowSet;
+                    consumes = op instanceof ConsumesRowSet;
+                    mutates = op instanceof MutatesRowSet;
+                }
+                w.printf("    \"%s\": {%n", schema.name);
+                w.printf("        \"additive_writes_row_set\": %s,%n", additive ? "True" : "False");
+                w.printf("        \"consumes_row_set\": %s,%n", consumes ? "True" : "False");
+                w.printf("        \"mutates_row_set\": %s,%n", mutates ? "True" : "False");
+                w.println("    },");
+            }
+            w.println("}");
+            w.println();
+            w.println();
+            w.println("def get_markers(type_name: str) -> dict[str, bool]:");
+            w.println("    \"\"\"Return the marker dict for type_name, or all-False defaults if unknown.");
+            w.println();
+            w.println("    Unknown operators (e.g., custom ops registered after codegen) are");
+            w.println("    treated as having no row-set semantics; the Go side remains authoritative.");
+            w.println("    \"\"\"");
+            w.println("    return OPERATOR_MARKERS.get(type_name, {");
+            w.println("        \"additive_writes_row_set\": False,");
+            w.println("        \"consumes_row_set\": False,");
+            w.println("        \"mutates_row_set\": False,");
+            w.println("    })");
         }
     }
 

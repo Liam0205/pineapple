@@ -71,6 +71,23 @@ public class Registry {
         return entry != null ? Optional.of(entry.schema) : Optional.empty();
     }
 
+    /**
+     * Instantiate a raw operator from its registered factory, without running
+     * init() or parameter validation. Intended for codegen-time marker
+     * interface probing (instanceof checks on AdditiveWritesRowSet /
+     * ConsumesRowSet / MutatesRowSet); not a runtime construction path.
+     *
+     * Returns Optional.empty() when the type is not registered. The factory
+     * is invoked once; it must have no I/O side effects.
+     */
+    public Optional<Operator> instantiate(String typeName) {
+        OperatorEntry entry = operators.get(typeName);
+        if (entry == null) {
+            return Optional.empty();
+        }
+        return Optional.of(entry.factory.get());
+    }
+
     public List<OperatorSchema> all() {
         List<OperatorSchema> result = new ArrayList<>();
         for (OperatorEntry entry : operators.values()) {
