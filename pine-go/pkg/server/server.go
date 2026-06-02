@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strconv"
@@ -29,10 +30,10 @@ type errorResponse struct {
 
 // Config holds the server startup settings.
 type Config struct {
-	ConfigPath  string                           // Path to unified JSON config file (pipeline + resources)
-	Addr        string                           // Listen address (e.g. ":8080")
-	Resources   *resource.Manager                // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
-	Metrics     metrics.Provider                 // Optional: metrics provider (nil → no-op)
+	ConfigPath  string                            // Path to unified JSON config file (pipeline + resources)
+	Addr        string                            // Listen address (e.g. ":8080")
+	Resources   *resource.Manager                 // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
+	Metrics     metrics.Provider                  // Optional: metrics provider (nil → no-op)
 	Middlewares []func(http.Handler) http.Handler // Optional: HTTP middlewares applied outer-to-inner
 
 	// Timeouts for the HTTP server. Zero means no timeout.
@@ -246,6 +247,11 @@ func (s *Server) run(cfg Config) error {
 	mux.HandleFunc("/execute", s.handleExecute)
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/dag", s.handleDAG)
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	mux.HandleFunc("/", handleNotFound)
 
 	// Apply HTTP metrics as innermost middleware (measures handler duration
