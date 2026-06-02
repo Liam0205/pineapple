@@ -39,6 +39,14 @@ type EnrichedSchema struct {
 // enrichSchemas probes every registered operator's marker interfaces by
 // instantiating its factory once and packaging the bools alongside the
 // schema for template consumption.
+//
+// Factory contract: the constructor invoked here must be a pure allocator
+// — no I/O, no goroutines, no resource handles. The instance is discarded
+// immediately after the interface probes (no Init/Configure is called),
+// so any side effect in the constructor leaks. Operators that need
+// expensive setup must defer it to Configure/Init, which the engine
+// invokes during pipeline build. Mirror this contract when adding new
+// marker probes on the Java/C++ sides.
 func enrichSchemas(schemas []types.OperatorSchema) []EnrichedSchema {
 	out := make([]EnrichedSchema, 0, len(schemas))
 	for _, s := range schemas {
