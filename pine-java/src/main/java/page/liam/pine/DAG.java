@@ -66,7 +66,7 @@ public class DAG {
             Config.OperatorConfig opCfg = operators.get(sequence.get(i));
             Config.Metadata meta = opCfg.metadata;
 
-            List<String> readFields = new ArrayList<>(isCommon ? meta.commonInput : meta.itemInput);
+            List<String> readFields = new ArrayList<>(isCommon ? meta.commonReadFields() : meta.itemInput);
             List<String> writeFields = new ArrayList<>(isCommon ? meta.commonOutput : meta.itemOutput);
             boolean isAdditiveWrite = !isCommon && opCfg.additiveWritesRowSet;
 
