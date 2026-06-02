@@ -28,6 +28,21 @@
 namespace pine {
 namespace {
 
+const bool _redis_connection_schema_init = [] {
+  resource::ResourceSchema schema;
+  schema.name = "redis_connection";
+  schema.description = "Shared Redis connection pool borrowed by Redis operators via resource_name.";
+  schema.default_interval = -1;
+  schema.params["addr"] = ParamSchema{"string", true, Variant(), "Redis server address (host:port)."};
+  schema.params["password"] = ParamSchema{"string", false, Variant(std::string("")), "Redis password."};
+  schema.params["db"] = ParamSchema{"int", false, Variant(static_cast<double>(0)), "Redis DB number."};
+  schema.params["metrics_name"] = ParamSchema{"string", false, Variant(std::string("")),
+                                              "When set, the pool emits its own metrics labelled "
+                                              "name=<metrics_name>. Empty disables resource-level metrics."};
+  resource::register_resource_schema(std::move(schema));
+  return true;
+}();
+
 const bool _redis_connection_init = [] {
   resource::register_fetcher_factory("redis_connection", [](const Variant& params, metrics::Provider* mp) {
     const auto& obj = params.as_object();

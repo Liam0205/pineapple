@@ -23,6 +23,11 @@ std::map<std::string, FetcherFactory>& factory_registry() {
   return r;
 }
 
+std::map<std::string, ResourceSchema>& schema_registry() {
+  static std::map<std::string, ResourceSchema> r;
+  return r;
+}
+
 }  // namespace
 
 bool register_fetcher_factory(const std::string& type_name, FetcherFactory factory) {
@@ -69,6 +74,36 @@ std::vector<std::string> registered_fetcher_types() {
 void reset_fetcher_registry() {
   std::lock_guard<std::mutex> lk(registry_mu());
   factory_registry().clear();
+}
+
+bool register_resource_schema(ResourceSchema schema) {
+  if (schema.name.empty()) {
+    throw std::runtime_error("resource: register_resource_schema called with empty name");
+  }
+  std::lock_guard<std::mutex> lk(registry_mu());
+  auto& reg = schema_registry();
+  if (reg.count(schema.name)) {
+    throw std::runtime_error("resource: duplicate ResourceSchema \"" + schema.name + "\"");
+  }
+  const std::string name = schema.name;
+  reg.emplace(name, std::move(schema));
+  return true;
+}
+
+std::vector<ResourceSchema> all_resource_schemas() {
+  std::lock_guard<std::mutex> lk(registry_mu());
+  std::vector<ResourceSchema> out;
+  out.reserve(schema_registry().size());
+  for (const auto& kv : schema_registry()) {
+    out.push_back(kv.second);
+  }
+  return out;  // map iteration is already sorted by key
+}
+
+void reset_resource_schema_registry() {
+  std::lock_guard<std::mutex> lk(registry_mu());
+  factory_registry().clear();
+  schema_registry().clear();
 }
 
 Manager::Manager(metrics::Provider* mp) : metrics_(mp ? mp : metrics::nop_provider()) {
