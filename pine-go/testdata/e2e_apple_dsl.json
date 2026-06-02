@@ -5,6 +5,7 @@
     "operators": {
       "recall_static_C6587F": {
         "type_name": "recall_static",
+        "additive_writes_row_set": true,
         "$metadata": {
           "common_input": [],
           "common_output": [],
@@ -62,6 +63,7 @@
         },
         "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:68 in op_caller(): .reorder_sort(...)",
         "consumes_row_set": true,
+        "mutates_row_set": true,
         "order": "desc"
       }
     },

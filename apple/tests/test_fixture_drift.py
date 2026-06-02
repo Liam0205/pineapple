@@ -91,27 +91,42 @@ class TestFixtureShapeDrift:
 
     @pytest.mark.parametrize("fixture", ALL_FIXTURES)
     def test_inline_markers_agree_with_registry(self, fixture):
-        """If a fixture spells out a marker bool, it must match markers.py.
+        """Fixture marker bools must match markers.py.
 
-        Fixtures that omit the key are treated as the legacy "all-False"
-        shorthand; this stays compatible with the Go registry-fallback
-        path while still catching active disagreement.
+        Two directions of drift are caught:
+
+        * **Mismatch** — if the fixture spells out a marker, the value must
+          equal the registry mirror.
+        * **Missing True** — if the registry says a marker is True, the
+          fixture must spell it out explicitly. A missing key would be
+          treated as False by JSON loaders that default-zero unset bools,
+          so silent omission of a True marker is a real semantic drift.
+
+        Missing False markers stay tolerated: the absent-key default is
+        False everywhere, so omission is observationally equivalent.
         """
         cfg = _load(fixture)
         ops = cfg["pipeline_config"]["operators"]
         mismatches: list[str] = []
         for op_name, op in ops.items():
             type_name = op["type_name"]
+            if type_name in TEST_ONLY_OPERATORS:
+                continue
             expected = OPERATOR_MARKERS.get(type_name, {})
             for key in MARKER_KEYS:
-                if key not in op:
-                    continue
                 want = expected.get(key, False)
-                got = op[key]
-                if want != got:
+                if key in op:
+                    got = op[key]
+                    if want != got:
+                        mismatches.append(
+                            f"{op_name}({type_name}).{key}: fixture={got!r} "
+                            f"vs markers.py={want!r}"
+                        )
+                elif want:
                     mismatches.append(
-                        f"{op_name}({type_name}).{key}: fixture={got!r} "
-                        f"vs markers.py={want!r}"
+                        f"{op_name}({type_name}).{key}: missing from fixture "
+                        f"but markers.py says True (silent drift — fixture "
+                        f"would load as False)"
                     )
         assert not mismatches, (
             f"{fixture}: marker drift between fixture and codegen mirror:\n  "

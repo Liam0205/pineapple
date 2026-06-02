@@ -5,6 +5,7 @@
     "operators": {
       "recall_static_BE820B": {
         "type_name": "recall_static",
+        "additive_writes_row_set": true,
         "$metadata": {
           "common_input": [],
           "common_output": [],

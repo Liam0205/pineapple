@@ -5,6 +5,7 @@
     "operators": {
       "recall_hot": {
         "type_name": "recall_static",
+        "additive_writes_row_set": true,
         "recall": true,
         "items": [
           {"item_id": "item_1", "item_score": 80.0, "item_status": "online", "item_category": "A"},
@@ -20,6 +21,7 @@
       },
       "recall_new": {
         "type_name": "recall_static",
+        "additive_writes_row_set": true,
         "recall": true,
         "items": [
           {"item_id": "item_3", "item_score": 95.0, "item_status": "online", "item_category": "A"},
@@ -35,6 +37,8 @@
       },
       "merge_step": {
         "type_name": "merge_dedup",
+        "consumes_row_set": true,
+        "mutates_row_set": true,
         "sources": ["recall_hot", "recall_new"],
         "$metadata": {
           "common_input": [],
@@ -63,6 +67,8 @@
       },
       "filter_offline": {
         "type_name": "filter_condition",
+        "consumes_row_set": true,
+        "mutates_row_set": true,
         "value": "offline",
         "$metadata": {
           "common_input": [],
@@ -73,6 +79,8 @@
       },
       "sort_by_score": {
         "type_name": "reorder_sort",
+        "consumes_row_set": true,
+        "mutates_row_set": true,
         "order": "desc",
         "$metadata": {
           "common_input": [],

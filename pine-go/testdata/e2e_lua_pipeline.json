@@ -5,6 +5,7 @@
     "operators": {
       "recall_items": {
         "type_name": "recall_static",
+        "additive_writes_row_set": true,
         "items": [
           {"item_id": "a", "item_price": 100.0, "item_category": "electronics"},
           {"item_id": "b", "item_price": 200.0, "item_category": "clothing"},
@@ -56,6 +57,8 @@
       },
       "sort_by_price": {
         "type_name": "reorder_sort",
+        "consumes_row_set": true,
+        "mutates_row_set": true,
         "order": "desc",
         "skip": ["_skip_sort"],
         "$metadata": {
