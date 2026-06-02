@@ -116,6 +116,34 @@ class TestWriteWithoutRead:
                      function_for_common="g", function_for_item="") \
         .end_if_()
         flow.compile()  # should not raise
+
+    def test_multiple_recalls_writing_same_field_ok(self):
+        """Recall operators are AdditiveWritesRowSet — each creates an
+        independent row set, so writing the same item field across separate
+        recalls is valid (regression for issue #72)."""
+        flow = Flow(
+            name="multi_recall",
+            common_input=["q"],
+            common_output=[],
+            item_output=["item_id"],
+            storage_mode="row",
+        )
+        flow.recall_static(
+            name="recall_a",
+            items=[{"item_id": "1"}],
+            item_output=["item_id"],
+        )
+        flow.recall_static(
+            name="recall_b",
+            items=[{"item_id": "2"}],
+            item_output=["item_id"],
+        )
+        flow.merge_dedup(
+            item_input=["item_id"],
+            strategy="first",
+        )
+        flow.compile()  # should not raise
+
     def test_dead_operator(self):
         flow = Flow(
             name="dead",
