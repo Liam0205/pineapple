@@ -6,6 +6,9 @@
 *.dylib
 /pineapple-codegen
 /pineapple-server
+pine-go/pineapple-server
+pine-go/pineapple-run
+pine-go/pineapple-codegen
 
 # Go test/coverage
 *.test
