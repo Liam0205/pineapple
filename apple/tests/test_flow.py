@@ -190,7 +190,7 @@ class TestSubFlow:
             if op["type_name"] == "reorder_sort"
         )
         assert sort_op["skip"] == ["_if_1"]
-        assert "_if_1" in sort_op["$metadata"]["common_input"]
+        assert "_if_1" in sort_op["$metadata"]["common_input_skip"]
 
     def test_nested_control_inside_branch_subflow(self):
         sf = SubFlow(name="inner")
@@ -300,7 +300,7 @@ class TestSubFlow:
         renamed_field = ctrl_op["$metadata"]["common_output"][0]
         assert renamed_field == "_parent::if_1"
         assert sort_op["skip"] == [renamed_field]
-        assert renamed_field in sort_op["$metadata"]["common_input"]
+        assert renamed_field in sort_op["$metadata"]["common_input_skip"]
         assert "_if_1" not in sort_op["skip"]
 
     def test_compile_subflow_in_branch_is_idempotent(self):
@@ -347,7 +347,7 @@ class TestSubFlow:
             if op["type_name"] == "reorder_sort"
         )
         assert "_if_1" in sort_op["skip"]
-        assert "_if_1" in sort_op["$metadata"]["common_input"]
+        assert "_if_1" in sort_op["$metadata"]["common_input_skip"]
 
         pmap = cfg["pipeline_config"]["pipeline_map"]
         assert "mid" in pmap
@@ -589,7 +589,7 @@ class TestTypedOperators:
             if op["type_name"] == "reorder_sort"
         )
         assert sort_op["skip"] == ["_if_1"]
-        assert sort_op["$metadata"]["common_input"][0] == "_if_1"
+        assert sort_op["$metadata"]["common_input_skip"] == ["_if_1"]
 
     def test_baseop_apply_inside_nested_control_gets_all_skips(self):
         from apple.base import BaseOp

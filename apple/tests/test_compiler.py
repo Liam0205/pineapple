@@ -117,7 +117,8 @@ class TestControlFlowLowering:
             if op.get("for_branch_control")
         }
         assert ctrl_by_output["_if_2"]["skip"] == ["_if_1"]
-        assert ctrl_by_output["_if_2"]["$metadata"]["common_input"][0] == "_if_1"
+        # After #74: skip dependencies land in common_input_skip, not common_input.
+        assert ctrl_by_output["_if_2"]["$metadata"]["common_input_skip"] == ["_if_1"]
 
         outer_op = next(
             op for op in ops.values()
@@ -712,17 +713,23 @@ class TestInjectInheritedSkips:
         assert op.common_input == ["x"]
 
     def test_injects_skip_and_common_input(self):
-        """Inherited skips are appended to skip and prepended to common_input."""
+        """Inherited skips are appended to skip and to common_input_skip (#74)."""
         from apple.base import OpCall
         from apple.compiler import _inject_inherited_skips
 
         op = OpCall(type_name="noop", params={}, common_input=["x"], skip=[])
         _inject_inherited_skips([op], [("op", 0)], ["_if_1"])
         assert "_if_1" in op.skip
-        assert op.common_input[0] == "_if_1"
+        assert op.common_input_skip == ["_if_1"]
+        assert op.common_input == ["x"]  # business bucket untouched
 
     def test_no_duplicate_injection(self):
-        """If skip field already present, do not duplicate."""
+        """If skip field already present, do not duplicate.
+
+        After #74 a legacy declaration in ``common_input`` is treated as
+        already covered and the engine still ranks it via the DAG union;
+        we skip re-adding to ``common_input_skip``.
+        """
         from apple.base import OpCall
         from apple.compiler import _inject_inherited_skips
 
@@ -734,6 +741,7 @@ class TestInjectInheritedSkips:
         _inject_inherited_skips([op], [("op", 0)], ["_if_1"])
         assert op.skip.count("_if_1") == 1
         assert op.common_input.count("_if_1") == 1
+        assert op.common_input_skip.count("_if_1") == 0
 
     def test_skips_sf_entries(self):
         """SubFlow entries in child_order are ignored."""
@@ -936,3 +944,51 @@ class TestSubFlowRequiredResources:
         # Should not raise
         cfg = compile_flow(flow)
         assert "pipeline_config" in cfg
+
+
+class TestThreeBucketCommonInput:
+    """#74: $metadata gains common_input_skip / common_input_template buckets.
+
+    Verifies the compiler routes template source fields into
+    common_input_template (not common_input) and emits the optional
+    buckets only when populated.
+    """
+
+    def test_template_fields_go_to_template_bucket(self):
+        """Template `{{...}}` references land in common_input_template."""
+        flow = Flow(
+            name="t",
+            common_input=["user_id"],
+            common_output=["greeting"],
+        )
+        # Synthetic op type (no apple_generated schema) — Pass 0 still
+        # walks params via extract_fields_from_params; the templated-
+        # param schema validator no-ops when the schema is unknown,
+        # letting us isolate the bucket-routing behaviour.
+        flow._add_op(
+            "synthetic_templated_op",
+            common_input=[],
+            common_output=["greeting"],
+            key_template="hi {{user_id}}",
+        )
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        assert "user_id" in op["$metadata"].get("common_input_template", [])
+        assert "user_id" not in op["$metadata"]["common_input"]
+
+    def test_optional_buckets_omitted_when_empty(self):
+        """Operators without skip/template deps emit no extra metadata keys."""
+        flow = Flow(name="plain", common_input=["a"], common_output=["b"])
+        flow._add_op(
+            "transform_by_lua",
+            common_input=["a"],
+            common_output=["b"],
+            lua_script="function f() return a end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        meta = op["$metadata"]
+        assert "common_input_skip" not in meta
+        assert "common_input_template" not in meta

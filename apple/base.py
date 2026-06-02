@@ -35,6 +35,15 @@ class OpCall:
     type_name: str
     params: dict[str, Any]
     common_input: list[str] = field(default_factory=list)
+    # Optional sibling buckets to common_input (issue #74).
+    #   * common_input_skip: skip-control fields (e.g. ``_if_*``) the engine
+    #     must rank for DAG ordering but the operator never reads.
+    #   * common_input_template: template-source fields used only by
+    #     ``{{...}}`` interpolation; populated by the compiler from
+    #     ``extract_fields_from_params`` so the operator-visible input never
+    #     surfaces them. Both decay to empty for legacy / unaffected ops.
+    common_input_skip: list[str] = field(default_factory=list)
+    common_input_template: list[str] = field(default_factory=list)
     common_output: list[str] = field(default_factory=list)
     item_input: list[str] = field(default_factory=list)
     item_output: list[str] = field(default_factory=list)
@@ -72,6 +81,8 @@ class OpCall:
             self.type_name,
             repr(self.params),
             tuple(self.common_input),
+            tuple(self.common_input_skip),
+            tuple(self.common_input_template),
             tuple(self.common_output),
             tuple(self.item_input),
             tuple(self.item_output),

@@ -93,14 +93,21 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     # 5. Build operators dict
     operators: dict[str, Any] = {}
     for name, op in named_ops:
+        metadata: dict[str, Any] = {
+            "common_input": op.common_input,
+            "common_output": op.common_output,
+            "item_input": op.item_input,
+            "item_output": op.item_output,
+        }
+        # Emit the optional buckets only when populated, so legacy
+        # configs round-trip byte-identically (issue #74).
+        if op.common_input_skip:
+            metadata["common_input_skip"] = op.common_input_skip
+        if op.common_input_template:
+            metadata["common_input_template"] = op.common_input_template
         entry: dict[str, Any] = {
             "type_name": op.type_name,
-            "$metadata": {
-                "common_input": op.common_input,
-                "common_output": op.common_output,
-                "item_input": op.item_input,
-                "item_output": op.item_output,
-            },
+            "$metadata": metadata,
         }
         if op.code_info:
             entry["$code_info"] = op.code_info
@@ -235,6 +242,8 @@ def _rename_field(op: OpCall, old: str, new: str) -> None:
     """Replace all occurrences of a control field name in an OpCall."""
     op.skip = [new if s == old else s for s in op.skip]
     op.common_input = [new if f == old else f for f in op.common_input]
+    op.common_input_skip = [new if f == old else f for f in op.common_input_skip]
+    op.common_input_template = [new if f == old else f for f in op.common_input_template]
     op.common_output = [new if f == old else f for f in op.common_output]
     # Also rename Lua variable references inside lua_script for control ops.
     # Use _G["name"] syntax since namespaced names (containing ::) are not
@@ -289,10 +298,13 @@ def _inject_inherited_skips(
     child_order: list[tuple[str, int]],
     inherited_skips: list[str],
 ) -> None:
-    """Append inherited skip fields to each op's skip and common_input.
+    """Append inherited skip fields to each op's skip and common_input_skip.
 
     Must be called AFTER _rename_control_fields so that inherited fields
     (from an outer branch) are never incorrectly renamed to a local variant.
+    Routes the read dependency into the dedicated ``common_input_skip``
+    bucket (issue #74); legacy declarations already in ``common_input``
+    are left untouched so they continue to validate via the union path.
     """
     if not inherited_skips:
         return
@@ -303,8 +315,10 @@ def _inject_inherited_skips(
         for s in inherited_skips:
             if s not in op.skip:
                 op.skip.append(s)
-            if s not in op.common_input:
-                op.common_input = [s] + op.common_input
+            if s in op.common_input:
+                continue
+            if s not in op.common_input_skip:
+                op.common_input_skip.append(s)
 
 
 def _collect_exclusion_groups(
@@ -353,15 +367,18 @@ def _traverse(
 
     local_ops = [deepcopy(op) for op in node._ops]
 
-    # Pass 0: Auto-inject templated common_input fields (issue #74).
+    # Pass 0: Auto-inject templated common_input_template fields (issue #74).
     # Scan each op's params for `{{field}}` markers and ensure every
-    # referenced field is present in common_input. The Apple validator
-    # later checks that the targeted params declare templatable=True in
-    # their codegen schema and are scalar-typed.
+    # referenced field is present in common_input_template — the
+    # dedicated read-dependency bucket that contributes to DAG ordering
+    # but stays hidden from the operator-visible input. The Apple
+    # validator later checks that the targeted params declare
+    # templatable=True in their codegen schema and are scalar-typed.
     for op in local_ops:
         for f in extract_fields_from_params(op.params):
-            if f not in op.common_input:
-                op.common_input.append(f)
+            if f in op.common_input or f in op.common_input_template:
+                continue
+            op.common_input_template.append(f)
 
     # Pass 1: Rename control fields
     field_renames = _rename_control_fields(local_ops, node._child_order, path)
