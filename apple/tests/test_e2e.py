@@ -319,3 +319,77 @@ class TestE2E:
         finally:
             if os.path.exists(config_path):
                 os.unlink(config_path)
+
+    def test_go_engine_multi_recall_additive_e2e(self):
+        """Regression for issue #72: multiple recalls writing the same item
+        field must validate at DSL time and execute end-to-end on the Go engine.
+
+        Each recall is AdditiveWritesRowSet — it creates an independent row
+        set rather than modifying upstream items, so two recalls writing
+        ``item_score`` should not trip the write-without-read check, and the
+        engine must merge their outputs into a single result set.
+        """
+        flow = Flow(
+            name="apple_multi_recall_e2e",
+            common_input=["user_id"],
+            item_output=["item_id", "item_score"],
+            storage_mode="row",
+        )
+        flow.recall_static(
+            name="recall_a",
+            items=[
+                {"item_id": "a1", "item_score": 1.0},
+                {"item_id": "a2", "item_score": 2.0},
+            ],
+            item_output=["item_id", "item_score"],
+        )
+        flow.recall_static(
+            name="recall_b",
+            items=[
+                {"item_id": "b1", "item_score": 3.0},
+            ],
+            item_output=["item_id", "item_score"],
+        )
+        flow.merge_dedup(
+            item_input=["item_id"],
+            strategy="first",
+        )
+        flow.reorder_sort(
+            item_input=["item_score"],
+            order="desc",
+        )
+
+        json_str = flow.compile()
+        parsed = json.loads(json_str)
+        ops = parsed["pipeline_config"]["operators"]
+        recalls = [o for o in ops.values() if o["type_name"] == "recall_static"]
+        assert len(recalls) == 2, "expected two recall_static operators"
+
+        config_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "pine-go",
+            "testdata", "e2e_apple_multi_recall.json",
+        )
+        try:
+            with open(config_path, "w") as f:
+                f.write(json_str)
+
+            result = subprocess.run(
+                [
+                    "go", "test", "./integration/",
+                    "-run", "TestAppleDSLMultiRecallE2E",
+                    "-v", "-count=1",
+                ],
+                capture_output=True,
+                text=True,
+                cwd=os.path.join(os.path.dirname(__file__), "..", "..", "pine-go"),
+                timeout=60,
+            )
+            print(result.stdout)
+            if result.returncode != 0:
+                print(result.stderr)
+            assert result.returncode == 0, (
+                f"Go multi-recall e2e failed:\n{result.stdout}\n{result.stderr}"
+            )
+        finally:
+            if os.path.exists(config_path):
+                os.unlink(config_path)
