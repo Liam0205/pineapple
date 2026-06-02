@@ -100,7 +100,8 @@ type fieldTracker struct {
 // If isCommon=true, processes common_input/common_output; otherwise item_input/item_output.
 //
 // Additive write hazard rules (A = Additive, R = Read, W = mutating Write):
-//   AAR=WAR, AAW=WAW, RAA=RAW, WAA=WAW, AAA=RAR(no-op)
+//
+//	AAR=WAR, AAW=WAW, RAA=RAW, WAA=WAW, AAA=RAR(no-op)
 //
 // ConsumesRowSet operators read _row_set_ sentinel (waits for row set to stabilize).
 // MutatesRowSet operators perform mutating writes to _row_set_ (serializes mutations).
@@ -122,7 +123,11 @@ func addEdges(g *Graph, sequence []string, operators map[string]config.OperatorC
 
 		var readFields, writeFields []string
 		if isCommon {
-			readFields = meta.CommonInput
+			// Union of business / skip / template common_input fields (#74).
+			// Each set contributes RAW dependencies independently; the
+			// operator-visible input is filtered separately via
+			// ComputeInputFieldSpec.
+			readFields = meta.CommonReadFields()
 			writeFields = meta.CommonOutput
 		} else {
 			readFields = meta.ItemInput

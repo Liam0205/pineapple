@@ -139,8 +139,14 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 			// the per-request OperatorInput, so data_parallel shards
 			// inherit it via splitInput rather than the operator instance
 			// holding cross-request mutable state.
+			//
+			// We read source fields from the raw frame rather than the
+			// operator's filtered input: meta.common_input_template
+			// fields are excluded from the operator-visible input by
+			// design, but the DAG ordering guarantees they are present
+			// on the frame by the time this call runs.
 			if len(cop.TemplatedPlan) > 0 {
-				resolved, resolveErr := ResolveTemplatedParams(cop.Name, cop.TemplatedPlan, input)
+				resolved, resolveErr := ResolveTemplatedParams(cop.Name, cop.TemplatedPlan, frame)
 				if resolveErr != nil {
 					fatalOnce.Do(func() {
 						fatalErr = &types.ExecutionError{
