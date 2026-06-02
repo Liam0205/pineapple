@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -57,8 +58,31 @@ std::string python_escape(const std::string& s) {
 
 // Mirror Go fmt.Sprintf("%g", d): shortest round-trippable representation that
 // Python parses identically. Java's GoFormat.formatG is the reference impl.
+//
+// Scope: in practice the only doubles that flow through here are operator/
+// resource ParamSchema default values declared in C++ source — all current
+// callsites use small integer-valued defaults (e.g. db=0, default_value=-1.0).
+// Two limitations to be aware of if that ever changes:
+//
+//   (1) The integer fast path guards against UB by checking std::isfinite and
+//       that |d| fits in long long before the static_cast. NaN/Inf and
+//       out-of-range magnitudes (|d| > LLONG_MAX) fall through to the
+//       printf branch instead of being cast.
+//
+//   (2) The fallback uses printf("%g", d) with the default 6-digit precision,
+//       which is NOT strictly equivalent to Go's shortest-round-trippable
+//       %g. For the small defaults we serialise today this matches Go
+//       byte-for-byte; a future default with >6 significant digits would
+//       diverge and need a proper shortest-round-trippable algorithm
+//       (Ryu / Grisu) to stay parity-safe.
 std::string format_g(double d) {
-  if (d == static_cast<double>(static_cast<long long>(d)) && std::isfinite(d)) {
+  // LLONG_MAX itself is not exactly representable as double; the conversion
+  // rounds up to 2^63, which is the smallest double that would overflow the
+  // static_cast. Using strict < against the rounded bound keeps every value
+  // that survives the comparison castable without UB.
+  constexpr double kLLongMaxAsDouble = static_cast<double>(std::numeric_limits<long long>::max());
+  if (std::isfinite(d) && std::abs(d) < kLLongMaxAsDouble &&
+      d == static_cast<double>(static_cast<long long>(d))) {
     return std::to_string(static_cast<long long>(d));
   }
   char buf[64];
