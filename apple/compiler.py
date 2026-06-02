@@ -111,6 +111,10 @@ def compile_flow(flow: Any) -> dict[str, Any]:
             entry["for_branch_control"] = True
         if op.consumes_row_set:
             entry["consumes_row_set"] = True
+        if op.additive_writes_row_set:
+            entry["additive_writes_row_set"] = True
+        if op.mutates_row_set:
+            entry["mutates_row_set"] = True
         if op.item_defaults:
             entry["item_defaults"] = op.item_defaults
         if op.common_defaults:

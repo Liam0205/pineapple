@@ -4,6 +4,7 @@
     "operators": {
       "recall": {
         "type_name": "recall_static",
+        "additive_writes_row_set": true,
         "recall": true,
         "items": [
           {"item_id": "a"},
