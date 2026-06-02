@@ -149,6 +149,7 @@ if [ -x "${repo_root}/scripts/check-pr-ci.sh" ]; then
   if [ "$ci_rc" -eq 1 ]; then
     exit 1
   fi
+  echo "check-pr-ci: All CI checks passed, you might need to check comments in the PR from peers or the PR review bot." >&2
 fi
 
 # Reaching here means the real push already succeeded (inner). Returning 0 makes
