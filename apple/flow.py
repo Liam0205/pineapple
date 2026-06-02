@@ -21,7 +21,7 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from apple.base import OpCall, _lookup_markers
+from apple.base import OpCall, lookup_markers
 from apple.compiler import compile_flow, compile_to_json
 from apple.control import (
     ControlBlock,
@@ -101,8 +101,12 @@ class _FlowBase:
             "item_defaults", "common_defaults", "strict_common", "strict_item",
             "sources", "debug",
         }
+        marker_override_keys = {
+            "consumes_row_set", "additive_writes_row_set", "mutates_row_set",
+        }
         meta = {}
         params = {}
+        marker_overrides: dict[str, bool] = {}
         for k, v in kwargs.items():
             if k in meta_keys:
                 meta[k] = v
@@ -111,6 +115,8 @@ class _FlowBase:
                 pass
             elif k == "data_parallel":
                 meta[k] = v
+            elif k in marker_override_keys:
+                marker_overrides[k] = bool(v)
             else:
                 params[k] = v
 
@@ -118,7 +124,18 @@ class _FlowBase:
         is_recall = type_name.startswith("recall_")
 
         # Pull row-set markers from the codegen table (Go side is source of truth).
-        markers = _lookup_markers(type_name)
+        # Caller-supplied overrides are merged with True-OR semantics, matching
+        # BaseOp._apply — a caller can only widen the marker, not narrow it.
+        markers = lookup_markers(type_name)
+        consumes_eff = markers["consumes_row_set"] or marker_overrides.get(
+            "consumes_row_set", False
+        )
+        additive_eff = markers["additive_writes_row_set"] or marker_overrides.get(
+            "additive_writes_row_set", False
+        )
+        mutates_eff = markers["mutates_row_set"] or marker_overrides.get(
+            "mutates_row_set", False
+        )
 
         call = OpCall(
             type_name=type_name,
@@ -133,9 +150,9 @@ class _FlowBase:
             strict_item=meta.get("strict_item", []),
             recall=is_recall,
             sources=meta.get("sources"),
-            consumes_row_set=markers["consumes_row_set"],
-            additive_writes_row_set=markers["additive_writes_row_set"],
-            mutates_row_set=markers["mutates_row_set"],
+            consumes_row_set=consumes_eff,
+            additive_writes_row_set=additive_eff,
+            mutates_row_set=mutates_eff,
             debug=meta.get("debug", False),
             data_parallel=meta.get("data_parallel", 0),
             code_info=code_info,
