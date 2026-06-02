@@ -11,6 +11,9 @@
           {"item_id": "c"}
         ],
         "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
           "item_output": ["item_id"]
         }
       },
@@ -21,6 +24,8 @@
         "output_field": "item_feature",
         "default_value": -1.0,
         "$metadata": {
+          "common_input": [],
+          "common_output": [],
           "item_input": ["item_id"],
           "item_output": ["item_feature"]
         }

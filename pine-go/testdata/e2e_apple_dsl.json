@@ -61,6 +61,7 @@
           "item_output": []
         },
         "$code_info": "/Users/liam/git-dev-athome/awaken/pineapple/apple/flow.py:68 in op_caller(): .reorder_sort(...)",
+        "consumes_row_set": true,
         "order": "desc"
       }
     },
