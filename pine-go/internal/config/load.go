@@ -227,7 +227,12 @@ func validate(cfg *RootConfig) error {
 		}
 	}
 
-	// Skip fields must also appear in $metadata.common_input (DAG ordering)
+	// Skip fields must appear in common_input or common_input_skip so the
+	// DAG can establish the producer→consumer ordering. Older configs
+	// (predating #74) put skip fields directly into common_input; newer
+	// configs declare them in the dedicated common_input_skip bucket.
+	// Either layout is accepted; the operator-visible input filter
+	// excludes the field regardless of which list carries it.
 	for name, op := range cfg.PipelineConfig.Operators {
 		for _, skipField := range op.Skip {
 			found := false
@@ -238,10 +243,19 @@ func validate(cfg *RootConfig) error {
 				}
 			}
 			if !found {
+				for _, ci := range op.Meta.CommonInputSkip {
+					if ci == skipField {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
 				return &types.ConfigError{
 					Message: fmt.Sprintf(
 						"operator %q: skip field %q must also appear in "+
-							"$metadata.common_input to ensure correct DAG ordering",
+							"$metadata.common_input or $metadata.common_input_skip "+
+							"to ensure correct DAG ordering",
 						name, skipField),
 				}
 			}

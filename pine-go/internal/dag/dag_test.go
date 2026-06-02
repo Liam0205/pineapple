@@ -1448,19 +1448,19 @@ func TestNestedSubFlowWithBarrierAndSources(t *testing.T) {
 	// All in nested SubFlows.
 	seq := []string{"recall_a", "recall_b", "merge", "transform_post", "filter", "transform_final"}
 	ops := map[string]config.OperatorConfig{
-		"recall_a":       recallOp(nil, []string{"item_id", "item_score"}),
-		"recall_b":       recallOp(nil, []string{"item_id", "item_score"}),
-		"merge":          mergeOp([]string{"recall_a", "recall_b"}, []string{"item_id", "item_score"}),
-		"transform_post": transformOp(nil, nil, []string{"item_score"}, []string{"item_rank"}),
-		"filter":         filterOp([]string{"item_rank"}, nil),
+		"recall_a":        recallOp(nil, []string{"item_id", "item_score"}),
+		"recall_b":        recallOp(nil, []string{"item_id", "item_score"}),
+		"merge":           mergeOp([]string{"recall_a", "recall_b"}, []string{"item_id", "item_score"}),
+		"transform_post":  transformOp(nil, nil, []string{"item_score"}, []string{"item_rank"}),
+		"filter":          filterOp([]string{"item_rank"}, nil),
 		"transform_final": transformOp(nil, nil, []string{"item_rank"}, []string{"item_output"}),
 	}
 	opToSubFlow := map[string]string{
-		"recall_a":       "recall_stage",
-		"recall_b":       "recall_stage",
-		"merge":          "recall_stage",
-		"transform_post": "process_stage",
-		"filter":         "process_stage",
+		"recall_a":        "recall_stage",
+		"recall_b":        "recall_stage",
+		"merge":           "recall_stage",
+		"transform_post":  "process_stage",
+		"filter":          "process_stage",
 		"transform_final": "process_stage",
 	}
 
@@ -1578,10 +1578,10 @@ func TestRowDepWithRecallAndBarrierCombined(t *testing.T) {
 	// Ensures row dependency + row-set mutation + recall all compose correctly.
 	seq := []string{"recall_a", "recall_b", "size", "filter", "transform_final"}
 	ops := map[string]config.OperatorConfig{
-		"recall_a":       recallOp(nil, []string{"item_id"}),
-		"recall_b":       recallOp(nil, []string{"item_id"}),
-		"size":           rowDepOp([]string{"item_count"}),
-		"filter":         filterOp([]string{"item_id"}, nil),
+		"recall_a":        recallOp(nil, []string{"item_id"}),
+		"recall_b":        recallOp(nil, []string{"item_id"}),
+		"size":            rowDepOp([]string{"item_count"}),
+		"filter":          filterOp([]string{"item_id"}, nil),
 		"transform_final": transformOp([]string{"item_count"}, nil, []string{"item_id"}, []string{"item_output"}),
 	}
 
@@ -1715,13 +1715,13 @@ func TestBuildDeepNestedSubFlowDAG(t *testing.T) {
 		"transform_else": transformOp([]string{"_else_2"}, nil, []string{"item_score"}, []string{"item_score"}),
 	}
 	opToSubFlow := map[string]string{
-		"transform_l1": "L1",
-		"ctrl_l1_if":   "L1",
-		"transform_l2": "L1/L2",
-		"ctrl_l1_l2_if": "L1/L2",
-		"transform_l3": "L1/L2/L3",
+		"transform_l1":     "L1",
+		"ctrl_l1_if":       "L1",
+		"transform_l2":     "L1/L2",
+		"ctrl_l1_l2_if":    "L1/L2",
+		"transform_l3":     "L1/L2/L3",
 		"ctrl_l1_l2_l3_if": "L1/L2/L3",
-		"transform_leaf": "L1/L2/L3",
+		"transform_leaf":   "L1/L2/L3",
 	}
 
 	g, err := Build(sequence, operators, opToSubFlow)
@@ -2019,5 +2019,55 @@ func TestBuildCycleMaskedByReduce(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cycle") {
 		t.Fatalf("expected cycle error, got: %v", err)
+	}
+}
+
+// --- Issue #74: common_input_skip / common_input_template buckets ---
+
+func TestRAW_FromCommonInputSkipBucket(t *testing.T) {
+	// op_a writes _if_branch, op_b declares it only in common_input_skip.
+	// The DAG must still wire RAW edge a->b.
+	seq := []string{"op_a", "op_b"}
+	ops := map[string]config.OperatorConfig{
+		"op_a": transformOp(nil, []string{"_if_branch"}, nil, nil),
+		"op_b": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:     nil,
+				CommonInputSkip: []string{"_if_branch"},
+			},
+		},
+	}
+	g, err := Build(seq, ops, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPred(g, "op_b", "op_a") {
+		t.Error("expected RAW edge from common_input_skip bucket")
+	}
+}
+
+func TestRAW_FromCommonInputTemplateBucket(t *testing.T) {
+	// op_a writes tenant_id, op_b declares it only in common_input_template.
+	// The DAG must still wire RAW edge a->b.
+	seq := []string{"op_a", "op_b"}
+	ops := map[string]config.OperatorConfig{
+		"op_a": transformOp(nil, []string{"tenant_id"}, nil, nil),
+		"op_b": {
+			TypeName:     "test",
+			OperatorType: string(types.OpTypeTransform),
+			Meta: config.Metadata{
+				CommonInput:         []string{"uid"},
+				CommonInputTemplate: []string{"tenant_id"},
+			},
+		},
+	}
+	g, err := Build(seq, ops, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPred(g, "op_b", "op_a") {
+		t.Error("expected RAW edge from common_input_template bucket")
 	}
 }
