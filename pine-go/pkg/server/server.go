@@ -32,6 +32,7 @@ type errorResponse struct {
 type Config struct {
 	ConfigPath  string                            // Path to unified JSON config file (pipeline + resources)
 	Addr        string                            // Listen address (e.g. ":8080")
+	AdminAddr   string                            // Optional: admin listen address for pprof (e.g. ":6060"); empty disables
 	Resources   *resource.Manager                 // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
 	Metrics     metrics.Provider                  // Optional: metrics provider (nil → no-op)
 	Middlewares []func(http.Handler) http.Handler // Optional: HTTP middlewares applied outer-to-inner
@@ -247,11 +248,6 @@ func (s *Server) run(cfg Config) error {
 	mux.HandleFunc("/execute", s.handleExecute)
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/dag", s.handleDAG)
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	mux.HandleFunc("/", handleNotFound)
 
 	// Apply HTTP metrics as innermost middleware (measures handler duration
@@ -273,6 +269,29 @@ func (s *Server) run(cfg Config) error {
 		IdleTimeout:       withDefault(cfg.IdleTimeout, 120*time.Second),
 	}
 
+	// Start admin server for pprof on a separate port (opt-in).
+	// No WriteTimeout so long-running profiles (e.g. ?seconds=120) are not truncated.
+	var adminSrv *http.Server
+	if cfg.AdminAddr != "" {
+		adminMux := http.NewServeMux()
+		adminMux.HandleFunc("/debug/pprof/", pprof.Index)
+		adminMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		adminMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		adminMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		adminMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		adminSrv = &http.Server{
+			Addr:              cfg.AdminAddr,
+			Handler:           adminMux,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			log.Printf("admin (pprof) listening on %s", cfg.AdminAddr)
+			if err := adminSrv.ListenAndServe(); err != http.ErrServerClosed {
+				log.Printf("admin server error: %v", err)
+			}
+		}()
+	}
+
 	// Graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
@@ -281,6 +300,9 @@ func (s *Server) run(cfg Config) error {
 		log.Println("shutting down...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		if adminSrv != nil {
+			_ = adminSrv.Shutdown(ctx)
+		}
 		_ = srv.Shutdown(ctx)
 	}()
 

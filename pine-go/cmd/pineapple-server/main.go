@@ -20,6 +20,7 @@ func main() {
 
 	configPath := flag.String("config", "", "Path to pipeline JSON config file")
 	addr := flag.String("addr", ":8080", "Listen address")
+	adminAddr := flag.String("admin-addr", "", "Admin listen address for pprof (e.g. :6060); empty disables")
 	readHeaderTimeout := flag.Duration("read-header-timeout", 0, "HTTP read header timeout (0 = default 10s)")
 	readTimeout := flag.Duration("read-timeout", 0, "HTTP read timeout (0 = default 30s)")
 	writeTimeout := flag.Duration("write-timeout", 0, "HTTP write timeout (0 = default 60s)")
@@ -30,6 +31,7 @@ func main() {
 	if err := server.Run(server.Config{
 		ConfigPath:         *configPath,
 		Addr:               *addr,
+		AdminAddr:          *adminAddr,
 		ReadHeaderTimeout:  *readHeaderTimeout,
 		ReadTimeout:        *readTimeout,
 		WriteTimeout:       *writeTimeout,
