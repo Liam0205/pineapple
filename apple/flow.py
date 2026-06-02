@@ -71,14 +71,22 @@ class _FlowBase:
         return fields
 
     def _apply_skip_fields(self, call: OpCall, skip_fields: list[str]) -> None:
-        """Attach control-flow skip dependencies to an operator call."""
-        missing_inputs: list[str] = []
+        """Attach control-flow skip dependencies to an operator call.
+
+        Skip fields land in ``common_input_skip`` (issue #74) so they
+        rank for DAG ordering but never leak into the operator-visible
+        input. The legacy behaviour of prepending into ``common_input``
+        is preserved for fields the caller already declared there
+        (those continue to validate via the union path in the
+        validator).
+        """
         for skip_field in skip_fields:
             if skip_field not in call.skip:
                 call.skip.append(skip_field)
-            if skip_field not in call.common_input:
-                missing_inputs.append(skip_field)
-        call.common_input = missing_inputs + call.common_input
+            if skip_field in call.common_input:
+                continue
+            if skip_field not in call.common_input_skip:
+                call.common_input_skip.append(skip_field)
 
     def __getattr__(self, name: str) -> Any:
         """Dynamic operator dispatch: flow.some_op(...) creates an OpCall."""

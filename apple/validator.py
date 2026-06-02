@@ -78,13 +78,25 @@ def validate_field_coverage(
     flow_common_input: list[str],
     flow_item_input: list[str],
 ) -> None:
-    """Check that every operator input is provided by flow contract or upstream output."""
+    """Check that every operator input is provided by flow contract or upstream output.
+
+    Covers all three common_input buckets introduced in #74: the business
+    list, the skip-control list, and the template-source list. Skip
+    fields start with ``_`` and are filtered by the engine; template
+    fields are business names that must resolve to an upstream/contract
+    field exactly like ``common_input`` entries.
+    """
     available_common: set[str] = set(flow_common_input)
     available_item: set[str] = set(flow_item_input)
 
     for name, op in ops:
-        # Check common inputs
-        for field in op.common_input:
+        # Check common inputs — union of all three buckets (#74).
+        union_common = (
+            list(op.common_input)
+            + list(op.common_input_skip)
+            + list(op.common_input_template)
+        )
+        for field in union_common:
             if field.startswith("_"):
                 continue  # internal control fields handled by compiler
             if field not in available_common:
@@ -133,13 +145,20 @@ def validate_write_without_read(
     writers_item: dict[str, tuple[str, list[str]]] = {}
 
     for name, op in ops:
+        # Union of all three common_input buckets (#74): a field declared
+        # in any bucket counts as "read" for the write-without-read check.
+        op_common_reads = (
+            set(op.common_input)
+            | set(op.common_input_skip)
+            | set(op.common_input_template)
+        )
         for field in op.common_output:
             if field.startswith("_"):
                 continue
             if field in writers_common:
                 prior_name, prior_skip = writers_common[field]
                 if not _are_mutually_exclusive(prior_skip, op.skip):
-                    if field not in op.common_input:
+                    if field not in op_common_reads:
                         raise ValidationError(
                             f"{_op_location(name, op)}writes common field {field!r} "
                             f"without reading it (field already exists from upstream)"
@@ -202,9 +221,13 @@ def detect_dead_code(
     needed_common: set[str] = set(flow_common_output or [])
     needed_item: set[str] = set(flow_item_output or [])
 
-    # Fields consumed by downstream operators are needed
+    # Fields consumed by downstream operators are needed. Union all
+    # three common_input buckets so template-source/skip-control
+    # dependencies still count as "needed" (#74).
     for _, op in ops:
         needed_common.update(op.common_input)
+        needed_common.update(op.common_input_skip)
+        needed_common.update(op.common_input_template)
         needed_item.update(op.item_input)
 
     dead: list[str] = []
