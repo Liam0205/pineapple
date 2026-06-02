@@ -384,8 +384,14 @@ public class Engine {
         // per-request OperatorInput, so data_parallel shards inherit it
         // via ParallelExecutor rather than the operator instance holding
         // cross-request mutable state.
+        //
+        // We read source fields from the raw frame rather than the
+        // operator's filtered input: meta.common_input_template fields
+        // are excluded from the operator-visible input by design, but
+        // the DAG ordering guarantees they are present on the frame by
+        // the time this call runs.
         if (!cop.templatedPlan.isEmpty()) {
-            Map<String, Object> resolved = TemplateResolver.resolve(cop.name, cop.templatedPlan, input);
+            Map<String, Object> resolved = TemplateResolver.resolve(cop.name, cop.templatedPlan, ctx.frame);
             input.setTemplatedParams(resolved);
         }
 

@@ -143,6 +143,8 @@ public class Config {
         if (node.has("$metadata")) {
             JsonNode meta = node.get("$metadata");
             opCfg.metadata.commonInput = readStringList(meta, "common_input");
+            opCfg.metadata.commonInputSkip = readStringList(meta, "common_input_skip");
+            opCfg.metadata.commonInputTemplate = readStringList(meta, "common_input_template");
             opCfg.metadata.commonOutput = readStringList(meta, "common_output");
             opCfg.metadata.itemInput = readStringList(meta, "item_input");
             opCfg.metadata.itemOutput = readStringList(meta, "item_output");
@@ -257,8 +259,13 @@ public class Config {
                 if (!skipField.startsWith("_")) {
                     throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must start with '_' (control fields are engine-internal)");
                 }
-                if (!opCfg.metadata.commonInput.contains(skipField)) {
-                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must also appear in $metadata.common_input to ensure correct DAG ordering");
+                // Skip fields may live in either common_input (legacy
+                // layout) or common_input_skip (#74 buckets). Either is
+                // sufficient for DAG ordering; the operator-visible
+                // input filter strips them regardless.
+                if (!opCfg.metadata.commonInput.contains(skipField)
+                        && !opCfg.metadata.commonInputSkip.contains(skipField)) {
+                    throw new ConfigException("operator \"" + name + "\": skip field \"" + skipField + "\" must also appear in $metadata.common_input or $metadata.common_input_skip to ensure correct DAG ordering");
                 }
             }
         }
@@ -300,9 +307,29 @@ public class Config {
 
     public static class Metadata {
         public List<String> commonInput = Collections.emptyList();
+        public List<String> commonInputSkip = Collections.emptyList();
+        public List<String> commonInputTemplate = Collections.emptyList();
         public List<String> commonOutput = Collections.emptyList();
         public List<String> itemInput = Collections.emptyList();
         public List<String> itemOutput = Collections.emptyList();
+
+        /**
+         * Union of the three common_input buckets in declaration order
+         * (business → skip → template), deduped. Used by the DAG to
+         * derive per-operator read dependencies. The operator-visible
+         * input view is filtered separately via {@link InputFieldSpec}.
+         */
+        public List<String> commonReadFields() {
+            if (commonInputSkip.isEmpty() && commonInputTemplate.isEmpty()) {
+                return commonInput;
+            }
+            LinkedHashSet<String> seen = new LinkedHashSet<>(commonInput.size()
+                    + commonInputSkip.size() + commonInputTemplate.size());
+            seen.addAll(commonInput);
+            seen.addAll(commonInputSkip);
+            seen.addAll(commonInputTemplate);
+            return new ArrayList<>(seen);
+        }
     }
 
     public static class OperatorConfig {

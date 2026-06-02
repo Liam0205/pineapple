@@ -56,7 +56,18 @@ public class InputFieldSpec {
                                          List<String> strictCommonList,
                                          List<String> strictItemList,
                                          List<String> skip) {
+        // Engine-internal fields hidden from the operator's input view:
+        //   * skip control fields (e.g. _if_*) — kept in metadata for DAG
+        //     ordering only.
+        //   * common_input_template source fields (#74) — surfaced via
+        //     OperatorInput.templatedParam, not OperatorInput.common.
+        // Both are excluded unconditionally so legacy configs (which placed
+        // skip fields directly into common_input) and #74 configs (which
+        // carry disjoint bucket lists) produce the same operator-visible
+        // input.
         Set<String> skipSet = new HashSet<>(skip);
+        skipSet.addAll(meta.commonInputSkip);
+        skipSet.addAll(meta.commonInputTemplate);
         Set<String> strictCommonSet = new HashSet<>(strictCommonList);
         Set<String> strictItemSet = new HashSet<>(strictItemList);
 
