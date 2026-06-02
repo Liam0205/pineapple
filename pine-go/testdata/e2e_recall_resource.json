@@ -7,6 +7,9 @@
         "recall": true,
         "resource_name": "candidates",
         "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
           "item_output": ["item_id", "item_score"]
         }
       }
