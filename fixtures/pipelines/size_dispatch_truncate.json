@@ -1,7 +1,7 @@
 {
   "name": "transform_size → dispatch → truncate (common↔item interaction)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.9.9",
+    "_PINEAPPLE_VERSION": "0.9.10",
     "pipeline_config": {
       "operators": {
         "count_items": {
