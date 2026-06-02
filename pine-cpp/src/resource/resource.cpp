@@ -102,6 +102,11 @@ std::vector<ResourceSchema> all_resource_schemas() {
 
 void reset_resource_schema_registry() {
   std::lock_guard<std::mutex> lk(registry_mu());
+  schema_registry().clear();
+}
+
+void reset_all_resource_registries() {
+  std::lock_guard<std::mutex> lk(registry_mu());
   factory_registry().clear();
   schema_registry().clear();
 }

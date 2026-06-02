@@ -129,7 +129,9 @@ bool register_resource_schema(ResourceSchema schema);
 // All registered ResourceSchemas, sorted by name. Used by the codegen tool.
 std::vector<ResourceSchema> all_resource_schemas();
 
-// For tests only: clear both factory and schema registries.
+// For tests only: clear the ResourceSchema registry. The fetcher factory
+// registry is left untouched — call reset_fetcher_registry() separately
+// if both sides need clearing.
 void reset_resource_schema_registry();
 
 // Look up a factory by type name. Returns nullptr if absent.
@@ -140,6 +142,11 @@ std::vector<std::string> registered_fetcher_types();
 
 // For tests only.
 void reset_fetcher_registry();
+
+// For tests only: clear both the fetcher factory and ResourceSchema
+// registries in one call. Equivalent to calling reset_fetcher_registry()
+// and reset_resource_schema_registry() under the same registry lock.
+void reset_all_resource_registries();
 
 // Manager owns a set of named resources with background refresh. It implements
 // ResourceProvider so it can be passed directly into EngineOptions and borrowed
