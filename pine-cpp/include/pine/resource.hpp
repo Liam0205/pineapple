@@ -110,6 +110,28 @@ using FetcherFactory = std::function<Fetcher(const Variant& params, metrics::Pro
 //   static bool _ = register_fetcher_factory("my_type", &my_factory);
 bool register_fetcher_factory(const std::string& type_name, FetcherFactory factory);
 
+// ResourceSchema describes a resource type for registration, codegen, and
+// documentation generation. Symmetric with OperatorSchema and mirrors Go's
+// types.ResourceSchema / Java's Codegen.ResourceSchema so the three runtimes
+// can emit byte-identical apple_generated/resources.py.
+struct ResourceSchema {
+  std::string name;                           // Resource type name (e.g. "redis_connection").
+  std::string description;                    // One-line summary.
+  int default_interval = 0;                   // Default refresh seconds; 0→10min; <0→never refresh.
+  std::map<std::string, ParamSchema> params;  // Reuses operator ParamSchema.
+};
+
+// Register a ResourceSchema. Independent of register_fetcher_factory so the
+// factory side (runtime behaviour) and the schema side (cross-runtime codegen
+// contract) can be wired separately. Throws on duplicate name.
+bool register_resource_schema(ResourceSchema schema);
+
+// All registered ResourceSchemas, sorted by name. Used by the codegen tool.
+std::vector<ResourceSchema> all_resource_schemas();
+
+// For tests only: clear both factory and schema registries.
+void reset_resource_schema_registry();
+
 // Look up a factory by type name. Returns nullptr if absent.
 const FetcherFactory* lookup_fetcher_factory(const std::string& type_name);
 
