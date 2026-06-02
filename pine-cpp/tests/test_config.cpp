@@ -150,3 +150,73 @@ TEST_CASE("load_config_from_json: omits resource_config when absent") {
   CHECK(cfg.resource_config.empty());
   CHECK(cfg.pineapple_create_time == "");
 }
+
+// ---- 3-bucket common_input (issue #74) ------------------------------------
+
+TEST_CASE("Metadata::common_read_fields: identity short-circuit when only business bucket") {
+  Metadata m;
+  m.common_input = {"a", "b"};
+  auto fields = m.common_read_fields();
+  CHECK(fields == std::vector<std::string>{"a", "b"});
+}
+
+TEST_CASE("Metadata::common_read_fields: union + dedup across all three buckets") {
+  Metadata m;
+  m.common_input = {"uid"};
+  m.common_input_skip = {"_if_branch", "uid"};     // overlap with business
+  m.common_input_template = {"tenant_id", "uid"};  // overlap with business
+  CHECK(m.common_read_fields() == std::vector<std::string>{"uid", "_if_branch", "tenant_id"});
+}
+
+TEST_CASE("validate_config: accepts skip field declared only in common_input_skip bucket") {
+  const char* json = R"({
+    "pipeline_config": {
+      "operators": {
+        "op_a": {
+          "type_name": "transform_copy",
+          "direction": "common_to_common",
+          "skip": ["_if_branch"],
+          "$metadata": {
+            "common_input": ["uid"],
+            "common_input_skip": ["_if_branch"],
+            "common_output": ["out"]
+          }
+        }
+      },
+      "pipeline_map": {"stage": {"pipeline": ["op_a"]}}
+    },
+    "pipeline_group": {"main": {"pipeline": ["stage"]}}
+  })";
+  Config cfg = load_config_from_json(json);
+  REQUIRE(cfg.operators.count("op_a") == 1);
+  const auto& meta = cfg.operators.at("op_a").metadata;
+  CHECK(meta.common_input_skip == std::vector<std::string>{"_if_branch"});
+}
+
+TEST_CASE("validate_config: rejects skip field absent from both business and skip buckets") {
+  const char* json = R"({
+    "pipeline_config": {
+      "operators": {
+        "op_a": {
+          "type_name": "transform_copy",
+          "direction": "common_to_common",
+          "skip": ["_if_branch"],
+          "$metadata": {
+            "common_input": ["uid"],
+            "common_output": ["out"]
+          }
+        }
+      },
+      "pipeline_map": {"stage": {"pipeline": ["op_a"]}}
+    },
+    "pipeline_group": {"main": {"pipeline": ["stage"]}}
+  })";
+  try {
+    load_config_from_json(json);
+    FAIL("expected ConfigError");
+  } catch (const ConfigError& e) {
+    std::string msg = e.what();
+    CHECK(msg.find("must also appear in $metadata.common_input or $metadata.common_input_skip") !=
+          std::string::npos);
+  }
+}

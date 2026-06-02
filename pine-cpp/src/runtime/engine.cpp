@@ -615,8 +615,7 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   std::unordered_map<std::string, Variant> resolved;
   const std::unordered_map<std::string, Variant>* resolved_ptr = nullptr;
   if (templated_entry && !templated_entry->plan.empty()) {
-    OperatorInput probe = build_operator_input(frame, op.name, spec);
-    resolved = resolve_templated_params(op.name, templated_entry->plan, probe);
+    resolved = resolve_templated_params(op.name, templated_entry->plan, frame);
     resolved_ptr = &resolved;
   }
   int total = static_cast<int>(frame.item_count());
