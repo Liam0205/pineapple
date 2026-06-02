@@ -57,7 +57,16 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
             return;
         }
 
-        String key = keyPrefix + buildKeySuffix(input, commonInput());
+        // key_prefix is templatable (#74). When the DSL configured a
+        // {{field}} marker the engine resolved it against this request's
+        // common frame before execute; otherwise the raw init-time string
+        // is used.
+        String prefix = keyPrefix;
+        Object resolved = input.templatedParam("key_prefix");
+        if (resolved instanceof String) {
+            prefix = (String) resolved;
+        }
+        String key = prefix + buildKeySuffix(input, commonInput());
 
         try (Jedis jedis = pool.getResource()) {
             switch (dataType) {
