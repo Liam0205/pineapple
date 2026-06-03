@@ -196,7 +196,20 @@ public class Engine {
                 }
             }
 
-            compiledOps.add(new CompiledOperator(name, op, opCfg, effectiveDebug, effectiveRecall, effectiveDataParallel, effectiveOperatorType));
+            // Issue #74: build the per-op {{field}}-interpolation plan.
+            // The resolved map is attached to OperatorInput per request,
+            // so any operator can read it via input.templatedParam(name)
+            // — no opt-in interface required. The Apple compiler has
+            // already injected the referenced common fields into
+            // common_input, so DAG dependencies guarantee the values
+            // exist by the time this operator runs (mirrors how `if_`
+            // skip-field dependencies are wired).
+            OperatorSchema schema = Registry.global().getSchema(opCfg.typeName)
+                    .orElseThrow(() -> new IllegalStateException("operator schema not registered: " + opCfg.typeName));
+            List<TemplateResolver.TemplatedParam> templatedPlan =
+                    TemplateResolver.buildPlan(name, schema, opCfg.rawParams);
+
+            compiledOps.add(new CompiledOperator(name, op, opCfg, effectiveDebug, effectiveRecall, effectiveDataParallel, effectiveOperatorType, templatedPlan));
 
             // Pre-compute InputFieldSpec for BuildInput.
             opCfg.inputSpec = InputFieldSpec.compute(opCfg.metadata, opCfg.commonDefaults, opCfg.itemDefaults, opCfg.strictCommon, opCfg.strictItem, opCfg.skip);
@@ -365,6 +378,16 @@ public class Engine {
 
         // Build input
         OperatorInput input = ctx.frame.buildInput(cop.name, opCfg.inputSpec);
+
+        // Resolve templated params (issue #74) — runs once per request
+        // before any execute branch. The resolved map is attached to the
+        // per-request OperatorInput, so data_parallel shards inherit it
+        // via ParallelExecutor rather than the operator instance holding
+        // cross-request mutable state.
+        if (!cop.templatedPlan.isEmpty()) {
+            Map<String, Object> resolved = TemplateResolver.resolve(cop.name, cop.templatedPlan, input);
+            input.setTemplatedParams(resolved);
+        }
 
         // Debug: capture input snapshot
         Map<String, Object> inputSnapshot = null;
@@ -628,9 +651,13 @@ public class Engine {
         public final boolean recall;
         public final int dataParallel;
         public final String operatorType;
+        // Pre-computed per-op plan for {{field}} param interpolation (#74).
+        // Empty when the operator has no templated params.
+        public final List<TemplateResolver.TemplatedParam> templatedPlan;
 
         public CompiledOperator(String name, Operator instance, Config.OperatorConfig config,
-                                boolean debug, boolean recall, int dataParallel, String operatorType) {
+                                boolean debug, boolean recall, int dataParallel, String operatorType,
+                                List<TemplateResolver.TemplatedParam> templatedPlan) {
             this.name = name;
             this.instance = instance;
             this.config = config;
@@ -638,6 +665,7 @@ public class Engine {
             this.recall = recall;
             this.dataParallel = dataParallel;
             this.operatorType = operatorType;
+            this.templatedPlan = templatedPlan;
         }
     }
 
