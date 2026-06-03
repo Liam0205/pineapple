@@ -610,12 +610,19 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   // const-pointer (no copy). The resolved map lives in this stack
   // frame, which outlives every shard (we join before returning).
   // resolve_templated_params throws ExecutionError (no op prefix) on
-  // missing field or coerce failure; dispatch_with_recovery's nested
-  // throw wrap adds the byte-exact prefix.
+  // missing field or coerce failure; we re-wrap with the operator name
+  // here so the byte-exact `pine: execution error in operator "X": ...`
+  // prefix matches pine-go (scheduler.go) and pine-java (Scheduler).
+  // dispatch_with_recovery does the same wrap for downstream throws but
+  // never runs for resolver errors — resolution happens before dispatch.
   std::unordered_map<std::string, Variant> resolved;
   const std::unordered_map<std::string, Variant>* resolved_ptr = nullptr;
   if (templated_entry && !templated_entry->plan.empty()) {
-    resolved = resolve_templated_params(op.name, templated_entry->plan, frame);
+    try {
+      resolved = resolve_templated_params(op.name, templated_entry->plan, frame);
+    } catch (const ExecutionError& e) {
+      throw ExecutionError(op.name, e.inner().empty() ? std::string(e.what()) : e.inner());
+    }
     resolved_ptr = &resolved;
   }
   int total = static_cast<int>(frame.item_count());
