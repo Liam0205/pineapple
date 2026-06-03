@@ -142,6 +142,20 @@ TEST_CASE("resolve_templated_params: string binds field") {
   CHECK(got.at("k").as_string() == "42");
 }
 
+// Pins the cross-runtime stringify contract: a numeric-valued source
+// field bound to a string-typed templatable param must serialize via
+// operators::go_format_g (5.0 -> "5"), mirroring Go fmt.Sprint(5.0).
+// Without this pin the Redis key would diverge across runtimes when
+// the template source is float-typed.
+TEST_CASE("resolve_templated_params: float source + string target matches go_format_g") {
+  std::vector<TemplatedParam> plan;
+  plan.push_back(TemplatedParam{"k", "string", "x"});
+  InputHarness h({{"x", Variant(5.0)}});
+  auto got = resolve_templated_params("op", plan, h.frame);
+  REQUIRE(got.count("k") == 1);
+  CHECK(got.at("k").as_string() == "5");
+}
+
 TEST_CASE("resolve_templated_params: int coercion") {
   std::vector<TemplatedParam> plan;
   plan.push_back(TemplatedParam{"k", "int64", "n"});
