@@ -14,6 +14,7 @@ import (
 func splitInput(input *types.OperatorInput, n int) ([]*types.OperatorInput, []int) {
 	total := input.ItemCount()
 	common := input.RawCommon()
+	templated := input.RawTemplated()
 
 	if n <= 1 || total == 0 {
 		return []*types.OperatorInput{input}, []int{0}
@@ -40,6 +41,7 @@ func splitInput(input *types.OperatorInput, n int) ([]*types.OperatorInput, []in
 				size++
 			}
 			parts[i] = types.NewLazyOperatorInput(common, frame, itemDefaults, itemFields, baseOffset+start, size)
+			parts[i].SetTemplatedParams(templated)
 			offsets[i] = start
 			start += size
 		}
@@ -54,6 +56,7 @@ func splitInput(input *types.OperatorInput, n int) ([]*types.OperatorInput, []in
 			shardItems := make([]map[string]any, size)
 			copy(shardItems, items[start:end])
 			parts[i] = types.NewOperatorInput(common, shardItems)
+			parts[i].SetTemplatedParams(templated)
 			offsets[i] = start
 			start = end
 		}

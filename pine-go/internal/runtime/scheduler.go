@@ -22,6 +22,10 @@ type CompiledOperator struct {
 	Name     string
 	Instance types.Operator
 	Config   config.OperatorConfig
+	// TemplatedPlan is the pre-computed list of {{field}}-bearing params
+	// resolved per-request before Execute (issue #74). Nil when the
+	// operator has no templated params.
+	TemplatedPlan []TemplatedParam
 }
 
 // Plan is the immutable execution plan compiled at NewEngine time.
@@ -128,6 +132,26 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 					cancel()
 				})
 				return
+			}
+
+			// Resolve templated params (issue #74) — runs once per request
+			// before any Execute branch. The resolved map is attached to
+			// the per-request OperatorInput, so data_parallel shards
+			// inherit it via splitInput rather than the operator instance
+			// holding cross-request mutable state.
+			if len(cop.TemplatedPlan) > 0 {
+				resolved, resolveErr := ResolveTemplatedParams(cop.Name, cop.TemplatedPlan, input)
+				if resolveErr != nil {
+					fatalOnce.Do(func() {
+						fatalErr = &types.ExecutionError{
+							Operator: cop.Name,
+							Err:      resolveErr,
+						}
+						cancel()
+					})
+					return
+				}
+				input.SetTemplatedParams(resolved)
 			}
 
 			// Capture input snapshot for debug operators

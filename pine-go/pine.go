@@ -176,10 +176,19 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		}
 		// Pre-compute InputFieldSpec for BuildInput.
 		opCfg.InputSpec = config.ComputeInputFieldSpec(opCfg.Meta, opCfg.CommonDefaults, opCfg.ItemDefaults, opCfg.StrictCommon, opCfg.StrictItem, opCfg.Skip)
+		// Issue #74: build the per-op {{field}}-interpolation plan. The
+		// resolved map is attached to OperatorInput per request, so any
+		// operator can read it via input.TemplatedParam — no opt-in
+		// interface required.
+		templatedPlan, err := runtime.BuildTemplatedParamPlan(name, schema, opCfg.RawParams)
+		if err != nil {
+			return nil, err
+		}
 		compiledOps[i] = &runtime.CompiledOperator{
-			Name:     name,
-			Instance: op,
-			Config:   opCfg,
+			Name:          name,
+			Instance:      op,
+			Config:        opCfg,
+			TemplatedPlan: templatedPlan,
 		}
 	}
 

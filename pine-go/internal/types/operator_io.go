@@ -24,6 +24,12 @@ type OperatorInput struct {
 
 	// Materialized mode field (nil in lazy mode)
 	items []map[string]any
+
+	// Resolved {{field}} interpolation map for this request (issue #74).
+	// Populated by the scheduler before Execute when the operator declared
+	// templated params; nil otherwise. Shards inherit the parent map by
+	// reference — safe because the map is treated read-only past resolution.
+	templated map[string]any
 }
 
 // NewOperatorInput creates a materialized OperatorInput. Intended for engine-internal use.
@@ -169,8 +175,32 @@ func (out *OperatorOutput) SetWarning(err error) {
 
 // --- Accessors for engine-internal use ---
 
-func (in *OperatorInput) RawCommon() map[string]any { return in.common }
+func (in *OperatorInput) RawCommon() map[string]any  { return in.common }
 func (in *OperatorInput) RawItems() []map[string]any { return in.items }
+
+// TemplatedParam returns the resolved + coerced value for a templated
+// param declared on this operator (issue #74). Returns (nil, false) when
+// the param was not templated. Read-only: the map is shared across
+// data_parallel shards.
+func (in *OperatorInput) TemplatedParam(name string) (any, bool) {
+	if in.templated == nil {
+		return nil, false
+	}
+	v, ok := in.templated[name]
+	return v, ok
+}
+
+// SetTemplatedParams installs the per-request resolved {{field}} map.
+// Engine-internal: invoked once by the scheduler after BuildInput and
+// before Execute (or before splitting for data_parallel). Shards reuse
+// this map by reference via splitInput.
+func (in *OperatorInput) SetTemplatedParams(resolved map[string]any) {
+	in.templated = resolved
+}
+
+// RawTemplated returns the underlying resolved map (engine-internal,
+// used by splitInput to propagate it to shards).
+func (in *OperatorInput) RawTemplated() map[string]any { return in.templated }
 
 // IsLazy returns true if this OperatorInput is in lazy (frame-backed) mode.
 func (in *OperatorInput) IsLazy() bool { return in.frame != nil }
@@ -187,7 +217,7 @@ func (in *OperatorInput) LazyItemDefaults() map[string]any { return in.itemDefau
 // LazyItemFields returns the item field names (nil if materialized).
 func (in *OperatorInput) LazyItemFields() []string { return in.itemFields }
 
-func (out *OperatorOutput) GetCommonWrites() map[string]any  { return out.commonWrites }
+func (out *OperatorOutput) GetCommonWrites() map[string]any   { return out.commonWrites }
 func (out *OperatorOutput) GetItemWrites() []ItemWrite        { return out.itemWrites }
 func (out *OperatorOutput) GetAddedItems() []map[string]any   { return out.addedItems }
 func (out *OperatorOutput) GetRemovedItems() map[int]struct{} { return out.removedItems }
