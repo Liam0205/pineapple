@@ -167,6 +167,25 @@ func TestResolveTemplatedParams_String(t *testing.T) {
 	}
 }
 
+// Pins the cross-runtime stringify contract: a float64-valued source
+// field bound to a string-typed templatable param must serialize via
+// fmt.Sprint (5.0 → "5"), not via Java's String.valueOf (5.0 → "5.0")
+// or Python's str (5.0 → "5.0"). Without this pin the Redis key would
+// diverge across runtimes whenever the template source is float-typed.
+func TestResolveTemplatedParams_FloatSourceStringTargetMatchesFmtSprint(t *testing.T) {
+	plan := []TemplatedParam{
+		{Name: "k", ScalarType: "string", Field: "x"},
+	}
+	got, err := ResolveTemplatedParams("op", plan,
+		resolveInput(map[string]any{"x": 5.0}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["k"] != "5" {
+		t.Errorf("got %q, want %q", got["k"], "5")
+	}
+}
+
 func TestResolveTemplatedParams_Int(t *testing.T) {
 	plan := []TemplatedParam{
 		{Name: "k", ScalarType: "int64", Field: "n"},
