@@ -253,6 +253,178 @@ print(case['expected_redis_key'])
   fi
 fi
 
+# --- Error-path probes: byte-exact stderr across Go/Java/C++ ---
+#
+# The runtime resolver wording is already pinned at the unit-test layer
+# (template_test.go / TemplateResolverTest.java / test_template.cpp).
+# These probes lock the end-to-end contract: ExecutionError / ConfigError
+# wrapping + scheduler path + pineapple-run CLI error surface must keep
+# all three runtimes byte-for-byte identical, otherwise a wrapping
+# refactor on one runtime can silently drift the user-facing error.
+#
+# Probe set:
+#   #1 runtime missing-field — declared template source absent from request
+#   #2 SKIPPED: int64 coerce-failure has no reachable end-to-end shape
+#      (only string-typed templatable param exists in the operator set;
+#      string coerce is identity). Wording pinned by unit tests.
+#   #3 build-time non-bare-marker — hand-edited literal-surrounded marker
+#
+# We capture stderr only; stdout differs trivially across runtimes on
+# failure paths (Go prints nothing; Java may print a trailing newline).
+# Trailing newlines are stripped before compare.
+
+probe_stderr() {
+  # Run a runtime and print its stderr, trimming trailing whitespace so
+  # diff(1) is byte-exact regardless of '\n' vs newline-suppressed.
+  # SLF4J no-op binder warnings are stripped — they're known boot noise
+  # that varies by classpath state, not a pine error contract.
+  local runtime="$1"; shift
+  local cfg="$1"; shift
+  local req="$1"; shift
+  case "$runtime" in
+    go)
+      "$WORK_DIR/pineapple-run" -config "$cfg" -request "$req" 2>&1 >/dev/null || true
+      ;;
+    java)
+      java_run page.liam.pine.RunCli -config "$cfg" -request "$req" 2>&1 >/dev/null | grep -v '^SLF4J:' || true
+      ;;
+    cpp)
+      "$CPP_RUN" -config "$cfg" -request "$req" 2>&1 >/dev/null || true
+      ;;
+  esac
+}
+
+probe_compare() {
+  local label="$1"
+  local expected="$2"
+  local go_out="$3"
+  local java_out="$4"
+  local cpp_out="${5:-}"
+  if [[ "$go_out" != "$expected" ]]; then
+    fail "templated error-path $label: Go drift"
+    printf '    expected: %q\n    got:      %q\n' "$expected" "$go_out" >&2
+    return
+  fi
+  if [[ "$java_out" != "$expected" ]]; then
+    fail "templated error-path $label: Java drift"
+    printf '    expected: %q\n    got:      %q\n' "$expected" "$java_out" >&2
+    return
+  fi
+  if [[ -n "${CPP_RUN:-}" && "$cpp_out" != "$expected" ]]; then
+    fail "templated error-path $label: C++ drift"
+    printf '    expected: %q\n    got:      %q\n' "$expected" "$cpp_out" >&2
+    return
+  fi
+  if [[ -n "${CPP_RUN:-}" ]]; then
+    pass "templated error-path $label byte-exact across Go/Java/C++"
+  else
+    pass "templated error-path $label byte-exact across Go/Java (C++ skipped)"
+  fi
+}
+
+# Probe #1: runtime missing-field.
+# Config declares tenant_id as template source; request omits it.
+# Engine builds fine, frame.common("tenant_id") is missing at execute,
+# resolver throws ExecutionError, CLI prints:
+#   execution error: pine: execution error in operator "get_cache":
+#     templated param "key_prefix" references common field "tenant_id" which is missing
+WORK_TPL3="$WORK_DIR/templated_params_missing"
+mkdir -p "$WORK_TPL3"
+CFG3="$WORK_TPL3/config.json"
+REQ3="$WORK_TPL3/request.json"
+python3 -c "
+import json
+cfg = {
+  'resource_config': {
+    'redis_conn': {'type': 'redis_connection', 'interval': -1,
+                   'params': {'addr': '127.0.0.1:$REDIS_PORT'}}
+  },
+  'pipeline_config': {
+    'operators': {
+      'get_cache': {
+        'type_name': 'transform_redis_get',
+        'resource_name': 'redis_conn',
+        'key_prefix': '{{tenant_id}}',
+        'fail_on_error': True,
+        '\$metadata': {
+          'common_input': ['uid'],
+          'common_input_template': ['tenant_id'],
+          'common_output': ['result', 'cache_hit'],
+          'item_input': [], 'item_output': []
+        }
+      }
+    }
+  },
+  'pipeline_group': {'main': {'pipeline': ['get_cache']}},
+  'flow_contract': {
+    'common_input': ['uid'], 'item_input': [],
+    'common_output': ['uid', 'result', 'cache_hit'], 'item_output': []
+  }
+}
+with open('$CFG3', 'w') as f: json.dump(cfg, f)
+with open('$REQ3', 'w') as f: json.dump({'common': {'uid': 'user1'}, 'items': []}, f)
+"
+
+EXP1='execution error: pine: execution error in operator "get_cache": templated param "key_prefix" references common field "tenant_id" which is missing'
+go1=$(probe_stderr go   "$CFG3" "$REQ3"); go1="${go1%$'\n'}"
+ja1=$(probe_stderr java "$CFG3" "$REQ3"); ja1="${ja1%$'\n'}"
+cp1=""
+if [[ -n "${CPP_RUN:-}" ]]; then
+  cp1=$(probe_stderr cpp "$CFG3" "$REQ3"); cp1="${cp1%$'\n'}"
+fi
+probe_compare "missing-field" "$EXP1" "$go1" "$ja1" "$cp1"
+
+# Probe #3: build-time non-bare-marker.
+# Hand-edited `tenant:{{tenant_id}}` violates the L0 contract; engine
+# build rejects via ConfigError. No Redis touched. CLI prints:
+#   error creating engine: pine: config error: operator "get_cache":
+#     param "key_prefix" value "tenant:{{tenant_id}}" must be a bare {{field}} marker
+WORK_TPL4="$WORK_DIR/templated_params_nonbare"
+mkdir -p "$WORK_TPL4"
+CFG4="$WORK_TPL4/config.json"
+REQ4="$WORK_TPL4/request.json"
+python3 -c "
+import json
+cfg = {
+  'resource_config': {
+    'redis_conn': {'type': 'redis_connection', 'interval': -1,
+                   'params': {'addr': '127.0.0.1:$REDIS_PORT'}}
+  },
+  'pipeline_config': {
+    'operators': {
+      'get_cache': {
+        'type_name': 'transform_redis_get',
+        'resource_name': 'redis_conn',
+        'key_prefix': 'tenant:{{tenant_id}}',
+        'fail_on_error': True,
+        '\$metadata': {
+          'common_input': ['uid'],
+          'common_input_template': ['tenant_id'],
+          'common_output': ['result', 'cache_hit'],
+          'item_input': [], 'item_output': []
+        }
+      }
+    }
+  },
+  'pipeline_group': {'main': {'pipeline': ['get_cache']}},
+  'flow_contract': {
+    'common_input': ['tenant_id', 'uid'], 'item_input': [],
+    'common_output': ['tenant_id', 'uid', 'result', 'cache_hit'], 'item_output': []
+  }
+}
+with open('$CFG4', 'w') as f: json.dump(cfg, f)
+with open('$REQ4', 'w') as f: json.dump({'common': {'tenant_id': 'acme', 'uid': 'user1'}, 'items': []}, f)
+"
+
+EXP3='error creating engine: pine: config error: operator "get_cache": param "key_prefix" value "tenant:{{tenant_id}}" must be a bare {{field}} marker'
+go3=$(probe_stderr go   "$CFG4" "$REQ4"); go3="${go3%$'\n'}"
+ja3=$(probe_stderr java "$CFG4" "$REQ4"); ja3="${ja3%$'\n'}"
+cp3=""
+if [[ -n "${CPP_RUN:-}" ]]; then
+  cp3=$(probe_stderr cpp "$CFG4" "$REQ4"); cp3="${cp3%$'\n'}"
+fi
+probe_compare "non-bare-marker" "$EXP3" "$go3" "$ja3" "$cp3"
+
 redis-cli -p $REDIS_PORT SHUTDOWN NOSAVE >/dev/null 2>&1 || true
 
 if [[ $tpl_total -gt 0 && $tpl_pass -eq $tpl_total ]]; then
