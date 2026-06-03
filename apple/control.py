@@ -5,9 +5,10 @@ operators + skip fields, per design_doc/06_json_config.md.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
+from apple._template_syntax import TEMPLATE_PATTERN as _TEMPLATE_PATTERN
+from apple._template_syntax import extract_fields as _extract_fields
 from apple.base import OpCall
 
 
@@ -28,20 +29,19 @@ class ControlBranch:
     ctrl_index: int  # global control op counter
 
 
-# NOTE: extract_fields / _strip_template here duplicate the {{field}} syntax
-# implemented by apple/template.py for operator-param interpolation (issue #74).
-# Kept separate for now because the if_/elseif_ path emits Lua and bakes the
-# field reference into the condition AST, while the param path is a pure
-# pre-Execute value substitution. Unification tracked in issue #76.
+# `{{field}}` syntax primitives are shared with apple/template.py via
+# apple/_template_syntax (issue #76). The control path keeps its own thin
+# wrappers because the downstream contracts differ: control emits Lua and
+# bakes field refs into the condition AST, while the param path is a pure
+# pre-Execute value substitution.
 def extract_fields(condition: str) -> list[str]:
     """Extract field names from ``{{field}}`` template markers in a condition."""
-    fields = re.findall(r"\{\{(\w+)\}\}", condition)
-    return list(dict.fromkeys(fields))
+    return _extract_fields(condition)
 
 
 def _strip_template(condition: str) -> str:
     """Replace ``{{field}}`` markers with bare field names for Lua emission."""
-    return re.sub(r"\{\{(\w+)\}\}", r"\1", condition)
+    return _TEMPLATE_PATTERN.sub(r"\1", condition)
 
 
 def make_control_op(
