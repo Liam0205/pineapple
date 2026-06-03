@@ -175,6 +175,49 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_duplicate_injection` 钉住 legacy 路径不被破坏；三引擎 cross-validate Section 05 通过统一错误文案钉住 "any of two" 校验契约。
 
+### 模板参数 `{{field}}` 插值（issue #74）
+
+算子参数支持 **`{{field}}` 运行时插值**：被算子 Schema 标记为 `Templatable` 的 string 参数，可以在 DSL 端写成裸的 `{{field}}` 标记，运行时按请求 frame 中该字段当时的值替换为实际字符串。这把"按用户/租户拼接 Redis key 前缀"这类典型需求从"用 Lua transform 临时拼字符串再喂下游"前移到了 Schema 层。
+
+#### 流水线侧契约
+
+- **L0 校验**：被 `Templatable=true` 的参数若包含模板标记，**整个值必须正好等于** `^\{\{(\w+)\}\}$`。`apple/validator.py::validate_templated_params` 在 compile 阶段 fail-fast 拒绝 `"tenant:{{tenant_id}}"`、`"{{a}}_{{b}}"` 这类"片段嵌入"形态，也拒绝嵌套在 list / dict 值里的 `{{...}}` marker（参见 `_find_nested_template_marker`；嵌套场景必须改走 `transform_by_lua` 显式构造）。
+- **元数据自动注入**：`apple/compiler.py::compile_op_params` 把 `{{field}}` 中的字段名追加到 `common_input_template` 桶（参见上文 Skip 字段三桶兼容矩阵）。Skip 字段三桶保证模板字段不会污染算子 `OperatorInput`，但 DAG 排序仍把它视作上游依赖。
+- **`{{field}}` 字段引用 helper**：`apple/control.py` 的 `extract_fields` / `_strip_template` 与 `apple/template.py` 服务于不同发射目标（Lua 表达式 vs. 字符串参数插值），目前刻意保持独立实现，统一计划记录在 issue #76 的 in-code TODO。
+
+#### 算子 Schema 侧契约
+
+参数 Schema 通过 `Templatable` / `templatable` 标记选 opt-in：
+
+- Go: `pine-go/internal/types/operator.go::ParamSpec.Templatable bool`
+- Java: `page.liam.pine.ParamSpec` 的 `templatable` 字段
+- C++: `pine::ParamSchema.templatable`
+
+`Templatable=true` 的参数必须是 `type: "string"`；其他类型现阶段不支持模板（如有需求需要先扩展 `BuildTemplatedParamPlan` / `build_templated_param_plan` 的类型断言策略）。
+
+#### 三引擎运行时契约
+
+- **Build-time（plan 构建）**：各运行时在引擎构造时通过 `BuildTemplatedParamPlan` / `build_templated_param_plan` / `BuildTemplatedParamPlan` 把 `{{field}}` 解析为 `(operator, param, field)` 三元组并缓存到 `TemplatedPlans`，便于运行时按算子名直接查表。任何形状违规（非 bare marker、非 string 参数、字段未在 common frame 中可见等）都在此阶段抛 `ConfigError`，字节级前缀 `pine: config error: ...` 与跨运行时其他 ConfigError 一致。
+- **Runtime（请求级）**：每次 `Engine.Execute` 时，`ResolveTemplatedParams` / `resolve_templated_params` / `TemplateResolver.resolve` 从该请求 common frame 读取字段并经 GoFormat 跨运行字符串化（见下文），把结果暂存为 `OperatorInput.templated_param("name")`。算子 `Execute` 中只需读取 `input.templated_param("key_prefix")` 而不必感知是否模板化。
+- **Error 字节级对等**：解析阶段任何错误（字段缺失、值无法 coerce 到 string）必须包装为 `ExecutionError(op.name, inner)`，最终 CLI/HTTP 边界呈现为 `pine: execution error in operator "X": <inner>`。pine-cpp 在 `parallel_execute` 入口对 `resolve_templated_params` 抛出物做 try/catch + `ExecutionError(op.name, inner)` re-wrap；pine-go 在 `BuildTemplatedParamPlan` 上抛出 `ConfigError` 修复了 `pine: config error:` 前缀漂移。
+
+#### 跨运行时 stringify 契约
+
+模板字段值被替换进字符串参数时，必须经过各运行时**等价的 Go `fmt.Sprint` 实现**：
+
+- pine-go: `fmt.Sprint(v)`
+- pine-java: `GoFormat.sprint(v)`（含 Java 模板路径——`TemplateResolver` 直接走 `GoFormat.sprint`，避免历史上 float 走 `Double.toString` 产生 `12.5` vs `12.500000` 漂移）
+- pine-cpp: `go_format_g(v)` / `GoFormat::sprint(v)`
+
+cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 probe 钉住契约（详细 case 见脚本本身）：
+
+- L0 fixture：bare-marker / non-bare-marker 配置三引擎 byte-exact
+- float-source stringify parity probe（修 H1 时新增）
+- 运行时 missing-field stderr probe（M1）
+- build-time non-bare-marker stderr probe（M1）
+
+> **当前可模板化算子清单**：`transform_redis_get.key_prefix`。新增可模板化参数时，请同步更新 Apple 校验测试和 cross-validate section 17 的 probe 集合，并优先复用 `is_string()` defense-in-depth 注释（参见 `transform_redis_get` 三引擎"unreachable"注释——type plan 已在 build 阶段拒绝非 string，运行时类型断言只是兜底）。
+
 ### 嵌套控制流与 `inherited_skips`
 
 当编译器递归遍历 Flow/SubFlow 结构树时，`apple/compiler.py` 会沿 traversal 显式传递一份 `inherited_skips` 列表，用来承接当前节点所处的所有外层控制分支守卫。

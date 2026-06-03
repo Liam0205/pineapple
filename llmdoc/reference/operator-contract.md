@@ -535,6 +535,24 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 
 新增算子若对用户值做字符串转换，且该结果参与跨运行时比较（Redis key、fixture 断言），应使用 GoFormat。
 
+模板参数（`ParamSpec.Templatable`，参见 [apple-compiler.md 模板参数 `{{field}}` 插值](../architecture/apple-compiler.md)）的运行时插值同样走 GoFormat：pine-go `fmt.Sprint(v)`、pine-java `GoFormat.sprint(v)`（**模板路径必须显式走 sprint，不要落回 `Double.toString()`**——历史上 float 字段直接走 `Double.toString` 会产生 `12.5` vs `12.500000` 跨运行时漂移）、pine-cpp `go_format_g(v)`。当前已声明为 `Templatable=true` 的参数仅有 `transform_redis_get.key_prefix`；新增可模板化参数时，需要同步在 cross-validate `scripts/cross-validate/17-templated-params.sh` 加 stringify parity probe。
+
+## 参数模板化（`Templatable` / `templatable`）
+
+算子 Schema 可在参数级别选 opt-in `{{field}}` 运行时插值能力。各运行时入口：
+
+- Go: `pine-go/internal/types/operator.go::ParamSpec.Templatable bool`
+- Java: `page.liam.pine.ParamSpec.templatable`
+- C++: `pine::ParamSchema.templatable`
+
+约束（与 [apple-compiler.md 模板参数 `{{field}}` 插值](../architecture/apple-compiler.md) 的契约相同，从算子作者视角概括）：
+
+- 参数必须 `Type = "string"`；其他类型现阶段不支持
+- DSL 端整值必须正好等于 `^\{\{(\w+)\}\}$`，违规在 Apple 编译期 fail-fast
+- 模板字段名会被 Apple 编译器自动追加到 `common_input_template` 桶，不进入算子 `OperatorInput`
+- Build-time 形状违规 → `ConfigError`；runtime 解析失败 → `ExecutionError` 由引擎包装算子名
+- 算子 `Execute` 中通过 `input.templated_param("param_name")` 读取已解析值；返回 string；若 build plan 未命中该参数（未声明 Templatable / DSL 未写模板），返回默认空值或非 string —— 作者应保留 `is_string()` 类型断言作为 defense-in-depth（参见 `transform_redis_get` 三引擎 `unreachable` 注释）
+
 ## 常见陷阱
 
 - 忘记参数描述导致注册 panic。

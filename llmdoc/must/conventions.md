@@ -244,3 +244,14 @@ Apple DSL 侧通过 `_add_op` 或动态分发的 `strict_common=["field"]` / `st
 **Section 5 (error-parity) 不强制 enforce type 字段**(只用 `message_contains` 子串匹配),所以历史上各运行时分类略有 ad-hoc。本约定的目的是给未来贡献者一个边界判断标准,避免再扩大漂移。reviewer P1-O1 审计现状大致已符合此分类(C++/Java 都把 init-time wrap 走 RegistryError,跟 Go `BuildOperator` 一致;ValidationError 用于明确"语义不变量")。
 
 边角案例 — `additive_writes_row_set + mutates_row_set` 冲突:Go 端原是 `fmt.Errorf` plain error;C++/Java 当前用 RegistryError。后续如需统一,选 ValidationError(语义边界冲突)。
+
+## 模板参数 `{{field}}` 错误前缀字节级对等（issue #74）
+
+`ParamSpec.Templatable`（详见 [apple-compiler.md](../architecture/apple-compiler.md) 与 [operator-contract.md](../reference/operator-contract.md)）的模板解析在 build / runtime 两阶段产出的错误，三引擎前缀与文案必须**字节级一致**（CLI stderr 与 `/execute` HTTP 错误对等）：
+
+- **Build-time（template plan 构建）**：非 bare marker、参数非 string、字段未在 common frame 中可见等形状违规 → `ConfigError`，前缀 `pine: config error: operator "X": param "Y" value "Z" must be a bare {{field}} marker`（或对应文案）。pine-go 此前 `BuildTemplatedParamPlan` 漏包装 `&types.ConfigError{}`，运行 CLI 时呈现为 `error creating engine: operator "X": ...` 缺前缀，已修复对齐 C++/Java。
+- **Runtime（请求级 resolver）**：模板字段缺失、字段值无法 coerce 到 string → `ExecutionError`，前缀 `pine: execution error in operator "X": <inner>`。pine-cpp 此前 `parallel_execute` 在 `resolve_templated_params` 抛出后未做 op-name re-wrap，已修复为 `try { ... } catch (const ExecutionError& e) { throw ExecutionError(op.name, e.inner()); }`。
+
+cross-validate `scripts/cross-validate/17-templated-params.sh` 通过 stderr byte-exact probe 钉死本契约。新增 `Templatable=true` 参数或修改模板解析路径时，请在该 section 增加对应 probe。
+
+Java 侧 probe 注意：SLF4J no-op binder 会向 stderr 写若干提示行（`SLF4J: ...`），probe 脚本对 Java case 使用 `grep -v '^SLF4J:'` 过滤后再做 byte-exact 比对。
