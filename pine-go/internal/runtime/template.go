@@ -98,19 +98,22 @@ func BuildTemplatedParamPlan(
 		if !ok {
 			// Apple validator already rejects unknown params; runtime
 			// reaching this branch implies a hand-edited config.
-			return nil, fmt.Errorf(
+			// Wrap as ConfigError so the CLI surface carries the
+			// `pine: config error:` prefix byte-for-byte with pine-cpp
+			// and pine-java (cross-runtime error wording is contract).
+			return nil, &types.ConfigError{Message: fmt.Sprintf(
 				"operator %q: param %q is not declared in schema",
-				opName, paramName)
+				opName, paramName)}
 		}
 		if !spec.Templatable {
-			return nil, fmt.Errorf(
+			return nil, &types.ConfigError{Message: fmt.Sprintf(
 				"operator %q: param %q is not declared templatable in schema",
-				opName, paramName)
+				opName, paramName)}
 		}
 		if _, ok := templatableScalarTypes[spec.Type]; !ok {
-			return nil, fmt.Errorf(
+			return nil, &types.ConfigError{Message: fmt.Sprintf(
 				"operator %q: param %q has declared type %q which does not support templating",
-				opName, paramName, spec.Type)
+				opName, paramName, spec.Type)}
 		}
 		tmpl := raw.(string)
 		field, ok := extractBareField(tmpl)
@@ -118,9 +121,9 @@ func BuildTemplatedParamPlan(
 			// L0 contract violation. Apple validator already rejects
 			// this at compile time; we re-check at engine init in case
 			// of hand-edited JSON or an older codegen still in flight.
-			return nil, fmt.Errorf(
+			return nil, &types.ConfigError{Message: fmt.Sprintf(
 				"operator %q: param %q value %q must be a bare {{field}} marker",
-				opName, paramName, tmpl)
+				opName, paramName, tmpl)}
 		}
 		plan = append(plan, TemplatedParam{
 			Name:       paramName,
