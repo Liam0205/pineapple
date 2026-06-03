@@ -167,7 +167,7 @@ class {{camelCase $schema.Name}}Op(BaseOp):
     """Operator: {{$schema.Name}}"""
     _name = "{{$schema.Name}}"
     _params_schema = { {{- range $k := sortedParams $schema.Params}}{{with $v := index $schema.Params $k}}
-        "{{$k}}": {"type": "{{$v.Type}}", "required": {{if $v.Required}}True{{else}}False{{end}}{{if hasDefault $v.Default}}, "default": {{pythonLiteral $v.Default}}{{end}}},
+        "{{$k}}": {"type": "{{$v.Type}}", "required": {{if $v.Required}}True{{else}}False{{end}}{{if hasDefault $v.Default}}, "default": {{pythonLiteral $v.Default}}{{end}}{{if $v.Templatable}}, "templatable": True{{end}}},
     {{- end}}{{end}}
     }
 

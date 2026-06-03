@@ -239,6 +239,14 @@ type ParamSpec struct {
 	Required    bool
 	Default     any
 	Description string // Human-readable description (required by Register).
+	// Templatable opts this param into per-request {{field}} interpolation
+	// (issue #74). When true the Apple compiler accepts a templated string
+	// value for this param and auto-injects the referenced common fields
+	// into the operator's common_input; the engine resolves and coerces the
+	// value, attaches the map to OperatorInput, and operators read it via
+	// input.TemplatedParam(name). Only string / int64 / float64 / bool
+	// scalars are supported.
+	Templatable bool
 }
 
 // OperatorSchema describes an operator type for registration and validation.
