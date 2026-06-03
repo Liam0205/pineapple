@@ -342,6 +342,32 @@ def _lookup_params_schema(type_name: str) -> dict[str, dict] | None:
     return None
 
 
+def _find_nested_template_marker(value, _path=""):
+    """Walk a value graph and return the first nested ``{{...}}`` marker found.
+
+    Returns ``(path_str, marker_value)`` for the first nested marker, or
+    ``None`` if no nested marker exists. Top-level strings (empty path) are
+    NOT reported — those go through the canonical ``is_templated`` path.
+
+    "Nested" means: inside a dict's value or a list element. The runtime
+    only scans top-level params, so any deeper marker is silently dropped
+    as a literal — that's the surprise this guard catches.
+    """
+    if isinstance(value, dict):
+        for k, v in value.items():
+            sub = _find_nested_template_marker(v, f"{_path}[{k!r}]")
+            if sub is not None:
+                return sub
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            sub = _find_nested_template_marker(v, f"{_path}[{i}]")
+            if sub is not None:
+                return sub
+    elif isinstance(value, str) and _path and is_templated(value):
+        return (_path, value)
+    return None
+
+
 def validate_templated_params(ops: list[tuple[str, OpCall]]) -> None:
     """Ensure ``{{field}}`` markers target params that opted into templating.
 
@@ -350,10 +376,30 @@ def validate_templated_params(ops: list[tuple[str, OpCall]]) -> None:
     declared type is a templatable scalar (string / int / int64 / float /
     float64 / bool). Raises :class:`ValidationError` on any violation.
 
+    Also fail-fast on ``{{...}}`` markers buried in nested dict/list values:
+    the runtime's BuildTemplatedParamPlan only scans top-level params, so a
+    nested marker like ``items=[{"k": "{{user_id}}"}]`` would silently be
+    passed through as the literal string ``"{{user_id}}"`` to the operator.
+    The three runtimes happen to behave identically here (all top-level only),
+    so this isn't a parity divergence — but it surprises the user, so flag
+    it at compile time.
+
     Silently skips when ``apple_generated`` is not importable so that pre-
     codegen development workflows still succeed.
     """
     for name, op in ops:
+        for param_name, value in op.params.items():
+            nested = _find_nested_template_marker(value)
+            if nested is not None:
+                nested_path, marker = nested
+                raise ValidationError(
+                    f"{_op_location(name, op)}param {param_name!r} contains "
+                    f"a nested ``{{{{field}}}}`` marker at {nested_path} "
+                    f"(value {marker!r}); template interpolation only scans "
+                    f"top-level scalar params — compose the value upstream "
+                    f"(e.g. transform_by_lua) and pass the result as a "
+                    f"top-level bare ``{{{{field}}}}`` marker"
+                )
         templated_in_op = {
             k: v for k, v in op.params.items() if is_templated(v)
         }

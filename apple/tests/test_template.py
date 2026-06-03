@@ -235,3 +235,42 @@ class TestValidateTemplatedParams:
             op = _FakeOp("op_a", {"k": bad})
             with pytest.raises(ValidationError, match="not a bare"):
                 validate_templated_params([("a", op)])
+
+    def test_nested_marker_in_list_rejected(self, monkeypatch):
+        """Marker buried in a list element is rejected fail-fast.
+
+        Runtime BuildTemplatedParamPlan only scans top-level params, so a
+        nested marker would silently pass as a literal string to the
+        operator. Catch it at compile time.
+        """
+        _patch_schema_lookup(monkeypatch, {
+            "op_a": {"items": {"type": "string_list", "templatable": False}},
+        })
+        op = _FakeOp("op_a", {"items": ["plain", "{{user_id}}", "other"]})
+        with pytest.raises(ValidationError, match="nested.*marker"):
+            validate_templated_params([("a", op)])
+
+    def test_nested_marker_in_dict_rejected(self, monkeypatch):
+        _patch_schema_lookup(monkeypatch, {
+            "op_a": {"cfg": {"type": "object", "templatable": False}},
+        })
+        op = _FakeOp("op_a", {"cfg": {"key": "{{tenant_id}}"}})
+        with pytest.raises(ValidationError, match="nested.*marker"):
+            validate_templated_params([("a", op)])
+
+    def test_nested_marker_in_list_of_dicts_rejected(self, monkeypatch):
+        _patch_schema_lookup(monkeypatch, {
+            "op_a": {"items": {"type": "object_list", "templatable": False}},
+        })
+        op = _FakeOp("op_a", {"items": [{"k": "{{user_id}}"}]})
+        with pytest.raises(ValidationError, match="nested.*marker"):
+            validate_templated_params([("a", op)])
+
+    def test_top_level_marker_not_flagged_as_nested(self, monkeypatch):
+        """Top-level markers must go through the canonical path, not the
+        nested guard — otherwise the error message would mislead."""
+        _patch_schema_lookup(monkeypatch, {
+            "op_a": {"k": {"type": "string", "templatable": True}},
+        })
+        op = _FakeOp("op_a", {"k": "{{x}}"})
+        validate_templated_params([("a", op)])  # no raise
