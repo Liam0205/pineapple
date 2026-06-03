@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from apple._template_syntax import TEMPLATE_PATTERN as _TEMPLATE_PATTERN
-from apple._template_syntax import extract_fields as _extract_fields
+from apple._template_syntax import TEMPLATE_PATTERN, extract_fields
 from apple.base import OpCall
 
 
@@ -30,18 +29,12 @@ class ControlBranch:
 
 
 # `{{field}}` syntax primitives are shared with apple/template.py via
-# apple/_template_syntax (issue #76). The control path keeps its own thin
-# wrappers because the downstream contracts differ: control emits Lua and
-# bakes field refs into the condition AST, while the param path is a pure
-# pre-Execute value substitution.
-def extract_fields(condition: str) -> list[str]:
-    """Extract field names from ``{{field}}`` template markers in a condition."""
-    return _extract_fields(condition)
-
-
+# apple/_template_syntax (issue #76). `extract_fields` is re-exported as-is
+# so `from apple.control import extract_fields` callers keep working;
+# `_strip_template` stays here because Lua emission is control-only.
 def _strip_template(condition: str) -> str:
     """Replace ``{{field}}`` markers with bare field names for Lua emission."""
-    return _TEMPLATE_PATTERN.sub(r"\1", condition)
+    return TEMPLATE_PATTERN.sub(r"\1", condition)
 
 
 def make_control_op(
