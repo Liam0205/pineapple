@@ -52,6 +52,12 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
     // before execute; otherwise the raw init-time string is used.
     std::string prefix = key_prefix_;
     Variant resolved = input.templated_param("key_prefix");
+    // The is_string() check is unreachable: build_templated_param_plan
+    // rejects any non-string declared type for key_prefix, and
+    // resolve_templated_params normalizes through go_format_g for
+    // string-typed params. Kept as defense in depth — a missed type
+    // would otherwise surface as the init-time string with literal
+    // {{field}} marker.
     if (resolved.is_string()) {
       prefix = resolved.as_string();
     }
