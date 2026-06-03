@@ -159,7 +159,9 @@ var funcMap = template.FuncMap{
 
 const operatorClassTemplate = `# auto-generated from pine operator schema — DO NOT EDIT
 from __future__ import annotations
+
 from typing import Any
+
 from apple.base import BaseOp
 
 {{range $schema := .}}
@@ -339,7 +341,9 @@ const operatorIndexTemplate = `# Operator Reference
 
 const resourceClassTemplate = `# auto-generated from pine resource schema — DO NOT EDIT
 from __future__ import annotations
+
 from typing import Any
+
 from apple.resource import BaseResource
 
 {{range $schema := .}}
