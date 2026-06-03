@@ -63,6 +63,12 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         // is used.
         String prefix = keyPrefix;
         Object resolved = input.templatedParam("key_prefix");
+        // The String type check is unreachable: BuildTemplatedParamPlan
+        // rejects any non-string declared type for key_prefix, and
+        // TemplateResolver normalizes through GoFormat.sprint for
+        // string-typed params. Kept as defense in depth — a missed cast
+        // would otherwise surface as the init-time string with literal
+        // {{field}} marker.
         if (resolved instanceof String) {
             prefix = (String) resolved;
         }
