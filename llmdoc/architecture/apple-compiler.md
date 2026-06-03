@@ -37,8 +37,11 @@ Apple 是 Pineapple 的声明侧。它不执行流水线。它的职责是：
 
 `SubFlow.__init__` 接受可选的契约声明参数：`common_input`、`common_output`、`item_input`、`item_output` 和 `required_resources`。这些声明不参与运行时（SubFlow 不是独立的执行单元），而是在 `compile()` 阶段供校验器使用：
 
-- `required_resources`：`compile()` 校验 SubFlow 内引用的 `resource_name` 必须在此列表中声明
-- `common_input` / `common_output` / `item_input` / `item_output`：为 SubFlow 声明输入输出契约，供未来校验扩展使用
+- `required_resources`：`compile()` 校验 SubFlow 内引用的 `resource_name` 必须在此列表中声明（issue #37）
+- `common_input` / `item_input`：当 SubFlow 声明输入契约时，编译器以该契约（而非顶层 Flow 契约）作为 seed，对该 SubFlow 子树内每个内部算子执行字段覆盖校验——每个 read 必须来自 SubFlow 契约或同子树内更早算子的输出，否则 fail-fast（issue #78）。三个 `common_input` 桶（`common_input` / `common_input_skip` / `common_input_template`，参见 [Skip 字段三桶兼容矩阵](#步骤-1-编排校验)）会被合并参与该校验，与 flow-level `validate_field_coverage` 对齐
+- `common_output` / `item_output`：当 SubFlow 声明输出契约时，编译器对该 SubFlow 子树执行死代码检测，scope 收窄到"SubFlow 内部消费 + SubFlow 输出契约"——内部算子的输出若既未被同子树后续算子消费、又未出现在 SubFlow 输出契约中，则视为该 SubFlow scope 下的死代码并报错。豁免规则（recall / 控制 / 无输出 observe）与 flow-level `detect_dead_code` 完全一致
+
+**契约继承语义**：嵌套 SubFlow 若未声明自身的四类字段契约，则继承外层 SubFlow（或顶层 Flow）已声明的对应契约——也就是说外层契约对整个子树有约束力。`Flow.skip_dead_code=True` 同时绕过 flow-level 与 SubFlow-level 的死代码检测，行为对齐。**back-compat**：完全未声明 `common_input` / `common_output` / `item_input` / `item_output` 任一项的 SubFlow 不受 issue #78 校验影响，行为与改造前一致。
 
 两者继承 `_FlowBase`。`_FlowBase` 现在同时维护：
 
@@ -442,6 +445,18 @@ Apple 仍输出单个名为 `main` 的 group，但 `pipeline_group.main.pipeline
 ### 步骤 8：校验资源引用
 
 核心算子校验之后，`_validate_resource_refs` 扫描业务参数中的 `resource_name`，检查每个名称是否匹配已声明的 `flow.resource(...)` 条目。
+
+### 步骤 8b：校验 SubFlow 契约
+
+`_validate_subflow_contracts` 递归遍历 Flow 树，对每个声明了字段或资源契约的 SubFlow 节点执行：
+
+1. **资源契约**（issue #37）：SubFlow 的 `required_resources` 中每项必须出现在顶层 `Flow.resource(...)` 声明中
+2. **输入字段契约**（issue #78）：当 SubFlow 声明 `common_input` 或 `item_input` 时，调用 `validate_subflow_field_coverage` 对该 SubFlow 子树跑一遍字段覆盖校验，seed 改成 SubFlow 自己的契约而非顶层 Flow
+3. **输出字段契约**（issue #78）：当 SubFlow 声明 `common_output` 或 `item_output` 时，调用 `detect_subflow_dead_code` 对该子树做死代码检测，终止边界为 SubFlow 声明的输出契约（SubFlow 外部消费不算）；`Flow.skip_dead_code=True` 同时绕过该检测
+
+子树范围由 `_sf_subtree_ops(sf_path, named_ops)` 计算：匹配 `OpCall.subflow_path == sf_path` 或以 `sf_path + "/"` 开头的所有算子，从而把"未声明自身契约的嵌套 SubFlow"自动并入外层 scope，实现契约继承。
+
+未声明任何四类字段契约的 SubFlow 在该步骤跳过字段校验，与旧 caller 行为保持后向兼容（仅资源契约会按 issue #37 检查）。
 
 ### 步骤 9：组装根元数据
 
