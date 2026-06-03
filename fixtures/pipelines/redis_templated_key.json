@@ -1,0 +1,49 @@
+{
+  "name": "redis templated key_prefix parity (GET-only)",
+  "requires": ["redis"],
+  "notes": "Pre-populated by the harness via 'redis-cli SET acmeuser1 hello_templated'. Exercises bare {{tenant_id}} binding on transform_redis_get.key_prefix — L0 contract: the templated value is exactly one marker, no literal text. Composition (e.g. adding 'tenant:' prefix or ':' separator) is delegated to an upstream operator like transform_by_lua.",
+  "config": {
+    "resource_config": {
+      "redis_conn": {
+        "type": "redis_connection",
+        "interval": -1,
+        "params": {"addr": "PLACEHOLDER"}
+      }
+    },
+    "pipeline_config": {
+      "operators": {
+        "get_cache": {
+          "type_name": "transform_redis_get",
+          "resource_name": "redis_conn",
+          "key_prefix": "{{tenant_id}}",
+          "fail_on_error": true,
+          "$metadata": {
+            "common_input": ["uid"],
+            "common_input_template": ["tenant_id"],
+            "common_output": ["result", "cache_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["get_cache"]}
+    },
+    "flow_contract": {
+      "common_input": ["tenant_id", "uid"],
+      "item_input": [],
+      "common_output": ["tenant_id", "uid", "result", "cache_hit"],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "templated key_prefix get",
+      "prepopulate": [["SET", "acmeuser1", "hello_templated"]],
+      "request": {"common": {"tenant_id": "acme", "uid": "user1"}, "items": []},
+      "expected": {"common": {"tenant_id": "acme", "uid": "user1", "result": "hello_templated", "cache_hit": true}, "items": []},
+      "expected_redis_key": "acmeuser1"
+    }
+  ]
+}
