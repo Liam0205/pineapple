@@ -31,7 +31,7 @@
   "expected_error": {
     "type": "ConfigError",
     "message_contains": "must also appear in $metadata.common_input",
-    "wrapping_exact": "pine: config error: operator \"filter_op\": skip field \"_should_skip\" must also appear in $metadata.common_input to ensure correct DAG ordering",
+    "wrapping_exact": "pine: config error: operator \"filter_op\": skip field \"_should_skip\" must also appear in $metadata.common_input or $metadata.common_input_skip to ensure correct DAG ordering",
     "wrapping_exact_engines": ["go", "java", "cpp"]
   }
 }
