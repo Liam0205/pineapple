@@ -18,9 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from apple._template_syntax import (
-    TEMPLATE_PATTERN as _TEMPLATE_PATTERN,
-)
-from apple._template_syntax import (
+    TEMPLATE_PATTERN,
     extract_fields,
     is_bare_template,
 )
@@ -35,7 +33,7 @@ __all__ = [
 
 def is_templated(value: Any) -> bool:
     """Return True iff ``value`` is a string containing at least one ``{{field}}`` marker."""
-    return isinstance(value, str) and bool(_TEMPLATE_PATTERN.search(value))
+    return isinstance(value, str) and bool(TEMPLATE_PATTERN.search(value))
 
 
 def extract_fields_from_params(params: dict[str, Any]) -> list[str]:
