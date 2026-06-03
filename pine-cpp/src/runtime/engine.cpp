@@ -878,13 +878,14 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
         trace.input_snapshot = snapshot_input(frame, op);
         trace.has_input_snapshot = true;
       }
-      parallel_execute(frame, op, operators, out, input_specs.at(op.name),
-                       templated_plans ? [&]() -> const Engine::TemplatedPlans::Entry* {
-                         auto it = templated_plans->by_op.find(op.name);
-                         return it == templated_plans->by_op.end() ? nullptr : &it->second;
-                       }()
-                                       : nullptr,
-                       shard_pool, central);
+      const Engine::TemplatedPlans::Entry* tpl_entry = nullptr;
+      if (templated_plans) {
+        auto it = templated_plans->by_op.find(op.name);
+        if (it != templated_plans->by_op.end()) {
+          tpl_entry = &it->second;
+        }
+      }
+      parallel_execute(frame, op, operators, out, input_specs.at(op.name), tpl_entry, shard_pool, central);
       if (collect_traces && op.debug.value_or(false)) {
         trace.output_snapshot = snapshot_output(out);
         trace.has_output_snapshot = true;
