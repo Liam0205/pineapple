@@ -181,7 +181,9 @@ std::vector<pine::OperatorEntry> all_operator_entries() {
 void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry>& entries) {
   out << "# auto-generated from pine operator schema \xe2\x80\x94 DO NOT EDIT\n";
   out << "from __future__ import annotations\n";
+  out << "\n";
   out << "from typing import Any\n";
+  out << "\n";
   out << "from apple.base import BaseOp\n";
   out << "\n";
 
@@ -318,7 +320,9 @@ void write_markers_py(std::ostream& out, const std::vector<pine::OperatorEntry>&
 void write_resources_py(std::ostream& out, const std::vector<pine::resource::ResourceSchema>& schemas) {
   out << "# auto-generated from pine resource schema \xe2\x80\x94 DO NOT EDIT\n";
   out << "from __future__ import annotations\n";
+  out << "\n";
   out << "from typing import Any\n";
+  out << "\n";
   out << "from apple.resource import BaseResource\n";
   out << "\n";
 
