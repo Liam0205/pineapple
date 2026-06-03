@@ -1,6 +1,8 @@
 # auto-generated from pine operator schema — DO NOT EDIT
 from __future__ import annotations
+
 from typing import Any
+
 from apple.base import BaseOp
 
 
@@ -635,7 +637,7 @@ class TransformRedisGetOp(BaseOp):
     _params_schema = {
         "data_type": {"type": "string", "required": False, "default": "string"},
         "fail_on_error": {"type": "bool", "required": False, "default": False},
-        "key_prefix": {"type": "string", "required": True},
+        "key_prefix": {"type": "string", "required": True, "templatable": True},
         "resource_name": {"type": "string", "required": True},
     }
 
