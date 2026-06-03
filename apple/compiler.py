@@ -16,6 +16,7 @@ from typing import Any
 
 from apple._version import __version__
 from apple.base import OpCall
+from apple.template import extract_fields_from_params
 from apple.validator import (
     ValidationError,
     detect_dead_code,
@@ -24,6 +25,7 @@ from apple.validator import (
     validate_no_underscore_output,
     validate_param_metadata_consistency,
     validate_sources_references,
+    validate_templated_params,
     validate_write_without_read,
 )
 
@@ -77,6 +79,7 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     validate_data_parallel(named_ops)
     validate_sources_references(named_ops)
     validate_param_metadata_consistency(named_ops)
+    validate_templated_params(named_ops)
     dead = detect_dead_code(
         named_ops,
         flow._common_output,
@@ -349,6 +352,16 @@ def _traverse(
     visited.add(obj_id)
 
     local_ops = [deepcopy(op) for op in node._ops]
+
+    # Pass 0: Auto-inject templated common_input fields (issue #74).
+    # Scan each op's params for `{{field}}` markers and ensure every
+    # referenced field is present in common_input. The Apple validator
+    # later checks that the targeted params declare templatable=True in
+    # their codegen schema and are scalar-typed.
+    for op in local_ops:
+        for f in extract_fields_from_params(op.params):
+            if f not in op.common_input:
+                op.common_input.append(f)
 
     # Pass 1: Rename control fields
     field_renames = _rename_control_fields(local_ops, node._child_order, path)

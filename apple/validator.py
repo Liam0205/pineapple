@@ -8,6 +8,7 @@ Checks:
 from __future__ import annotations
 
 from apple.base import OpCall
+from apple.template import extract_fields, is_bare_template, is_templated
 
 
 class ValidationError(Exception):
@@ -286,4 +287,93 @@ def validate_param_metadata_consistency(
                 raise ValidationError(
                     f"{_op_location(name, op)}param {param_name!r}={value!r} "
                     f"must appear in {metadata_attr}"
+                )
+
+
+# Scalar param types that are eligible for template interpolation (issue #74).
+# The string template is resolved at runtime against the common frame and
+# coerced to the declared type before being handed to the operator.
+_TEMPLATABLE_SCALAR_TYPES: frozenset[str] = frozenset({
+    "string", "int", "int64", "float", "float64", "bool",
+})
+
+
+def _lookup_params_schema(type_name: str) -> dict[str, dict] | None:
+    """Look up a codegen-generated operator's ``_params_schema``.
+
+    Returns None when ``apple_generated`` is unavailable (e.g., codegen has
+    not been run in this checkout) or the operator is unknown. Templated
+    param validation degrades gracefully in that case; the runtimes will
+    still reject malformed templates at config load.
+    """
+    try:
+        from apple_generated import operators as _ops  # type: ignore
+    except ImportError:
+        return None
+    for cls_name in getattr(_ops, "__all__", dir(_ops)):
+        cls = getattr(_ops, cls_name, None)
+        if cls is None or not hasattr(cls, "_name") or not hasattr(cls, "_params_schema"):
+            continue
+        if cls._name == type_name:
+            return cls._params_schema
+    return None
+
+
+def validate_templated_params(ops: list[tuple[str, OpCall]]) -> None:
+    """Ensure ``{{field}}`` markers target params that opted into templating.
+
+    For each templated string value in ``op.params``, check that the codegen
+    schema declares ``"templatable": True`` for that param and that the
+    declared type is a templatable scalar (string / int / int64 / float /
+    float64 / bool). Raises :class:`ValidationError` on any violation.
+
+    Silently skips when ``apple_generated`` is not importable so that pre-
+    codegen development workflows still succeed.
+    """
+    for name, op in ops:
+        templated_in_op = {
+            k: v for k, v in op.params.items() if is_templated(v)
+        }
+        if not templated_in_op:
+            continue
+        schema = _lookup_params_schema(op.type_name)
+        if schema is None:
+            continue
+        for param_name, value in templated_in_op.items():
+            if not is_bare_template(value):
+                raise ValidationError(
+                    f"{_op_location(name, op)}templated value {value!r} for "
+                    f"param {param_name!r} is not a bare ``{{{{field}}}}`` "
+                    f"marker; the L0 template contract forbids literal text "
+                    f"or multiple markers in the value — compose strings in "
+                    f"an upstream operator (e.g. transform_by_lua) and bind "
+                    f"the result via a bare marker"
+                )
+            spec = schema.get(param_name)
+            if spec is None:
+                raise ValidationError(
+                    f"{_op_location(name, op)}templated value {value!r} targets "
+                    f"unknown param {param_name!r} for operator {op.type_name!r}"
+                )
+            if not spec.get("templatable", False):
+                raise ValidationError(
+                    f"{_op_location(name, op)}param {param_name!r} on operator "
+                    f"{op.type_name!r} does not opt into template interpolation; "
+                    f"the operator must declare Templatable=True in its ParamSpec "
+                    f"to accept {value!r}"
+                )
+            declared_type = spec.get("type", "")
+            if declared_type not in _TEMPLATABLE_SCALAR_TYPES:
+                raise ValidationError(
+                    f"{_op_location(name, op)}param {param_name!r} on operator "
+                    f"{op.type_name!r} has declared type {declared_type!r}; "
+                    f"template interpolation is only supported for scalar types "
+                    f"({sorted(_TEMPLATABLE_SCALAR_TYPES)})"
+                )
+            # Sanity: at least one valid field reference (already ensured by
+            # is_templated, but guard against pathological values like "{{}}").
+            if not extract_fields(value):
+                raise ValidationError(
+                    f"{_op_location(name, op)}param {param_name!r}={value!r} "
+                    f"contains malformed template marker(s)"
                 )
