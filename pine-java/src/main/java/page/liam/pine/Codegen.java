@@ -621,9 +621,8 @@ public class Codegen {
         Path path = Paths.get(outputDir, "resources.py");
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
             w.println("# auto-generated from pine resource schema — DO NOT EDIT");
+            w.println("# ruff: noqa: E501");
             w.println("from __future__ import annotations");
-            w.println();
-            w.println("from typing import Any");
             w.println();
             w.println("from apple.resource import BaseResource");
             w.println();
