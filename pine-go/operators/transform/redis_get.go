@@ -92,6 +92,12 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	// before Execute; otherwise the raw init-time string is used.
 	prefix := o.keyPrefix
 	if v, ok := in.TemplatedParam("key_prefix"); ok {
+		// Inner type assertion is unreachable: BuildTemplatedParamPlan
+		// rejects any non-string declared type for key_prefix, and
+		// ResolveTemplatedParams normalizes the resolved value through
+		// GoFormat.sprint for string-typed params. The fallback is
+		// kept as defense in depth — a missed cast would otherwise
+		// surface as the init-time string with literal {{field}} marker.
 		if s, ok := v.(string); ok {
 			prefix = s
 		}
