@@ -4,7 +4,9 @@
 //
 // Params:
 //   - resource_name (string, required): Name of a redis_connection resource to borrow the client from.
-//   - key_prefix (string, required): Key prefix prepended to the suffix built from common_input fields.
+//   - key_prefix (string, required, templatable): Key prefix prepended to the suffix built from common_input fields.
+//     Supports {{field}} interpolation — the engine resolves the markers against
+//     the request's common frame per request (issue #74).
 //   - data_type (string, optional, default="string"): Redis data type: "set", "string", or "list".
 //   - fail_on_error (bool, optional, default=false): Return fatal error on Redis infrastructure failure instead of treating as cache miss.
 //
@@ -17,10 +19,11 @@
 // common_output[0] = result value, common_output[1] = cache hit flag (bool).
 //
 // Metadata contract (typical usage):
-//   CommonInput:  [<key_suffix_fields...>]
-//   CommonOutput: [<result_field>, <cache_hit_field>]
-//   ItemInput:    []
-//   ItemOutput:   []
+//
+//	CommonInput:  [<key_suffix_fields...>]
+//	CommonOutput: [<result_field>, <cache_hit_field>]
+//	ItemInput:    []
+//	ItemOutput:   []
 package transform
 
 import (
@@ -39,7 +42,7 @@ func init() {
 		Description: "Generic Redis read operator. Reads a value by key and outputs the result and a cache-hit flag.",
 		Params: map[string]pine.ParamSpec{
 			"resource_name": {Type: "string", Required: true, Description: "Name of a redis_connection resource to borrow the client from."},
-			"key_prefix":    {Type: "string", Required: true, Description: "Key prefix prepended to the suffix built from common_input fields."},
+			"key_prefix":    {Type: "string", Required: true, Templatable: true, Description: "Key prefix prepended to the suffix built from common_input fields. Supports {{field}} interpolation."},
 			"data_type":     {Type: "string", Required: false, Default: "string", Description: `Redis data type: "set", "string", or "list".`},
 			"fail_on_error": {Type: "bool", Required: false, Default: false, Description: "Return fatal error on Redis infrastructure failure instead of treating as cache miss."},
 		},
@@ -84,7 +87,16 @@ func (o *RedisGetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	}
 	defer release()
 
-	key := o.keyPrefix + buildKeySuffix(in, o.CommonInput)
+	// key_prefix is templatable (#74). When the DSL configured a {{field}}
+	// marker the engine resolved it against this request's common frame
+	// before Execute; otherwise the raw init-time string is used.
+	prefix := o.keyPrefix
+	if v, ok := in.TemplatedParam("key_prefix"); ok {
+		if s, ok := v.(string); ok {
+			prefix = s
+		}
+	}
+	key := prefix + buildKeySuffix(in, o.CommonInput)
 
 	switch o.dataType {
 	case "set":
