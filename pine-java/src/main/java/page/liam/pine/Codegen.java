@@ -124,7 +124,9 @@ public class Codegen {
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
             w.println("# auto-generated from pine operator schema — DO NOT EDIT");
             w.println("from __future__ import annotations");
+            w.println();
             w.println("from typing import Any");
+            w.println();
             w.println("from apple.base import BaseOp");
             w.println();
 
@@ -620,7 +622,9 @@ public class Codegen {
         try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(path))) {
             w.println("# auto-generated from pine resource schema — DO NOT EDIT");
             w.println("from __future__ import annotations");
+            w.println();
             w.println("from typing import Any");
+            w.println();
             w.println("from apple.resource import BaseResource");
             w.println();
 
