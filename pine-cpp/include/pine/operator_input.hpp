@@ -4,6 +4,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace pine {
@@ -46,10 +47,26 @@ class OperatorInput {
   // resources returns the injected resource map (may be nullptr).
   const std::map<std::string, Variant>* resources() const;
 
+  // templated_param returns the resolved + coerced value for a templated
+  // param declared on this operator (issue #74). Returns a null Variant
+  // when the param was not templated or no templated params were resolved
+  // for this request. Read-only: the map is shared across data_parallel
+  // shards by const-pointer.
+  Variant templated_param(const std::string& name) const;
+
+  // Engine-internal: install the per-request resolved {{field}} map.
+  // Storing a non-owning pointer keeps copies out of the hot path and
+  // lets parallel shards share the parent's map (which lives for the
+  // entire dispatch call frame).
+  void set_templated_params(const std::unordered_map<std::string, Variant>* resolved) {
+    templated_ = resolved;
+  }
+
  private:
   const Frame* frame_;
   const InputFieldSpec* spec_;
   std::size_t cached_item_count_;
+  const std::unordered_map<std::string, Variant>* templated_ = nullptr;
 };
 
 // build_operator_input constructs an OperatorInput from a Frame and the

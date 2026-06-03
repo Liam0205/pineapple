@@ -87,6 +87,7 @@ add_library(pine_cpp_core OBJECT
     src/runtime/errors.cpp
     src/runtime/metrics_nop.cpp
     src/runtime/metrics_collector.cpp
+    src/runtime/template.cpp
     src/runtime/thread_pool.cpp
     src/redis/redis_client.cpp
     src/redis/connection_pool.cpp
@@ -243,6 +244,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_lua_pool.cpp
         tests/test_closer.cpp
         tests/test_metrics_collector.cpp
+        tests/test_template.cpp
     )
     target_sources(pine_cpp_tests PRIVATE src/server/http_metrics.cpp src/server/http_stats.cpp)
     target_link_libraries(pine_cpp_tests PRIVATE pine_cpp_core doctest::doctest)

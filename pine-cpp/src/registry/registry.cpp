@@ -165,6 +165,7 @@ std::string export_schema_json() {
       param["Required"] = Variant(pschema.required);
       param["Default"] = pschema.default_value;
       param["Description"] = Variant(pschema.description);
+      param["Templatable"] = Variant(pschema.templatable);
       params_obj[pname] = Variant(param);
     }
     obj["Params"] = Variant(params_obj);

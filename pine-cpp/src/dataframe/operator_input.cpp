@@ -72,6 +72,17 @@ const std::map<std::string, Variant>* OperatorInput::resources() const {
   return frame_->resources();
 }
 
+Variant OperatorInput::templated_param(const std::string& name) const {
+  if (!templated_) {
+    return Variant(nullptr);
+  }
+  auto it = templated_->find(name);
+  if (it == templated_->end()) {
+    return Variant(nullptr);
+  }
+  return it->second;
+}
+
 InputFieldSpec compute_input_field_spec(const OperatorConfig& config) {
   InputFieldSpec spec;
 

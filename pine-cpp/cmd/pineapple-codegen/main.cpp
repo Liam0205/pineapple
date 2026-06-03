@@ -201,6 +201,9 @@ void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry
       if (!pspec.default_value.is_null()) {
         out << ", \"default\": " << python_literal(pspec.default_value);
       }
+      if (pspec.templatable) {
+        out << ", \"templatable\": True";
+      }
       out << "},";
     }
     out << "\n    }\n";
