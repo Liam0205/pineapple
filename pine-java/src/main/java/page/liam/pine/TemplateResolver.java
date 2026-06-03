@@ -163,10 +163,11 @@ public final class TemplateResolver {
     }
 
     private static String stringifyForTemplate(Object v) {
-        // Match fmt.Sprint(any) byte-for-byte for scalar inputs that the
-        // common frame can plausibly carry: numbers, booleans, strings.
-        // Maps / slices aren't a supported template source.
-        return String.valueOf(v);
+        // GoFormat.sprint matches fmt.Sprint(any) byte-for-byte — must/conventions.md
+        // anchors Go formatting as the cross-runtime contract. String.valueOf
+        // diverges on floats (5.0 → "5.0" vs Go's "5"), which silently corrupts
+        // the Redis key cross-runtime when the source field is float-typed.
+        return GoFormat.sprint(v);
     }
 
     private static Object coerce(String paramName, String scalarType, String s) throws PineErrors.OperatorException {

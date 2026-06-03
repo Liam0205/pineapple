@@ -129,6 +129,23 @@ public class TemplateResolverTest {
         assertEquals("42", got.get("k"));
     }
 
+    /**
+     * Pins {@code stringifyForTemplate} on the GoFormat.sprint pathway:
+     * a double-valued source field bound to a string-typed templatable
+     * param must serialize as Go's {@code fmt.Sprint(5.0) == "5"},
+     * not Java's {@code String.valueOf(5.0) == "5.0"}. Without this
+     * pin the Redis key would diverge across runtimes whenever the
+     * template source is float-typed.
+     */
+    @Test
+    void resolve_floatSourceStringTargetMatchesGoFormat() throws Exception {
+        List<TemplateResolver.TemplatedParam> plan = TemplateResolver.buildPlan(
+                "op", schemaWith("k", "string", true), Map.of("k", "{{x}}"));
+        Map<String, Object> got = TemplateResolver.resolve("op", plan,
+                frameWithCommon(Map.of("x", Double.valueOf(5.0))));
+        assertEquals("5", got.get("k"));
+    }
+
     @Test
     void resolve_int() throws Exception {
         List<TemplateResolver.TemplatedParam> plan = TemplateResolver.buildPlan(
