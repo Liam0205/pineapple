@@ -2,6 +2,7 @@
 #include "pine/operator.hpp"
 #include "pine/operator_input.hpp"
 #include "pine/pine.hpp"
+#include "pine/template.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -278,6 +279,17 @@ struct Engine::PoolHolder {
   }
 };
 
+// TemplatedPlans holds the per-operator {{field}} interpolation plan
+// computed at Engine construction. The resolved map is attached to the
+// per-request OperatorInput by the scheduler; no operator-side opt-in
+// interface is required.
+struct Engine::TemplatedPlans {
+  struct Entry {
+    std::vector<TemplatedParam> plan;
+  };
+  std::map<std::string, Entry> by_op;
+};
+
 Engine::Engine(Config config) : Engine(std::move(config), EngineOptions{}) {
 }
 
@@ -318,6 +330,7 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
   // visited. A second native-side check would be dead code.
 
   // Instantiate and init one Operator per config operator.
+  templated_plans_ = std::make_unique<TemplatedPlans>();
   for (auto& [op_name, op_cfg] : config_.operators) {
     const auto* entry = registry_entry(op_cfg.type_name);
     if (!entry || !entry->factory) {
@@ -337,6 +350,22 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     // first, then provider injection.
     if (auto* ra = dynamic_cast<ResourceAware*>(instance.get())) {
       ra->set_resource_provider(resource_provider_);
+    }
+    // Compute the {{field}} interpolation plan for this operator
+    // (issue #74). Build-time errors carry the canonical
+    // `operator "X": ...` prefix; runtime errors don't, since
+    // dispatch_with_recovery re-wraps via ExecutionError. The Apple
+    // compiler has already injected the referenced common fields into
+    // common_input, so DAG dependencies guarantee the values exist
+    // by the time this operator runs (mirrors how `if_` skip-field
+    // dependencies are wired). The resolved map is attached to the
+    // per-request OperatorInput; operators read it via
+    // input.templated_param(name).
+    std::vector<TemplatedParam> plan = build_templated_param_plan(op_name, entry->schema, op_cfg.params);
+    if (!plan.empty()) {
+      TemplatedPlans::Entry pe;
+      pe.plan = std::move(plan);
+      templated_plans_->by_op.emplace(op_name, std::move(pe));
     }
     operators_.emplace(op_name, std::move(instance));
     // Pre-compute InputFieldSpec for the BuildInput projection layer.
@@ -572,12 +601,29 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offs
 // stand-alone callers that construct Frame directly still work.
 void parallel_execute(const Frame& frame, const OperatorConfig& op,
                       const std::map<std::string, std::unique_ptr<Operator>>& operators, OperatorOutput& out,
-                      const InputFieldSpec& spec, runtime::ThreadPool* pool = nullptr,
-                      detail::CentralArena* central = nullptr) {
+                      const InputFieldSpec& spec,
+                      const Engine::TemplatedPlans::Entry* templated_entry = nullptr,
+                      runtime::ThreadPool* pool = nullptr, detail::CentralArena* central = nullptr) {
+  // Per-request {{field}} interpolation (issue #74). Resolved once
+  // against the parent frame, then attached to every OperatorInput we
+  // build below — single-shard input or per-shard inputs alike — by
+  // const-pointer (no copy). The resolved map lives in this stack
+  // frame, which outlives every shard (we join before returning).
+  // resolve_templated_params throws ExecutionError (no op prefix) on
+  // missing field or coerce failure; dispatch_with_recovery's nested
+  // throw wrap adds the byte-exact prefix.
+  std::unordered_map<std::string, Variant> resolved;
+  const std::unordered_map<std::string, Variant>* resolved_ptr = nullptr;
+  if (templated_entry && !templated_entry->plan.empty()) {
+    OperatorInput probe = build_operator_input(frame, op.name, spec);
+    resolved = resolve_templated_params(op.name, templated_entry->plan, probe);
+    resolved_ptr = &resolved;
+  }
   int total = static_cast<int>(frame.item_count());
   int n = op.data_parallel;
   if (n <= 1 || total == 0) {
     OperatorInput input = build_operator_input(frame, op.name, spec);
+    input.set_templated_params(resolved_ptr);
     dispatch_with_recovery(input, op, operators, out);
     return;
   }
@@ -629,6 +675,7 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     }
     try {
       OperatorInput input = build_operator_input(*shards[static_cast<std::size_t>(i)], op.name, spec);
+      input.set_templated_params(resolved_ptr);
       dispatch_with_recovery(input, op, operators, shard_outs[static_cast<std::size_t>(i)]);
     } catch (...) {
       std::lock_guard<std::mutex> lk(err_mu);
@@ -675,8 +722,9 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
 // submits any that become ready. The pool never holds blocked tasks.
 std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
                              const std::map<std::string, std::unique_ptr<Operator>>& operators,
-                             const std::map<std::string, InputFieldSpec>& input_specs, Frame& frame,
-                             bool collect_traces, std::atomic<int64_t>* peak_concurrency = nullptr,
+                             const std::map<std::string, InputFieldSpec>& input_specs,
+                             const Engine::TemplatedPlans* templated_plans, Frame& frame, bool collect_traces,
+                             std::atomic<int64_t>* peak_concurrency = nullptr,
                              Engine::EngineMetrics* em = nullptr, runtime::ThreadPool* dag_pool = nullptr,
                              runtime::ThreadPool* shard_pool = nullptr,
                              std::stop_token external_cancel = std::stop_token{},
@@ -824,7 +872,13 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
         trace.input_snapshot = snapshot_input(frame, op);
         trace.has_input_snapshot = true;
       }
-      parallel_execute(frame, op, operators, out, input_specs.at(op.name), shard_pool, central);
+      parallel_execute(frame, op, operators, out, input_specs.at(op.name),
+                       templated_plans ? [&]() -> const Engine::TemplatedPlans::Entry* {
+                         auto it = templated_plans->by_op.find(op.name);
+                         return it == templated_plans->by_op.end() ? nullptr : &it->second;
+                       }()
+                                       : nullptr,
+                       shard_pool, central);
       if (collect_traces && op.debug.value_or(false)) {
         trace.output_snapshot = snapshot_output(out);
         trace.has_output_snapshot = true;
@@ -996,10 +1050,10 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
   frame.set_resources(&resources);
   std::exception_ptr run_err = nullptr;
   try {
-    out->trace =
-        run_dag(config_, graph_, operators_, input_specs_, frame, /*collect_traces=*/true,
-                peak_concurrency_.get(), engine_metrics_.get(), dag_pool_ ? &dag_pool_->pool : nullptr,
-                shard_pool_ ? &shard_pool_->pool : nullptr, external_cancel, central);
+    out->trace = run_dag(config_, graph_, operators_, input_specs_, templated_plans_.get(), frame,
+                         /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
+                         dag_pool_ ? &dag_pool_->pool : nullptr, shard_pool_ ? &shard_pool_->pool : nullptr,
+                         external_cancel, central);
   } catch (...) {
     run_err = std::current_exception();
   }

@@ -294,6 +294,14 @@ struct ParamSchema {
   bool required = false;
   Variant default_value;  // null means no default
   std::string description;
+  // Templatable opts this param into per-request {{field}} interpolation
+  // (issue #74). When true the Apple compiler accepts a templated string
+  // value for this param and auto-injects the referenced common fields
+  // into the operator's common_input; the engine resolves and coerces the
+  // value, attaches the map to OperatorInput, and operators read it via
+  // input.templated_param(name). Only string / int64 / float64 / bool
+  // scalars are supported.
+  bool templatable = false;
 };
 
 void apply_registry_traits(Config& config);
@@ -529,6 +537,11 @@ class Engine {
   // engine.cpp can record observations; not part of the stable public API.
   struct EngineMetrics;
 
+  // Per-operator {{field}} interpolation plans (issue #74). Public for
+  // the same reason as EngineMetrics: the scheduler reads it on the
+  // request hot path. Not part of the stable public API.
+  struct TemplatedPlans;
+
  private:
   Config config_;
   ExpandedSequence expanded_;
@@ -543,6 +556,11 @@ class Engine {
   struct PoolHolder;
   std::unique_ptr<PoolHolder> dag_pool_;
   std::unique_ptr<PoolHolder> shard_pool_;
+  // Per-operator {{field}} interpolation plans (issue #74). Built once at
+  // engine construction; resolved + injected per request just before
+  // execute() by parallel_execute. PImpl-style holder so pine.hpp does
+  // not need to pull in the TemplatedParam definition.
+  std::unique_ptr<TemplatedPlans> templated_plans_;
 };
 
 Request load_request_from_file(const std::string& path);
