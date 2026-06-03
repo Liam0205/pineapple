@@ -256,6 +256,80 @@ def detect_dead_code(
     return dead
 
 
+def validate_subflow_field_coverage(
+    sf_path: str,
+    sf_ops: list[tuple[str, OpCall]],
+    sf_common_input: list[str] | None,
+    sf_item_input: list[str] | None,
+) -> None:
+    """SubFlow-scoped field coverage (issue #78).
+
+    Same algorithm as ``validate_field_coverage`` but the seed is the
+    SubFlow's declared input contract instead of the parent Flow's.
+    Each internal operator input must be either in the SubFlow contract
+    or produced by an earlier internal operator (within the same SubFlow
+    subtree). When a contract list is ``None`` that side is skipped —
+    callers gate this so SubFlows without an input contract opt out
+    entirely (parent-Flow check still catches outer-scope errors).
+
+    All three #74 common_input buckets are unioned, matching the
+    flow-level check.
+    """
+    if sf_common_input is None and sf_item_input is None:
+        return
+
+    available_common: set[str] = set(sf_common_input or [])
+    available_item: set[str] = set(sf_item_input or [])
+    check_common = sf_common_input is not None
+    check_item = sf_item_input is not None
+
+    for name, op in sf_ops:
+        if check_common:
+            union_common = (
+                list(op.common_input)
+                + list(op.common_input_skip)
+                + list(op.common_input_template)
+            )
+            for field in union_common:
+                if field.startswith("_"):
+                    continue
+                if field not in available_common:
+                    raise ValidationError(
+                        f"{_op_location(name, op)}common_input field {field!r} not "
+                        f"provided by SubFlow {sf_path!r} contract or upstream "
+                        f"output within the SubFlow"
+                    )
+        if check_item:
+            for field in op.item_input:
+                if field.startswith("_"):
+                    continue
+                if field not in available_item:
+                    raise ValidationError(
+                        f"{_op_location(name, op)}item_input field {field!r} not "
+                        f"provided by SubFlow {sf_path!r} contract or upstream "
+                        f"output within the SubFlow"
+                    )
+        available_common.update(op.common_output)
+        available_item.update(op.item_output)
+
+
+def detect_subflow_dead_code(
+    sf_ops: list[tuple[str, OpCall]],
+    sf_common_output: list[str] | None,
+    sf_item_output: list[str] | None,
+) -> list[str]:
+    """SubFlow-scoped dead-code detection (issue #78).
+
+    Same algorithm as ``detect_dead_code`` but the termination boundary
+    is the SubFlow's declared output contract; consumers outside the
+    SubFlow subtree do NOT count. Returns ``[]`` when both contract
+    lists are ``None`` (caller gates on contract presence).
+    """
+    if sf_common_output is None and sf_item_output is None:
+        return []
+    return detect_dead_code(sf_ops, sf_common_output, sf_item_output)
+
+
 _PARAM_METADATA_RULES: dict[str, list[tuple[str, str]]] = {
     "transform_resource_lookup": [
         ("lookup_key", "item_input"),
