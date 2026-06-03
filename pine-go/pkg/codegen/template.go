@@ -340,9 +340,8 @@ const operatorIndexTemplate = `# Operator Reference
 // --- Resource class template ---
 
 const resourceClassTemplate = `# auto-generated from pine resource schema — DO NOT EDIT
+# ruff: noqa: E501
 from __future__ import annotations
-
-from typing import Any
 
 from apple.resource import BaseResource
 
