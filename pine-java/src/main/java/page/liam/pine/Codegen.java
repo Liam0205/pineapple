@@ -108,6 +108,7 @@ public class Codegen {
                 ps.required = entry.getValue().required;
                 ps.defaultValue = entry.getValue().defaultValue;
                 ps.description = entry.getValue().description;
+                ps.templatable = entry.getValue().templatable;
                 params.put(entry.getKey(), ps);
             }
             cs.params = params;
@@ -144,6 +145,9 @@ public class Codegen {
                             pName, spec.type, spec.required ? "True" : "False");
                     if (spec.defaultValue != null) {
                         w.printf(", \"default\": %s", toPythonLiteral(spec.defaultValue));
+                    }
+                    if (spec.templatable) {
+                        w.print(", \"templatable\": True");
                     }
                     w.print("},");
                 }
@@ -581,6 +585,7 @@ public class Codegen {
         public boolean required;
         public Object defaultValue;
         public String description;
+        public boolean templatable;
 
         @com.fasterxml.jackson.annotation.JsonProperty("Type")
         public void setType(String type) { this.type = type; }
@@ -590,6 +595,8 @@ public class Codegen {
         public void setDefault(Object defaultValue) { this.defaultValue = defaultValue; }
         @com.fasterxml.jackson.annotation.JsonProperty("Description")
         public void setDescription(String description) { this.description = description; }
+        @com.fasterxml.jackson.annotation.JsonProperty("Templatable")
+        public void setTemplatable(boolean templatable) { this.templatable = templatable; }
     }
 
     public static class ResourceSchema {

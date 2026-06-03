@@ -112,6 +112,7 @@ public class Registry {
                 spec.put("Required", p.getValue().required);
                 spec.put("Default", p.getValue().defaultValue);
                 spec.put("Description", p.getValue().description);
+                spec.put("Templatable", p.getValue().templatable);
                 params.put(p.getKey(), spec);
             }
             obj.put("Params", params);

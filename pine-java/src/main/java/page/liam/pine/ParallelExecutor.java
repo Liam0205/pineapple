@@ -23,6 +23,9 @@ public class ParallelExecutor {
         int base = total / n;
         int rem = total % n;
         int start = 0;
+        // Propagate the resolved {{field}} map (issue #74) to every shard.
+        // The map is read-only past resolution, so sharing by reference is safe.
+        Map<String, Object> templated = input.rawTemplated();
 
         if (input.isLazy()) {
             Frame frame = input.lazyFrame();
@@ -31,7 +34,9 @@ public class ParallelExecutor {
             int baseOffset = input.lazyOffset();
             for (int i = 0; i < n; i++) {
                 int size = base + (i < rem ? 1 : 0);
-                shards.add(new OperatorInput(common, frame, itemDefaults, baseOffset + start, size));
+                OperatorInput shard = new OperatorInput(common, frame, itemDefaults, baseOffset + start, size);
+                shard.setTemplatedParams(templated);
+                shards.add(shard);
                 offsets[i] = start;
                 start += size;
             }
@@ -42,7 +47,9 @@ public class ParallelExecutor {
                 int size = base + (i < rem ? 1 : 0);
                 int end = start + size;
                 List<Map<String, Object>> shardItems = new ArrayList<>(allItems.subList(start, end));
-                shards.add(new OperatorInput(common, shardItems));
+                OperatorInput shard = new OperatorInput(common, shardItems);
+                shard.setTemplatedParams(templated);
+                shards.add(shard);
                 offsets[i] = start;
                 start = end;
             }
