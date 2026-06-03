@@ -175,6 +175,84 @@ if [[ -n "$go_out" ]]; then
   fi
 fi
 
+# --- Runtime probe #2: float-source stringify (locks GoFormat parity) ---
+#
+# Pins the cross-runtime contract that a float-typed common field
+# bound to a string-typed templatable param stringifies via Go
+# fmt.Sprint semantics (5.0 -> "5"), not Java String.valueOf
+# (5.0 -> "5.0") nor any toString variant. Same Redis server, fresh
+# fixture.
+FIXTURE_FLOAT="$REPO_ROOT/fixtures/pipelines/redis_templated_key_float.json"
+if [[ -f "$FIXTURE_FLOAT" ]]; then
+  WORK_TPL2="$WORK_DIR/templated_params_float"
+  mkdir -p "$WORK_TPL2"
+  CFG2="$WORK_TPL2/config.json"
+  REQ2="$WORK_TPL2/request.json"
+  EXPECTED_KEY2=$(python3 -c "
+import json
+with open('$FIXTURE_FLOAT') as f:
+    data = json.load(f)
+cfg = data['config']
+case = data['cases'][0]
+cfg_str = json.dumps(cfg).replace('PLACEHOLDER', '127.0.0.1:$REDIS_PORT')
+with open('$CFG2', 'w') as cf:
+    cf.write(cfg_str)
+with open('$REQ2', 'w') as rf:
+    json.dump(case['request'], rf)
+print(case['expected_redis_key'])
+")
+  redis-cli -p $REDIS_PORT SET "$EXPECTED_KEY2" "hello_float" >/dev/null 2>&1
+
+  go_out2=$("$WORK_DIR/pineapple-run" -config "$CFG2" -request "$REQ2" 2>/dev/null) || {
+    fail "templated params float-source: Go engine failed"
+    go_out2=""
+  }
+  java_out2=$(java_run page.liam.pine.RunCli -config "$CFG2" -request "$REQ2" 2>/dev/null) || {
+    fail "templated params float-source: Java engine failed"
+    java_out2=""
+  }
+  cpp_out2=""
+  if [[ -n "${CPP_RUN:-}" ]]; then
+    cpp_out2=$("$CPP_RUN" -config "$CFG2" -request "$REQ2" 2>/dev/null) || {
+      fail "templated params float-source: C++ engine failed"
+      cpp_out2=""
+    }
+  fi
+
+  if [[ -n "$go_out2" && -n "$java_out2" ]]; then
+    go_norm2=$(echo "$go_out2" | normalize_json)
+    java_norm2=$(echo "$java_out2" | normalize_json)
+    if [[ "$go_norm2" == "$java_norm2" ]]; then
+      pass "templated params float-source parity Go vs Java (5.0 -> '5')"
+    else
+      fail "templated params float-source: Go vs Java divergence"
+      diff <(echo "$go_norm2" | python3 -m json.tool) <(echo "$java_norm2" | python3 -m json.tool) >&2 || true
+    fi
+  fi
+  if [[ -n "${CPP_RUN:-}" && -n "$go_out2" && -n "$cpp_out2" ]]; then
+    go_norm2=$(echo "$go_out2" | normalize_json)
+    cpp_norm2=$(echo "$cpp_out2" | normalize_json)
+    if [[ "$go_norm2" == "$cpp_norm2" ]]; then
+      pass "templated params float-source parity Go vs C++ (5.0 -> '5')"
+    else
+      fail "templated params float-source: Go vs C++ divergence"
+      diff <(echo "$go_norm2" | python3 -m json.tool) <(echo "$cpp_norm2" | python3 -m json.tool) >&2 || true
+    fi
+  fi
+
+  # Correctness: result/cache_hit prove the engines constructed
+  # "5user1" (not "5.0user1") and hit the pre-populated key.
+  if [[ -n "$go_out2" ]]; then
+    got2=$(echo "$go_out2" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('result',''))")
+    got_hit2=$(echo "$go_out2" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['common'].get('cache_hit',''))")
+    if [[ "$got2" == "hello_float" && "$got_hit2" == "True" ]]; then
+      echo "    correctness verified: float source 5.0 stringified to '5' (key=$EXPECTED_KEY2)"
+    else
+      fail "templated params float-source: wrong result (got result='$got2', cache_hit='$got_hit2') — likely String.valueOf style stringify"
+    fi
+  fi
+fi
+
 redis-cli -p $REDIS_PORT SHUTDOWN NOSAVE >/dev/null 2>&1 || true
 
 if [[ $tpl_total -gt 0 && $tpl_pass -eq $tpl_total ]]; then
