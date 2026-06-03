@@ -1,0 +1,49 @@
+{
+  "name": "redis templated key_prefix parity — float-source stringify (GET-only)",
+  "requires": ["redis"],
+  "notes": "Pins the cross-runtime stringify contract: a float-typed common field bound to a string-typed templatable param must serialize as Go's fmt.Sprint (5.0 -> '5'), not Java's String.valueOf (5.0 -> '5.0') nor any toString variant. Companion to redis_templated_key.json (string-source). The expected key is '5user1' — float source '5.0' stringified to '5' then concatenated with uid='user1'.",
+  "config": {
+    "resource_config": {
+      "redis_conn": {
+        "type": "redis_connection",
+        "interval": -1,
+        "params": {"addr": "PLACEHOLDER"}
+      }
+    },
+    "pipeline_config": {
+      "operators": {
+        "get_cache": {
+          "type_name": "transform_redis_get",
+          "resource_name": "redis_conn",
+          "key_prefix": "{{user_count}}",
+          "fail_on_error": true,
+          "$metadata": {
+            "common_input": ["uid"],
+            "common_input_template": ["user_count"],
+            "common_output": ["result", "cache_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["get_cache"]}
+    },
+    "flow_contract": {
+      "common_input": ["user_count", "uid"],
+      "item_input": [],
+      "common_output": ["user_count", "uid", "result", "cache_hit"],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "float-source key_prefix get",
+      "prepopulate": [["SET", "5user1", "hello_float"]],
+      "request": {"common": {"user_count": 5.0, "uid": "user1"}, "items": []},
+      "expected": {"common": {"user_count": 5.0, "uid": "user1", "result": "hello_float", "cache_hit": true}, "items": []},
+      "expected_redis_key": "5user1"
+    }
+  ]
+}
