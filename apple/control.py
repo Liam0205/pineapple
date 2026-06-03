@@ -32,8 +32,7 @@ class ControlBranch:
 # implemented by apple/template.py for operator-param interpolation (issue #74).
 # Kept separate for now because the if_/elseif_ path emits Lua and bakes the
 # field reference into the condition AST, while the param path is a pure
-# pre-Execute value substitution. A follow-up should unify both onto a single
-# template module once the operator-param runtime hook has stabilized.
+# pre-Execute value substitution. Unification tracked in issue #76.
 def extract_fields(condition: str) -> list[str]:
     """Extract field names from ``{{field}}`` template markers in a condition."""
     fields = re.findall(r"\{\{(\w+)\}\}", condition)
