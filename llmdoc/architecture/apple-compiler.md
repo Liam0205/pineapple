@@ -159,6 +159,22 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 因此调度器的 skip 约定是“skip 列表中任一字段只要为 truthy 即跳过”，单个分支算子的本地语义仍可视为 `truthy = 跳过`、`false/nil = 运行`。这与 `apple/control.py` 发射的 Lua prior-check 保持一致：`elseif_` 与 `else_` 不再使用严格 `(f == true)`，而是直接使用 `(f)`，从而允许上游控制字段在手写 JSON 或其他边界输入中以 `1` 等非 bool truthy 值参与分支互斥。
 
+### Skip 字段三桶兼容矩阵（issue #74）
+
+`$metadata` 下与 skip 相关的三个桶在 Apple 编译器与三引擎运行时之间是 **"any of two" 接受**关系，禁止任一侧砍掉旧路径：
+
+| 桶 | 含义 | Apple 写入路径 | Runtime 读取契约 |
+|----|-----|---------------|----------------|
+| `common_input` | 算子可见的业务输入 | 用户在 DSL 中显式声明 | 投影到 OperatorInput（含 skip 字段时也接受） |
+| `common_input_skip` | 仅用于 DAG 排序的 skip 依赖 | `_inject_inherited_skips(...)` 新写入 | 投影时排除；与 `common_input` 并集参与 DAG 排序 |
+| `common_input_template` | `{{field}}` 模板源 | `compile_op_params(...)` 自动注入 | 隐藏于算子输入；`ResolveTemplatedParams` 从 raw frame 读取 |
+
+**legacy preserved 行为**：`_inject_inherited_skips(...)` 在向 `common_input_skip` 追加 skip 字段前，先检查该字段是否已经存在于 `common_input`——若存在则跳过本次追加。这保证旧 config（#74 之前生成的 JSON）已经把 skip 字段直接放进 `common_input` 的，仍然有效；新 config 走专用桶；两条路径并存而不重复声明。
+
+**runtime "any of two" 校验**：三引擎在 `validate_config` 阶段都接受 skip 字段出现在 `common_input` 或 `common_input_skip` 中的任一桶；如果都没有则报 `skip field "X" must also appear in $metadata.common_input or $metadata.common_input_skip` 错误。
+
+CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_duplicate_injection` 钉住 legacy 路径不被破坏；三引擎 cross-validate Section 05 通过统一错误文案钉住 "any of two" 校验契约。
+
 ### 嵌套控制流与 `inherited_skips`
 
 当编译器递归遍历 Flow/SubFlow 结构树时，`apple/compiler.py` 会沿 traversal 显式传递一份 `inherited_skips` 列表，用来承接当前节点所处的所有外层控制分支守卫。
