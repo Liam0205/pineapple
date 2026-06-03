@@ -125,6 +125,12 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
   - **PanicError.stack() + detailed_error()**（R3-L1）：C++23 `std::stacktrace` 在 PanicError 构造时捕获当前线程帧栈，`detailed_error()` 返回 `"pine: panic in operator \"X\": Y\nstack trace:\n<frames>"` 格式，对偶 Go `PanicError.DetailedError()`。CMake 探测 `libstdc++exp` / `libstdc++_libbacktrace`，缺失时退化为空 stack。需 `-g` 才能解析文件/行号
   - **ExecutionError 双参/单参 + engine 层 promote**(P1-D1):`ExecutionError(op, inner)` 双参构造直接拼 `pine: execution error in operator "X": <inner>`；算子级 throw 站点可以用单参 `ExecutionError(msg)`(`operator_name()` 返回空,`inner()` 即 msg),由 `dispatch_with_recovery` (engine.cpp) 捕获后用 `std::throw_with_nested(ExecutionError(op.name, e.inner()))` 重抛,前缀在 engine 层统一加,所以最终 `what()` 仍与 pine-go 字节级一致。**算子不需要重复拼前缀**。
   - **Cause chain 支持**:`ExecutionError` 与 `PanicError` 多继承 `std::nested_exception`,`dispatch_with_recovery` 用 `std::throw_with_nested` 重抛保留 inner cause。`include/pine/error_chain.hpp` 提供 `pine::error_as<T>(const std::exception&)` / `pine::error_is<T>(const std::exception&)` 模板 helper,沿 nested 链下钻,对偶 Go `errors.As` / Java `Throwable.getCause()`。注意:helper 内部显式检查 `nested_ptr() != nullptr` 后才调用 `rethrow_nested()`,避开标准 `std::rethrow_if_nested` 在 null 时 `std::terminate` 的 footgun
+- **Codegen 入口**
+  - `pineapple-cpp-codegen -schema-json <out>`：从 C++ Registry 导出算子 schema JSON（与 Go/Java schema JSON 在结构维度对齐，CI cross-validate `01-codegen-schema.sh` 1b 校验）
+  - `pineapple-cpp-codegen -output <dir>`：发射完整 Apple DSL 产物集（`operators.py` / `__init__.py` / `markers.py` / `resources.py` / `resources_init.py`），与 Go / Java 的 `apple_generated/` 输出 **byte-equal**。Python 字面量格式化由 `python_escape` / `format_g` / `python_literal` / `python_type` / `python_default_for_type` / `camel_case` 一组本地 helper 完成，`format_g` 复刻 Go `fmt.Sprintf("%g")` 的 shortest-round-trippable 语义并对齐 Java `GoFormat.formatG`（PERF：对 |d| > LLONG_MAX 增加 isfinite + 范围 guard，避免 `static_cast<long long>` UB，scope 注释明确小整数 / -0.0 / NaN 边界已覆盖，未来若引入非平凡 double 默认值需路由到 Ryu / Grisu）
+  - `markers.py` 通过对每个已注册算子调用 factory 一次、`dynamic_cast` 探测 `ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` 标记基类生成；与 Go / Java 一样**不调用 `init` 或 `configure`**，重量级构造器（Lua pool seed、libcurl handle、redis pool）在 codegen 时不应付出运行成本，也禁止在构造函数中做 I/O 或起线程
+  - `ResourceSchema` 全局注册表（`include/pine/resource.hpp` / `src/resource/resource.cpp`）：`register_resource_schema(...)` / `all_resource_schemas()` 由算子自注册时调用，供 codegen 发射 `resources.py` / `resources_init.py`。`redis_connection` 等句柄型资源算子在 static init 中同时注册 fetcher factory 与 ResourceSchema（含 name / default_interval / 四个 ParamSchema），对齐 Go `types.ResourceSchema` 与 Java `Registry`
+  - **registry reset API 拆分**：`reset_resource_schema_registry()` 现在只清 schema 表（命名一致），`reset_all_resource_registries()` 是同时清 schema + fetcher factory 的新组合 API。测试若只想重置 schema 不应误清 fetcher factory；想统一拆除两个表用 `reset_all_resource_registries`
 - **可插拔观测与扩展**
   - `pine::metrics::Provider` / `Counter` / `Gauge` / `Histogram` / `NopProvider`（对齐 pine-go `pkg/metrics`）
   - `MetricsAware` 接口（`Engine` 预创建后自动注入）与 `StatsProvider` 接口（向 `/stats` 暴露算子内部计数）
@@ -143,7 +149,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
 - **校验**
   - skip 字段必须出现在 `$metadata.common_input` 中，否则在配置加载期报 ValidationError
 
-cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 codegen-schema / render-dag / execution / column-store / error / server-http / cancellation / concurrent / raw-byte / hot-reload / extensibility-parity / metrics-parity 等多个 section 通过 `CPP_RUN` / `CPP_DAG` / `CPP_SERVER` / `CPP_CODEGEN` 环境变量条件性包含 pine-cpp。具体覆盖以脚本为准，避免在文档中硬编码层数。
+cross-validate 接入范围以 `scripts/cross-validate/` 目录为准，目前 codegen-schema / render-dag / execution / column-store / error / server-http / cancellation / concurrent / raw-byte / hot-reload / extensibility-parity / metrics-parity 等多个 section 通过 `CPP_RUN` / `CPP_DAG` / `CPP_SERVER` / `CPP_CODEGEN` 环境变量条件性包含 pine-cpp。其中 `01-codegen-schema.sh` 提供两条 C++ 接入：1b（Go vs C++ schema JSON 结构对比，参数类型/默认值/必需性维度）与 1d（Go vs C++ `apple_generated/` Python 产物字节级 `diff -r`）。两段都按 "未设置 `CPP_CODEGEN` 则跳过 / 设置但产物分歧则 fail" 的语义工作，避免回归到 byte parity 时被静默跳过。具体覆盖以脚本为准，避免在文档中硬编码层数。
 
 ## 关键设计决策
 

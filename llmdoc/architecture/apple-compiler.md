@@ -69,8 +69,9 @@ Apple 支持两种声明算子的方式。
 - 算子名直接取自调用的属性名
 - 元数据 kwargs 和业务参数在运行时分离
 - `_add_op` 会提取引擎保留字段；`recall` 虽可传入但会被忽略并改由 `type_name` 前缀推导，`data_parallel` 和 `strict_common` / `strict_item` 则会被当作引擎级元数据保留在 `OpCall` 上，而不会混入业务 `params`
+- row-set 标记三元组（`consumes_row_set` / `mutates_row_set` / `additive_writes_row_set`）默认从 `apple_generated/markers.py` 的 `OPERATOR_MARKERS` 表按 `type_name` 查表填充；调用方传入的同名 kwargs 采用 **True-OR 合并**——可以把 `False`/缺省的 registry 标记 widen 为 `True`，但不能把 `True` 标记 narrow 为 `False`，避免 DSL 调用点静默撤销 Go 侧接口断言确立的 row-set 语义
 
-这是基线 API，也解释了为何 wheel 无需 `apple_generated/` 即可运行。
+这是基线 API，也解释了为何 wheel 无需 `apple_generated/` 即可运行。`apple_generated/markers.py` 在 wheel 缺失时退化为空表，动态分发路径的 row-set 推导仅取调用方显式传入的 kwargs。
 
 #### 类型化分发
 
@@ -82,6 +83,7 @@ Apple 支持两种声明算子的方式。
 - 带类型的 `__call__` 签名，包含参数和元数据 kwargs
 - 最终调用 `BaseOp._apply()` 追加 `OpCall`
 - 与动态分发一致，在控制分支内声明时会继承当前活跃 branch 的 `skip` 字段列表，并把对应控制字段加入 `common_input`
+- `BaseOp._apply` 通过 `apple_generated/markers.lookup_markers(type_name)` 取出三元组并填回 `OpCall`；与 `_FlowBase._add_op` 的对称性刻意非对等——`_apply` 只对 `consumes_row_set` 暴露 True-OR widen knob，`mutates_row_set` / `additive_writes_row_set` 保持完全 registry-driven。后两者的真值由 Go 侧 `MutatesRowSet` / `AdditiveWritesRowSet` 接口断言确立，算子作者没有正当理由在 DSL 调用点手工翻动；如果未来希望对称放开，请同步审视该约束的源头
 
 这些是开发时的类型化编写便利，不是独立的执行路径。
 
@@ -97,6 +99,7 @@ Apple 支持两种声明算子的方式。
 - 控制流字段如 `skip` 和 `for_branch_control`
 - merge 祖先（`sources`）
 - 引擎级 flags（`row_dependency`、`recall`、`data_parallel: int = 0`）
+- row-set 标记三元组（`consumes_row_set`、`mutates_row_set`、`additive_writes_row_set`），由两条分发路径在记录 `OpCall` 时按 `apple_generated/markers.py` 查表填充
 - `debug`
 - `code_info`
 - 可选的显式 `name`
@@ -445,6 +448,12 @@ Apple 仍输出单个名为 `main` 的 group，但 `pipeline_group.main.pipeline
 
 这使互斥的 if/elseif/else 分支可以写入相同字段。
 
+AdditiveWritesRowSet 豁免（issue #72）：
+
+- `OpCall.additive_writes_row_set=True` 的算子在 same-field 写入检测上被豁免
+- Recall 类型实现 `AdditiveWritesRowSet` 接口，每次调用产出一个独立的行集，下游由 `merge_dedup` 合并；多路召回写入相同 item 字段（典型如 `item_id`）是合法模式，不应触发"覆写而未先读取"
+- 该判定直接读取 `apple_generated/markers.py` 表填充到 `OpCall` 的 `additive_writes_row_set` 真值，不再依赖 `type_name` 前缀代理。`detect_dead_code` 仍使用 `op.recall` 跳过 recall 算子（recall 输出是基础 item 集，无下游消费也合法），两条豁免路径来源不同，请勿混用
+
 ### 校验报错定位格式
 
 `apple/validator.py` 通过 `_op_location(name, op)` 统一构造逐算子校验错误前缀。所有 per-operator `ValidationError` 都应复用这一路径，而不是各自拼接字符串。
@@ -607,9 +616,11 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 
 1. `pine-go/operators/` 下的 Go 算子 Schema 注册
 2. `pine-go/pkg/codegen/` 中的 Go codegen
-3. `apple_generated/` 中生成的 Python helper 类
+3. `apple_generated/` 中生成的 Python helper 类与 `markers.py` row-set 标记表
 4. Apple 编译输出 JSON
 5. Go 运行时消费 JSON
+
+`apple_generated/markers.py` 由 codegen 通过实例化每个已注册算子 factory（**仅供探测，不调用 `Init`/`Configure`，禁止在构造函数里做 I/O、起 goroutine 或持有外部句柄**）、按 `AdditiveWritesRowSet` / `ConsumesRowSet` / `MutatesRowSet` 三个接口断言生成 `OPERATOR_MARKERS` 表。Java（`Codegen.generateMarkersPy` + `Registry.instantiate`）和 C++（见 `pine-cpp-runtime.md`）同样实现该探测路径，CI cross-validate `01-codegen-schema.sh` 的 1c / 1d 通过 `diff -r` 对三引擎产物做字节级比对，确保 `markers.py` 跨语言一致。注意：JSON 配置 / schema JSON 不携带 marker 真值——`markers.py` 是 Apple DSL 侧的查表辅助，运行时仍由 Go/Java/C++ 各自的接口断言权威产出。
 
 编译器因此位于生成的声明 helper 和运行时配置消费之间。
 
