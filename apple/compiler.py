@@ -20,11 +20,13 @@ from apple.template import extract_fields_from_params
 from apple.validator import (
     ValidationError,
     detect_dead_code,
+    detect_subflow_dead_code,
     validate_data_parallel,
     validate_field_coverage,
     validate_no_underscore_output,
     validate_param_metadata_consistency,
     validate_sources_references,
+    validate_subflow_field_coverage,
     validate_templated_params,
     validate_write_without_read,
 )
@@ -186,7 +188,12 @@ def compile_flow(flow: Any) -> dict[str, Any]:
     _validate_resource_refs(named_ops, declared_resources)
 
     # 9b. Validate SubFlow contracts (if declared)
-    _validate_subflow_contracts(flow, declared_resources)
+    _validate_subflow_contracts(
+        flow,
+        declared_resources,
+        named_ops,
+        skip_dead_code=getattr(flow, '_skip_dead_code', False),
+    )
 
     # 10. Build result
     result: dict[str, Any] = {
@@ -445,16 +452,51 @@ def _validate_resource_refs(
 def _validate_subflow_contracts(
     flow: Any,
     declared_resources: set[str],
+    named_ops: list[tuple[str, OpCall]],
+    skip_dead_code: bool = False,
 ) -> None:
-    """Validate SubFlow-declared required_resources against parent Flow."""
+    """Validate SubFlow-declared contracts against the parent Flow.
+
+    - ``required_resources``: each must be present in the parent Flow's
+      declared resources (issue #37).
+    - ``common_input`` / ``item_input``: when declared, every internal op's
+      reads must come from the contract or upstream internal output
+      (issue #78).
+    - ``common_output`` / ``item_output``: when declared, every internal
+      op's output must be consumed inside the SubFlow or appear in the
+      output contract; otherwise the op is dead (issue #78).
+    """
     visited: set[int] = set()
-    _validate_sf_contracts_recursive(flow, declared_resources, visited)
+    _validate_sf_contracts_recursive(
+        flow, "", declared_resources, visited, named_ops, skip_dead_code
+    )
+
+
+def _sf_subtree_ops(
+    sf_path: str,
+    named_ops: list[tuple[str, OpCall]],
+) -> list[tuple[str, OpCall]]:
+    """Return ops whose subflow_path is exactly sf_path or a descendant.
+
+    Descendants are nested SubFlows. Per the chosen semantics for #78,
+    nested SubFlows that do not declare their own contract inherit the
+    outer contract — so their ops participate in the outer scope check.
+    """
+    prefix = sf_path + "/"
+    return [
+        (name, op)
+        for name, op in named_ops
+        if op.subflow_path == sf_path or op.subflow_path.startswith(prefix)
+    ]
 
 
 def _validate_sf_contracts_recursive(
     node: Any,
+    node_path: str,
     declared_resources: set[str],
     visited: set[int],
+    named_ops: list[tuple[str, OpCall]],
+    skip_dead_code: bool,
 ) -> None:
     obj_id = id(node)
     if obj_id in visited:
@@ -469,7 +511,32 @@ def _validate_sf_contracts_recursive(
                         f"but it is not declared. "
                         f"Declared: {sorted(declared_resources) or '(none)'}"
                     )
-        _validate_sf_contracts_recursive(sf, declared_resources, visited)
+        sf_path = f"{node_path}/{sf._name}" if node_path else sf._name
+        sf_common_input = getattr(sf, '_common_input', None)
+        sf_item_input = getattr(sf, '_item_input', None)
+        sf_common_output = getattr(sf, '_common_output', None)
+        sf_item_output = getattr(sf, '_item_output', None)
+        need_input = sf_common_input is not None or sf_item_input is not None
+        need_output = sf_common_output is not None or sf_item_output is not None
+        if need_input or need_output:
+            sf_ops = _sf_subtree_ops(sf_path, named_ops)
+            if need_input:
+                validate_subflow_field_coverage(
+                    sf_path, sf_ops, sf_common_input, sf_item_input
+                )
+            if need_output and not skip_dead_code:
+                dead = detect_subflow_dead_code(
+                    sf_ops, sf_common_output, sf_item_output
+                )
+                if dead:
+                    raise ValidationError(
+                        f"SubFlow {sf_path!r}: dead operators "
+                        f"(output not consumed within SubFlow or its "
+                        f"declared output contract): {dead}"
+                    )
+        _validate_sf_contracts_recursive(
+            sf, sf_path, declared_resources, visited, named_ops, skip_dead_code
+        )
 
 
 def compile_to_json(flow: Any, indent: int = 2) -> str:

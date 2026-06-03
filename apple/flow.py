@@ -308,9 +308,20 @@ class SubFlow(_FlowBase):
     for compile-time validation. All contract parameters are optional —
     existing SubFlows with only a name argument continue to work unchanged.
 
-    Note: ``required_resources`` is validated at compile time.
-    ``common_input``/``common_output``/``item_input``/``item_output`` are
-    currently stored as metadata only and not yet validated by the compiler.
+    Validation (issue #78):
+    - ``required_resources``: each entry must be present in the parent
+      Flow's declared resources.
+    - ``common_input`` / ``item_input``: when declared, every internal
+      operator's reads must come from the contract or an upstream
+      internal output within the SubFlow subtree.
+    - ``common_output`` / ``item_output``: when declared, every internal
+      operator's output must be consumed inside the SubFlow or appear
+      in the output contract; otherwise the operator is reported as
+      dead by SubFlow scope.
+
+    Nested SubFlows without their own contract inherit the outer
+    SubFlow's contract for these checks (an outer-scoped contract is
+    binding on the entire subtree).
     """
 
     def __init__(

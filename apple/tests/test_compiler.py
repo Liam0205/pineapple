@@ -992,3 +992,259 @@ class TestThreeBucketCommonInput:
         meta = op["$metadata"]
         assert "common_input_skip" not in meta
         assert "common_input_template" not in meta
+
+
+class TestSubFlowContractEnforcement:
+    """#78: SubFlow common_input/item_input/output contracts are enforced.
+
+    Companion to TestSubFlowRequiredResources (#37) which covered the
+    resource-only path. These tests cover the four field-list contracts.
+    """
+
+    def _add_lua(self, node, *, common_input=None, common_output=None,
+                 item_input=None, item_output=None, name=None):
+        # Helper: minimal transform_by_lua with no real Lua semantics —
+        # we only care about input/output bookkeeping for compile-time
+        # contract checks.
+        kwargs = {
+            "common_input": common_input or [],
+            "common_output": common_output or [],
+            "item_input": item_input or [],
+            "item_output": item_output or [],
+            "lua_script": "function f() return 0 end",
+            "function_for_item": "f",
+            "function_for_common": "",
+        }
+        if name:
+            kwargs["name"] = name
+        node._add_op("transform_by_lua", **kwargs)
+
+    def test_input_contract_missing_field_raises(self):
+        """SubFlow declares item_input but reads a field outside it → error."""
+        from apple.validator import ValidationError
+
+        sf = SubFlow(name="sf", item_input=["x"])
+        # Reads y, which is NOT in the SubFlow contract even though parent
+        # provides it; the SubFlow-scoped check fires first.
+        self._add_lua(sf, item_input=["y"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            item_input=["x", "y"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        with pytest.raises(ValidationError, match=r"SubFlow 'sf' contract"):
+            compile_flow(flow)
+
+    def test_input_contract_satisfied_passes(self):
+        """SubFlow contract covers all reads → compiles."""
+        sf = SubFlow(name="sf", item_input=["x"], item_output=["z"])
+        self._add_lua(sf, item_input=["x"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            item_input=["x"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        assert "pipeline_config" in cfg
+
+    def test_input_contract_internal_upstream_satisfies(self):
+        """Internal upstream op output satisfies a downstream read inside the SubFlow."""
+        sf = SubFlow(name="sf", item_input=["x"], item_output=["z"])
+        self._add_lua(sf, item_input=["x"], item_output=["mid"])
+        self._add_lua(sf, item_input=["mid"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            item_input=["x"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        assert "pipeline_config" in cfg
+
+    def test_nested_subflow_inherits_outer_contract(self):
+        """Nested SubFlow without its own contract is checked against the
+        outer SubFlow's contract — chosen semantics for #78."""
+        from apple.validator import ValidationError
+
+        inner = SubFlow(name="inner")
+        # inner reads `bad`, which the outer SubFlow does NOT advertise.
+        self._add_lua(inner, item_input=["bad"], item_output=["z"])
+
+        outer = SubFlow(name="outer", item_input=["x"], item_output=["z"])
+        outer.add_subflow(inner)
+
+        flow = Flow(
+            name="parent",
+            item_input=["x", "bad"],
+            item_output=["z"],
+            sub_flows=[outer],
+        )
+        with pytest.raises(ValidationError, match=r"SubFlow 'outer' contract"):
+            compile_flow(flow)
+
+    def test_output_contract_dead_internal_op_raises(self):
+        """SubFlow declares item_output; an internal op whose ENTIRE output
+        is consumed only OUTSIDE the SubFlow is dead by SubFlow scope.
+
+        Mirrors the flow-level detect_dead_code's op-granularity rule:
+        an op is dead iff none of its outputs are needed within scope.
+        """
+        from apple.validator import ValidationError
+
+        sf = SubFlow(name="sf", item_input=["x"], item_output=["z"])
+        # First op produces `z` to satisfy the SubFlow output contract.
+        self._add_lua(sf, item_input=["x"], item_output=["z"])
+        # Second op produces `extra` only — consumed by the parent Flow's
+        # item_output but not by anything inside the SubFlow, and `extra`
+        # is not in the SubFlow's item_output contract → dead by SubFlow.
+        self._add_lua(sf, item_input=["x"], item_output=["extra"], name="dead_op")
+
+        flow = Flow(
+            name="parent",
+            item_input=["x"],
+            item_output=["z", "extra"],
+            sub_flows=[sf],
+        )
+        with pytest.raises(ValidationError, match=r"SubFlow 'sf'.*dead"):
+            compile_flow(flow)
+
+    def test_output_contract_consumed_internally_passes(self):
+        """A field is consumed by a downstream op INSIDE the SubFlow
+        even though it's not in the SubFlow's output contract."""
+        sf = SubFlow(name="sf", item_input=["x"], item_output=["z"])
+        self._add_lua(sf, item_input=["x"], item_output=["mid"])
+        self._add_lua(sf, item_input=["mid"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            item_input=["x"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        assert "pipeline_config" in cfg
+
+    def test_no_contract_no_check_backwards_compat(self):
+        """SubFlow without any field-list contract must compile unchanged
+        (back-compat with existing SubFlow callsites)."""
+        sf = SubFlow(name="sf")
+        # Reads `external_x` — only the parent flow contract covers it.
+        # Without a SubFlow input contract, only parent-level coverage runs.
+        self._add_lua(sf, item_input=["external_x"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            item_input=["external_x"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        assert "pipeline_config" in cfg
+
+    def test_skip_dead_code_flag_skips_subflow_check_too(self):
+        """Flow's skip_dead_code=True also bypasses SubFlow dead-code."""
+        sf = SubFlow(name="sf", item_input=["x"], item_output=["z"])
+        self._add_lua(sf, item_input=["x"], item_output=["z"])
+        # Same dead-by-SubFlow shape as test_output_contract_dead_internal_op_raises;
+        # this op is dead-by-SubFlow but skip_dead_code lets it through.
+        self._add_lua(sf, item_input=["x"], item_output=["extra"], name="dead_op")
+
+        flow = Flow(
+            name="parent",
+            item_input=["x"],
+            item_output=["z", "extra"],
+            sub_flows=[sf],
+            skip_dead_code=True,
+        )
+        cfg = compile_flow(flow)
+        assert "pipeline_config" in cfg
+
+    def test_mixed_common_and_item_contract(self):
+        """SubFlow declares both common_input and item_input simultaneously;
+        each side gates its own check independently and both must be
+        satisfied."""
+        from apple.validator import ValidationError
+
+        # Happy path: both sides satisfied.
+        sf_ok = SubFlow(
+            name="sf",
+            common_input=["uid"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+        )
+        self._add_lua(
+            sf_ok,
+            common_input=["uid"],
+            common_output=["greeting"],
+            item_input=["x"],
+            item_output=["z"],
+        )
+        flow_ok = Flow(
+            name="parent",
+            common_input=["uid"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+            sub_flows=[sf_ok],
+        )
+        assert "pipeline_config" in compile_flow(flow_ok)
+
+        # Item side missing: common contract satisfied but item op reads
+        # `missing_item` not in item_input contract → raise.
+        sf_bad_item = SubFlow(
+            name="sf",
+            common_input=["uid"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+        )
+        self._add_lua(
+            sf_bad_item,
+            common_input=["uid"],
+            common_output=["greeting"],
+            item_input=["missing_item"],
+            item_output=["z"],
+        )
+        flow_bad_item = Flow(
+            name="parent",
+            common_input=["uid"],
+            item_input=["x", "missing_item"],
+            common_output=["greeting"],
+            item_output=["z"],
+            sub_flows=[sf_bad_item],
+        )
+        with pytest.raises(ValidationError, match=r"item_input field 'missing_item'"):
+            compile_flow(flow_bad_item)
+
+        # Common side missing: item contract satisfied but common op
+        # reads `missing_common` not in common_input contract → raise.
+        sf_bad_common = SubFlow(
+            name="sf",
+            common_input=["uid"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+        )
+        self._add_lua(
+            sf_bad_common,
+            common_input=["missing_common"],
+            common_output=["greeting"],
+            item_input=["x"],
+            item_output=["z"],
+        )
+        flow_bad_common = Flow(
+            name="parent",
+            common_input=["uid", "missing_common"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+            sub_flows=[sf_bad_common],
+        )
+        with pytest.raises(ValidationError, match=r"common_input field 'missing_common'"):
+            compile_flow(flow_bad_common)
