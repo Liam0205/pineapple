@@ -227,15 +227,44 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 			}
 			seen[origIdx] = true
 		}
+		// In-place permutation via cycle following. `order` is a validated
+		// length-N permutation of [0, N); each cycle is walked once,
+		// performing ≤ N moves per column with zero per-column allocation.
+		// Replaces the prior "allocate fresh slice + copy each slot" loop
+		// which paid 2K large allocations (data + presence) per reorder.
+		// The cycle structure depends only on `order`, so `visited` is
+		// allocated once and reset per column.
+		visited := make([]bool, len(order))
 		for field, col := range f.columns {
-			newCol := make([]any, len(order))
-			newPresent := make([]bool, len(order))
-			for newIdx, origIdx := range order {
-				newCol[newIdx] = col[origIdx]
-				newPresent[newIdx] = f.present[field][origIdx]
+			presentCol := f.present[field]
+			for i := range visited {
+				visited[i] = false
 			}
-			f.columns[field] = newCol
-			f.present[field] = newPresent
+			for i := range order {
+				if visited[i] {
+					continue
+				}
+				if order[i] == i {
+					visited[i] = true
+					continue
+				}
+				tmpVal := col[i]
+				tmpPres := presentCol[i]
+				j := i
+				for {
+					src := order[j]
+					if src == i {
+						col[j] = tmpVal
+						presentCol[j] = tmpPres
+						visited[j] = true
+						break
+					}
+					col[j] = col[src]
+					presentCol[j] = presentCol[src]
+					visited[j] = true
+					j = src
+				}
+			}
 		}
 	}
 
