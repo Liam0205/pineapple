@@ -131,12 +131,12 @@ public class AllOperators {
                         Map.of(
                                 "resource_name", ParamSpec.required("string",
                                         "Name of a redis_connection resource to borrow the client from."),
-                                "key_prefix", ParamSpec.required("string",
-                                        "Key prefix prepended to the suffix built from common_input fields."),
+                                "key_prefix", ParamSpec.requiredTemplatable("string",
+                                        "Key prefix prepended to the suffix built from common_input fields. Supports {{field}} interpolation."),
                                 "data_type", ParamSpec.optional("string", "string",
                                         "Redis data type: set, string, or list."),
-                                "ttl", ParamSpec.optional("int", 0L,
-                                        "TTL in seconds. 0 means no expiry."),
+                                "ttl", ParamSpec.optionalTemplatable("int", 0L,
+                                        "TTL in seconds. 0 means no expiry. Supports {{field}} interpolation."),
                                 "fail_on_error", ParamSpec.optional("bool", false,
                                         "Return fatal error on Redis failure instead of logging to stderr.")
                         )),

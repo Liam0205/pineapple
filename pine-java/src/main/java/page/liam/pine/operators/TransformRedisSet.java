@@ -57,7 +57,27 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
             throw new PineErrors.OperatorException("transform_redis_set: common_input must have at least 2 fields (key fields + value field)");
         }
 
-        String key = keyPrefix + TransformRedisGet.buildKeySuffix(input, commonInput().subList(0, n - 1));
+        // key_prefix and ttl are both templatable (#74). When the DSL
+        // configured a {{field}} marker the engine resolved it against
+        // this request's common frame before execute; otherwise the
+        // init-time value is used. The String / Long type checks below
+        // are unreachable: BuildTemplatedParamPlan rejects mismatched
+        // declared types and TemplateResolver normalizes through
+        // GoFormat.sprint / ParseInt. Kept as defense in depth.
+        String prefix = keyPrefix;
+        Object resolvedPrefix = input.templatedParam("key_prefix");
+        if (resolvedPrefix instanceof String) {
+            prefix = (String) resolvedPrefix;
+        }
+        int ttl = ttlSeconds;
+        Object resolvedTtl = input.templatedParam("ttl");
+        if (resolvedTtl instanceof Long) {
+            ttl = ((Long) resolvedTtl).intValue();
+        } else if (resolvedTtl instanceof Integer) {
+            ttl = (Integer) resolvedTtl;
+        }
+
+        String key = prefix + TransformRedisGet.buildKeySuffix(input, commonInput().subList(0, n - 1));
         Object value = input.common(commonInput().get(n - 1));
 
         try (Jedis jedis = pool.getResource()) {
@@ -71,7 +91,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                     Pipeline pipe = jedis.pipelined();
                     pipe.del(key);
                     pipe.sadd(key, members.toArray(new String[0]));
-                    if (ttlSeconds > 0) pipe.expire(key, ttlSeconds);
+                    if (ttl > 0) pipe.expire(key, ttl);
                     pipe.sync();
                     break;
                 }
@@ -84,7 +104,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                     Pipeline pipe = jedis.pipelined();
                     pipe.del(key);
                     pipe.rpush(key, members.toArray(new String[0]));
-                    if (ttlSeconds > 0) pipe.expire(key, ttlSeconds);
+                    if (ttl > 0) pipe.expire(key, ttl);
                     pipe.sync();
                     break;
                 }
@@ -93,8 +113,8 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                         System.err.printf("transform_redis_set: value for key %s is not string%n", key);
                         return;
                     }
-                    if (ttlSeconds > 0) {
-                        jedis.setex(key, ttlSeconds, (String) value);
+                    if (ttl > 0) {
+                        jedis.setex(key, ttl, (String) value);
                     } else {
                         jedis.set(key, (String) value);
                     }
