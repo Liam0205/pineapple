@@ -33,6 +33,19 @@ public final class TemplateResolver {
     }
 
     /**
+     * Returns true iff s matches the L0 bare-marker contract
+     * {@code "^{{field}}$"} exactly. Operators that accept
+     * int/float/bool typed templatable params use this from their
+     * init path to distinguish a legitimate templatable marker
+     * (fallback to zero, resolved per-request) from a hand-edited
+     * garbage string (which must error out instead of silently
+     * coercing to zero).
+     */
+    public static boolean isBareMarker(String s) {
+        return BARE_MARKER.matcher(s).matches();
+    }
+
+    /**
      * Returns the single field name from a bare {@code "{{field}}"} value,
      * or {@code null} if the value contains literal text or multiple
      * markers. Enforces the L0 contract at engine build time.
