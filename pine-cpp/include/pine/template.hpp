@@ -28,6 +28,14 @@ struct TemplatedParam {
 // Returns true iff `v` is a string carrying at least one {{field}} marker.
 bool is_templated_string(const Variant& v);
 
+// Returns true iff `s` matches the L0 bare-marker contract "^{{field}}$"
+// exactly. Operators that accept int/float/bool typed templatable params
+// use this from their init path to distinguish a legitimate templatable
+// marker (fallback to zero, resolved per-request) from a hand-edited
+// garbage string (which must error out instead of silently coercing to
+// zero).
+bool is_bare_marker(const std::string& s);
+
 // Scans an operator's raw params against its schema and returns the
 // per-param interpolation plan. Returns an empty vector when no
 // templated params are present. Throws ConfigError when a templated

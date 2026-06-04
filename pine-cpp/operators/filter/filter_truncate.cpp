@@ -1,4 +1,5 @@
 #include "pine/operator.hpp"
+#include "pine/template.hpp"
 
 #include "operators/_helpers.hpp"
 
@@ -12,9 +13,13 @@ class FilterTruncateOp : public Operator, public ConsumesRowSet, public MutatesR
     if (tp.is_number()) {
       top_n_ = static_cast<int>(tp.as_number());
     } else if (tp.is_string()) {
-      // Templatable marker (e.g. "{{user_tier_limit}}"). The per-request
-      // value arrives via input.templated_param at execute time; the
-      // engine guarantees this fallback is never read.
+      // Only a bare {{field}} marker is accepted here; engine resolves
+      // it per-request at execute time. A non-marker string is hand-
+      // edited garbage and must error out rather than silently
+      // truncating to zero.
+      if (!is_bare_marker(tp.as_string())) {
+        throw ExecutionError("filter_truncate: top_n must be numeric");
+      }
       top_n_ = 0;
     } else {
       throw ExecutionError("filter_truncate: top_n must be numeric");

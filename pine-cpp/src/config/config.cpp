@@ -1,4 +1,5 @@
 #include "pine/pine.hpp"
+#include "pine/template.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -172,9 +173,13 @@ void validate_config(const Config& config) {
       auto pit = op.params.as_object().find("top_n");
       if (pit != op.params.as_object().end()) {
         if (pit->second.is_string()) {
-          // Templatable marker (e.g. "{{user_tier_limit}}"); the
-          // per-request value is resolved at execute time. Numeric
-          // invariant is re-checked there.
+          // Only a bare {{field}} marker is accepted here; the engine
+          // resolves it per-request at execute time. A non-marker string
+          // is hand-edited garbage and must surface as a registry error
+          // rather than silently truncating to zero.
+          if (!is_bare_marker(pit->second.as_string())) {
+            throw RegistryError("operator \"" + name + "\": top_n must be numeric");
+          }
         } else if (!pit->second.is_number()) {
           throw RegistryError("operator \"" + name + "\": top_n must be numeric");
         } else {
