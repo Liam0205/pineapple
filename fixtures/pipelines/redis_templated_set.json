@@ -1,0 +1,61 @@
+{
+  "name": "redis templated key_prefix + ttl parity (SET-then-GET)",
+  "requires": ["redis"],
+  "notes": "Symmetric counterpart to redis_templated_key.json. Exercises bare {{tenant_id}} on transform_redis_set.key_prefix and bare {{cache_ttl}} on transform_redis_set.ttl — L0 contract: each templated value is exactly one marker. A subsequent transform_redis_get reads the value back using the same templated key_prefix, verifying that the SET write landed at the templated key. The ttl param is templated but not directly asserted; equality of the round-tripped value plus the expected_redis_key check is sufficient to verify the templated key path drove the write.",
+  "config": {
+    "resource_config": {
+      "redis_conn": {
+        "type": "redis_connection",
+        "interval": -1,
+        "params": {"addr": "PLACEHOLDER"}
+      }
+    },
+    "pipeline_config": {
+      "operators": {
+        "set_cache": {
+          "type_name": "transform_redis_set",
+          "resource_name": "redis_conn",
+          "key_prefix": "{{tenant_id}}",
+          "ttl": "{{cache_ttl}}",
+          "$metadata": {
+            "common_input": ["uid", "payload"],
+            "common_input_template": ["tenant_id", "cache_ttl"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "get_cache": {
+          "type_name": "transform_redis_get",
+          "resource_name": "redis_conn",
+          "key_prefix": "{{tenant_id}}",
+          "sources": ["set_cache"],
+          "$metadata": {
+            "common_input": ["uid"],
+            "common_input_template": ["tenant_id"],
+            "common_output": ["result", "cache_hit"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["set_cache", "get_cache"]}
+    },
+    "flow_contract": {
+      "common_input": ["tenant_id", "cache_ttl", "uid", "payload"],
+      "item_input": [],
+      "common_output": ["tenant_id", "cache_ttl", "uid", "payload", "result", "cache_hit"],
+      "item_output": []
+    }
+  },
+  "cases": [
+    {
+      "name": "templated key_prefix + ttl set-then-get",
+      "request": {"common": {"tenant_id": "acme", "cache_ttl": 60, "uid": "user1", "payload": "hello_templated_set"}, "items": []},
+      "expected": {"common": {"tenant_id": "acme", "cache_ttl": 60, "uid": "user1", "payload": "hello_templated_set", "result": "hello_templated_set", "cache_hit": true}, "items": []},
+      "expected_redis_key": "acmeuser1"
+    }
+  ]
+}
