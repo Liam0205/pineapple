@@ -7,6 +7,7 @@ import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 import page.liam.pine.PineErrors;
+import page.liam.pine.TemplateResolver;
 
 import java.util.Map;
 
@@ -26,11 +27,15 @@ public class FilterTruncate extends AbstractOperator implements page.liam.pine.C
         Object v = params.get("top_n");
         if (v instanceof Number) {
             topN = ((Number) v).longValue();
-        } else if (v instanceof String) {
-            // Templatable marker (e.g. "{{user_tier_limit}}"). The
-            // per-request value arrives via input.templatedParam at
-            // execute time; the engine guarantees this fallback is
-            // never read.
+        } else if (v instanceof String s) {
+            // Only a bare {{field}} marker is accepted here; the engine
+            // resolves it against the request's common frame at execute
+            // time and the fallback stored now is never read. A
+            // non-marker string is hand-edited garbage and must surface
+            // as an init error rather than silently truncating to zero.
+            if (!TemplateResolver.isBareMarker(s)) {
+                throw new IllegalArgumentException("filter_truncate: top_n must be numeric, got " + GoTypeNames.of(v));
+            }
             topN = 0;
         } else {
             throw new IllegalArgumentException("filter_truncate: top_n must be numeric, got " + GoTypeNames.of(v));

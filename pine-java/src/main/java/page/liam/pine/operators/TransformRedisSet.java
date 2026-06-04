@@ -37,7 +37,21 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
         if (dt instanceof String && !((String) dt).isEmpty()) {
             dataType = (String) dt;
         }
-        ttlSeconds = params.getInt("ttl", 0);
+        ttlSeconds = 0;
+        Object ttlRaw = params.get("ttl");
+        if (ttlRaw instanceof Number) {
+            ttlSeconds = ((Number) ttlRaw).intValue();
+        } else if (ttlRaw instanceof String s) {
+            // Only a bare {{field}} marker is accepted here; engine
+            // resolves it per-request at execute time. A non-marker
+            // string would otherwise be silently coerced to 0 by
+            // params.getInt's default-value fallback.
+            if (!TemplateResolver.isBareMarker(s)) {
+                throw new IllegalArgumentException("transform_redis_set: ttl must be numeric, got " + GoTypeNames.of(ttlRaw));
+            }
+        } else if (ttlRaw != null) {
+            throw new IllegalArgumentException("transform_redis_set: ttl must be numeric, got " + GoTypeNames.of(ttlRaw));
+        }
         Object foe = params.get("fail_on_error");
         if (foe instanceof Boolean) failOnError = (Boolean) foe;
     }
