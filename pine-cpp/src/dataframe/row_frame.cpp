@@ -229,11 +229,14 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
           throw ExecutionError(op_name, "added item write: " + v);
         }
       }
-      auto row = added;
+      // added is already a sorted FlatMap; copy then move into items_,
+      // skipping the range-ctor's redundant sort. operator[] preserves
+      // sort order when injecting _source.
+      Variant::object_t row = added;
       if (is_recall) {
         row["_source"] = Variant(op_name);
       }
-      items_.emplace_back(std::make_move_iterator(row.begin()), std::make_move_iterator(row.end()));
+      items_.emplace_back(std::move(row));
     }
   }
 
