@@ -81,7 +81,7 @@ class FilterTruncateOp(BaseOp):
     """Operator: filter_truncate"""
     _name = "filter_truncate"
     _params_schema = {
-        "top_n": {"type": "int64", "required": True},
+        "top_n": {"type": "int64", "required": True, "templatable": True},
     }
 
     def __call__(
