@@ -38,19 +38,27 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
             dataType = (String) dt;
         }
         ttlSeconds = 0;
-        Object ttlRaw = params.get("ttl");
-        if (ttlRaw instanceof Number) {
-            ttlSeconds = ((Number) ttlRaw).intValue();
-        } else if (ttlRaw instanceof String s) {
-            // Only a bare {{field}} marker is accepted here; engine
-            // resolves it per-request at execute time. A non-marker
-            // string would otherwise be silently coerced to 0 by
-            // params.getInt's default-value fallback.
-            if (!TemplateResolver.isBareMarker(s)) {
+        if (params.containsKey("ttl")) {
+            // containsKey gates the lookup so an explicit JSON null falls
+            // into the else branch and errors out, matching Go's `v, ok :=
+            // params["ttl"]` + nil-in-default semantics. params.get alone
+            // cannot distinguish "key missing" from "key present, value
+            // null" — the latter would silently leave ttlSeconds=0,
+            // re-opening the hand-edited-garbage hole this commit closes.
+            Object ttlRaw = params.get("ttl");
+            if (ttlRaw instanceof Number) {
+                ttlSeconds = ((Number) ttlRaw).intValue();
+            } else if (ttlRaw instanceof String s) {
+                // Only a bare {{field}} marker is accepted here; engine
+                // resolves it per-request at execute time. A non-marker
+                // string would otherwise be silently coerced to 0 by
+                // params.getInt's default-value fallback.
+                if (!TemplateResolver.isBareMarker(s)) {
+                    throw new IllegalArgumentException("transform_redis_set: ttl must be numeric, got " + GoTypeNames.of(ttlRaw));
+                }
+            } else {
                 throw new IllegalArgumentException("transform_redis_set: ttl must be numeric, got " + GoTypeNames.of(ttlRaw));
             }
-        } else if (ttlRaw != null) {
-            throw new IllegalArgumentException("transform_redis_set: ttl must be numeric, got " + GoTypeNames.of(ttlRaw));
         }
         Object foe = params.get("fail_on_error");
         if (foe instanceof Boolean) failOnError = (Boolean) foe;
