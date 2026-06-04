@@ -100,42 +100,83 @@ log "═════════════════════════
 # When this script runs inside a Claude Code background bash task, the entire
 # stderr above is fed back into the main conversation on completion. The block
 # below is written for Claude to consume directly: it spells out the next-step
-# loop (fetch review comments → fix every one → push again) using concrete gh
-# commands, so no human roundtrip is needed for the "address review feedback"
-# step. The loop terminates naturally — a future re-push re-enters this script,
-# and if the PR review is APPROVED with no unresolved comments, no further
-# instructions are emitted.
+# loop (fetch review comments → understand each one → fix the real issues →
+# push again) using concrete gh commands, so no human roundtrip is needed for
+# the "address review feedback" step.
 #
-# We only emit the block when there is actual work for Claude to do:
-#   - CI is green (we are in the success path below the failure exit)
-#   - PR is not yet APPROVED, OR there are unresolved review threads
+# Trigger model (intentionally signal-only, not semantic):
+#   We do NOT try to grep review-bot output for "APPROVE" strings. The bot is
+#   itself an LLM; its wording is non-deterministic, and even an APPROVE often
+#   ships with non-blocking suggestions that we still want to evaluate. So the
+#   script's only job is to detect whether *anything new* has happened since
+#   the current HEAD was pushed, and hand the actual judgment (real issue vs.
+#   false positive, blocking vs. nit) over to Claude.
 #
-# When the PR is APPROVED with no outstanding threads, the block is suppressed
-# so an automated workflow knows it has reached the terminal state.
+# We emit the next-step block when ANY of these hold:
+#   - new top-level issue comments since HEAD push time
+#   - new inline review (PR review) comments since HEAD push time
+#   - new review submissions since HEAD push time (APPROVE / CHANGES_REQUESTED
+#     events themselves count as new activity to inspect)
+#   - any unresolved review threads (regardless of age — an old unresolved
+#     thread still represents debt the loop has not closed)
+#
+# When none of the above hold, the script exits silently with a single success
+# line, so an automated loop reaches a stable terminal state.
 
-# Check whether there are any unresolved review threads. The graphql query is
-# the only reliable signal — `gh pr view --json comments` returns issue-style
-# top-level comments but not review-thread state (resolved vs unresolved).
-unresolved_threads="$(gh api graphql -f query='
+head_pushed_at="$(git log -1 --format=%cI HEAD 2>/dev/null)"
+if [ -z "$head_pushed_at" ]; then
+  head_pushed_at="1970-01-01T00:00:00Z"
+fi
+
+owner="$(gh repo view --json owner --jq '.owner.login' 2>/dev/null)"
+repo="$(gh repo view --json name --jq '.name' 2>/dev/null)"
+
+# Single GraphQL round-trip pulling everything we need to detect "new activity
+# since HEAD push". Each list is independently filtered by createdAt > HEAD
+# commit time in jq below.
+activity_json="$(gh api graphql -f query='
   query($owner:String!, $repo:String!, $pr:Int!) {
     repository(owner:$owner, name:$repo) {
       pullRequest(number:$pr) {
+        comments(last:50)        { nodes { createdAt } }
+        reviews(last:50)         { nodes { createdAt state } }
         reviewThreads(first:100) {
-          nodes { isResolved }
+          nodes {
+            isResolved
+            comments(last:50) { nodes { createdAt } }
+          }
         }
       }
     }
   }' \
-  -F owner="$(gh repo view --json owner --jq '.owner.login' 2>/dev/null)" \
-  -F repo="$(gh repo view --json name --jq '.name' 2>/dev/null)" \
-  -F pr="$pr_number" \
-  --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length' \
-  2>/dev/null)"
-[ -z "$unresolved_threads" ] && unresolved_threads=0
+  -F owner="$owner" -F repo="$repo" -F pr="$pr_number" 2>/dev/null)"
 
-# Terminal state: APPROVED and nothing unresolved → nothing for Claude to do.
-if [ "$review_decision" = "APPROVED" ] && [ "$unresolved_threads" = "0" ]; then
-  log "  ✓ PR is APPROVED with no unresolved threads — nothing more to do."
+if [ -z "$activity_json" ]; then
+  log "  ! could not query PR activity — assuming work remains, see comments manually."
+  new_issue_comments=0
+  new_review_submissions=0
+  new_inline_comments=0
+  unresolved_threads=0
+else
+  new_issue_comments="$(printf '%s' "$activity_json" \
+    | jq --arg t "$head_pushed_at" \
+        '[.data.repository.pullRequest.comments.nodes[] | select(.createdAt > $t)] | length')"
+  new_review_submissions="$(printf '%s' "$activity_json" \
+    | jq --arg t "$head_pushed_at" \
+        '[.data.repository.pullRequest.reviews.nodes[] | select(.createdAt > $t)] | length')"
+  new_inline_comments="$(printf '%s' "$activity_json" \
+    | jq --arg t "$head_pushed_at" \
+        '[.data.repository.pullRequest.reviewThreads.nodes[].comments.nodes[] | select(.createdAt > $t)] | length')"
+  unresolved_threads="$(printf '%s' "$activity_json" \
+    | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length')"
+fi
+
+total_new=$(( new_issue_comments + new_review_submissions + new_inline_comments ))
+
+# Terminal state: nothing new since the last push AND no lingering unresolved
+# threads. Stay silent — an automated loop reads this as "done".
+if [ "$total_new" -eq 0 ] && [ "$unresolved_threads" -eq 0 ]; then
+  log "  ✓ no new review activity since last push, no unresolved threads — done."
   exit 0
 fi
 
@@ -144,16 +185,34 @@ log "═════════════════════════
 log "  ▶ Next step for Claude Code (autonomous loop)"
 log "════════════════════════════════════════════════════════════"
 log ""
-log "PR #${pr_number} has review feedback to address before this branch can"
-log "ship. Work through every comment — review bots and human reviewers alike,"
-log "blocking and non-blocking, important and minor. Goal: zero technical debt"
-log "left behind."
+log "PR #${pr_number} has activity since the current HEAD was pushed at"
+log "  ${head_pushed_at}"
+log "  • new top-level comments:   ${new_issue_comments}"
+log "  • new review submissions:   ${new_review_submissions}  (each may be APPROVE / REQUEST_CHANGES / COMMENT)"
+log "  • new inline thread replies: ${new_inline_comments}"
+log "  • unresolved review threads: ${unresolved_threads}  (any age)"
+log ""
+log "An APPROVE verdict from the review bot does NOT mean there is nothing to"
+log "do — bots are LLMs, their wording is non-deterministic, and they often"
+log "approve while still flagging real issues as non-blocking. Read every new"
+log "comment and every unresolved thread, then decide on the merits."
 log ""
 log "Step 1. Fetch the current review surface:"
 log ""
 log "    # Top-level issue-style comments (often where the review bot posts)"
 log "    gh pr view ${pr_number} --json comments \\"
 log "        --jq '.comments[] | {author: .author.login, createdAt, body}'"
+log ""
+log "    # Formal Review submissions (APPROVE / REQUEST_CHANGES / COMMENT)"
+log "    gh api graphql -f query='"
+log "      query(\$owner:String!, \$repo:String!, \$pr:Int!) {"
+log "        repository(owner:\$owner, name:\$repo) {"
+log "          pullRequest(number:\$pr) {"
+log "            reviews(last:20) { nodes { author { login } state body submittedAt } }"
+log "          }"
+log "        }"
+log "      }' \\"
+log "      -F owner=\"${owner}\" -F repo=\"${repo}\" -F pr=${pr_number}"
 log ""
 log "    # Inline review threads with resolved state and per-thread comments"
 log "    gh api graphql -f query='"
@@ -171,19 +230,18 @@ log "            }"
 log "          }"
 log "        }"
 log "      }' \\"
-log "      -F owner=\"\$(gh repo view --json owner --jq '.owner.login')\" \\"
-log "      -F repo=\"\$(gh repo view --json name --jq '.name')\" \\"
-log "      -F pr=${pr_number}"
+log "      -F owner=\"${owner}\" -F repo=\"${repo}\" -F pr=${pr_number}"
 log ""
-log "Step 2. Filter to ACTIONABLE feedback only:"
-log "  - Skip threads where isResolved == true."
-log "  - Skip comments older than the most recent push (HEAD authored at"
-log "    \$(git log -1 --format=%cI HEAD)) unless explicitly re-raised in a"
-log "    newer comment — they likely refer to already-fixed code."
-log "  - Treat both blocking and non-blocking points as work items."
+log "Step 2. For each item, judge on the merits — do NOT just chase APPROVE:"
+log "  - Open the cited file:line and read the surrounding code yourself."
+log "  - Decide: is the concern real? (bots produce false positives — that's"
+log "    fine, but the decision must be backed by reading the code, not by"
+log "    trusting the verdict label)"
+log "  - If real: it's a work item, whether the bot called it blocking or not."
+log "    We do not ship technical debt just because a reviewer waved it through."
+log "  - If a false positive: leave it; do not fabricate a fix to placate."
 log ""
-log "Step 3. Fix every actionable item. For each:"
-log "  - Read the cited file:line, understand the concern."
+log "Step 3. Fix every real item:"
 log "  - Apply the smallest correct change; do NOT bundle drive-by refactors."
 log "  - Run the local validations the original reviewer would have run"
 log "    (lint, unit tests, cross-validate section if the change touches one)."
@@ -195,13 +253,12 @@ log ""
 log "    git push"
 log ""
 log "  The push re-enters this hook chain. CI will be re-watched and this"
-log "  block will reappear if any review feedback remains, looping until the"
-log "  PR reaches APPROVED with zero unresolved threads."
+log "  block will reappear if any further activity appears after the new HEAD."
 log ""
 log "Termination: when this script next prints"
-log "    ✓ PR is APPROVED with no unresolved threads — nothing more to do."
+log "    ✓ no new review activity since last push, no unresolved threads — done."
 log "the loop is done. Stop pushing and tell the user the PR is ready."
 log ""
-log "Current state: reviewDecision=${review_decision}, unresolved_threads=${unresolved_threads}"
+log "Current state: head_pushed_at=${head_pushed_at}, new_total=${total_new}, unresolved_threads=${unresolved_threads}, reviewDecision=${review_decision}"
 log "════════════════════════════════════════════════════════════"
 exit 0
