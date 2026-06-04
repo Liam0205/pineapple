@@ -93,6 +93,12 @@ class TypedColumn final : public Column {
   std::size_t size() const override {
     return data_.size();
   }
+  // Re-import the base-class 1-arg reorder so direct calls on a TypedColumn
+  // static type don't get hidden by the 2-arg override below (C++ name
+  // hiding). All current callers go through a Column* / unique_ptr<Column>
+  // so this is defense in depth, but it removes the footgun for future
+  // typed-path consumers.
+  using Column::reorder;
   bool is_null(std::size_t i) const override {
     return i >= validity_.size() || !validity_[i];
   }
@@ -158,6 +164,8 @@ class JsonColumn final : public Column {
   std::size_t size() const override {
     return data_.size();
   }
+  // See TypedColumn for the rationale on re-importing the base 1-arg overload.
+  using Column::reorder;
   bool is_null(std::size_t i) const override {
     return i >= validity_.size() || !validity_[i] || data_[i].is_null();
   }
