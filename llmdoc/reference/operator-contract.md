@@ -547,11 +547,48 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 
 约束（与 [apple-compiler.md 模板参数 `{{field}}` 插值](../architecture/apple-compiler.md) 的契约相同，从算子作者视角概括）：
 
-- 参数必须 `Type = "string"`；其他类型现阶段不支持
+- 参数 `Type` 必须为以下标量类型之一：`string` / `int` / `int64` / `float` / `float64` / `bool`（权威清单见 `apple/validator.py::_TEMPLATABLE_SCALAR_TYPES` 与 `pine-go/internal/runtime/template.go::templatableScalarTypes`）
 - DSL 端整值必须正好等于 `^\{\{(\w+)\}\}$`，违规在 Apple 编译期 fail-fast
 - 模板字段名会被 Apple 编译器自动追加到 `common_input_template` 桶，不进入算子 `OperatorInput`
 - Build-time 形状违规 → `ConfigError`；runtime 解析失败 → `ExecutionError` 由引擎包装算子名
-- 算子 `Execute` 中通过 `input.templated_param("param_name")` 读取已解析值；返回 string；若 build plan 未命中该参数（未声明 Templatable / DSL 未写模板），返回默认空值或非 string —— 作者应保留 `is_string()` 类型断言作为 defense-in-depth（参见 `transform_redis_get` 三引擎 `unreachable` 注释）
+- 算子 `Execute` 中通过 `input.templated_param("param_name")` 读取已解析值；返回类型与声明的 scalar type 对应（string→`string` / int·int64→`int64` / float·float64→`float64` / bool→`bool`）；若 build plan 未命中该参数（未声明 Templatable / DSL 未写模板），返回默认空值或非匹配类型 —— 作者应保留类型断言作为 defense-in-depth（参见 `transform_redis_get` 三引擎 `unreachable` 注释）
+
+### Templatable 适用性判据
+
+算子作者新增/审视参数时，先按下列六类判据排除"不能模板化"的情况；剩余的 scalar string/int/float/bool 参数才考虑开放。当前默认 opt-in，不主动声明 Templatable 即视为禁止。
+
+**§1 init-time 拓扑 / 资源绑定型** — 决定算子在 build 期与谁对话。运行时变更 → borrow 失败 / 连接错路 / 绕过预校验。
+代表：`resource_name`、`host`/`port`/`endpoint`、`*_pool_name`、`*_address`。
+
+**§2 源代码 / 脚本 / 查询模板型** — 参数本身是另一门 DSL 的源码；`{{...}}` 在那门 DSL 里有自己的语法或属于字面量；build 期通常已被预编译/状态池绑定。
+代表：`lua_script`、`function_for_item` / `function_for_common`、未来的 SQL/JSONPath/正则参数。
+
+**§3 行为分支决定型** — 取值改变算子的代码路径，每条分支在 build 期可能被预校验或被 DAG 利用。运行时变 → build 期"我们不会走这条分支"的假设作废。
+代表：`data_type`（"string"/"set"/"list"）、`direction`（"common_to_item"/...）、`method`、`order`（"asc"/"desc"）、`strategy`。
+
+**§4 行为开关 / 模式标志型** — 表达算子的工作模式；跨请求变化通常是配置错配而非数据驱动，且会让观测/日志/告警语义糊。
+代表：`fail_on_error`、`debug`、各种 `*_mode` / `*_policy`、`log_prefix`。
+
+**§5 build 期校验前提型** — 参数本身参与 Apple 编译期或 runtime build 期的不变量检查（DAG 依赖推导、metadata 一致性、ConcurrentSafe 校验等）。模板化等于把"已校验"重新打开成"未知"。
+代表：`lookup_key` / `output_field`（Apple validator 校验"必须在 item_input/item_output"）、`data_parallel`、参与 `merge_dedup` 字段选择的参数。
+
+**§6 安全敏感参数** — 凭证 / 密钥 / SSRF 边界开关 / 响应体上限等。模板化让攻击者可通过控制请求字段拼凑系统凭证或绕过安全边界。
+代表：`allow_private`、`max_response_size`、`password`、未来的 `*_token` / `*_secret`。
+
+**共性判据（一句话）**：如果参数取值变化会让 build 期的某条假设作废，就不能模板化。
+
+**适用画像**：剩下的"业务数据型 scalar param"才是 templatable 的天然受益者——取值变化只改业务数据流，不改算子语义/拓扑/分支。典型代表是 ID/key 类业务标识、字符串拼接位、业务驱动的阈值或限额。
+
+参考 review checklist（添加 `Templatable: true` 前问自己）：
+
+1. 这个参数取值变化是否会让任何 build 期校验作废？（DAG 排序、字段元数据、SSRF 检查、ConcurrentSafe 校验等）
+2. 这个参数是否承载凭证或安全边界？
+3. 这个参数是否决定算子走哪条代码路径？
+4. 这个参数变化是否会让监控指标/日志检索/告警规则脱离原契约？
+5. 这个参数是否是另一门 DSL 的源码或函数名/标识符？
+6. 这个参数是否参与跨算子的 init-time 拓扑绑定（资源句柄、连接池、远端地址）？
+
+任意一条回答"是"则不应开放 templatable；六条全否，才考虑加 `Templatable: true`。
 
 ## 常见陷阱
 
