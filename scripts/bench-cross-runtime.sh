@@ -11,14 +11,22 @@
 # Usage:
 #   ./scripts/bench-cross-runtime.sh [--skip go] [--modes "row,column"]
 #       [--requests 1000] [--concurrency 20] [--generate] [--filter "realistic"]
+#       [--no-resource-limit] [--cpu-list 0,1] [--mem-max 4G]
 #
 # Options:
-#   --skip        Runtimes to skip (comma-separated)
-#   --modes       Override storage_mode for fixtures that support it (comma-separated)
-#   --requests    Number of requests per benchmark run (default: 1000)
-#   --concurrency Concurrent connections (default: 20)
-#   --generate    Also generate synthetic fixtures via bench-generate-fixtures.py
-#   --filter      Only run fixtures whose name matches this substring
+#   --skip               Runtimes to skip (comma-separated)
+#   --modes              Override storage_mode for fixtures that support it (comma-separated)
+#   --requests           Number of requests per benchmark run (default: 1000)
+#   --concurrency        Concurrent connections (default: 20)
+#   --generate           Also generate synthetic fixtures via bench-generate-fixtures.py
+#   --filter             Only run fixtures whose name matches this substring
+#   --no-resource-limit  Disable server-side cgroup resource limit (default: ON, 2C/4G)
+#   --cpu-list           Server CPU affinity list passed to taskset -c (default: 0,1)
+#   --mem-max            Server memory cap (systemd MemoryMax, default: 4G; swap forced 0)
+#
+# Resource limit applies to the SERVER process only; the hey client is unrestricted
+# so it does not steal CPU from the runtime under test. Override via env:
+#   BENCH_RESOURCE_LIMIT=0 BENCH_CPU_LIST=0,1,2,3 BENCH_MEM_MAX=8G ./...
 #
 # Output: bench-results/report-<timestamp>.txt (in repo root, not /tmp)
 
@@ -42,18 +50,40 @@ NUM_REQUESTS=1000
 CONCURRENCY=20
 GENERATE=false
 FILTER=""
+RESOURCE_LIMIT="${BENCH_RESOURCE_LIMIT:-1}"
+CPU_LIST="${BENCH_CPU_LIST:-0,1}"
+MEM_MAX="${BENCH_MEM_MAX:-4G}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skip)        SKIP_RUNTIMES="$2"; shift 2 ;;
-    --modes)       IFS=',' read -ra STORAGE_MODES <<< "$2"; shift 2 ;;
-    --requests)    NUM_REQUESTS="$2"; shift 2 ;;
-    --concurrency) CONCURRENCY="$2"; shift 2 ;;
-    --generate)    GENERATE=true; shift ;;
-    --filter)      FILTER="$2"; shift 2 ;;
-    *)             echo "Unknown arg: $1" >&2; exit 1 ;;
+    --skip)              SKIP_RUNTIMES="$2"; shift 2 ;;
+    --modes)             IFS=',' read -ra STORAGE_MODES <<< "$2"; shift 2 ;;
+    --requests)          NUM_REQUESTS="$2"; shift 2 ;;
+    --concurrency)       CONCURRENCY="$2"; shift 2 ;;
+    --generate)          GENERATE=true; shift ;;
+    --filter)            FILTER="$2"; shift 2 ;;
+    --no-resource-limit) RESOURCE_LIMIT=0; shift ;;
+    --cpu-list)          CPU_LIST="$2"; shift 2 ;;
+    --mem-max)           MEM_MAX="$2"; shift 2 ;;
+    *)                   echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
+
+# When RESOURCE_LIMIT=1 (default), each server is launched inside a transient
+# user-scope cgroup with `MemoryMax=$MEM_MAX` (no swap) and `taskset -c $CPU_LIST`,
+# so the runtime under test sees a uniform constrained env and the hey client
+# (which is unrestricted) cannot starve it. Toggle off via --no-resource-limit
+# when running on a beefy CI box or for absolute peak.
+if [[ "$RESOURCE_LIMIT" == "1" ]]; then
+  if ! command -v systemd-run >/dev/null 2>&1; then
+    echo "Error: systemd-run not found; pass --no-resource-limit to disable cgroup limits" >&2
+    exit 1
+  fi
+  if ! command -v taskset >/dev/null 2>&1; then
+    echo "Error: taskset not found; pass --no-resource-limit to disable cgroup limits" >&2
+    exit 1
+  fi
+fi
 
 mkdir -p "$WORK_DIR" "$RESULTS_DIR"
 # Clean up any leftover artifacts from a previous run
@@ -137,17 +167,34 @@ next_port() { PORT_IDX=$((PORT_IDX + 1)); echo $((BASE_PORT + PORT_IDX)); }
 start_server() {
   local runtime="$1" port="$2" config="$3"
   local pid_file="$WORK_DIR/${runtime}.pid"
+  local unit_file="$WORK_DIR/${runtime}.unit"
   local sink="/dev/null"
   # Set BENCH_VERBOSE=1 to capture server logs for debugging startup failures
   [[ "${BENCH_VERBOSE:-}" == "1" ]] && sink="$WORK_DIR/${runtime}.log"
+  local -a cmd=()
   case "$runtime" in
-    java) java -cp "$JAVA_CP" -Dpine.bench=true -Dpine.config="$config" -Dpine.port="$port" \
-      page.liam.pine.PineServer >"$sink" 2>&1 & ;;
-    go) "$WORK_DIR/server-go" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
-    cpp) env ${CPP_LD_PRELOAD:+LD_PRELOAD="$CPP_LD_PRELOAD"} \
-      "$WORK_DIR/server-cpp" -config "$config" -addr ":$port" >"$sink" 2>&1 & ;;
+    java) cmd=(java -cp "$JAVA_CP" -Dpine.bench=true -Dpine.config="$config" -Dpine.port="$port"
+              page.liam.pine.PineServer) ;;
+    go)   cmd=("$WORK_DIR/server-go" -config "$config" -addr ":$port") ;;
+    cpp)  if [[ -n "${CPP_LD_PRELOAD:-}" ]]; then
+            cmd=(env "LD_PRELOAD=$CPP_LD_PRELOAD" "$WORK_DIR/server-cpp" -config "$config" -addr ":$port")
+          else
+            cmd=("$WORK_DIR/server-cpp" -config "$config" -addr ":$port")
+          fi ;;
   esac
-  echo $! > "$pid_file"
+  rm -f "$unit_file"
+  if [[ "$RESOURCE_LIMIT" == "1" ]]; then
+    # Each server gets a unique transient scope so cleanup is deterministic.
+    local unit="pine-bench-${runtime}-${port}-$$.scope"
+    systemd-run --user --scope --quiet --collect --unit="$unit" \
+      -p "MemoryMax=$MEM_MAX" -p MemorySwapMax=0 \
+      taskset -c "$CPU_LIST" "${cmd[@]}" >"$sink" 2>&1 &
+    echo $! > "$pid_file"
+    echo "$unit" > "$unit_file"
+  else
+    "${cmd[@]}" >"$sink" 2>&1 &
+    echo $! > "$pid_file"
+  fi
   for _ in $(seq 1 40); do
     curl -sf "http://localhost:$port/health" >/dev/null 2>&1 && return 0
     sleep 0.25
@@ -160,6 +207,12 @@ start_server() {
 stop_server() {
   local runtime="$1"
   local pid_file="$WORK_DIR/${runtime}.pid"
+  local unit_file="$WORK_DIR/${runtime}.unit"
+  if [[ -f "$unit_file" ]]; then
+    local unit; unit=$(cat "$unit_file")
+    systemctl --user stop "$unit" >/dev/null 2>&1 || true
+    rm -f "$unit_file"
+  fi
   [[ -f "$pid_file" ]] || return 0
   local pid; pid=$(cat "$pid_file")
   kill -TERM "$pid" 2>/dev/null || true
@@ -227,6 +280,11 @@ get_storage_modes() {
   echo " Fixtures: ${#FIXTURES[*]} (filter: '${FILTER:-all}')"
   echo " Load: ${NUM_REQUESTS} requests, ${CONCURRENCY} concurrent"
   echo " Skipped: ${SKIP_RUNTIMES:-none}"
+  if [[ "$RESOURCE_LIMIT" == "1" ]]; then
+    echo " Server limit: taskset -c $CPU_LIST  MemoryMax=$MEM_MAX  MemorySwapMax=0  (cgroup-isolated)"
+  else
+    echo " Server limit: (none — full host)"
+  fi
   echo "═══════════════════════════════════════════════════════════════════"
   echo
 } > "$REPORT"
