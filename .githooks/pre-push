@@ -149,7 +149,9 @@ if [ -x "${repo_root}/scripts/check-pr-ci.sh" ]; then
   if [ "$ci_rc" -eq 1 ]; then
     exit 1
   fi
-  echo "check-pr-ci: All CI checks passed, you might need to check comments in the PR from peers or the PR review bot." >&2
+  # rc 0 path: check-pr-ci.sh has already printed either the "nothing more to
+  # do" terminator OR a Claude-targeted instruction block describing how to
+  # fetch review comments and loop until terminal. Nothing to add here.
 fi
 
 # Reaching here means the real push already succeeded (inner). Returning 0 makes
