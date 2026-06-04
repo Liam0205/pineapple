@@ -41,23 +41,11 @@ std::vector<bool> make_remove_bitmap(std::size_t n, const std::set<int>& indices
   return bitmap;
 }
 
-void apply_remove(std::vector<bool>& validity, const std::set<int>& indices) {
-  auto bitmap = make_remove_bitmap(validity.size(), indices);
-  std::size_t write = 0;
-  for (std::size_t i = 0; i < validity.size(); ++i) {
-    if (!bitmap[i]) {
-      if (write != i) {
-        validity[write] = validity[i];
-      }
-      ++write;
-    }
-  }
-  validity.resize(write);
-}
-
+// Compact `data` in-place: keep slots where bitmap[i]==false, drop where
+// bitmap[i]==true. `kept_count` is the resulting size (caller has it
+// already so we skip recomputing). Used uniformly by all column types.
 template <typename V>
-void apply_remove_data(std::vector<V>& data, const std::set<int>& indices) {
-  auto bitmap = make_remove_bitmap(data.size(), indices);
+void compact_with_bitmap(std::vector<V>& data, const std::vector<bool>& bitmap, std::size_t kept_count) {
   std::size_t write = 0;
   for (std::size_t i = 0; i < data.size(); ++i) {
     if (!bitmap[i]) {
@@ -67,7 +55,39 @@ void apply_remove_data(std::vector<V>& data, const std::set<int>& indices) {
       ++write;
     }
   }
-  data.resize(write);
+  data.resize(kept_count);
+}
+
+// vector<bool> needs its own overload — packed bits don't move, and
+// reading data[i] after possibly-overwriting data[write] is safe because
+// vector<bool>::reference reads the bit fresh each access.
+void compact_with_bitmap(std::vector<bool>& data, const std::vector<bool>& bitmap, std::size_t kept_count) {
+  std::size_t write = 0;
+  for (std::size_t i = 0; i < data.size(); ++i) {
+    if (!bitmap[i]) {
+      if (write != i) {
+        data[write] = data[i];
+      }
+      ++write;
+    }
+  }
+  data.resize(kept_count);
+}
+
+// Legacy std::set entry point: build the bitmap then delegate. Kept for
+// callers that haven't been migrated to the bitmap path (e.g. unit
+// tests). The hot store path computes the bitmap once at the store
+// layer and calls remove_with_bitmap directly, sharing it across all
+// columns.
+template <typename T>
+void remove_via_set(std::vector<T>& data, std::vector<bool>& validity, const std::set<int>& indices) {
+  if (indices.empty()) {
+    return;
+  }
+  auto bitmap = make_remove_bitmap(data.size(), indices);
+  const std::size_t kept = data.size() - indices.size();
+  compact_with_bitmap(data, bitmap, kept);
+  compact_with_bitmap(validity, bitmap, kept);
 }
 
 // In-place permutation via cycle following. `order` MUST be a valid
@@ -285,8 +305,13 @@ void TypedColumn<T>::append_null() {
 
 template <typename T>
 void TypedColumn<T>::remove(const std::set<int>& indices) {
-  apply_remove_data(data_, indices);
-  apply_remove(validity_, indices);
+  remove_via_set(data_, validity_, indices);
+}
+
+template <typename T>
+void TypedColumn<T>::remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) {
+  compact_with_bitmap(data_, bitmap, kept_count);
+  compact_with_bitmap(validity_, bitmap, kept_count);
 }
 
 template <typename T>
@@ -352,8 +377,12 @@ void JsonColumn::append_null() {
 }
 
 void JsonColumn::remove(const std::set<int>& indices) {
-  apply_remove_data(data_, indices);
-  apply_remove(validity_, indices);
+  remove_via_set(data_, validity_, indices);
+}
+
+void JsonColumn::remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) {
+  compact_with_bitmap(data_, bitmap, kept_count);
+  compact_with_bitmap(validity_, bitmap, kept_count);
 }
 
 void JsonColumn::reorder(const std::vector<int>& order) {

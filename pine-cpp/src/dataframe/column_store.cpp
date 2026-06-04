@@ -62,10 +62,20 @@ void TypedColumnStore::remove_rows(const std::set<int>& indices) {
                                   " out of range [0, " + std::to_string(row_count_) + ")");
     }
   }
-  for (auto& [_, col] : cols_) {
-    col->remove(indices);
+  // Build the drop-bitmap once on the store layer and share it across all
+  // K columns instead of letting each column re-convert the std::set.
+  // For K columns and N rows that's an O(N) saving per remove call (the
+  // set-iteration cost was the dominant share of column-mode bench's
+  // remove path — see commit log).
+  std::vector<bool> bitmap(row_count_, false);
+  for (int i : indices) {
+    bitmap[static_cast<std::size_t>(i)] = true;
   }
-  row_count_ -= indices.size();
+  const std::size_t kept = row_count_ - indices.size();
+  for (auto& [_, col] : cols_) {
+    col->remove_with_bitmap(bitmap, kept);
+  }
+  row_count_ = kept;
 }
 
 void TypedColumnStore::reorder_rows(const std::vector<int>& order) {
