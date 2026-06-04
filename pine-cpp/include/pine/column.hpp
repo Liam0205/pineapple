@@ -51,6 +51,11 @@ class Column {
   virtual bool append(const Variant& v) = 0;
   virtual void append_null() = 0;
   virtual void remove(const std::set<int>& indices) = 0;
+  // Bitmap-driven remove. `bitmap[i] == true` means row i is dropped;
+  // `kept_count` is the resulting size (caller-computed once per store-
+  // wide remove so K columns share the same bitmap, avoiding K set-to-
+  // bitmap conversions). See TypedColumnStore::remove_rows.
+  virtual void remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) = 0;
   virtual void reorder(const std::vector<int>& order) = 0;
 
   virtual std::unique_ptr<Column> clone() const = 0;
@@ -84,6 +89,7 @@ class TypedColumn final : public Column {
   bool append(const Variant& v) override;
   void append_null() override;
   void remove(const std::set<int>& indices) override;
+  void remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) override;
   void reorder(const std::vector<int>& order) override;
 
   std::unique_ptr<Column> clone() const override;
@@ -148,6 +154,7 @@ class JsonColumn final : public Column {
   bool append(const Variant& v) override;
   void append_null() override;
   void remove(const std::set<int>& indices) override;
+  void remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) override;
   void reorder(const std::vector<int>& order) override;
 
   std::unique_ptr<Column> clone() const override;
