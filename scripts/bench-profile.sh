@@ -29,25 +29,45 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE_SRC="$REPO_ROOT/fixtures/benchmarks"
 OUTPUT_DIR="/tmp/bench_profile"
-FIXTURE_NAME="realistic_for_you_calibrated"
+FIXTURE_NAME="realistic_for_you_calibrated_2c4g"
 NUM_REQUESTS=3000
 CONCURRENCY=50
 TOOL="perf"
 CUSTOM_CFG=""
 CUSTOM_REQ=""
+RESOURCE_LIMIT="${BENCH_RESOURCE_LIMIT:-1}"
+CPU_LIST="${BENCH_CPU_LIST:-0,1}"
+MEM_MAX="${BENCH_MEM_MAX:-4G}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --fixture)     FIXTURE_NAME="$2"; shift 2 ;;
-    --requests)    NUM_REQUESTS="$2"; shift 2 ;;
-    --concurrency) CONCURRENCY="$2"; shift 2 ;;
-    --tool)        TOOL="$2"; shift 2 ;;
-    --output)      OUTPUT_DIR="$2"; shift 2 ;;
-    --config)      CUSTOM_CFG="$2"; shift 2 ;;
-    --request)     CUSTOM_REQ="$2"; shift 2 ;;
-    *)             echo "Unknown arg: $1" >&2; exit 1 ;;
+    --fixture)           FIXTURE_NAME="$2"; shift 2 ;;
+    --requests)          NUM_REQUESTS="$2"; shift 2 ;;
+    --concurrency)       CONCURRENCY="$2"; shift 2 ;;
+    --tool)              TOOL="$2"; shift 2 ;;
+    --output)            OUTPUT_DIR="$2"; shift 2 ;;
+    --config)            CUSTOM_CFG="$2"; shift 2 ;;
+    --request)           CUSTOM_REQ="$2"; shift 2 ;;
+    --no-resource-limit) RESOURCE_LIMIT=0; shift ;;
+    --cpu-list)          CPU_LIST="$2"; shift 2 ;;
+    --mem-max)           MEM_MAX="$2"; shift 2 ;;
+    *)                   echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
+
+# When RESOURCE_LIMIT=1 (default), the server is launched inside a transient
+# user-scope cgroup with `MemoryMax=$MEM_MAX` (no swap) + `taskset -c $CPU_LIST`,
+# so profiles reflect the constrained env that production benchmarks use.
+SERVER_LAUNCH=()
+if [[ "$RESOURCE_LIMIT" == "1" ]]; then
+  if ! command -v systemd-run >/dev/null 2>&1 || ! command -v taskset >/dev/null 2>&1; then
+    echo "Error: systemd-run/taskset required for cgroup limit; pass --no-resource-limit to disable" >&2
+    exit 1
+  fi
+  SERVER_LAUNCH=(systemd-run --user --scope --quiet
+    -p "MemoryMax=$MEM_MAX" -p MemorySwapMax=0
+    taskset -c "$CPU_LIST")
+fi
 
 CFG="${CUSTOM_CFG:-$FIXTURE_SRC/${FIXTURE_NAME}_config.json}"
 REQ="${CUSTOM_REQ:-$FIXTURE_SRC/${FIXTURE_NAME}_request.json}"
@@ -75,7 +95,7 @@ echo "  ✓ Built: $SERVER"
 # ─── Start server ─────────────────────────────────────────────────────
 PORT=19200
 echo "==> Starting server on :$PORT..."
-"$SERVER" -config "$CFG" -addr ":$PORT" > "$OUTPUT_DIR/server.log" 2>&1 &
+"${SERVER_LAUNCH[@]}" "$SERVER" -config "$CFG" -addr ":$PORT" > "$OUTPUT_DIR/server.log" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
@@ -180,7 +200,7 @@ case "$TOOL" in
     wait "$SERVER_PID" 2>/dev/null || true
 
     heaptrack -o "$OUTPUT_DIR/heaptrack" \
-      "$SERVER" -config "$CFG" -addr ":$PORT" > "$OUTPUT_DIR/server.log" 2>&1 &
+      "${SERVER_LAUNCH[@]}" "$SERVER" -config "$CFG" -addr ":$PORT" > "$OUTPUT_DIR/server.log" 2>&1 &
     SERVER_PID=$!
 
     for _ in $(seq 1 40); do
