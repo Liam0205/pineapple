@@ -43,6 +43,16 @@ func IsTemplatedString(v any) bool {
 	return templateMarker.MatchString(s)
 }
 
+// IsBareMarker reports whether s matches the L0 bare-marker contract
+// "^{{field}}$" exactly. Operators that accept int/float/bool typed
+// templatable params use this from their Init path to distinguish a
+// legitimate templatable marker (fallback to zero, resolved per-request)
+// from a hand-edited garbage string (which must error out instead of
+// silently coercing to zero).
+func IsBareMarker(s string) bool {
+	return bareTemplateMarker.MatchString(s)
+}
+
 // extractBareField returns the single field name from a bare "{{field}}"
 // value, or ("", false) if the value contains literal text or multiple
 // markers. This enforces the L0 contract at engine build time.
