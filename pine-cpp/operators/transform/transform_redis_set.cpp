@@ -1,4 +1,5 @@
 #include "pine/operator.hpp"
+#include "pine/template.hpp"
 
 #include <memory>
 #include <string>
@@ -27,8 +28,22 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
     if (auto it = params.find("data_type"); it != params.end() && it->second.is_string()) {
       data_type_ = it->second.as_string();
     }
-    if (auto it = params.find("ttl"); it != params.end() && it->second.is_number()) {
-      ttl_ = static_cast<int>(it->second.as_number());
+    if (auto it = params.find("ttl"); it != params.end()) {
+      const Variant& v = it->second;
+      if (v.is_number()) {
+        ttl_ = static_cast<int>(v.as_number());
+      } else if (v.is_string()) {
+        // Only a bare {{field}} marker survives here — engine resolves
+        // it per-request at execute time. A non-marker string is hand-
+        // edited garbage and must error out rather than silently
+        // collapsing to TTL=0.
+        if (!is_bare_marker(v.as_string())) {
+          throw ExecutionError("transform_redis_set: ttl must be numeric");
+        }
+        ttl_ = 0;
+      } else {
+        throw ExecutionError("transform_redis_set: ttl must be numeric");
+      }
     }
     if (auto it = params.find("fail_on_error"); it != params.end() && it->second.is_bool()) {
       fail_on_error_ = it->second.as_bool();
