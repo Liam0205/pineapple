@@ -70,6 +70,47 @@ void apply_remove_data(std::vector<V>& data, const std::set<int>& indices) {
   data.resize(write);
 }
 
+// In-place permutation via cycle following. `order` MUST be a valid
+// length-n permutation of [0, n) — the caller (ColumnFrame::apply_output)
+// validates this before invoking reorder. Each cycle of the permutation
+// is walked once, performing ≤ n moves total with zero heap allocations.
+// Replaces the naive "build a fresh vector and copy from old slots" loop
+// which paid N element-copies (Variant copy-ctor is expensive for the
+// JsonColumn case) plus a vector realloc + old-vector teardown.
+template <typename T>
+void reorder_in_place(std::vector<T>& data, std::vector<bool>& validity, const std::vector<int>& order) {
+  const std::size_t n = order.size();
+  if (n == 0) {
+    return;
+  }
+  std::vector<bool> visited(n, false);
+  for (std::size_t i = 0; i < n; ++i) {
+    if (visited[i]) {
+      continue;
+    }
+    if (static_cast<std::size_t>(order[i]) == i) {
+      visited[i] = true;
+      continue;
+    }
+    T tmp = std::move(data[i]);
+    bool tmp_valid = validity[i];
+    std::size_t j = i;
+    while (true) {
+      const std::size_t src = static_cast<std::size_t>(order[j]);
+      if (src == i) {
+        data[j] = std::move(tmp);
+        validity[j] = tmp_valid;
+        visited[j] = true;
+        break;
+      }
+      data[j] = std::move(data[src]);
+      validity[j] = validity[src];
+      visited[j] = true;
+      j = src;
+    }
+  }
+}
+
 }  // namespace
 
 // ---------------- TypedColumn ----------------
@@ -250,16 +291,7 @@ void TypedColumn<T>::remove(const std::set<int>& indices) {
 
 template <typename T>
 void TypedColumn<T>::reorder(const std::vector<int>& order) {
-  std::vector<T> new_data;
-  std::vector<bool> new_valid;
-  new_data.reserve(order.size());
-  new_valid.reserve(order.size());
-  for (int idx : order) {
-    new_data.push_back(data_[static_cast<std::size_t>(idx)]);
-    new_valid.push_back(validity_[static_cast<std::size_t>(idx)]);
-  }
-  data_ = std::move(new_data);
-  validity_ = std::move(new_valid);
+  reorder_in_place(data_, validity_, order);
 }
 
 template <typename T>
@@ -325,16 +357,7 @@ void JsonColumn::remove(const std::set<int>& indices) {
 }
 
 void JsonColumn::reorder(const std::vector<int>& order) {
-  std::vector<Variant> new_data;
-  std::vector<bool> new_valid;
-  new_data.reserve(order.size());
-  new_valid.reserve(order.size());
-  for (int idx : order) {
-    new_data.push_back(data_[static_cast<std::size_t>(idx)]);
-    new_valid.push_back(validity_[static_cast<std::size_t>(idx)]);
-  }
-  data_ = std::move(new_data);
-  validity_ = std::move(new_valid);
+  reorder_in_place(data_, validity_, order);
 }
 
 std::unique_ptr<Column> JsonColumn::clone() const {
