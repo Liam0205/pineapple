@@ -8,7 +8,7 @@ Keeps only the first N items, removing the rest.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| top_n | int64 | Yes | - | Number of items to keep. |
+| top_n | int64 | Yes | - | Number of items to keep. Supports {{field}} interpolation. |
 
 ## Metadata Contract
 
