@@ -253,6 +253,101 @@ print(case['expected_redis_key'])
   fi
 fi
 
+# --- Runtime probe #3: SET-side templated key_prefix + ttl symmetry ---
+#
+# Symmetric counterpart to probe #1 (GET-side). The fixture wires a
+# transform_redis_set with templated key_prefix={{tenant_id}} and
+# templated ttl={{cache_ttl}}, then chains transform_redis_get to read
+# back through the same templated key. Pins:
+#   1. SET-side honors {{field}} resolution against the request frame
+#      (regression net for redis_set.key_prefix templatable, T1).
+#   2. int-typed templatable param resolution (regression net for
+#      redis_set.ttl templatable, T2).
+#   3. Cross-runtime: each engine's SET wrote to the same key, otherwise
+#      the chained GET would miss and byte-exact compare would diverge.
+FIXTURE_SET="$REPO_ROOT/fixtures/pipelines/redis_templated_set.json"
+if [[ -f "$FIXTURE_SET" ]]; then
+  redis-cli -p $REDIS_PORT FLUSHALL >/dev/null 2>&1
+  WORK_TPL_SET="$WORK_DIR/templated_params_set"
+  mkdir -p "$WORK_TPL_SET"
+  CFG_SET="$WORK_TPL_SET/config.json"
+  REQ_SET="$WORK_TPL_SET/request.json"
+  EXPECTED_KEY_SET=$(python3 -c "
+import json
+with open('$FIXTURE_SET') as f:
+    data = json.load(f)
+cfg = data['config']
+case = data['cases'][0]
+cfg_str = json.dumps(cfg).replace('PLACEHOLDER', '127.0.0.1:$REDIS_PORT')
+with open('$CFG_SET', 'w') as cf:
+    cf.write(cfg_str)
+with open('$REQ_SET', 'w') as rf:
+    json.dump(case['request'], rf)
+print(case['expected_redis_key'])
+")
+
+  # Verify the engine's SET landed at the templated key.
+  # Decoupled from the chained-GET byte-exact compare below — if both
+  # the SET and GET sides regressed in lock-step on one runtime (e.g. a
+  # templating refactor missed both directions), the chained validation
+  # alone could mask it. A direct redis-cli read after each engine pins
+  # the SET-side contract independently of how that engine reads back.
+  verify_set_landed() {
+    local engine="$1"
+    local got
+    got=$(redis-cli -p $REDIS_PORT GET "$EXPECTED_KEY_SET" 2>/dev/null)
+    if [[ "$got" == "hello_templated_set" ]]; then
+      echo "    SET-side correctness verified: $engine wrote to templated key=$EXPECTED_KEY_SET"
+    else
+      fail "templated params SET-side: $engine did not write to templated key (got '$got' at key '$EXPECTED_KEY_SET')"
+    fi
+  }
+
+  go_out_set=$("$WORK_DIR/pineapple-run" -config "$CFG_SET" -request "$REQ_SET" 2>/dev/null) || {
+    fail "templated params SET-side: Go engine failed"
+    go_out_set=""
+  }
+  [[ -n "$go_out_set" ]] && verify_set_landed "Go"
+
+  redis-cli -p $REDIS_PORT FLUSHALL >/dev/null 2>&1
+  java_out_set=$(java_run page.liam.pine.RunCli -config "$CFG_SET" -request "$REQ_SET" 2>/dev/null) || {
+    fail "templated params SET-side: Java engine failed"
+    java_out_set=""
+  }
+  [[ -n "$java_out_set" ]] && verify_set_landed "Java"
+
+  cpp_out_set=""
+  if [[ -n "${CPP_RUN:-}" ]]; then
+    redis-cli -p $REDIS_PORT FLUSHALL >/dev/null 2>&1
+    cpp_out_set=$("$CPP_RUN" -config "$CFG_SET" -request "$REQ_SET" 2>/dev/null) || {
+      fail "templated params SET-side: C++ engine failed"
+      cpp_out_set=""
+    }
+    [[ -n "$cpp_out_set" ]] && verify_set_landed "C++"
+  fi
+
+  if [[ -n "$go_out_set" && -n "$java_out_set" ]]; then
+    go_norm_set=$(echo "$go_out_set" | normalize_json)
+    java_norm_set=$(echo "$java_out_set" | normalize_json)
+    if [[ "$go_norm_set" == "$java_norm_set" ]]; then
+      pass "templated params SET-side parity Go vs Java (key_prefix + ttl)"
+    else
+      fail "templated params SET-side: Go vs Java divergence"
+      diff <(echo "$go_norm_set" | python3 -m json.tool) <(echo "$java_norm_set" | python3 -m json.tool) >&2 || true
+    fi
+  fi
+  if [[ -n "${CPP_RUN:-}" && -n "$go_out_set" && -n "$cpp_out_set" ]]; then
+    go_norm_set=$(echo "$go_out_set" | normalize_json)
+    cpp_norm_set=$(echo "$cpp_out_set" | normalize_json)
+    if [[ "$go_norm_set" == "$cpp_norm_set" ]]; then
+      pass "templated params SET-side parity Go vs C++ (key_prefix + ttl)"
+    else
+      fail "templated params SET-side: Go vs C++ divergence"
+      diff <(echo "$go_norm_set" | python3 -m json.tool) <(echo "$cpp_norm_set" | python3 -m json.tool) >&2 || true
+    fi
+  fi
+fi
+
 # --- Error-path probes: byte-exact stderr across Go/Java/C++ ---
 #
 # The runtime resolver wording is already pinned at the unit-test layer
