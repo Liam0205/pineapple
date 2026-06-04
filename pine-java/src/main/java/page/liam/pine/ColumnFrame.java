@@ -236,7 +236,7 @@ public class ColumnFrame implements Frame {
                     seen[origIdx] = true;
                     mapping[i] = origIdx;
                 }
-                compactColumns(mapping, rowCount);
+                reorderColumnsInPlace(mapping);
             }
 
             // 5. Additions
@@ -296,6 +296,74 @@ public class ColumnFrame implements Frame {
             entry.setValue(newBits);
         }
         rowCount = newCount;
+    }
+
+    // In-place permutation via cycle following. `order` MUST be a valid
+    // length-rowCount permutation of [0, rowCount) — the apply_output reorder
+    // branch validates this before invoking. Each cycle is walked once,
+    // performing ≤ N moves per column with no per-column allocation.
+    // Replaces the prior compactColumns-based path which allocated a fresh
+    // Object[] / BitSet per column. The cycle structure depends only on
+    // `order`, so `visited` is allocated once and reset per column.
+    private void reorderColumnsInPlace(int[] order) {
+        int n = order.length;
+        if (n == 0) {
+            return;
+        }
+        boolean[] visited = new boolean[n];
+        for (Map.Entry<String, Object[]> entry : columns.entrySet()) {
+            Object[] col = entry.getValue();
+            Arrays.fill(visited, false);
+            for (int i = 0; i < n; i++) {
+                if (visited[i]) {
+                    continue;
+                }
+                if (order[i] == i) {
+                    visited[i] = true;
+                    continue;
+                }
+                Object tmp = col[i];
+                int j = i;
+                while (true) {
+                    int src = order[j];
+                    if (src == i) {
+                        col[j] = tmp;
+                        visited[j] = true;
+                        break;
+                    }
+                    col[j] = col[src];
+                    visited[j] = true;
+                    j = src;
+                }
+            }
+        }
+        for (Map.Entry<String, BitSet> entry : presenceByField.entrySet()) {
+            BitSet bits = entry.getValue();
+            Arrays.fill(visited, false);
+            for (int i = 0; i < n; i++) {
+                if (visited[i]) {
+                    continue;
+                }
+                if (order[i] == i) {
+                    visited[i] = true;
+                    continue;
+                }
+                boolean tmp = bits.get(i);
+                int j = i;
+                while (true) {
+                    int src = order[j];
+                    if (src == i) {
+                        bits.set(j, tmp);
+                        visited[j] = true;
+                        break;
+                    }
+                    bits.set(j, bits.get(src));
+                    visited[j] = true;
+                    j = src;
+                }
+            }
+        }
+        // rowCount unchanged (permutation has length rowCount).
     }
 
     @Override
