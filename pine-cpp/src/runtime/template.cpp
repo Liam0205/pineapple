@@ -175,6 +175,10 @@ bool is_templated_string(const Variant& v) {
   return std::regex_search(v.as_string(), template_marker());
 }
 
+bool is_bare_marker(const std::string& s) {
+  return std::regex_match(s, bare_template_marker());
+}
+
 std::vector<TemplatedParam> build_templated_param_plan(const std::string& op_name,
                                                        const OperatorSchema& schema,
                                                        const Variant& raw_params) {
