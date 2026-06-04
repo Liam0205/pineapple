@@ -262,7 +262,7 @@ void ColumnFrame::write_item_field_locked(std::size_t idx, const std::string& fi
   }
 }
 
-void ColumnFrame::apply_output(const OperatorOutput& out, const std::string& op_name, bool is_recall) {
+void ColumnFrame::apply_output(OperatorOutput& out, const std::string& op_name, bool is_recall) {
   if (is_window_view()) {
     throw Error(
         "ColumnFrame::apply_output called on window view "

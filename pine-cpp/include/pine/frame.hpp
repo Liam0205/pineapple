@@ -52,7 +52,11 @@ class Frame {
   virtual std::vector<std::string> take_warnings() = 0;
 
   // ---- apply OperatorOutput (write log) ----
-  virtual void apply_output(const OperatorOutput& out, const std::string& op_name, bool is_recall) = 0;
+  // Non-const reference: apply_output may consume `out` (e.g. RowFrame
+  // moves added_items into items_ to skip a per-row copy). All callers
+  // hold `out` as a non-const local and discard it after the call —
+  // post-apply mutation is safe.
+  virtual void apply_output(OperatorOutput& out, const std::string& op_name, bool is_recall) = 0;
 
   // Project the frame to a Result using the strict common/item field
   // lists (skips fields whose validity is false on a given row).

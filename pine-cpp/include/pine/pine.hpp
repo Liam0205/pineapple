@@ -410,6 +410,12 @@ class OperatorOutput {
   const std::vector<Variant::object_t>& added_items() const {
     return added_items_;
   }
+  // Mutable view for consumers (e.g. RowFrame::apply_output) that want
+  // to move-extract the rows after writing them to storage. Must not be
+  // called twice on the same OperatorOutput.
+  std::vector<Variant::object_t>& added_items() {
+    return added_items_;
+  }
   const std::set<int>& removed_items() const {
     return removed_items_;
   }
