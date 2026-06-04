@@ -1,0 +1,85 @@
+{
+  "name": "filter_truncate templated top_n parity",
+  "notes": "Exercises bare {{user_tier_limit}} on filter_truncate.top_n — the same pattern used by VIP/normal-user feed truncation. L0 contract: the templated value is exactly one marker, no literal text. Cases vary the source field to exercise different truncation outcomes including the boundary where top_n >= itemCount (no removal) and where top_n drives a real cut.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "keep_top": {
+          "type_name": "filter_truncate",
+          "top_n": "{{user_tier_limit}}",
+          "$metadata": {
+            "common_input": [],
+            "common_input_template": ["user_tier_limit"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["keep_top"]}
+    },
+    "flow_contract": {
+      "common_input": ["user_tier_limit"],
+      "item_input": ["id"],
+      "common_output": ["user_tier_limit"],
+      "item_output": ["id"]
+    }
+  },
+  "cases": [
+    {
+      "name": "VIP tier keeps 5 of 5",
+      "request": {
+        "common": {"user_tier_limit": 5},
+        "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}, {"id": "e"}]
+      },
+      "expected": {
+        "common": {"user_tier_limit": 5},
+        "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}, {"id": "e"}]
+      }
+    },
+    {
+      "name": "normal tier keeps 2 of 5",
+      "request": {
+        "common": {"user_tier_limit": 2},
+        "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}, {"id": "e"}]
+      },
+      "expected": {
+        "common": {"user_tier_limit": 2},
+        "items": [{"id": "a"}, {"id": "b"}]
+      }
+    },
+    {
+      "name": "top_n exceeds itemCount keeps all 3 of 3",
+      "request": {
+        "common": {"user_tier_limit": 10},
+        "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+      },
+      "expected": {
+        "common": {"user_tier_limit": 10},
+        "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+      }
+    },
+    {
+      "name": "top_n zero removes everything",
+      "request": {
+        "common": {"user_tier_limit": 0},
+        "items": [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+      },
+      "expected": {
+        "common": {"user_tier_limit": 0},
+        "items": []
+      }
+    },
+    {
+      "name": "negative top_n triggers execute-time error",
+      "notes": "L0: Init tolerates the marker string and stores 0; Execute resolves the per-request value (-3) and must reject it byte-exact across runtimes. Locks the error-path contract added in 5763f54 so a future refactor (e.g. Java switching to String.format) is caught immediately.",
+      "request": {
+        "common": {"user_tier_limit": -3},
+        "items": [{"id": "a"}]
+      },
+      "expect_error": "filter_truncate: top_n must be non-negative, got -3"
+    }
+  ]
+}
