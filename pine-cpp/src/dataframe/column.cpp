@@ -97,13 +97,23 @@ void remove_via_set(std::vector<T>& data, std::vector<bool>& validity, const std
 // Replaces the naive "build a fresh vector and copy from old slots" loop
 // which paid N element-copies (Variant copy-ctor is expensive for the
 // JsonColumn case) plus a vector realloc + old-vector teardown.
+//
+// `visited` is workspace owned by the caller and sized/reset here. The
+// cycle structure depends only on `order`, so ColumnStore allocates one
+// buffer and reuses it across all K columns of the store, mirroring the
+// pine-go / pine-java hoist (see column_frame.go ~L237).
 template <typename T>
-void reorder_in_place(std::vector<T>& data, std::vector<bool>& validity, const std::vector<int>& order) {
+void reorder_in_place(std::vector<T>& data, std::vector<bool>& validity, const std::vector<int>& order,
+                      std::vector<bool>& visited) {
   const std::size_t n = order.size();
   if (n == 0) {
     return;
   }
-  std::vector<bool> visited(n, false);
+  if (visited.size() < n) {
+    visited.assign(n, false);
+  } else {
+    std::fill(visited.begin(), visited.begin() + n, false);
+  }
   for (std::size_t i = 0; i < n; ++i) {
     if (visited[i]) {
       continue;
@@ -315,8 +325,8 @@ void TypedColumn<T>::remove_with_bitmap(const std::vector<bool>& bitmap, std::si
 }
 
 template <typename T>
-void TypedColumn<T>::reorder(const std::vector<int>& order) {
-  reorder_in_place(data_, validity_, order);
+void TypedColumn<T>::reorder(const std::vector<int>& order, std::vector<bool>& visited_scratch) {
+  reorder_in_place(data_, validity_, order, visited_scratch);
 }
 
 template <typename T>
@@ -385,8 +395,8 @@ void JsonColumn::remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t
   compact_with_bitmap(validity_, bitmap, kept_count);
 }
 
-void JsonColumn::reorder(const std::vector<int>& order) {
-  reorder_in_place(data_, validity_, order);
+void JsonColumn::reorder(const std::vector<int>& order, std::vector<bool>& visited_scratch) {
+  reorder_in_place(data_, validity_, order, visited_scratch);
 }
 
 std::unique_ptr<Column> JsonColumn::clone() const {

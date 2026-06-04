@@ -56,7 +56,23 @@ class Column {
   // wide remove so K columns share the same bitmap, avoiding K set-to-
   // bitmap conversions). See TypedColumnStore::remove_rows.
   virtual void remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) = 0;
-  virtual void reorder(const std::vector<int>& order) = 0;
+  // Cycle-following in-place permutation. `visited_scratch` is workspace
+  // borrowed from the caller: ColumnStore::reorder_rows allocates it
+  // once and shares the buffer across all K columns, replacing K
+  // independent vector<bool>(n) allocations per reorder call (mirrors
+  // remove_with_bitmap's K-column sharing). The column resets the
+  // scratch before use, so the caller is free to reuse without clearing.
+  virtual void reorder(const std::vector<int>& order, std::vector<bool>& visited_scratch) = 0;
+
+  // Convenience overload for standalone single-column callers (tests,
+  // direct API users) where the K-column amortization does not apply.
+  // Allocates a one-shot scratch and forwards to the workspace-aware
+  // virtual. Non-virtual on purpose — implementations override the
+  // 2-arg form only.
+  void reorder(const std::vector<int>& order) {
+    std::vector<bool> scratch;
+    reorder(order, scratch);
+  }
 
   virtual std::unique_ptr<Column> clone() const = 0;
   // Materialize this column as an equivalent JsonColumn (used when a
@@ -90,7 +106,7 @@ class TypedColumn final : public Column {
   void append_null() override;
   void remove(const std::set<int>& indices) override;
   void remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) override;
-  void reorder(const std::vector<int>& order) override;
+  void reorder(const std::vector<int>& order, std::vector<bool>& visited_scratch) override;
 
   std::unique_ptr<Column> clone() const override;
   std::unique_ptr<Column> to_json_column() const override;
@@ -155,7 +171,7 @@ class JsonColumn final : public Column {
   void append_null() override;
   void remove(const std::set<int>& indices) override;
   void remove_with_bitmap(const std::vector<bool>& bitmap, std::size_t kept_count) override;
-  void reorder(const std::vector<int>& order) override;
+  void reorder(const std::vector<int>& order, std::vector<bool>& visited_scratch) override;
 
   std::unique_ptr<Column> clone() const override;
   std::unique_ptr<Column> to_json_column() const override;

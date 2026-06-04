@@ -82,8 +82,15 @@ void TypedColumnStore::reorder_rows(const std::vector<int>& order) {
   if (order.size() != row_count_) {
     throw std::invalid_argument("TypedColumnStore::reorder_rows: order length mismatch");
   }
+  // Hoist the cycle-following visited bitmap out of the per-column call
+  // and share it across all K columns. The cycle structure depends only
+  // on `order`, so allocating once and letting each column reset+reuse
+  // the same buffer drops K allocations to 1 per reorder — same pattern
+  // as remove_with_bitmap's K-column drop bitmap above, and matches the
+  // pine-go / pine-java hoist (column_frame.go ~L237).
+  std::vector<bool> visited_scratch;
   for (auto& [_, col] : cols_) {
-    col->reorder(order);
+    col->reorder(order, visited_scratch);
   }
 }
 
