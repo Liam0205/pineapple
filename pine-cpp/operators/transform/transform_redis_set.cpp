@@ -54,7 +54,26 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
       return;
     }
 
-    std::string key = key_prefix_ + operators::build_key_suffix(input, key_fields_);
+    // key_prefix and ttl are both templatable (#74). When the DSL configured
+    // a {{field}} marker the engine resolved it against this request's
+    // common frame before execute; otherwise the init-time value is used.
+    // The inner type checks are unreachable: build_templated_param_plan
+    // rejects mismatched declared types and resolve_templated_params
+    // normalizes through go_format_g / parse_int. Kept as defense in
+    // depth — a missed cast would surface as the init-time value with a
+    // literal {{field}} marker.
+    std::string prefix = key_prefix_;
+    Variant resolved_prefix = input.templated_param("key_prefix");
+    if (resolved_prefix.is_string()) {
+      prefix = resolved_prefix.as_string();
+    }
+    int ttl = ttl_;
+    Variant resolved_ttl = input.templated_param("ttl");
+    if (resolved_ttl.is_number()) {
+      ttl = static_cast<int>(resolved_ttl.as_number());
+    }
+
+    std::string key = prefix + operators::build_key_suffix(input, key_fields_);
     Variant value = input.common(value_field_);
 
     auto write_failed = [&](const std::string& msg) {
@@ -76,7 +95,7 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
         if (!value.is_string()) {
           return;
         }
-        cli->set(key, value.as_string(), ttl_);
+        cli->set(key, value.as_string(), ttl);
       } else if (data_type_ == "set") {
         auto members = operators::json_to_string_slice(value);
         if (members.empty()) {
@@ -88,8 +107,8 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
           sadd_cmd.push_back(m);
         }
         commands.push_back(std::move(sadd_cmd));
-        if (ttl_ > 0) {
-          commands.push_back({"EXPIRE", key, std::to_string(ttl_)});
+        if (ttl > 0) {
+          commands.push_back({"EXPIRE", key, std::to_string(ttl)});
         }
         cli->write_multiexec(commands);
       } else if (data_type_ == "list") {
@@ -103,8 +122,8 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
           rpush_cmd.push_back(m);
         }
         commands.push_back(std::move(rpush_cmd));
-        if (ttl_ > 0) {
-          commands.push_back({"EXPIRE", key, std::to_string(ttl_)});
+        if (ttl > 0) {
+          commands.push_back({"EXPIRE", key, std::to_string(ttl)});
         }
         cli->write_multiexec(commands);
       } else {
@@ -145,7 +164,9 @@ static const OperatorSchema k_transform_redis_set_schema{
              {.type = "string",
               .required = true,
               .default_value = Variant(nullptr),
-              .description = "Key prefix prepended to the suffix built from common_input fields."}},
+              .description = "Key prefix prepended to the suffix built from common_input fields. "
+                             "Supports {{field}} interpolation.",
+              .templatable = true}},
             {"data_type",
              {.type = "string",
               .required = false,
@@ -155,7 +176,8 @@ static const OperatorSchema k_transform_redis_set_schema{
              {.type = "int",
               .required = false,
               .default_value = Variant(0.0),
-              .description = "TTL in seconds. 0 means no expiry."}},
+              .description = "TTL in seconds. 0 means no expiry. Supports {{field}} interpolation.",
+              .templatable = true}},
             {"fail_on_error",
              {.type = "bool",
               .required = false,
