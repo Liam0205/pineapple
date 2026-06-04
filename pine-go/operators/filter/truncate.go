@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
+	"github.com/Liam0205/pineapple/pine-go/internal/runtime"
 )
 
 func init() {
@@ -48,9 +49,15 @@ func (o *TruncateOp) Init(params map[string]any) error {
 	case float64:
 		o.topN = int64(v)
 	case string:
-		// Templatable marker (e.g. "{{user_tier_limit}}"). The per-request
-		// value arrives via input.TemplatedParam at execute time;
-		// BuildTemplatedParamPlan guarantees the fallback is never read.
+		// Only a bare {{field}} marker is accepted here; the engine
+		// resolves it against the request's common frame at Execute
+		// time and the fallback stored now is never read
+		// (BuildTemplatedParamPlan guarantees this). A non-marker
+		// string is hand-edited garbage and must surface as an init
+		// error rather than silently truncating to zero.
+		if !runtime.IsBareMarker(v) {
+			return fmt.Errorf("filter_truncate: top_n must be numeric, got %T", params["top_n"])
+		}
 		o.topN = 0
 	default:
 		return fmt.Errorf("filter_truncate: top_n must be numeric, got %T", params["top_n"])

@@ -34,6 +34,7 @@ import (
 	"time"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
+	"github.com/Liam0205/pineapple/pine-go/internal/runtime"
 )
 
 func init() {
@@ -74,7 +75,21 @@ func (o *RedisSetOp) Init(params map[string]any) error {
 		o.dataType = "string"
 	}
 	if v, ok := params["ttl"]; ok {
-		o.ttl = time.Duration(toInt64Param(v)) * time.Second
+		switch x := v.(type) {
+		case int64, float64, int:
+			o.ttl = time.Duration(toInt64Param(v)) * time.Second
+		case string:
+			// Only a bare {{field}} marker survives here — engine
+			// resolves it per-request at Execute. Garbage strings
+			// would otherwise be silently coerced to 0 by
+			// toInt64Param's default branch.
+			if !runtime.IsBareMarker(x) {
+				return fmt.Errorf("transform_redis_set: ttl must be numeric, got %T", v)
+			}
+			o.ttl = 0
+		default:
+			return fmt.Errorf("transform_redis_set: ttl must be numeric, got %T", v)
+		}
 	}
 	if v, ok := params["fail_on_error"].(bool); ok {
 		o.failOnError = v
