@@ -201,6 +201,23 @@ void validate_config(const Config& config) {
         }
       }
     }
+    if (op.type_name == "transform_redis_set") {
+      // Hoist ttl bare-marker validation up to the config phase so the
+      // failure is classified as RegistryError, mirroring Go's
+      // registry.BuildOperator wrapping for filter_truncate.top_n.
+      // Without this, the Init-time throw below would surface as a
+      // generic ExecutionError and diverge from the Go classification.
+      auto tit = op.params.as_object().find("ttl");
+      if (tit != op.params.as_object().end()) {
+        if (tit->second.is_string()) {
+          if (!is_bare_marker(tit->second.as_string())) {
+            throw RegistryError("operator \"" + name + "\": ttl must be numeric");
+          }
+        } else if (!tit->second.is_number()) {
+          throw RegistryError("operator \"" + name + "\": ttl must be numeric");
+        }
+      }
+    }
     if (op.data_parallel < 0) {
       throw ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " +
                             std::to_string(op.data_parallel));
