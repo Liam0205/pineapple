@@ -683,9 +683,9 @@ class TransformRedisSetOp(BaseOp):
     _params_schema = {
         "data_type": {"type": "string", "required": False, "default": "string"},
         "fail_on_error": {"type": "bool", "required": False, "default": False},
-        "key_prefix": {"type": "string", "required": True},
+        "key_prefix": {"type": "string", "required": True, "templatable": True},
         "resource_name": {"type": "string", "required": True},
-        "ttl": {"type": "int", "required": False, "default": 0},
+        "ttl": {"type": "int", "required": False, "default": 0, "templatable": True},
     }
 
     def __call__(
