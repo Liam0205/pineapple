@@ -217,8 +217,8 @@ public class AllOperators {
                         OperatorType.FILTER,
                         "Keeps only the first N items, removing the rest.",
                         Map.of(
-                                "top_n", ParamSpec.required("int64",
-                                        "Number of items to keep.")
+                                "top_n", ParamSpec.requiredTemplatable("int64",
+                                        "Number of items to keep. Supports {{field}} interpolation.")
                         )),
                 FilterTruncate::new);
 
