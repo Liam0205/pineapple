@@ -1,0 +1,1050 @@
+{
+  "_PINEAPPLE_VERSION": "0.9.12",
+  "_PINEAPPLE_CREATE_TIME": "2026-05-28T11:31:47Z",
+  "pipeline_config": {
+    "operators": {
+      "recall_from_feed_data": {
+        "type_name": "recall_feed_data",
+        "$metadata": {
+          "common_input": [
+            "nsfw",
+            "google_play_nsfw",
+            "display_mode_nsfw",
+            "gender",
+            "tag_ids",
+            "content_type",
+            "filter_html_content",
+            "size",
+            "page"
+          ],
+          "common_output": [],
+          "item_input": [],
+          "item_output": [
+            "id",
+            "item_id",
+            "type",
+            "score",
+            "created_at"
+          ]
+        },
+        "$code_info": "",
+        "recall": true,
+        "common_defaults": {
+          "nsfw": false,
+          "gender": 0,
+          "content_type": 0,
+          "filter_html_content": false,
+          "page": 0,
+          "size": 10
+        },
+        "resource_name": "feed_data",
+        "bench_profile": {
+          "p50": [
+            1.0,
+            1.5
+          ],
+          "p99": [
+            5.0,
+            7.0
+          ],
+          "type": "io"
+        }
+      },
+      "fetch_impression_history::if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "user_id"
+          ],
+          "common_output": [
+            "_fetch_impression_history::if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (user_id ~= nil and user_id ~= '' and user_id ~= '0') then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "fetch_realshow_from_redis": {
+        "type_name": "transform_redis_zrangebyscore",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_1",
+            "user_id"
+          ],
+          "common_output": [
+            "impression_ids",
+            "impression_cache_hit",
+            "impression_ids_len"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::if_1"
+        ],
+        "key_prefix": "user:realshow:",
+        "window_seconds": 86400,
+        "bench_profile": {
+          "p50": [
+            0.5,
+            0.8
+          ],
+          "p99": [
+            6.6,
+            134.0
+          ],
+          "type": "io"
+        },
+        "resource_name": "redis_conn_bench"
+      },
+      "fetch_impression_history::else_2": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_1"
+          ],
+          "common_output": [
+            "_fetch_impression_history::else_2"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if ((_G[\"_fetch_impression_history::if_1\"])) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "set_impression_cache_hit_false": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::else_2"
+          ],
+          "common_output": [
+            "impression_cache_hit"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::else_2"
+        ],
+        "lua_script": "function set_false() return false end",
+        "function_for_common": "set_false",
+        "function_for_item": ""
+      },
+      "test_get_impression_history_length": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "impression_ids"
+          ],
+          "common_output": [
+            "impression_ids_len_calculated"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "common_defaults": {
+          "impression_ids": {}
+        },
+        "function_for_common": "calc",
+        "lua_script": "\n        function calc()\n            if impression_ids == nil then\n                return 0\n            else\n                return #impression_ids\n            end\n        end"
+      },
+      "observe_log_764C35": {
+        "type_name": "observe_log",
+        "$metadata": {
+          "common_input": [
+            "impression_ids_len_calculated"
+          ],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "log_prefix": "[impression_ids_len_calculated] "
+      },
+      "fetch_impression_history::if_3": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "impression_cache_hit"
+          ],
+          "common_output": [
+            "_fetch_impression_history::if_3"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (impression_cache_hit == true) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "observe_impression_ids_len": {
+        "type_name": "observe_log",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_3",
+            "impression_ids_len"
+          ],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::if_3"
+        ],
+        "log_prefix": "[impression-zset-size] "
+      },
+      "transform_size_A8F526": {
+        "type_name": "transform_size",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_3"
+          ],
+          "common_output": [
+            "before_impression_filter_size"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::if_3"
+        ]
+      },
+      "filter_impression_C0C717": {
+        "type_name": "filter_impression",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_3",
+            "impression_ids",
+            "size"
+          ],
+          "common_output": [],
+          "item_input": [
+            "item_id",
+            "type"
+          ],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::if_3"
+        ],
+        "min_remaining_ratio": 1.5,
+        "bench_profile": {
+          "p50": [
+            1.1,
+            2.1
+          ],
+          "p99": [
+            6.0,
+            25.0
+          ],
+          "type": "cpu",
+          "iterations": 106169
+        }
+      },
+      "transform_size_93563F": {
+        "type_name": "transform_size",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_3"
+          ],
+          "common_output": [
+            "after_impression_filter_size"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::if_3"
+        ]
+      },
+      "check_impression_filter_effectiveness": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_3",
+            "before_impression_filter_size",
+            "after_impression_filter_size"
+          ],
+          "common_output": [
+            "impression_filter_effective"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::if_3"
+        ],
+        "function_for_common": "comp",
+        "lua_script": "function comp() return before_impression_filter_size > after_impression_filter_size end"
+      },
+      "fetch_impression_history::else_4": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::if_3"
+          ],
+          "common_output": [
+            "_fetch_impression_history::else_4"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if ((_G[\"_fetch_impression_history::if_3\"])) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "set_impression_filter_effective_false": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_fetch_impression_history::else_4"
+          ],
+          "common_output": [
+            "impression_filter_effective"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_fetch_impression_history::else_4"
+        ],
+        "lua_script": "function set_false() return false end",
+        "function_for_common": "set_false",
+        "function_for_item": ""
+      },
+      "transform_generate_request_id_793FD9": {
+        "type_name": "transform_generate_request_id",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [
+            "request_id"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "prefix": "bench",
+        "bench_profile": {
+          "p50": [
+            0.05,
+            0.1
+          ],
+          "p99": [
+            0.1,
+            0.5
+          ],
+          "type": "cpu",
+          "iterations": 4884
+        }
+      },
+      "observe_request": {
+        "type_name": "observe_datahub",
+        "$metadata": {
+          "common_input": [
+            "request_id",
+            "user_id",
+            "gender",
+            "content_type",
+            "language_code",
+            "session_id"
+          ],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "common_defaults": {
+          "gender": 0,
+          "content_type": 0,
+          "language_code": "",
+          "session_id": ""
+        },
+        "resource_name": "dh_request",
+        "mode": "common",
+        "key_fields": [
+          "request_id",
+          "user_id"
+        ],
+        "bench_profile": {
+          "p50": [
+            0.1,
+            0.27
+          ],
+          "p99": [
+            0.5,
+            7.0
+          ],
+          "type": "io"
+        }
+      },
+      "build_shuffle_salt::if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "session_id"
+          ],
+          "common_output": [
+            "_build_shuffle_salt::if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (session_id ~= nil and session_id ~= '') then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "transform_copy_1EC1AA": {
+        "type_name": "transform_copy",
+        "$metadata": {
+          "common_input": [
+            "_build_shuffle_salt::if_1",
+            "session_id"
+          ],
+          "common_output": [
+            "shuffle_salt"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_build_shuffle_salt::if_1"
+        ],
+        "direction": "common_to_common"
+      },
+      "build_shuffle_salt::else_2": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_build_shuffle_salt::if_1"
+          ],
+          "common_output": [
+            "_build_shuffle_salt::else_2"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if ((_G[\"_build_shuffle_salt::if_1\"])) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "generate_shuffle_salt_for_non_login_users": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_build_shuffle_salt::else_2",
+            "user_id",
+            "client_ip",
+            "request_id"
+          ],
+          "common_output": [
+            "shuffle_salt"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_build_shuffle_salt::else_2"
+        ],
+        "lua_script": "function compute_salt()\n    local id = user_id\n    if id == nil or id == '' or id == '0' then\n        id = client_ip or \"0\"\n    end\n    local uuid = string.match(request_id, \":(.+)$\")\n    local hex_ts = string.sub(uuid, 1, 8) .. string.sub(uuid, 10, 13)\n    local epoch = math.floor(tonumber(hex_ts, 16) / 21600000)\n    return tostring(id) .. \"|\" .. tostring(epoch) .. \"|\"\nend",
+        "function_for_common": "compute_salt",
+        "function_for_item": ""
+      },
+      "reorder_shuffle_by_salt_6BA42D": {
+        "type_name": "reorder_shuffle_by_salt",
+        "$metadata": {
+          "common_input": [
+            "shuffle_salt"
+          ],
+          "common_output": [],
+          "item_input": [
+            "id"
+          ],
+          "item_output": []
+        },
+        "$code_info": ""
+      },
+      "if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "impression_filter_effective"
+          ],
+          "common_output": [
+            "_if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (impression_filter_effective == true) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "set_page_to_zero_and_backup": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_if_1",
+            "page"
+          ],
+          "common_output": [
+            "original_page",
+            "page"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_if_1"
+        ],
+        "lua_script": "function save_and_zero() return page, 0 end",
+        "function_for_common": "save_and_zero",
+        "function_for_item": ""
+      },
+      "reorder_topn_boost_95E25A": {
+        "type_name": "reorder_topn_boost",
+        "$metadata": {
+          "common_input": [
+            "page",
+            "shuffle_salt"
+          ],
+          "common_output": [],
+          "item_input": [
+            "id",
+            "created_at"
+          ],
+          "item_output": []
+        },
+        "$code_info": "",
+        "common_defaults": {
+          "page": 0
+        },
+        "size": 10,
+        "bench_profile": {
+          "p50": [
+            0.5,
+            1.0
+          ],
+          "p99": [
+            2.0,
+            10.0
+          ],
+          "type": "cpu",
+          "iterations": 48201
+        }
+      },
+      "filter_paginate_59A0E5": {
+        "type_name": "filter_paginate",
+        "$metadata": {
+          "common_input": [
+            "page",
+            "size"
+          ],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "common_defaults": {
+          "page": 0,
+          "size": 10
+        }
+      },
+      "if_2": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "impression_filter_effective"
+          ],
+          "common_output": [
+            "_if_2"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (impression_filter_effective == true) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "restore_original_page_before_response": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_if_2",
+            "original_page",
+            "page"
+          ],
+          "common_output": [
+            "page"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_if_2"
+        ],
+        "common_defaults": {
+          "original_page": 0
+        },
+        "lua_script": "function restore_page() return original_page end",
+        "function_for_common": "restore_page",
+        "function_for_item": ""
+      },
+      "transform_hydrate_593328": {
+        "type_name": "transform_hydrate",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [
+            "item_id",
+            "type"
+          ],
+          "item_output": [
+            "creator_id"
+          ]
+        },
+        "$code_info": "",
+        "mysql_dsn": "bench:bench@tcp(127.0.0.1:3306)/bench",
+        "bench_profile": {
+          "p50": [
+            3.3,
+            5.0
+          ],
+          "p99": [
+            35.0,
+            216.0
+          ],
+          "type": "io"
+        }
+      },
+      "filter_blocked_creators::if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "user_id"
+          ],
+          "common_output": [
+            "_filter_blocked_creators::if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (user_id ~= nil and user_id ~= '' and user_id ~= '0') then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "fetch_blocked_creators_from_redis": {
+        "type_name": "transform_redis_get",
+        "$metadata": {
+          "common_input": [
+            "_filter_blocked_creators::if_1",
+            "user_id"
+          ],
+          "common_output": [
+            "blocked_creator_ids",
+            "blocked_cache_hit"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_filter_blocked_creators::if_1"
+        ],
+        "key_prefix": "user:blocked_creators:",
+        "data_type": "set",
+        "resource_name": "redis_conn_bench"
+      },
+      "filter_blocked_creators::if_2": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_filter_blocked_creators::if_1",
+            "blocked_cache_hit"
+          ],
+          "common_output": [
+            "_filter_blocked_creators::if_2"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_filter_blocked_creators::if_1"
+        ],
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (blocked_cache_hit == false) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "fetch_blocked_creators_from_mysql": {
+        "type_name": "transform_query_blocked_creators",
+        "$metadata": {
+          "common_input": [
+            "_filter_blocked_creators::if_1",
+            "_filter_blocked_creators::if_2",
+            "user_id",
+            "blocked_creator_ids"
+          ],
+          "common_output": [
+            "blocked_creator_ids"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_filter_blocked_creators::if_1",
+          "_filter_blocked_creators::if_2"
+        ],
+        "common_defaults": {
+          "blocked_creator_ids": []
+        },
+        "mysql_dsn": "bench:bench@tcp(127.0.0.1:3306)/bench",
+        "bench_profile": {
+          "p50": [
+            0.5,
+            1.0
+          ],
+          "p99": [
+            5.0,
+            20.0
+          ],
+          "type": "io"
+        }
+      },
+      "cache_blocked_creators_to_redis": {
+        "type_name": "transform_redis_set",
+        "$metadata": {
+          "common_input": [
+            "_filter_blocked_creators::if_1",
+            "_filter_blocked_creators::if_2",
+            "user_id",
+            "blocked_creator_ids"
+          ],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": "",
+        "skip": [
+          "_filter_blocked_creators::if_1",
+          "_filter_blocked_creators::if_2"
+        ],
+        "key_prefix": "user:blocked_creators:",
+        "data_type": "set",
+        "ttl": 3600,
+        "resource_name": "redis_conn_bench"
+      },
+      "filter_blocked_creator_728ACE": {
+        "type_name": "filter_blocked_creator",
+        "$metadata": {
+          "common_input": [
+            "blocked_creator_ids"
+          ],
+          "common_output": [],
+          "item_input": [
+            "creator_id"
+          ],
+          "item_output": []
+        },
+        "$code_info": "",
+        "item_defaults": {
+          "creator_id": 0
+        },
+        "common_defaults": {
+          "blocked_creator_ids": []
+        },
+        "bench_profile": {
+          "p50": [
+            0.1,
+            0.2
+          ],
+          "p99": [
+            0.5,
+            2.0
+          ],
+          "type": "cpu",
+          "iterations": 9745
+        }
+      },
+      "transform_size_A3472C": {
+        "type_name": "transform_size",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [
+            "size"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "$code_info": ""
+      },
+      "observe_feature_dump": {
+        "type_name": "observe_datahub",
+        "$metadata": {
+          "common_input": [
+            "request_id"
+          ],
+          "common_output": [],
+          "item_input": [
+            "item_id",
+            "type",
+            "score",
+            "creator_id"
+          ],
+          "item_output": []
+        },
+        "$code_info": "",
+        "item_defaults": {
+          "creator_id": 0
+        },
+        "resource_name": "dh_feature_dump",
+        "mode": "item",
+        "key_fields": [
+          "request_id",
+          "item_id",
+          "type"
+        ],
+        "bench_profile": {
+          "p50": [
+            0.15,
+            0.27
+          ],
+          "p99": [
+            1.0,
+            5.8
+          ],
+          "type": "io"
+        }
+      },
+      "observe_servershow": {
+        "type_name": "observe_datahub",
+        "$metadata": {
+          "common_input": [
+            "request_id",
+            "user_id"
+          ],
+          "common_output": [],
+          "item_input": [
+            "item_id",
+            "type"
+          ],
+          "item_output": []
+        },
+        "$code_info": "",
+        "common_defaults": {
+          "user_id": ""
+        },
+        "resource_name": "dh_servershow",
+        "mode": "item",
+        "key_fields": [
+          "request_id",
+          "user_id",
+          "item_id",
+          "type"
+        ],
+        "bench_profile": {
+          "p50": [
+            0.1,
+            0.2
+          ],
+          "p99": [
+            0.5,
+            3.0
+          ],
+          "type": "io"
+        }
+      }
+    },
+    "pipeline_map": {
+      "recall_editor_choice_general": {
+        "pipeline": [
+          "recall_from_feed_data"
+        ]
+      },
+      "fetch_impression_history": {
+        "pipeline": [
+          "fetch_impression_history::if_1",
+          "fetch_realshow_from_redis",
+          "fetch_impression_history::else_2",
+          "set_impression_cache_hit_false",
+          "test_get_impression_history_length",
+          "observe_log_764C35",
+          "fetch_impression_history::if_3",
+          "observe_impression_ids_len",
+          "transform_size_A8F526",
+          "filter_impression_C0C717",
+          "transform_size_93563F",
+          "check_impression_filter_effectiveness",
+          "fetch_impression_history::else_4",
+          "set_impression_filter_effective_false"
+        ]
+      },
+      "build_shuffle_salt": {
+        "pipeline": [
+          "build_shuffle_salt::if_1",
+          "transform_copy_1EC1AA",
+          "build_shuffle_salt::else_2",
+          "generate_shuffle_salt_for_non_login_users"
+        ]
+      },
+      "filter_blocked_creators": {
+        "pipeline": [
+          "transform_hydrate_593328",
+          "filter_blocked_creators::if_1",
+          "fetch_blocked_creators_from_redis",
+          "filter_blocked_creators::if_2",
+          "fetch_blocked_creators_from_mysql",
+          "cache_blocked_creators_to_redis",
+          "filter_blocked_creator_728ACE"
+        ]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": [
+        "recall_editor_choice_general",
+        "fetch_impression_history",
+        "transform_generate_request_id_793FD9",
+        "observe_request",
+        "build_shuffle_salt",
+        "reorder_shuffle_by_salt_6BA42D",
+        "if_1",
+        "set_page_to_zero_and_backup",
+        "reorder_topn_boost_95E25A",
+        "filter_paginate_59A0E5",
+        "if_2",
+        "restore_original_page_before_response",
+        "filter_blocked_creators",
+        "transform_size_A3472C",
+        "observe_feature_dump",
+        "observe_servershow"
+      ]
+    }
+  },
+  "flow_contract": {
+    "common_input": [
+      "page",
+      "size",
+      "gender",
+      "tag_ids",
+      "nsfw",
+      "google_play_nsfw",
+      "display_mode_nsfw",
+      "content_type",
+      "filter_html_content",
+      "user_id",
+      "client_ip",
+      "language_code",
+      "session_id"
+    ],
+    "item_input": [],
+    "common_output": [
+      "user_id",
+      "request_id",
+      "page",
+      "size",
+      "session_id"
+    ],
+    "item_output": [
+      "id",
+      "item_id",
+      "type"
+    ]
+  },
+  "storage_mode": "row",
+  "log_prefix": "[bench-for-you] ",
+  "debug": false,
+  "resource_config": {
+    "feed_data": {
+      "type": "feed_data",
+      "interval": 600,
+      "params": {
+        "mysql_dsn": "bench:bench@tcp(127.0.0.1:3306)/bench"
+      }
+    },
+    "dh_request": {
+      "type": "datahub_producer",
+      "interval": 0,
+      "params": {
+        "ak_id": "REDACTED",
+        "ak_secret": "REDACTED",
+        "endpoint": "http://localhost:8080",
+        "max_retry": 3,
+        "project": "bench_project",
+        "topic": "bench_request_log",
+        "user_agent": "bench-app"
+      }
+    },
+    "dh_feature_dump": {
+      "type": "datahub_producer",
+      "interval": 0,
+      "params": {
+        "ak_id": "REDACTED",
+        "ak_secret": "REDACTED",
+        "endpoint": "http://localhost:8080",
+        "max_retry": 3,
+        "project": "bench_project",
+        "topic": "bench_feature_dump",
+        "user_agent": "bench-app"
+      }
+    },
+    "dh_servershow": {
+      "type": "datahub_producer",
+      "interval": 0,
+      "params": {
+        "ak_id": "REDACTED",
+        "ak_secret": "REDACTED",
+        "endpoint": "http://localhost:8080",
+        "max_retry": 3,
+        "project": "bench_project",
+        "topic": "bench_servershow_log",
+        "user_agent": "bench-app"
+      }
+    },
+    "redis_conn_bench": {
+      "type": "redis_connection",
+      "interval": -1,
+      "params": {
+        "addr": "127.0.0.1:6379",
+        "password": ""
+      }
+    }
+  }
+}
