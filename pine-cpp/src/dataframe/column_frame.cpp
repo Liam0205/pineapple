@@ -241,9 +241,35 @@ std::vector<std::string> ColumnFrame::take_warnings() {
 void ColumnFrame::write_item_field_locked(std::size_t idx, const std::string& field, const Variant& value) {
   Column* col = items_->mutate_column(field);
   if (!col) {
-    // New column — start as JsonColumn so any value type (including
-    // explicit nulls) can be stored without further promotion.
-    auto new_col = std::make_unique<JsonColumn>(items_->row_count());
+    // New column — pick a typed column matching the first value's runtime
+    // type so subsequent same-typed writes hit the cheap typed path (8B
+    // payload + 1 bit validity) instead of paying Variant's std::variant
+    // tax (~40B/cell plus per-cell tag dispatch). For null and nested
+    // values the only correct choice is JsonColumn: typed columns cannot
+    // carry present-null and have no slot for array/object payloads.
+    //
+    // For numbers we deliberately pick DoubleColumn rather than
+    // Int64Column even when the first value happens to be integral. The
+    // first write is an unreliable hint about the column's eventual
+    // value space; if a later write supplies a fractional value an
+    // Int64Column would force an Int64→Json promotion, which is the
+    // costliest path on this hot loop. DoubleColumn admits both integer
+    // and fractional values, and Variant::get/dump_json output is
+    // identical to RowFrame's because RowFrame also stores numbers as
+    // double.
+    std::unique_ptr<Column> new_col;
+    const std::size_t n = items_->row_count();
+    if (value.is_null() || value.is_array() || value.is_object()) {
+      new_col = std::make_unique<JsonColumn>(n);
+    } else if (value.is_bool()) {
+      new_col = std::make_unique<BoolColumn>(n);
+    } else if (value.is_number()) {
+      new_col = std::make_unique<DoubleColumn>(n);
+    } else if (value.is_string()) {
+      new_col = std::make_unique<StringColumn>(n);
+    } else {
+      new_col = std::make_unique<JsonColumn>(n);
+    }
     items_->set_column(field, std::move(new_col));
     col = items_->mutate_column(field);
   }
