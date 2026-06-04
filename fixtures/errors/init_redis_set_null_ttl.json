@@ -1,0 +1,34 @@
+{
+  "name": "Registry error: null ttl in transform_redis_set init",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "redis_set_op": {
+          "type_name": "transform_redis_set",
+          "resource_name": "redis_main",
+          "key_prefix": "k:",
+          "ttl": null,
+          "$metadata": {
+            "common_input": ["user_id", "value"],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["redis_set_op"]}
+    },
+    "flow_contract": {
+      "common_input": ["user_id", "value"],
+      "item_input": [],
+      "common_output": [],
+      "item_output": []
+    }
+  },
+  "expected_error": {
+    "type": "RegistryError",
+    "message_contains": "ttl must be numeric"
+  }
+}
