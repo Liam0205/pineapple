@@ -49,7 +49,7 @@ class RowFrame : public Frame {
   void push_warning(std::string msg) override;
   std::vector<std::string> take_warnings() override;
 
-  void apply_output(const OperatorOutput& out, const std::string& op_name, bool is_recall) override;
+  void apply_output(OperatorOutput& out, const std::string& op_name, bool is_recall) override;
 
   Result to_result(const std::vector<std::string>& common_out,
                    const std::vector<std::string>& item_out) const override;

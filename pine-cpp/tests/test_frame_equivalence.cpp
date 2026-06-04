@@ -35,8 +35,13 @@ Pair make_pair(Variant::object_t common, std::vector<Variant::object_t> items) {
 }
 
 void apply_both(Pair& p, const OperatorOutput& out, const std::string& op_name, bool recall) {
-  p.row->apply_output(out, op_name, recall);
-  p.col->apply_output(out, op_name, recall);
+  // apply_output now takes a non-const ref and may move-extract from
+  // out (RowFrame moves added_items rows). Hand each frame its own
+  // mutable copy so the equivalence assertion stays meaningful.
+  OperatorOutput out_row = out;
+  OperatorOutput out_col = out;
+  p.row->apply_output(out_row, op_name, recall);
+  p.col->apply_output(out_col, op_name, recall);
 }
 
 bool result_equal(const Result& a, const Result& b) {
@@ -282,17 +287,22 @@ TEST_CASE("Row/Column differential fuzz") {
 
     auto p = make_pair(common, items);
     auto out = rand_output(rng, n_items);
+    // apply_output now takes a non-const ref; hand each frame its own
+    // mutable copy so both see the same input regardless of which one
+    // moves rows out.
+    OperatorOutput out_row = out;
+    OperatorOutput out_col = out;
 
     std::string row_err, col_err;
     try {
-      p.row->apply_output(out, "op", false);
+      p.row->apply_output(out_row, "op", false);
     } catch (const ExecutionError& e) {
       row_err = e.what();
     } catch (const Error& e) {
       row_err = e.what();
     }
     try {
-      p.col->apply_output(out, "op", false);
+      p.col->apply_output(out_col, "op", false);
     } catch (const ExecutionError& e) {
       col_err = e.what();
     } catch (const Error& e) {

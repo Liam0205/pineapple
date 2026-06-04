@@ -147,7 +147,7 @@ std::vector<std::string> RowFrame::take_warnings() {
   return std::move(warnings_);
 }
 
-void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_name, bool is_recall) {
+void RowFrame::apply_output(OperatorOutput& out, const std::string& op_name, bool is_recall) {
   if (is_window_view()) {
     throw Error(
         "RowFrame::apply_output called on window view "
@@ -223,16 +223,16 @@ void RowFrame::apply_output(const OperatorOutput& out, const std::string& op_nam
 
   // 5. additions
   if (!out.added_items().empty()) {
-    for (const auto& added : out.added_items()) {
+    // Mutable view: each row is moved into items_ to skip the per-row
+    // FlatMap copy. added is left in moved-from state — fine because
+    // out is discarded right after apply_output returns.
+    for (auto& added : out.added_items()) {
       for (const auto& [field, value] : added) {
         if (auto v = validate_value_row(field, value); !v.empty()) {
           throw ExecutionError(op_name, "added item write: " + v);
         }
       }
-      // added is already a sorted FlatMap; copy then move into items_,
-      // skipping the range-ctor's redundant sort. operator[] preserves
-      // sort order when injecting _source.
-      Variant::object_t row = added;
+      Variant::object_t row = std::move(added);
       if (is_recall) {
         row["_source"] = Variant(op_name);
       }
