@@ -289,6 +289,68 @@ else:
           fail "resource metrics: under-load state C++: $cpp_under_load"
         fi
       fi
+
+      # [3b] Audit M7: interval=-1 + probe cadence invariant.
+      #      Fetcher must run once at Start (no fetcher loop) and the probe
+      #      goroutine ticks every 15s — within a 2s window the ping count
+      #      must stay at 1 (just the immediate-after-Start probe) across
+      #      all three engines. This catches:
+      #        * a regression that interprets interval=-1 as "spin tightly"
+      #        * a regression that lowers / desyncs the probe period
+      #          (Go redisProbeInterval / Java PROBE_INTERVAL_SECONDS /
+      #           C++ kProbeInterval — all 15s)
+      #      The /execute requests above borrow the client but do not call
+      #      PING themselves, so they must not bump the gauge either.
+      sleep 2
+      GO_RES3=$(scrape_resources $GO_PORT)
+      JAVA_RES3=$(scrape_resources $JAVA_PORT)
+      CPP_RES3=""
+      $cpp_srv_ready && CPP_RES3=$(scrape_resources $CPP_PORT)
+      rm_total=$((rm_total + 1))
+      cadence=$(python3 -c "
+import json
+def cnt(s):
+    r = json.loads(s)
+    return r.get('pine_redis_ping_duration_seconds', {}).get('cache', {}).get('count')
+gc = cnt('''$GO_RES3''')
+jc = cnt('''$JAVA_RES3''')
+# Allow 1-2 in case the test machine raced the first PING tick at exactly
+# the wrong moment; cadence regressions show up as ≥3 within 2s.
+if gc is None or jc is None:
+    print(f'ping count missing: go={gc} java={jc}')
+elif gc not in (1, 2) or jc not in (1, 2):
+    print(f'ping count outside [1,2] within 2s: go={gc} java={jc}')
+else:
+    print(f'ok ({gc}/{jc})')
+")
+      if [[ "$cadence" == ok* ]]; then
+        rm_pass=$((rm_pass + 1))
+        echo "    [3b] probe cadence within 2s: ping count ∈ {1,2} ($cadence)"
+      else
+        fail "resource metrics: probe cadence (interval=-1) drifted: $cadence"
+      fi
+      if $cpp_srv_ready; then
+        cpp_rm_total=$((cpp_rm_total + 1))
+        cpp_cadence=$(python3 -c "
+import json
+def cnt(s):
+    r = json.loads(s)
+    return r.get('pine_redis_ping_duration_seconds', {}).get('cache', {}).get('count')
+cc = cnt('''$CPP_RES3''')
+if cc is None:
+    print('cpp ping count missing')
+elif cc not in (1, 2):
+    print(f'cpp ping count outside [1,2] within 2s: cpp={cc}')
+else:
+    print(f'ok (cpp={cc})')
+")
+        if [[ "$cpp_cadence" == ok* ]]; then
+          cpp_rm_pass=$((cpp_rm_pass + 1))
+          echo "    [3b] probe cadence within 2s C++: $cpp_cadence"
+        else
+          fail "resource metrics: probe cadence (interval=-1) C++: $cpp_cadence"
+        fi
+      fi
     else
       fail "resource metrics: servers failed to start (positive case)"
     fi
