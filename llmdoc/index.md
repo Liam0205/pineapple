@@ -29,6 +29,7 @@
 - `llmdoc/reference/apple-control-template-syntax.md` — Apple DSL 控制流条件参考：`if_` / `elseif_` 需要使用 `{{field_name}}` 模板语法显式标记字段引用，编译器据此提取依赖并在发射 Lua 前去掉模板标记。
 - `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 与 `/stats.resources` 子树 schema）、内置 HTTP metrics middleware（各运行时 default-on）、资源级指标 fan-out（Tee）路由与 Collector 契约、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
+- `llmdoc/reference/admin-pprof-disclosure.md` — pine-go 可选 admin server 的 pprof 暴露面、默认关闭契约、五条 `/debug/pprof/*` 路径的信息泄漏内容、运维约束(网络层隔离/认证反代/诊断窗口)与跨 runtime 对等(pine-cpp/pine-java 不实现 admin pprof)。
 
 ## memory/
 
