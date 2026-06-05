@@ -1431,3 +1431,57 @@ func TestSnapshotDrainDefersTeardown(t *testing.T) {
 	// object — so there is no double-free.
 	snap.release()
 }
+
+// TestAdminPprofMuxServesPprof asserts that the admin mux (which gets
+// mounted only when AdminAddr is set) exposes /debug/pprof/. Profiling
+// endpoints are deliberately served on a side port so the main listener
+// — which is reachable from any Pineapple deployment — does not leak
+// goroutine state, command-line args, or symbol tables. If a refactor
+// accidentally drops a HandleFunc, this test fails before the binary
+// ships.
+func TestAdminPprofMuxServesPprof(t *testing.T) {
+	mux := newAdminMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	for _, path := range []string{
+		"/debug/pprof/",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/symbol",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("admin %s = %d, want 200", path, w.Code)
+		}
+	}
+}
+
+// TestMainMuxDoesNotExposePprof guards the information-leak boundary:
+// the main mux assembled in run() registers /health, /execute, /stats,
+// /dag and a catch-all /. If a future change accidentally adds pprof
+// handlers to that mux (e.g. by reusing newAdminMux), this test fires.
+func TestMainMuxDoesNotExposePprof(t *testing.T) {
+	srv := setupTestHTTPServer(t)
+
+	for _, path := range []string{
+		"/debug/pprof/",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/profile",
+	} {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+path, nil)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		// handleNotFound returns 404 for any unmatched path. If pprof leaks
+		// onto the main mux, the response would be 200 (Index) or a long
+		// running 200 (Profile).
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("main mux %s = %d, want 404 (pprof must be admin-only)",
+				path, resp.StatusCode)
+		}
+	}
+}

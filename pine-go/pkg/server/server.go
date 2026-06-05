@@ -273,15 +273,9 @@ func (s *Server) run(cfg Config) error {
 	// No WriteTimeout so long-running profiles (e.g. ?seconds=120) are not truncated.
 	var adminSrv *http.Server
 	if cfg.AdminAddr != "" {
-		adminMux := http.NewServeMux()
-		adminMux.HandleFunc("/debug/pprof/", pprof.Index)
-		adminMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		adminMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		adminMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		adminMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 		adminSrv = &http.Server{
 			Addr:              cfg.AdminAddr,
-			Handler:           adminMux,
+			Handler:           newAdminMux(),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		go func() {
@@ -592,4 +586,18 @@ func (s *Server) effectiveMaxRequestBodySize() int64 {
 		return 10 << 20
 	}
 	return s.maxRequestBodySize
+}
+
+// newAdminMux builds the mux mounted on AdminAddr. It exposes the standard
+// net/http/pprof handlers under /debug/pprof/. Kept as a package-private
+// helper so tests can assert that pprof is reachable on the admin port and
+// — crucially — *not* reachable on the main mux.
+func newAdminMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	return mux
 }
