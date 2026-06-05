@@ -4,6 +4,10 @@
 
 #include <doctest/doctest.h>
 
+#include <atomic>
+#include <thread>
+#include <vector>
+
 using namespace pine;
 
 namespace {
@@ -290,4 +294,57 @@ TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)"
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
   INFO("elapsed=" << ms << "ms");
   CHECK(ms < 1200);
+}
+
+TEST_CASE("Engine::execute is safe to call concurrently from many threads on the same Plan") {
+  // Direct doctest (TSan-runnable) coverage for shared `const Engine` use.
+  // Server-layer integration tests already pound execute() concurrently via
+  // the HTTP path, but those are coarse: a TSan failure surfaces only by
+  // way of a serialized stack trace inside the request handler, which
+  // hides the engine-internal race. This case calls Engine::execute
+  // directly from N threads with the same Plan and per-thread Request
+  // payloads, asserting both: (1) every thread observes its own input
+  // round-tripped through transform_copy → its own output (no cross-talk
+  // through any shared mutable state inside Engine), and (2) the total
+  // call survives the run with no crash, no hang.
+  Engine engine(load_config_from_json(kCopyConfig));
+
+  constexpr int kThreads = 16;
+  constexpr int kPerThread = 32;
+  std::atomic<int> mismatches{0};
+  std::atomic<int> exceptions{0};
+
+  std::vector<std::thread> ts;
+  ts.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    ts.emplace_back([&, t]() {
+      for (int i = 0; i < kPerThread; ++i) {
+        // Each (thread, iteration) pair gets a unique input string so
+        // any cross-pollination between concurrent execute() calls is
+        // detectable on output.
+        std::string payload = "t" + std::to_string(t) + "-i" + std::to_string(i);
+        Request req;
+        req.common["src"] = Variant(payload);
+        try {
+          auto result = engine.execute(req);
+          auto it = result.common.find("dst");
+          if (it == result.common.end() || it->second.as_string() != payload) {
+            mismatches.fetch_add(1, std::memory_order_relaxed);
+          }
+        } catch (...) {
+          exceptions.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+  for (auto& th : ts) {
+    th.join();
+  }
+  CHECK(mismatches.load() == 0);
+  CHECK(exceptions.load() == 0);
+  // peak_concurrency() is a cumulative atomic across all execute() calls.
+  // With kThreads concurrent runs we expect it to be > 0 (the scheduler
+  // observed at least one in-flight node), independent of the precise
+  // peak — a stronger bound would be flaky on under-provisioned CI.
+  CHECK(engine.peak_concurrency() > 0);
 }
