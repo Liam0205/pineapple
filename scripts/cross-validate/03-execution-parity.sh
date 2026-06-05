@@ -20,11 +20,12 @@ for fixture_file in "$FIXTURES_DIR"/*.json; do
 import json, sys
 with open('$fixture_file') as f:
     data = json.load(f)
-# Skip fixtures that need external prepopulated state (redis, etc).
-# Those have dedicated sections (11-redis-integration, 17-templated-params)
-# that wire up addr replacement + prepopulate.
+# Skip fixtures that need external prepopulated state (redis, etc) or
+# specially-built binaries. Those have dedicated sections that wire up
+# the precondition (11-redis-integration, 17-templated-params for redis;
+# 19-bench-stub-parity for bench-tag/system-property gated stubs).
 requires = set(data.get('requires', []) or [])
-if requires & {'redis', 'redis-unavailable'}:
+if requires & {'redis', 'redis-unavailable', 'bench'}:
     sys.exit(0)
 cases = data.get('cases', [])
 if not cases:
