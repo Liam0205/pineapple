@@ -52,11 +52,19 @@ jobs:
         run: mvn package -B -q -DskipTests
         working-directory: pine-java
 
-      - name: Build C++ engine
-        run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
-          cmake --build build --target pineapple-run
-        working-directory: pine-cpp
+      - name: Codegen schema parity gate (also builds C++ binaries)
+        # Runs cross-validate Section 1 (schema + apple_generated/ byte-level
+        # diff across Go/Java/C++). PR-time CI also runs this, but nightly
+        # picks it up as a low-cost guard against three-way drift in
+        # operators.py / markers.py / resources.py / __init__.py landing
+        # silently between PR runs (audit gap H5).
+        #
+        # Side effect we deliberately rely on: _prebuild.sh builds the full
+        # set of pine-cpp binaries (pineapple-run, codegen, server, dag,
+        # cause-chain-probe) into pine-cpp/build/. That covers the C++
+        # binary used by the differential-fuzz step below, so no separate
+        # "Build C++ engine" step is needed.
+        run: bash scripts/cross-validate.sh 1
 
       - name: Run differential fuzz
         timeout-minutes: 350
