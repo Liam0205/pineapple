@@ -12,6 +12,10 @@ on:
         description: "Stability check reruns per case"
         default: "3"
 
+concurrency:
+  group: nightly-diff-fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   differential-fuzz:
     runs-on: ubuntu-latest
@@ -98,14 +102,14 @@ jobs:
           fi
 
       - name: Package divergences
-        if: steps.evaluate.outputs.has_divergences == 'true'
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
         run: |
           cd /tmp/diff-fuzz-nightly
           tar czf /tmp/diff-fuzz-divergences.tar.gz \
             divergence_*/ unstable_*/ 2>/dev/null || true
 
       - name: Upload divergences
-        if: steps.evaluate.outputs.has_divergences == 'true'
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: diff-fuzz-divergences-${{ github.run_number }}
@@ -113,7 +117,8 @@ jobs:
           retention-days: 14
 
       - name: Open issue on divergence
-        if: steps.evaluate.outputs.has_divergences == 'true'
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -171,7 +176,8 @@ jobs:
           )"
 
       - name: Open issue on workflow failure
-        if: failure() || cancelled()
+        if: ${{ (failure() || cancelled()) && steps.evaluate.outputs.has_divergences != 'true' }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
