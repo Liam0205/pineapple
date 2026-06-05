@@ -1,0 +1,79 @@
+{
+  "name": "transform_bench_cpu byte-identical work output across runtimes (M12)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.9.13",
+    "pipeline_config": {
+      "operators": {
+        "bench": {
+          "type_name": "transform_bench_cpu",
+          "iterations": 2,
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["_bench_result"]
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {"pipeline": ["bench"]}
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["main_stage"]}
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id", "_bench_result"]
+    }
+  },
+  "cases": [
+    {
+      "name": "iterations=2, single item, all three runtimes must agree bit-for-bit",
+      "request": {
+        "common": {},
+        "items": [
+          {"id": "a"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "a", "_bench_result": 4356611.465081713}
+        ]
+      }
+    },
+    {
+      "name": "iterations=2, three items, per-item compute repeated identically",
+      "request": {
+        "common": {},
+        "items": [
+          {"id": "x"},
+          {"id": "y"},
+          {"id": "z"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "x", "_bench_result": 4356611.465081713},
+          {"id": "y", "_bench_result": 4356611.465081713},
+          {"id": "z", "_bench_result": 4356611.465081713}
+        ]
+      }
+    },
+    {
+      "name": "iterations=2, zero items, body never executed (parity)",
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": []
+      }
+    }
+  ]
+}
