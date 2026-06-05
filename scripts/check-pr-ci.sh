@@ -27,6 +27,14 @@ fi
 
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 
+# Lock the "new activity" cut-off NOW, before we spend minutes watching CI —
+# any GitHub comment with createdAt > this moment is strictly newer than our
+# most recent push. Done up front (not after the CI watch) so legitimate
+# review activity arriving during CI is still counted as new. UTC ('Z') keeps
+# the jq lexical comparison aligned with GitHub's UTC createdAt fields; a
+# local-tz offset like "+08:00" would collate wrong against 'Z' strings.
+push_cutoff="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 # Resolve the PR number for this branch. If none, nothing to watch.
 pr_number="$(gh pr view --json number --jq '.number' 2>/dev/null)"
 if [ -z "$pr_number" ]; then
@@ -123,17 +131,12 @@ log "═════════════════════════
 # When none of the above hold, the script exits silently with a single success
 # line, so an automated loop reaches a stable terminal state.
 
-head_pushed_at="$(git log -1 --format=%cI HEAD 2>/dev/null)"
-if [ -z "$head_pushed_at" ]; then
-  head_pushed_at="1970-01-01T00:00:00Z"
-fi
-
 owner="$(gh repo view --json owner --jq '.owner.login' 2>/dev/null)"
 repo="$(gh repo view --json name --jq '.name' 2>/dev/null)"
 
 # Single GraphQL round-trip pulling everything we need to detect "new activity
-# since HEAD push". Each list is independently filtered by createdAt > HEAD
-# commit time in jq below.
+# since our push". Each list is independently filtered by createdAt >
+# $push_cutoff (locked at script start, before the CI watch) in jq below.
 activity_json="$(gh api graphql -f query='
   query($owner:String!, $repo:String!, $pr:Int!) {
     repository(owner:$owner, name:$repo) {
@@ -159,13 +162,13 @@ if [ -z "$activity_json" ]; then
   unresolved_threads=0
 else
   new_issue_comments="$(printf '%s' "$activity_json" \
-    | jq --arg t "$head_pushed_at" \
+    | jq --arg t "$push_cutoff" \
         '[.data.repository.pullRequest.comments.nodes[] | select(.createdAt > $t)] | length')"
   new_review_submissions="$(printf '%s' "$activity_json" \
-    | jq --arg t "$head_pushed_at" \
+    | jq --arg t "$push_cutoff" \
         '[.data.repository.pullRequest.reviews.nodes[] | select(.createdAt > $t)] | length')"
   new_inline_comments="$(printf '%s' "$activity_json" \
-    | jq --arg t "$head_pushed_at" \
+    | jq --arg t "$push_cutoff" \
         '[.data.repository.pullRequest.reviewThreads.nodes[].comments.nodes[] | select(.createdAt > $t)] | length')"
   unresolved_threads="$(printf '%s' "$activity_json" \
     | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length')"
@@ -185,8 +188,8 @@ log "═════════════════════════
 log "  ▶ Next step for Claude Code (autonomous loop)"
 log "════════════════════════════════════════════════════════════"
 log ""
-log "PR #${pr_number} has activity since the current HEAD was pushed at"
-log "  ${head_pushed_at}"
+log "PR #${pr_number} has activity since our push cut-off"
+log "  ${push_cutoff}"
 log "  • new top-level comments:   ${new_issue_comments}"
 log "  • new review submissions:   ${new_review_submissions}  (each may be APPROVE / REQUEST_CHANGES / COMMENT)"
 log "  • new inline thread replies: ${new_inline_comments}"
@@ -259,6 +262,6 @@ log "Termination: when this script next prints"
 log "    ✓ no new review activity since last push, no unresolved threads — done."
 log "the loop is done. Stop pushing and tell the user the PR is ready."
 log ""
-log "Current state: head_pushed_at=${head_pushed_at}, new_total=${total_new}, unresolved_threads=${unresolved_threads}, reviewDecision=${review_decision}"
+log "Current state: push_cutoff=${push_cutoff}, new_total=${total_new}, unresolved_threads=${unresolved_threads}, reviewDecision=${review_decision}"
 log "════════════════════════════════════════════════════════════"
 exit 0
