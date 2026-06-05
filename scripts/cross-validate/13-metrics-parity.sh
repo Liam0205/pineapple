@@ -493,6 +493,203 @@ else
   CPP_PID=""
 fi
 
+# ---------------------------------------------------------------------------
+# Lua pool reuse_count parity (audit gap H6)
+# Reuses the same machinery but with a transform_by_lua fixture so we can
+# assert operator_detail.<op>.{borrow_count,reuse_count,create_count} are
+# byte-identical across runtimes after a fixed-N execution. Without this
+# section, /stats only verifies exec/skip/error counters; lua pool drift
+# (e.g. Java incrementing reuse on misses, or C++ counting borrow twice)
+# would survive every parity gate.
+# ---------------------------------------------------------------------------
+LUA_FIXTURE="$REPO_ROOT/fixtures/pipelines/barrier_transform_reorder.json"
+LUA_CONFIG="$WORK_DIR/lua_metrics_config.json"
+python3 -c "
+import json
+with open('$LUA_FIXTURE') as f:
+    data = json.load(f)
+with open('$LUA_CONFIG', 'w') as cf:
+    json.dump(data.get('config', {}), cf)
+"
+LUA_REQ=$(python3 -c "
+import json
+with open('$LUA_FIXTURE') as f:
+    data = json.load(f)
+print(json.dumps(data['cases'][0]['request']))
+")
+
+GO_LUA_PORT=23011
+JAVA_LUA_PORT=23012
+CPP_LUA_PORT=23014
+
+"$WORK_DIR/pineapple-server" -config "$LUA_CONFIG" -addr ":$GO_LUA_PORT" &
+GO_LUA_PID=$!
+java -cp "$JAVA_CP" -Dpine.config="$LUA_CONFIG" -Dpine.port=$JAVA_LUA_PORT page.liam.pine.PineServer &
+JAVA_LUA_PID=$!
+CPP_LUA_PID=""
+if [[ -n "${CPP_SERVER:-}" ]]; then
+  "$CPP_SERVER" -config "$LUA_CONFIG" -addr ":$CPP_LUA_PORT" &
+  CPP_LUA_PID=$!
+fi
+
+lua_cleanup() {
+  kill $GO_LUA_PID $JAVA_LUA_PID 2>/dev/null || true
+  [[ -n "$CPP_LUA_PID" ]] && kill $CPP_LUA_PID 2>/dev/null || true
+  wait $GO_LUA_PID $JAVA_LUA_PID 2>/dev/null || true
+  [[ -n "$CPP_LUA_PID" ]] && wait $CPP_LUA_PID 2>/dev/null || true
+  GO_LUA_PID=""
+  JAVA_LUA_PID=""
+  CPP_LUA_PID=""
+}
+trap 'lua_cleanup' EXIT
+
+cpp_lua_ready=false
+if srv_ready $GO_LUA_PORT && srv_ready $JAVA_LUA_PORT; then
+  if [[ -n "${CPP_SERVER:-}" ]] && srv_ready $CPP_LUA_PORT; then
+    cpp_lua_ready=true
+  fi
+
+  # Snapshot baseline counters BEFORE any /execute traffic. This isolates
+  # exec-time parity from runtime-specific init behavior — pine-go does a
+  # one-shot validation borrow during NewEngine (operators/lua/lua.go:85)
+  # to confirm the declared funcName resolves, which Java/C++ check on the
+  # seed state without going through the pool. That intentional asymmetry
+  # would make absolute counters diverge by 1, but the *delta* across N
+  # executes must be byte-identical across all runtimes.
+  GO_LUA_BASELINE=$(curl -s "http://localhost:$GO_LUA_PORT/stats")
+  JAVA_LUA_BASELINE=$(curl -s "http://localhost:$JAVA_LUA_PORT/stats")
+  CPP_LUA_BASELINE=""
+  if $cpp_lua_ready; then
+    CPP_LUA_BASELINE=$(curl -s "http://localhost:$CPP_LUA_PORT/stats")
+  fi
+
+  # Drive N requests; each call borrows ≥1 lua state per transform_by_lua op.
+  # With a warm-set sized ≥1, all N exec-time borrows hit the pool and
+  # increment reuse_count; create_count must not move at all.
+  LUA_N=8
+  for i in $(seq 1 $LUA_N); do
+    curl -s -X POST -H "Content-Type: application/json" -d "$LUA_REQ" "http://localhost:$GO_LUA_PORT/execute" > /dev/null
+    curl -s -X POST -H "Content-Type: application/json" -d "$LUA_REQ" "http://localhost:$JAVA_LUA_PORT/execute" > /dev/null
+    if $cpp_lua_ready; then
+      curl -s -X POST -H "Content-Type: application/json" -d "$LUA_REQ" "http://localhost:$CPP_LUA_PORT/execute" > /dev/null
+    fi
+  done
+
+  GO_LUA_STATS=$(curl -s "http://localhost:$GO_LUA_PORT/stats")
+  JAVA_LUA_STATS=$(curl -s "http://localhost:$JAVA_LUA_PORT/stats")
+  CPP_LUA_STATS=""
+  if $cpp_lua_ready; then
+    CPP_LUA_STATS=$(curl -s "http://localhost:$CPP_LUA_PORT/stats")
+  fi
+
+  # [10] Lua pool exec-time delta parity: per-op
+  #   {borrow_count, reuse_count, create_count}_after - _before
+  # must be byte-identical across go/java/(cpp). Expected delta per op:
+  #   borrow = N, reuse = N, create = 0  (warm-set seed pre-allocates;
+  # exec-time hits the pool only). This catches any future bookkeeping
+  # bug where one runtime miscounts a hit, double-counts a borrow, or
+  # silently grows the pool on the hot path.
+  metrics_total=$((metrics_total + 1))
+  lua_pool_ok=$(python3 -c "
+import json
+N = $LUA_N
+FIELDS = ('borrow_count', 'reuse_count', 'create_count')
+def view(stats):
+    detail = stats.get('operator_detail') or {}
+    out = {}
+    for op, fields in detail.items():
+        if all(k in fields for k in FIELDS):
+            out[op] = {k: fields[k] for k in FIELDS}
+    return out
+def delta(before, after):
+    out = {}
+    for op in after:
+        b = before.get(op, {k: 0 for k in FIELDS})
+        out[op] = {k: after[op][k] - b[k] for k in FIELDS}
+    return out
+def expected_delta(view_after, n):
+    for op, f in view_after.items():
+        # borrow == reuse + create  (every borrow is either hit or miss)
+        if f['borrow_count'] != f['reuse_count'] + f['create_count']:
+            return f'{op}: borrow={f[\"borrow_count\"]} != reuse={f[\"reuse_count\"]} + create={f[\"create_count\"]}'
+        # warm-set sized ≥1, so exec-time borrows must all be hits.
+        if f['create_count'] != 0:
+            return f'{op}: exec-time create_count={f[\"create_count\"]} != 0 (pool churn on hot path)'
+        if f['reuse_count'] != n:
+            return f'{op}: reuse_count={f[\"reuse_count\"]} != N={n}'
+    return None
+go_after = view(json.loads('''$GO_LUA_STATS'''))
+java_after = view(json.loads('''$JAVA_LUA_STATS'''))
+go_before = view(json.loads('''$GO_LUA_BASELINE'''))
+java_before = view(json.loads('''$JAVA_LUA_BASELINE'''))
+if not go_after:
+    print('go: no operator_detail with lua pool fields')
+elif sorted(go_after.keys()) != sorted(java_after.keys()):
+    print(f'op set differs: go={sorted(go_after.keys())} java={sorted(java_after.keys())}')
+else:
+    go_d = delta(go_before, go_after)
+    java_d = delta(java_before, java_after)
+    err = expected_delta(go_d, N) or expected_delta(java_d, N)
+    if not err and go_d != java_d:
+        err = f'delta drift: go={go_d} java={java_d}'
+    print(err or 'match')
+")
+  if [[ "$lua_pool_ok" == "match" ]]; then
+    metrics_pass=$((metrics_pass + 1))
+    echo "    [10] lua pool exec-time delta byte-identical Go vs Java (borrow=reuse=N, create=0)"
+  else
+    fail "metrics: lua pool reuse_count parity Go vs Java: $lua_pool_ok"
+  fi
+
+  if $cpp_lua_ready; then
+    cpp_metrics_total=$((cpp_metrics_total + 1))
+    cpp_lua_pool_ok=$(python3 -c "
+import json
+N = $LUA_N
+FIELDS = ('borrow_count', 'reuse_count', 'create_count')
+def view(stats):
+    detail = stats.get('operator_detail') or {}
+    out = {}
+    for op, fields in detail.items():
+        if all(k in fields for k in FIELDS):
+            out[op] = {k: fields[k] for k in FIELDS}
+    return out
+def delta(before, after):
+    out = {}
+    for op in after:
+        b = before.get(op, {k: 0 for k in FIELDS})
+        out[op] = {k: after[op][k] - b[k] for k in FIELDS}
+    return out
+go_d = delta(view(json.loads('''$GO_LUA_BASELINE''')),
+             view(json.loads('''$GO_LUA_STATS''')))
+cpp_d = delta(view(json.loads('''$CPP_LUA_BASELINE''')),
+              view(json.loads('''$CPP_LUA_STATS''')))
+if sorted(go_d.keys()) != sorted(cpp_d.keys()):
+    print(f'op set differs: go={sorted(go_d.keys())} cpp={sorted(cpp_d.keys())}')
+elif go_d != cpp_d:
+    print(f'delta drift: go={go_d} cpp={cpp_d}')
+else:
+    bad = None
+    for op, f in cpp_d.items():
+        if f['create_count'] != 0 or f['reuse_count'] != N or f['borrow_count'] != N:
+            bad = f'{op}: cpp delta {f} != expected (borrow={N},reuse={N},create=0)'
+            break
+    print(bad or 'match')
+")
+    if [[ "$cpp_lua_pool_ok" == "match" ]]; then
+      cpp_metrics_pass=$((cpp_metrics_pass + 1))
+      echo "    [10] C++ lua pool exec-time delta byte-identical to Go"
+    else
+      fail "metrics: lua pool reuse_count parity Go vs C++: $cpp_lua_pool_ok"
+    fi
+  fi
+
+  lua_cleanup
+else
+  fail "metrics: lua-fixture servers failed to start"
+  lua_cleanup
+fi
+
 if [[ $metrics_total -gt 0 && $metrics_pass -eq $metrics_total ]]; then
   pass "metrics parity ($metrics_pass/$metrics_total checks)"
 elif [[ $metrics_total -eq 0 ]]; then
