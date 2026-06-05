@@ -1507,3 +1507,174 @@ class TestSubFlowTemplateInteraction:
         assert "pipeline_config" in cfg
 
 
+class TestSubFlowMultiSkipContractInteraction:
+    """SubFlow declared with an input contract while wrapping nested
+    if/elseif/else control flow.
+
+    Two compiler passes meet here:
+      * compiler.py:308-329 (`_inject_inherited_skips`) — every op inside an
+        active control block has its branch's renamed skip-control field
+        appended to `common_input_skip`.
+      * validator.py:288-294 — SubFlow-scoped coverage unions the three
+        common_input buckets but filters underscore-prefixed fields (skip
+        controls live there by convention) before checking against the
+        SubFlow's declared common_input contract.
+
+    Without the underscore filter, a SubFlow that wraps an `if_` block and
+    declares a `common_input` contract would always fail because the
+    auto-injected `_…::if_N` field is never in the SubFlow contract. The
+    audit reflection at llmdoc/memory/reflections/nested-subflow-multi-skip-
+    design-gaps.md called out this cross as untested.
+
+    Audit gap M2.
+    """
+
+    def _add_lua(self, node, *, common_input=None, common_output=None,
+                 item_input=None, item_output=None, name=None):
+        kwargs = {
+            "common_input": common_input or [],
+            "common_output": common_output or [],
+            "item_input": item_input or [],
+            "item_output": item_output or [],
+            "lua_script": "function f() return 0 end",
+            "function_for_item": "f",
+            "function_for_common": "",
+        }
+        if name:
+            kwargs["name"] = name
+        node._add_op("transform_by_lua", **kwargs)
+
+    def test_subflow_contract_with_if_block_compiles(self):
+        """SubFlow declares a contract AND wraps an if_ block. The branch
+        injects _<sf>::if_1 into the inner op's common_input_skip; the
+        underscore filter at validator.py:294 lets the SubFlow check pass."""
+        sf = SubFlow(name="sf", common_input=["enabled"], item_input=["x"], item_output=["x"])
+        sf.if_("{{enabled}} ~= nil") \
+          ._add_op(
+              "transform_by_lua",
+              item_input=["x"], item_output=["x"],
+              lua_script="function f() return x end",
+              function_for_item="f", function_for_common="",
+          ) \
+          .end_if_()
+        flow = Flow(
+            name="parent",
+            common_input=["enabled"],
+            item_input=["x"],
+            item_output=["x"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        ctrl_op = next(
+            op for op in cfg["pipeline_config"]["operators"].values()
+            if op.get("for_branch_control")
+        )
+        # Skip key is renamed to "_<sf>::if_N" inside the SubFlow.
+        renamed = ctrl_op["$metadata"]["common_output"][0]
+        assert renamed == "_sf::if_1"
+        # Inner op carries the renamed skip in its common_input_skip bucket.
+        inner_op = next(
+            op for op in cfg["pipeline_config"]["operators"].values()
+            if op["type_name"] == "transform_by_lua" and op.get("skip")
+        )
+        assert renamed in inner_op["$metadata"]["common_input_skip"]
+
+    def test_subflow_contract_with_if_else_multi_skip_compiles(self):
+        """If + else inside a SubFlow injects two distinct skip fields
+        across the branches; each branch's ops only carry the skip for
+        their own branch, and the SubFlow contract still passes."""
+        sf = SubFlow(name="sf", common_input=["mode"], item_input=["x"], item_output=["x"])
+        sf.if_("{{mode}} == 1") \
+          ._add_op(
+              "transform_by_lua",
+              item_input=["x"], item_output=["x"], name="if_branch_op",
+              lua_script="function f() return x end",
+              function_for_item="f", function_for_common="",
+          ) \
+          .else_() \
+          ._add_op(
+              "transform_by_lua",
+              item_input=["x"], item_output=["x"], name="else_branch_op",
+              lua_script="function g() return x end",
+              function_for_item="g", function_for_common="",
+          ) \
+          .end_if_()
+        flow = Flow(
+            name="parent",
+            common_input=["mode"],
+            item_input=["x"],
+            item_output=["x"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        ops = cfg["pipeline_config"]["operators"]
+        if_op = ops["if_branch_op"]
+        else_op = ops["else_branch_op"]
+        # Each branch has its own skip control; the two skips are siblings
+        # under the same parent if_ block, both inside the SubFlow scope.
+        assert if_op.get("skip") and else_op.get("skip")
+        assert if_op["skip"] != else_op["skip"]
+        # Underscore filter at validator.py:294 means the SubFlow contract
+        # ("mode") never had to cover any of these synthesized fields.
+
+    def test_subflow_contract_with_nested_if_compiles(self):
+        """Outer if + inner if inside a SubFlow stack two skip controls on
+        the innermost op. Both skip fields are underscore-prefixed and the
+        SubFlow contract check tolerates them."""
+        sf = SubFlow(name="sf", common_input=["a", "b"], item_input=["x"], item_output=["x"])
+        sf.if_("{{a}} ~= nil") \
+          .if_("{{b}} ~= nil") \
+          ._add_op(
+              "transform_by_lua",
+              item_input=["x"], item_output=["x"], name="deep_op",
+              lua_script="function f() return x end",
+              function_for_item="f", function_for_common="",
+          ) \
+          .end_if_() \
+          .end_if_()
+        flow = Flow(
+            name="parent",
+            common_input=["a", "b"],
+            item_input=["x"],
+            item_output=["x"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        deep_op = cfg["pipeline_config"]["operators"]["deep_op"]
+        # Two stacked skips, both underscore-prefixed and SubFlow-renamed.
+        skips = deep_op.get("skip") or []
+        assert len(skips) == 2
+        for s in skips:
+            assert s.startswith("_")
+        assert sorted(deep_op["$metadata"]["common_input_skip"]) == sorted(skips)
+
+    def test_subflow_contract_real_field_inside_branch_still_checked(self):
+        """The underscore filter ONLY exempts skip fields. A real
+        common_input field consumed inside an if branch still must be in
+        the SubFlow contract — the contract enforcement does not get
+        weaker just because the op happens to live under a control block."""
+        from apple.validator import ValidationError
+
+        sf = SubFlow(name="sf", common_input=["enabled"], item_input=["x"], item_output=["x"])
+        sf.if_("{{enabled}} ~= nil") \
+          ._add_op(
+              "transform_by_lua",
+              common_input=["secret"],
+              item_input=["x"], item_output=["x"],
+              lua_script="function f() return secret end",
+              function_for_item="f", function_for_common="",
+          ) \
+          .end_if_()
+        flow = Flow(
+            name="parent",
+            common_input=["enabled", "secret"],
+            item_input=["x"],
+            item_output=["x"],
+            sub_flows=[sf],
+        )
+        msg = r"common_input field 'secret' not provided by SubFlow 'sf'"
+        with pytest.raises(ValidationError, match=msg):
+            compile_flow(flow)
+
+
+
