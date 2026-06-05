@@ -84,7 +84,9 @@ jobs:
           FAIL_COUNT=$(grep -oP 'FAIL: +\K[0-9]+' diff-fuzz-output.log 2>/dev/null | tail -1 || echo 0)
           UNSTABLE_COUNT=$(grep -oP 'UNSTABLE: +\K[0-9]+' diff-fuzz-output.log 2>/dev/null | tail -1 || echo 0)
           FUZZ_EXIT=$(cat /tmp/fuzz-exit-code 2>/dev/null || echo 1)
-          HAS_RESULTS=$(grep -c '^Results:' diff-fuzz-output.log 2>/dev/null || echo 0)
+          # `grep -c` already prints 0 on no match; use `|| true` to keep set-e
+          # happy without appending a second "0" to the captured value.
+          HAS_RESULTS=$(grep -c '^Results:' diff-fuzz-output.log 2>/dev/null || true)
           FAIL_COUNT=${FAIL_COUNT:-0}
           UNSTABLE_COUNT=${UNSTABLE_COUNT:-0}
           HAS_RESULTS=${HAS_RESULTS:-0}
