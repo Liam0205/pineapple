@@ -58,3 +58,41 @@ TEST_CASE("Variant truthy semantics") {
   CHECK(Variant(std::string("")).truthy() == true);
   CHECK(Variant(std::string("x")).truthy() == true);
 }
+
+TEST_CASE("dump_json: object keys serialize in sorted order regardless of insertion order (L5)") {
+  // Locks the invariant that pine-cpp's JSON output sorts object keys
+  // lexicographically before emit, matching Go encoding/json + Java Jackson
+  // with sortKeysOnSerialize. The FieldMap backend (sorted FlatMap by default,
+  // unordered_map under PINE_USE_HASH_MAP=ON) is a benchmark A/B knob that
+  // must not be observable on output. A regression here would silently
+  // break cross-runtime byte-equal parity in 09-raw-byte.sh and
+  // 14-byte-exact-execute.sh.
+  Variant::object_t obj;
+  // Insert keys in deliberately reverse-lexicographic order so the test is
+  // sensitive to "writer iterates underlying map in insertion order" bugs.
+  obj.emplace("zeta", Variant(1.0));
+  obj.emplace("mu", Variant(2.0));
+  obj.emplace("beta", Variant(3.0));
+  obj.emplace("alpha", Variant(4.0));
+
+  Variant v(std::move(obj));
+  std::string out = dump_json(v, 0);
+  CHECK(out == R"({"alpha":4,"beta":3,"mu":2,"zeta":1})");
+}
+
+TEST_CASE("dump_json: nested objects all sort keys (L5)") {
+  // The sort applies recursively — every object_t at every depth must emit
+  // sorted. A bug that only sorts the top level would slip past the flat
+  // sibling check above.
+  Variant::object_t inner;
+  inner.emplace("z", Variant(true));
+  inner.emplace("a", Variant(false));
+
+  Variant::object_t outer;
+  outer.emplace("y", Variant(std::move(inner)));
+  outer.emplace("x", Variant(std::string("hi")));
+
+  Variant v(std::move(outer));
+  std::string out = dump_json(v, 0);
+  CHECK(out == R"({"x":"hi","y":{"a":false,"z":true}})");
+}
