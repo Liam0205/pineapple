@@ -442,6 +442,50 @@ def _find_nested_template_marker(value, _path=""):
     return None
 
 
+def validate_explicit_null_params(ops: list[tuple[str, OpCall]]) -> None:
+    """Reject ``param=None`` for scalar params at compile time.
+
+    The Java/C++ runtime ``Init`` paths (commits 1fa18b3 / 452aee4) gate
+    parameter lookups with ``containsKey`` so that an explicit JSON ``null``
+    is classified as "wrong type" rather than silently falling back to the
+    default. Apple compiled to JSON sends ``null`` as ``null`` — meaning a
+    DSL author who hand-passes ``ttl=None`` to ``transform_redis_set`` could
+    only have the divergence surface at runtime, not at compile time, and
+    only if all three runtimes agreed on the wording.
+
+    Pulling the rejection forward to the validator gives the DSL author
+    the same line-number-anchored ``ValidationError`` as every other
+    schema violation. Scalar params (string / int / int64 / float /
+    float64 / bool) reject explicit ``None`` here; container params
+    (any / dict / list) and any operator without a codegen schema are
+    skipped — those have no clean "no value vs explicit null" contract.
+
+    Silently skips when ``apple_generated`` is not importable so that pre-
+    codegen development workflows still succeed.
+    """
+    for name, op in ops:
+        schema = _lookup_params_schema(op.type_name)
+        if schema is None:
+            continue
+        for param_name, value in op.params.items():
+            if value is not None:
+                continue
+            spec = schema.get(param_name)
+            if spec is None:
+                continue
+            declared_type = spec.get("type", "")
+            if declared_type not in _TEMPLATABLE_SCALAR_TYPES:
+                continue
+            raise ValidationError(
+                f"{_op_location(name, op)}param {param_name!r} on operator "
+                f"{op.type_name!r} is explicitly None; declared type "
+                f"{declared_type!r} does not accept null — pass the "
+                f"declared default or omit the keyword. The runtimes "
+                f"reject this as a type mismatch (see commits 1fa18b3 / "
+                f"452aee4 for the parity rationale)."
+            )
+
+
 def validate_templated_params(ops: list[tuple[str, OpCall]]) -> None:
     """Ensure ``{{field}}`` markers target params that opted into templating.
 
