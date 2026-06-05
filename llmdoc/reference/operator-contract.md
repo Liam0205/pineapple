@@ -535,7 +535,7 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 
 新增算子若对用户值做字符串转换，且该结果参与跨运行时比较（Redis key、fixture 断言），应使用 GoFormat。
 
-模板参数（`ParamSpec.Templatable`，参见 [apple-compiler.md 模板参数 `{{field}}` 插值](../architecture/apple-compiler.md)）的运行时插值同样走 GoFormat：pine-go `fmt.Sprint(v)`、pine-java `GoFormat.sprint(v)`（**模板路径必须显式走 sprint，不要落回 `Double.toString()`**——历史上 float 字段直接走 `Double.toString` 会产生 `12.5` vs `12.500000` 跨运行时漂移）、pine-cpp `go_format_g(v)`。当前已声明为 `Templatable=true` 的参数仅有 `transform_redis_get.key_prefix`；新增可模板化参数时，需要同步在 cross-validate `scripts/cross-validate/17-templated-params.sh` 加 stringify parity probe。
+模板参数（`ParamSpec.Templatable`，参见 [apple-compiler.md 模板参数 `{{field}}` 插值](../architecture/apple-compiler.md)）的运行时插值同样走 GoFormat：pine-go `fmt.Sprint(v)`、pine-java `GoFormat.sprint(v)`（**模板路径必须显式走 sprint，不要落回 `Double.toString()`**——历史上 float 字段直接走 `Double.toString` 会产生 `12.5` vs `12.500000` 跨运行时漂移）、pine-cpp `go_format_g(v)`。当前已声明为 `Templatable=true` 的参数：`transform_redis_get.key_prefix`、`transform_redis_set.key_prefix`、`transform_redis_set.ttl`、`filter_truncate.top_n`；新增可模板化参数时，需要同步在 cross-validate `scripts/cross-validate/17-templated-params.sh` 加 stringify parity probe。
 
 ## 参数模板化（`Templatable` / `templatable`）
 
@@ -552,6 +552,7 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 - 模板字段名会被 Apple 编译器自动追加到 `common_input_template` 桶，不进入算子 `OperatorInput`
 - Build-time 形状违规 → `ConfigError`；runtime 解析失败 → `ExecutionError` 由引擎包装算子名
 - 算子 `Execute` 中通过 `input.templated_param("param_name")` 读取已解析值；返回类型与声明的 scalar type 对应（string→`string` / int·int64→`int64` / float·float64→`float64` / bool→`bool`）；若 build plan 未命中该参数（未声明 Templatable / DSL 未写模板），返回默认空值或非匹配类型 —— 作者应保留类型断言作为 defense-in-depth（参见 `transform_redis_get` 三引擎 `unreachable` 注释）
+- **非 string scalar（int/int64/float/float64/bool）模板化参数的 Init 校验必须只接受 bare marker**：为让 `^\{\{(\w+)\}\}$` 标记能穿过 Init 的类型检查、交给 `BuildTemplatedParamPlan` 在运行时按请求覆写，Init 的 string 分支必须仅放行 bare marker，其余字符串（如手写的 `"top_n": "not_a_number"`）必须以 `<op>: <param> must be numeric` 报错——否则会静默 coerce 到 0，破坏 T3 前的错误契约。判定走各运行时的 canonical helper：Go `runtime.IsBareMarker`、Java `TemplateResolver.isBareMarker`、C++ `is_bare_marker`（`pine/template.hpp`）。错误文案三引擎须 byte-exact 一致（参见 `filter_truncate.top_n`、`transform_redis_set.ttl`）。
 
 ### Templatable 适用性判据
 
