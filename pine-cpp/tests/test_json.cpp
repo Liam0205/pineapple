@@ -96,3 +96,55 @@ TEST_CASE("dump_json: nested objects all sort keys (L5)") {
   std::string out = dump_json(v, 0);
   CHECK(out == R"({"x":"hi","y":{"a":false,"z":true}})");
 }
+
+TEST_CASE("FlatMap::reserve is a capacity hint that does not perturb semantics (L6)") {
+  // FlatMap::reserve (flat_map.hpp:68) and the keys.reserve in
+  // write_json_value (json_writer.hpp:166) / json_writer.cpp (29, 50, 166)
+  // are pure capacity hints. They MUST NOT introduce phantom entries,
+  // change size(), reorder, or alter serialization. Without this guarantee
+  // dump_json's keys.reserve would silently bias output and 09-raw-byte.sh
+  // / 14-byte-exact-execute.sh would lose byte-equality across runtimes.
+
+  // Scenario A: reserve on empty map — stays empty and serializes to "{}".
+  Variant::object_t a;
+  a.reserve(64);
+  CHECK(a.size() == 0);
+  CHECK(a.empty());
+  CHECK(dump_json(Variant(std::move(a)), 0) == "{}");
+
+  // Scenario B: reserve before bulk emplace — identical to no-reserve path.
+  Variant::object_t with_reserve;
+  with_reserve.reserve(8);
+  with_reserve.emplace("c", Variant(3.0));
+  with_reserve.emplace("a", Variant(1.0));
+  with_reserve.emplace("b", Variant(2.0));
+
+  Variant::object_t no_reserve;
+  no_reserve.emplace("c", Variant(3.0));
+  no_reserve.emplace("a", Variant(1.0));
+  no_reserve.emplace("b", Variant(2.0));
+
+  CHECK(with_reserve.size() == 3);
+  CHECK(no_reserve.size() == 3);
+  CHECK(dump_json(Variant(std::move(with_reserve)), 0) == dump_json(Variant(std::move(no_reserve)), 0));
+}
+
+TEST_CASE("FlatMap::reserve after partial insertion preserves entries (L6)") {
+  // reserve called *after* some inserts must keep all existing key/value
+  // pairs intact and in sorted order across the capacity grow. A bug that
+  // re-routed entries through a non-sort-preserving path would corrupt the
+  // sorted-vector invariant silently.
+  Variant::object_t obj;
+  obj.emplace("delta", Variant(4.0));
+  obj.emplace("alpha", Variant(1.0));
+
+  obj.reserve(32);  // forces vector capacity grow on a populated FlatMap
+
+  obj.emplace("charlie", Variant(3.0));
+  obj.emplace("bravo", Variant(2.0));
+
+  CHECK(obj.size() == 4);
+
+  Variant v(std::move(obj));
+  CHECK(dump_json(v, 0) == R"({"alpha":1,"bravo":2,"charlie":3,"delta":4})");
+}
