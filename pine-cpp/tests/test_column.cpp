@@ -157,6 +157,84 @@ TEST_CASE("TypedColumnStore::remove_rows rejects OOB indices") {
   CHECK(store.column("x")->size() == 2);
 }
 
+TEST_CASE("TypedColumnStore::reorder_rows shares visited bitmap across K>2 columns") {
+  // The store hoists the cycle-following visited bitmap out of the per-column
+  // call so K columns share one buffer (column_store.cpp:91-94). The frame
+  // tests in test_column_frame.cpp exercise ≤2 columns; with that few, a
+  // bug in reset-between-columns hides easily because the cycle structure
+  // tends to be trivial. This case uses 5 typed columns of mixed dtypes
+  // and a permutation with multiple non-trivial cycles, so any failure to
+  // reset visited_scratch between columns would leave the second-onwards
+  // column in a partially-permuted state.
+  const std::size_t n = 6;
+  pine::TypedColumnStore store(n);
+
+  // 5 columns of three dtypes — exercises Int64/Double/String/Bool reorder
+  // paths plus a JsonColumn (heterogeneous values).
+  std::vector<pine::Variant> ints{
+      pine::Variant(10.0), pine::Variant(11.0), pine::Variant(12.0),
+      pine::Variant(13.0), pine::Variant(14.0), pine::Variant(15.0),
+  };
+  std::vector<pine::Variant> doubles{
+      pine::Variant(0.5), pine::Variant(1.5), pine::Variant(2.5),
+      pine::Variant(3.5), pine::Variant(4.5), pine::Variant(5.5),
+  };
+  std::vector<pine::Variant> strings{
+      pine::Variant(std::string("a")), pine::Variant(std::string("b")), pine::Variant(std::string("c")),
+      pine::Variant(std::string("d")), pine::Variant(std::string("e")), pine::Variant(std::string("f")),
+  };
+  std::vector<pine::Variant> bools{
+      pine::Variant(true),  pine::Variant(false), pine::Variant(true),
+      pine::Variant(false), pine::Variant(true),  pine::Variant(false),
+  };
+  // Heterogeneous → JsonColumn.
+  std::vector<pine::Variant> jsons{
+      pine::Variant(1.0), pine::Variant(std::string("two")), pine::Variant(true), pine::Variant(),
+      pine::Variant(4.0), pine::Variant(std::string("six")),
+  };
+
+  store.set_column("i", pine::make_column(ints));
+  store.set_column("d", pine::make_column(doubles));
+  store.set_column("s", pine::make_column(strings));
+  store.set_column("b", pine::make_column(bools));
+  store.set_column("j", pine::make_column(jsons));
+
+  // Permutation with two non-trivial cycles plus one fixed point:
+  //   cycle A: 0 → 2 → 4 → 0
+  //   cycle B: 1 → 3 → 1
+  //   fixed:   5 → 5
+  // After the reorder, new[i] == old[order[i]].
+  std::vector<int> order = {2, 3, 4, 1, 0, 5};
+  store.reorder_rows(order);
+
+  // Expected per-column values after permutation.
+  const std::vector<double> exp_i = {12, 13, 14, 11, 10, 15};
+  const std::vector<double> exp_d = {2.5, 3.5, 4.5, 1.5, 0.5, 5.5};
+  const std::vector<std::string> exp_s = {"c", "d", "e", "b", "a", "f"};
+  const std::vector<bool> exp_b = {true, false, true, false, true, false};
+
+  for (std::size_t i = 0; i < n; ++i) {
+    CHECK(store.column("i")->get(i).as_number() == exp_i[i]);
+    CHECK(store.column("d")->get(i).as_number() == exp_d[i]);
+    CHECK(store.column("s")->get(i).as_string() == exp_s[i]);
+    CHECK(store.column("b")->get(i).as_bool() == exp_b[i]);
+  }
+  // JsonColumn carries the heterogeneous mix; spot-check that each
+  // permuted position holds jsons[order[i]] under the same permutation.
+  // exp_j[0] = jsons[2] = true
+  CHECK(store.column("j")->get(0).as_bool() == true);
+  // exp_j[1] = jsons[3] = null
+  CHECK(store.column("j")->is_null(1));
+  // exp_j[2] = jsons[4] = 4.0
+  CHECK(store.column("j")->get(2).as_number() == 4.0);
+  // exp_j[3] = jsons[1] = "two"
+  CHECK(store.column("j")->get(3).as_string() == "two");
+  // exp_j[4] = jsons[0] = 1.0
+  CHECK(store.column("j")->get(4).as_number() == 1.0);
+  // exp_j[5] = jsons[5] = "six"
+  CHECK(store.column("j")->get(5).as_string() == "six");
+}
+
 TEST_CASE("Int64Column precision boundary detection") {
   using pine::int64_lossy_as_double;
   // Within IEEE 754 binary64 precise range: 0..2^53
