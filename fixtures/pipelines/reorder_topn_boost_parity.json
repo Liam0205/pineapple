@@ -1,0 +1,66 @@
+{
+  "name": "reorder_topn_boost byte-identical reorder output across runtimes (H8)",
+  "requires": ["bench"],
+  "config": {
+    "_PINEAPPLE_VERSION": "0.9.13",
+    "pipeline_config": {
+      "operators": {
+        "boost": {
+          "type_name": "reorder_topn_boost",
+          "size": 3,
+          "$metadata": {
+            "common_input": ["shuffle_salt"],
+            "common_output": [],
+            "item_input": ["id"],
+            "item_output": [],
+            "consumes_row_set": true,
+            "mutates_row_set": true
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {"pipeline": ["boost"]}
+      }
+    },
+    "pipeline_group": {
+      "main": {"pipeline": ["main_stage"]}
+    },
+    "flow_contract": {
+      "common_input": ["shuffle_salt"],
+      "item_input": ["id"],
+      "common_output": [],
+      "item_output": ["id"]
+    }
+  },
+  "cases": [
+    {
+      "name": "size=3, n=8, FNV-1a salted hash chooses 3 boosted items by ascending hash, rest preserve original order",
+      "request": {
+        "common": {"shuffle_salt": "beef"},
+        "items": [
+          {"id": "10001"},
+          {"id": "10002"},
+          {"id": "10003"},
+          {"id": "10004"},
+          {"id": "10005"},
+          {"id": "10006"},
+          {"id": "10007"},
+          {"id": "10008"}
+        ]
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"id": "10004"},
+          {"id": "10005"},
+          {"id": "10006"},
+          {"id": "10001"},
+          {"id": "10002"},
+          {"id": "10003"},
+          {"id": "10007"},
+          {"id": "10008"}
+        ]
+      }
+    }
+  ]
+}
