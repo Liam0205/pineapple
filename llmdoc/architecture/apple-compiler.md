@@ -180,7 +180,7 @@ CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_dup
 
 ### 模板参数 `{{field}}` 插值（issue #74）
 
-算子参数支持 **`{{field}}` 运行时插值**：被算子 Schema 标记为 `Templatable` 的 string 参数，可以在 DSL 端写成裸的 `{{field}}` 标记，运行时按请求 frame 中该字段当时的值替换为实际字符串。这把"按用户/租户拼接 Redis key 前缀"这类典型需求从"用 Lua transform 临时拼字符串再喂下游"前移到了 Schema 层。
+算子参数支持 **`{{field}}` 运行时插值**：被算子 Schema 标记为 `Templatable` 的 scalar 参数（`string` / `int` / `int64` / `float` / `float64` / `bool`），可以在 DSL 端写成裸的 `{{field}}` 标记，运行时按请求 frame 中该字段当时的值替换为对应类型的实际值。这把"按用户/租户拼接 Redis key 前缀"或"按请求覆写 `top_n` / `ttl` 阈值"这类典型需求从"用 Lua transform 临时拼字符串再喂下游"前移到了 Schema 层。
 
 #### 流水线侧契约
 
@@ -196,17 +196,19 @@ CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_dup
 - Java: `page.liam.pine.ParamSpec` 的 `templatable` 字段
 - C++: `pine::ParamSchema.templatable`
 
-`Templatable=true` 的参数必须是 `type: "string"`；其他类型现阶段不支持模板（如有需求需要先扩展 `BuildTemplatedParamPlan` / `build_templated_param_plan` 的类型断言策略）。
+`Templatable=true` 的参数 `type` 必须落在 templatable scalar 白名单内：`string` / `int` / `int64` / `float` / `float64` / `bool`（权威源 `apple/validator.py::_TEMPLATABLE_SCALAR_TYPES` 与 `pine-go/internal/runtime/template.go::templatableScalarTypes`，两侧必须同步）。算子 `Execute` 通过 `input.templated_param("name")` 读取已解析值，返回类型按 declared scalar type 对应（`string`→string / `int`·`int64`→int64 / `float`·`float64`→float64 / `bool`→bool）。
+
+> **非 string scalar 的 Init 校验**：为让 `^\{\{(\w+)\}\}$` 标记穿过 Init 类型检查、交给 `BuildTemplatedParamPlan` 在运行时按请求覆写，非 string scalar 参数（int/int64/float/float64/bool）的 Init string 分支必须**仅放行 bare marker**，其余字符串（如手写 `"top_n": "not_a_number"`）须以 `<op>: <param> must be numeric` 之类报错——否则会静默 coerce 到 0，破坏错误契约。判定走各运行时 canonical helper：Go `runtime.IsBareMarker`、Java `TemplateResolver.isBareMarker`、C++ `is_bare_marker`（`pine/template.hpp`）。错误文案三引擎须 byte-exact（参见 `filter_truncate.top_n`、`transform_redis_set.ttl`）。详见 [operator-contract.md 参数模板化](../reference/operator-contract.md)。
 
 #### 三引擎运行时契约
 
-- **Build-time（plan 构建）**：各运行时在引擎构造时通过 `BuildTemplatedParamPlan` / `build_templated_param_plan` / `BuildTemplatedParamPlan` 把 `{{field}}` 解析为 `(operator, param, field)` 三元组并缓存到 `TemplatedPlans`，便于运行时按算子名直接查表。任何形状违规（非 bare marker、非 string 参数、字段未在 common frame 中可见等）都在此阶段抛 `ConfigError`，字节级前缀 `pine: config error: ...` 与跨运行时其他 ConfigError 一致。
+- **Build-time（plan 构建）**：各运行时在引擎构造时通过 `BuildTemplatedParamPlan` / `build_templated_param_plan` / `BuildTemplatedParamPlan` 把 `{{field}}` 解析为 `(operator, param, field)` 三元组并缓存到 `TemplatedPlans`，便于运行时按算子名直接查表。任何形状违规（非 bare marker、参数 `type` 不在 templatable scalar 白名单、字段未在 common frame 中可见等）都在此阶段抛 `ConfigError`，字节级前缀 `pine: config error: ...` 与跨运行时其他 ConfigError 一致。
 - **Runtime（请求级）**：每次 `Engine.Execute` 时，`ResolveTemplatedParams` / `resolve_templated_params` / `TemplateResolver.resolve` 从该请求 common frame 读取字段并经 GoFormat 跨运行字符串化（见下文），把结果暂存为 `OperatorInput.templated_param("name")`。算子 `Execute` 中只需读取 `input.templated_param("key_prefix")` 而不必感知是否模板化。
-- **Error 字节级对等**：解析阶段任何错误（字段缺失、值无法 coerce 到 string）必须包装为 `ExecutionError(op.name, inner)`，最终 CLI/HTTP 边界呈现为 `pine: execution error in operator "X": <inner>`。pine-cpp 在 `parallel_execute` 入口对 `resolve_templated_params` 抛出物做 try/catch + `ExecutionError(op.name, inner)` re-wrap；pine-go 在 `BuildTemplatedParamPlan` 上抛出 `ConfigError` 修复了 `pine: config error:` 前缀漂移。
+- **Error 字节级对等**：解析阶段任何错误（字段缺失、值无法 coerce 到声明的 scalar type）必须包装为 `ExecutionError(op.name, inner)`，最终 CLI/HTTP 边界呈现为 `pine: execution error in operator "X": <inner>`。pine-cpp 在 `parallel_execute` 入口对 `resolve_templated_params` 抛出物做 try/catch + `ExecutionError(op.name, inner)` re-wrap；pine-go 在 `BuildTemplatedParamPlan` 上抛出 `ConfigError` 修复了 `pine: config error:` 前缀漂移。
 
 #### 跨运行时 stringify 契约
 
-模板字段值被替换进字符串参数时，必须经过各运行时**等价的 Go `fmt.Sprint` 实现**：
+模板字段值被替换进 **string 参数**时，必须经过各运行时**等价的 Go `fmt.Sprint` 实现**（非 string scalar 参数走 declared type 的 coercion，不经此路径）：
 
 - pine-go: `fmt.Sprint(v)`
 - pine-java: `GoFormat.sprint(v)`（含 Java 模板路径——`TemplateResolver` 直接走 `GoFormat.sprint`，避免历史上 float 走 `Double.toString` 产生 `12.5` vs `12.500000` 漂移）
@@ -219,7 +221,7 @@ cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 prob
 - 运行时 missing-field stderr probe（M1）
 - build-time non-bare-marker stderr probe（M1）
 
-> **当前可模板化算子清单**：`transform_redis_get.key_prefix`。新增可模板化参数时，请同步更新 Apple 校验测试和 cross-validate section 17 的 probe 集合，并优先复用 `is_string()` defense-in-depth 注释（参见 `transform_redis_get` 三引擎"unreachable"注释——type plan 已在 build 阶段拒绝非 string，运行时类型断言只是兜底）。
+> **当前可模板化参数清单**：`transform_redis_get.key_prefix`（string）、`transform_redis_set.key_prefix`（string）、`transform_redis_set.ttl`（int）、`filter_truncate.top_n`（int）。权威清单同步维护于 [operator-contract.md](../reference/operator-contract.md)。新增可模板化参数时，请同步更新 Apple 校验测试和 cross-validate section 17 的 probe 集合，并保留类型断言作为 defense-in-depth（参见 `transform_redis_get` 三引擎"unreachable"注释——type plan 已在 build 阶段拒绝非匹配类型，运行时类型断言只是兜底）。
 
 ### 嵌套控制流与 `inherited_skips`
 
