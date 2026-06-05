@@ -625,3 +625,57 @@ func TestParallelExecuteRaceSafe(t *testing.T) {
 		}
 	}
 }
+
+// TestParallelExecuteRaceSafeLazy mirrors TestParallelExecuteRaceSafe but
+// drives the lazy OperatorInput path: the input is built from a
+// ColumnFrame via BuildInput so each shard is a NewLazyOperatorInput
+// reading through the shared FrameReader. data_parallel>1 then runs N
+// goroutines that all dereference the same frame concurrently. Without
+// this case, the materialized-input race test alone would miss any
+// race introduced inside ColumnFrame.Item / lazy-proxy field lookup
+// (e.g. a future cache layer added behind the read path that forgot
+// to take the RLock).
+func TestParallelExecuteRaceSafeLazy(t *testing.T) {
+	const itemCount = 200
+	items := make([]map[string]any, itemCount)
+	for i := range items {
+		items[i] = map[string]any{"val": float64(i)}
+	}
+
+	cop := &CompiledOperator{
+		Name:     "safe_op_lazy",
+		Instance: &safeStatelessOp{readField: "val", writeField: "result"},
+		Config: config.OperatorConfig{
+			TypeName:     "transform_test",
+			OperatorType: "Transform",
+			DataParallel: 8,
+			Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"result"}},
+		},
+	}
+	spec := &config.InputFieldSpec{StrictItem: []string{"val"}}
+
+	for iter := 0; iter < 10; iter++ {
+		// ColumnFrame's BuildInput returns a *lazy* OperatorInput backed
+		// by FrameReader; splitInput preserves that and hands every shard
+		// the same frame.
+		f := dataframe.NewFrame(dataframe.StorageModeColumn, map[string]any{}, cloneRuntimeItems(items))
+		input, err := f.BuildInput("safe_op_lazy", spec)
+		if err != nil {
+			t.Fatalf("iter %d build: %v", iter, err)
+		}
+		if !input.IsLazy() {
+			t.Fatalf("iter %d: expected lazy input, got materialized", iter)
+		}
+		output, err := parallelExecute(context.Background(), cop, input)
+		if err != nil {
+			t.Fatalf("iter %d execute: %v", iter, err)
+		}
+		iw := output.ItemWriteMap()
+		for i := 0; i < itemCount; i++ {
+			want := float64(i) + 1
+			if iw[i]["result"] != want {
+				t.Errorf("iter %d item %d: got %v, want %v", iter, i, iw[i]["result"], want)
+			}
+		}
+	}
+}
