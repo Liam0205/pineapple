@@ -116,7 +116,7 @@ java_lua_err=$(java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$ERR_LUA_CONFI
 
 if [[ "$go_lua_ok" == "false" && "$java_lua_ok" == "false" ]]; then
   # Both failed — check both mention "intentional"
-  if echo "$go_lua_err" | grep -qi "intentional" && echo "$java_lua_err" | grep -qi "intentional"; then
+  if grep -qi "intentional" <<< "$go_lua_err" && grep -qi "intentional" <<< "$java_lua_err"; then
     cancel_pass=$((cancel_pass + 1))
     echo "    [2] Lua error() → Go & Java both failed with expected message"
   else
@@ -136,7 +136,7 @@ if [[ -n "${CPP_RUN:-}" ]]; then
   cancel_total=$((cancel_total + 1))
   cpp_lua_err=$("$CPP_RUN" -config "$ERR_LUA_CONFIG" -request "$TIMEOUT_REQ" 2>&1) && cpp_lua_ok=true || cpp_lua_ok=false
   if [[ "$cpp_lua_ok" == "false" ]]; then
-    if echo "$cpp_lua_err" | grep -qi "intentional"; then
+    if grep -qi "intentional" <<< "$cpp_lua_err"; then
       cancel_pass=$((cancel_pass + 1))
       echo "    [2b] Lua error() → C++ failed with expected message"
     else
