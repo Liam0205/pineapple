@@ -1362,3 +1362,148 @@ class TestMarkerWidenSemantics:
         op = next(iter(cfg["pipeline_config"]["operators"].values()))
         assert op.get("consumes_row_set") is True
 
+
+class TestSubFlowTemplateInteraction:
+    """Combinations of #74 (common_input_template bucket) and #78 (SubFlow
+    field-list contracts).
+
+    The two features cross at validator.py:288-292: SubFlow-scoped coverage
+    unions all three common_input buckets (common_input + _skip + _template)
+    against the SubFlow's declared common_input contract. Each individual
+    feature has its own test class but the UNION path was uncovered — a
+    template field referenced inside a SubFlow that declares a contract
+    must either be in that contract or come from an internal upstream op.
+
+    Audit gap M1.
+    """
+
+    def _add_lua(self, node, *, common_input=None, common_output=None,
+                 item_input=None, item_output=None, name=None, **extra):
+        kwargs = {
+            "common_input": common_input or [],
+            "common_output": common_output or [],
+            "item_input": item_input or [],
+            "item_output": item_output or [],
+            "lua_script": "function f() return 0 end",
+            "function_for_item": "f",
+            "function_for_common": "",
+        }
+        if name:
+            kwargs["name"] = name
+        kwargs.update(extra)
+        node._add_op("transform_by_lua", **kwargs)
+
+    def test_template_field_in_subflow_contract_passes(self):
+        """A SubFlow declares `user_id` in its common_input contract. An
+        internal op references {{user_id}} via a template marker. Pass 0
+        routes user_id into common_input_template; the SubFlow validator
+        unions all three buckets and finds it covered. Compiles cleanly."""
+        sf = SubFlow(
+            name="sf",
+            common_input=["user_id"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+        )
+        sf._add_op(
+            "synthetic_templated_op",
+            common_input=[],
+            common_output=["greeting"],
+            item_input=[],
+            item_output=[],
+            key_template="hi {{user_id}}",
+        )
+        self._add_lua(sf, item_input=["x"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            common_input=["user_id"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        op = next(
+            o for o in cfg["pipeline_config"]["operators"].values()
+            if o.get("type_name") == "synthetic_templated_op"
+        )
+        assert "user_id" in op["$metadata"].get("common_input_template", [])
+
+    def test_template_field_missing_from_subflow_contract_raises(self):
+        """SubFlow declares `user_id` but the template references {{other_id}}.
+        Even though the parent flow provides other_id, the SubFlow-scoped
+        check fires first and raises against the declared SubFlow contract."""
+        from apple.validator import ValidationError
+
+        sf = SubFlow(
+            name="sf",
+            common_input=["user_id"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+        )
+        sf._add_op(
+            "synthetic_templated_op",
+            common_input=[],
+            common_output=["greeting"],
+            item_input=[],
+            item_output=[],
+            key_template="hi {{other_id}}",
+        )
+        self._add_lua(sf, item_input=["x"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            common_input=["user_id", "other_id"],
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        with pytest.raises(ValidationError, match=r"SubFlow 'sf' contract"):
+            compile_flow(flow)
+
+    def test_template_field_from_internal_subflow_op_passes(self):
+        """Internal upstream op produces `user_id` as common_output; a
+        downstream op inside the same SubFlow references {{user_id}}.
+        The SubFlow validator walks ops in order and sees user_id become
+        available before the templated op, mirroring flow-level coverage
+        but scoped to the SubFlow subtree.
+
+        SubFlow declares only an input contract (no output contract) — the
+        dead-code check fires only when item_output / common_output is
+        declared, and we want to isolate the input-bucket-union path here.
+        """
+        sf = SubFlow(name="sf", item_input=["x"])
+        # Internal upstream op produces user_id via common_output.
+        self._add_lua(
+            sf,
+            common_input=[],
+            common_output=["user_id"],
+            lua_script="function f() return 'u' end",
+            function_for_common="f",
+            function_for_item="",
+        )
+        # Downstream op consumes user_id only via the template marker.
+        sf._add_op(
+            "synthetic_templated_op",
+            common_input=[],
+            common_output=["greeting"],
+            item_input=[],
+            item_output=[],
+            key_template="hi {{user_id}}",
+        )
+        self._add_lua(sf, item_input=["x"], item_output=["z"])
+
+        flow = Flow(
+            name="parent",
+            item_input=["x"],
+            common_output=["greeting"],
+            item_output=["z"],
+            sub_flows=[sf],
+        )
+        cfg = compile_flow(flow)
+        assert "pipeline_config" in cfg
+
+
