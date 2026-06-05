@@ -239,6 +239,21 @@ def gen_operator(rng: random.Random, name: str,
         "merge_dedup", "reorder_shuffle_by_salt", "filter_paginate",
         "transform_resource_lookup", "recall_resource",
     ]
+    # Deliberately excluded from random op generation (audit L3):
+    # * transform_bench_cpu / transform_bench_sleep / reorder_topn_boost and
+    #   the rest of the bench-stub family — these are throughput-only stubs
+    #   gated by build flags (Go pine_bench tag, Java -Dpine.bench=true,
+    #   C++ PINE_BUILD_BENCH_STUBS=ON) and intentionally have no
+    #   cases/expected fixture surface. Including them would force the
+    #   cross-runtime oracle to reason about timing-derived outputs that
+    #   are not part of the engine's pure-function contract. byte-equal
+    #   work parity is locked separately by fixtures/pipelines/
+    #   bench_cpu_work_parity.json (audit M12).
+    # * transform_redis_get / transform_redis_set — depend on a live
+    #   redis-server. Combinatorial coverage lives in
+    #   scripts/cross-validate/11-redis-integration.sh; H11 in the
+    #   coverage audit tracks the open question of whether to run a
+    #   dedicated redis diff-fuzz in nightly.
     op_type = rng.choice(op_types)
 
     item_in: list[str] = []

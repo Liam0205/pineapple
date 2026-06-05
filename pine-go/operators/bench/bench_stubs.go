@@ -2,6 +2,15 @@
 
 // Package bench provides benchmark-only stub operators and resource fetchers
 // for running realistic production pipeline fixtures without external dependencies.
+//
+// Diff-fuzz exclusion (audit L3): every operator registered here is gated
+// behind the pine_bench build tag and is intentionally absent from
+// scripts/differential-fuzz.py op_types. The stubs are throughput-only and
+// have no cases/expected fixture surface; including them would force the
+// cross-runtime oracle to reason about timing-derived outputs that are not
+// part of the engine's pure-function contract. byte-equal work parity for
+// transform_bench_cpu is locked separately by
+// fixtures/pipelines/bench_cpu_work_parity.json (audit M12).
 package bench
 
 import (

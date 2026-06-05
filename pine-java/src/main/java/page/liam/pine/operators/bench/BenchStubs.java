@@ -4,6 +4,21 @@ import page.liam.pine.*;
 
 import java.util.*;
 
+/**
+ * Benchmark-only stub operators (recall_feed_data, transform_redis_*,
+ * reorder_topn_boost, ...). Registration is gated on the system property
+ * {@code -Dpine.bench=true}; otherwise the registrations below are absent
+ * from the Engine's operator table.
+ *
+ * <p>Diff-fuzz exclusion (audit L3): every operator registered here is
+ * deliberately absent from {@code scripts/differential-fuzz.py op_types}.
+ * The stubs are throughput-only and have no cases/expected fixture surface;
+ * including them would force the cross-runtime oracle to reason about
+ * timing-derived outputs that are not part of the engine's pure-function
+ * contract. Byte-equal work parity for {@code transform_bench_cpu} is
+ * locked separately by {@code fixtures/pipelines/bench_cpu_work_parity.json}
+ * (audit M12).
+ */
 public class BenchStubs {
     private static volatile boolean registered = false;
 

@@ -1,3 +1,15 @@
+// Benchmark-only stub operators (recall_feed_data, transform_redis_*,
+// reorder_topn_boost, ...). Compiled in only when PINE_BUILD_BENCH_STUBS=ON;
+// otherwise the registrations below are absent from the Engine's operator
+// table.
+//
+// Diff-fuzz exclusion (audit L3): these stubs are deliberately absent from
+// scripts/differential-fuzz.py op_types. They are throughput-only and have
+// no cases/expected fixture surface; including them would force the
+// cross-runtime oracle to reason about timing-derived outputs that are not
+// part of the engine's pure-function contract. byte-equal work parity for
+// transform_bench_cpu is locked separately by
+// fixtures/pipelines/bench_cpu_work_parity.json (audit M12).
 #include "pine/operator.hpp"
 #include "pine/resource.hpp"
 
