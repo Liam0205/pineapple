@@ -64,6 +64,7 @@ jobs:
           set -o pipefail
           ROUNDS="${{ inputs.rounds || '10000' }}"
           EXTRA_FLAGS=""
+          rc=0
           timeout 340m python3 scripts/differential-fuzz.py \
             --rounds "$ROUNDS" \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
@@ -72,33 +73,46 @@ jobs:
             --engines go,java,cpp \
             --save-dir /tmp/diff-fuzz-nightly \
             $EXTRA_FLAGS \
-            2>&1 | tee diff-fuzz-output.log
-          echo ${PIPESTATUS[0]} > /tmp/fuzz-exit-code
+            | tee diff-fuzz-output.log || rc=$?
+          echo "$rc" > /tmp/fuzz-exit-code
+          exit "$rc"
 
       - name: Evaluate results
         if: always()
         id: evaluate
         run: |
-          echo "### Final Status" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          tail -30 diff-fuzz-output.log >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          FAIL_COUNT=$(grep -oP 'FAIL: +\K[0-9]+' diff-fuzz-output.log 2>/dev/null | tail -1 || echo 0)
+          UNSTABLE_COUNT=$(grep -oP 'UNSTABLE: +\K[0-9]+' diff-fuzz-output.log 2>/dev/null | tail -1 || echo 0)
+          FUZZ_EXIT=$(cat /tmp/fuzz-exit-code 2>/dev/null || echo 1)
+          HAS_RESULTS=$(grep -c '^Results:' diff-fuzz-output.log 2>/dev/null || echo 0)
+          FAIL_COUNT=${FAIL_COUNT:-0}
+          UNSTABLE_COUNT=${UNSTABLE_COUNT:-0}
+          HAS_RESULTS=${HAS_RESULTS:-0}
 
-          FAIL_COUNT=$(grep -oP 'FAIL: \K[0-9]+' diff-fuzz-output.log | tail -1 || echo "0")
-          UNSTABLE_COUNT=$(grep -oP 'UNSTABLE: \K[0-9]+' diff-fuzz-output.log | tail -1 || echo "0")
-          FUZZ_EXIT=$(cat /tmp/fuzz-exit-code 2>/dev/null || echo "1")
+          {
+            echo "### Final Status"
+            echo ""
+            echo '```text'
+            tail -30 diff-fuzz-output.log 2>/dev/null || echo "(no fuzz output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$FUZZ_EXIT" -ne 0 && "$FAIL_COUNT" -eq 0 && "$UNSTABLE_COUNT" -eq 0 ]]; then
-            echo "⚠️ Fuzz script exited with code $FUZZ_EXIT but no divergences reported — possible infrastructure failure" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [[ "$FAIL_COUNT" -gt 0 || "$UNSTABLE_COUNT" -gt 0 || "$FUZZ_EXIT" -ne 0 ]]; then
-            echo "has_divergences=true" >> "$GITHUB_OUTPUT"
-            echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
-            echo "unstable_count=$UNSTABLE_COUNT" >> "$GITHUB_OUTPUT"
+          if [[ "$HAS_RESULTS" -gt 0 ]]; then
+            # Fuzz produced a results summary. Trust parsed counts.
+            if [[ "$FAIL_COUNT" -gt 0 || "$UNSTABLE_COUNT" -gt 0 ]]; then
+              echo "has_divergences=true" >> "$GITHUB_OUTPUT"
+              echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
+              echo "unstable_count=$UNSTABLE_COUNT" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_divergences=false" >> "$GITHUB_OUTPUT"
+              if [[ "$FUZZ_EXIT" -ne 0 ]]; then
+                echo "⚠️ Fuzz finished with 0 fail/unstable but exit=$FUZZ_EXIT — investigate" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
           else
+            # No results summary → fuzz crashed before completion. Infra failure path.
             echo "has_divergences=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Fuzz did not produce a results summary (exit=$FUZZ_EXIT) — infrastructure failure" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Package divergences
