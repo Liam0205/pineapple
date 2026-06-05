@@ -222,6 +222,32 @@ else
     fi
   fi
 
+  # Test 7: /debug/pprof/* must NOT be on the main port for any runtime.
+  # pine-go ships net/http/pprof on a separate AdminAddr (default off);
+  # pine-java and pine-cpp have no equivalent feature. Asserting 404 here
+  # documents pprof as a pine-go-only side-port concern and catches a
+  # future regression that wires it onto the public listener (audit M11).
+  ext_total=$((ext_total + 1))
+  go_pprof=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$GO_EXT_PORT/debug/pprof/")
+  java_pprof=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$JAVA_EXT_PORT/debug/pprof/")
+  if [[ "$go_pprof" == "404" && "$java_pprof" == "404" ]]; then
+    ext_pass=$((ext_pass + 1))
+    echo "    [7] GET /debug/pprof/ → 404 (Go without AdminAddr, Java has no pprof)"
+  else
+    fail "extensibility: /debug/pprof/ must be 404 on main port (Go=$go_pprof, Java=$java_pprof)"
+  fi
+
+  if $cpp_srv_ready; then
+    cpp_ext_total=$((cpp_ext_total + 1))
+    cpp_pprof=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$CPP_EXT_PORT/debug/pprof/")
+    if [[ "$cpp_pprof" == "404" ]]; then
+      cpp_ext_pass=$((cpp_ext_pass + 1))
+      echo "    [7] C++ GET /debug/pprof/ → 404 (no pprof feature)"
+    else
+      fail "extensibility: C++ /debug/pprof/ must be 404 ($cpp_pprof)"
+    fi
+  fi
+
   ext_cleanup
 fi
 
