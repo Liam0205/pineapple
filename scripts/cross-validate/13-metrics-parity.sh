@@ -690,6 +690,192 @@ else
   lua_cleanup
 fi
 
+# ---------------------------------------------------------------------------
+# Audit M10: data_parallel + transform_by_lua concurrent reuse invariant.
+# The sequential check [10] only proves single-threaded bookkeeping. With
+# data_parallel=4 each /execute fans out across 4 worker shards, and N
+# concurrent /execute requests multiply that fan-out. The invariant
+#   borrow_count == reuse_count + create_count
+# must hold under contention — a CAS bug in any one runtime would surface
+# as borrow != reuse + create even when totals match.
+# ---------------------------------------------------------------------------
+DPL_FIXTURE="$REPO_ROOT/fixtures/pipelines/data_parallel_lua.json"
+DPL_CONFIG="$WORK_DIR/dpl_metrics_config.json"
+python3 -c "
+import json
+with open('$DPL_FIXTURE') as f:
+    data = json.load(f)
+with open('$DPL_CONFIG', 'w') as cf:
+    json.dump(data.get('config', {}), cf)
+"
+DPL_REQ=$(python3 -c "
+import json
+with open('$DPL_FIXTURE') as f:
+    data = json.load(f)
+print(json.dumps(data['cases'][0]['request']))
+")
+
+GO_DPL_PORT=23021
+JAVA_DPL_PORT=23022
+CPP_DPL_PORT=23024
+
+"$WORK_DIR/pineapple-server" -config "$DPL_CONFIG" -addr ":$GO_DPL_PORT" &
+GO_DPL_PID=$!
+java -cp "$JAVA_CP" -Dpine.config="$DPL_CONFIG" -Dpine.port=$JAVA_DPL_PORT page.liam.pine.PineServer &
+JAVA_DPL_PID=$!
+CPP_DPL_PID=""
+if [[ -n "${CPP_SERVER:-}" ]]; then
+  "$CPP_SERVER" -config "$DPL_CONFIG" -addr ":$CPP_DPL_PORT" &
+  CPP_DPL_PID=$!
+fi
+
+dpl_cleanup() {
+  kill $GO_DPL_PID $JAVA_DPL_PID 2>/dev/null || true
+  [[ -n "$CPP_DPL_PID" ]] && kill $CPP_DPL_PID 2>/dev/null || true
+  wait $GO_DPL_PID $JAVA_DPL_PID 2>/dev/null || true
+  [[ -n "$CPP_DPL_PID" ]] && wait $CPP_DPL_PID 2>/dev/null || true
+  GO_DPL_PID=""
+  JAVA_DPL_PID=""
+  CPP_DPL_PID=""
+}
+trap 'dpl_cleanup' EXIT
+
+cpp_dpl_ready=false
+if srv_ready $GO_DPL_PORT && srv_ready $JAVA_DPL_PORT; then
+  if [[ -n "${CPP_SERVER:-}" ]] && srv_ready $CPP_DPL_PORT; then
+    cpp_dpl_ready=true
+  fi
+
+  GO_DPL_BASELINE=$(curl -s "http://localhost:$GO_DPL_PORT/stats")
+  JAVA_DPL_BASELINE=$(curl -s "http://localhost:$JAVA_DPL_PORT/stats")
+  CPP_DPL_BASELINE=""
+  $cpp_dpl_ready && CPP_DPL_BASELINE=$(curl -s "http://localhost:$CPP_DPL_PORT/stats")
+
+  # Burst N=24 concurrent requests with up to 8 in flight at a time. Picked
+  # so each engine's pool sees real contention (data_parallel=4 → 4 workers
+  # per request × 8 in-flight = 32 concurrent borrows) without overwhelming
+  # the test machine.
+  DPL_N=24
+  DPL_INFLIGHT=8
+  fire_burst() {
+    local port=$1 total=$2 inflight=$3
+    local sent=0
+    while (( sent < total )); do
+      local pids=()
+      local batch=$inflight
+      (( total - sent < batch )) && batch=$((total - sent))
+      for ((p = 0; p < batch; p++)); do
+        curl -s -X POST -H "Content-Type: application/json" \
+          -d "$DPL_REQ" "http://localhost:$port/execute" >/dev/null 2>&1 &
+        pids+=("$!")
+      done
+      for pid in "${pids[@]}"; do
+        wait "$pid" || true
+      done
+      sent=$((sent + batch))
+    done
+  }
+  fire_burst $GO_DPL_PORT $DPL_N $DPL_INFLIGHT
+  fire_burst $JAVA_DPL_PORT $DPL_N $DPL_INFLIGHT
+  $cpp_dpl_ready && fire_burst $CPP_DPL_PORT $DPL_N $DPL_INFLIGHT
+
+  GO_DPL_STATS=$(curl -s "http://localhost:$GO_DPL_PORT/stats")
+  JAVA_DPL_STATS=$(curl -s "http://localhost:$JAVA_DPL_PORT/stats")
+  CPP_DPL_STATS=""
+  $cpp_dpl_ready && CPP_DPL_STATS=$(curl -s "http://localhost:$CPP_DPL_PORT/stats")
+
+  # [11] Concurrent invariant: borrow_count == reuse_count + create_count
+  #      per-op, under contention. Totals may differ across runtimes (warm-set
+  #      vs lazy creation, shard worker-pool sizing) but the equation must
+  #      hold in each engine independently.
+  metrics_total=$((metrics_total + 1))
+  dpl_invariant_ok=$(python3 -c "
+import json
+N = $DPL_N
+FIELDS = ('borrow_count', 'reuse_count', 'create_count')
+def view(stats):
+    detail = stats.get('operator_detail') or {}
+    out = {}
+    for op, fields in detail.items():
+        if all(k in fields for k in FIELDS):
+            out[op] = {k: fields[k] for k in FIELDS}
+    return out
+def delta(before, after):
+    out = {}
+    for op in after:
+        b = before.get(op, {k: 0 for k in FIELDS})
+        out[op] = {k: after[op][k] - b[k] for k in FIELDS}
+    return out
+def check_invariant(label, d):
+    for op, f in d.items():
+        if f['borrow_count'] != f['reuse_count'] + f['create_count']:
+            return f'{label}/{op}: borrow={f[\"borrow_count\"]} != reuse={f[\"reuse_count\"]} + create={f[\"create_count\"]}'
+        # data_parallel=4, N requests → at minimum N × 1 = N borrows on each
+        # lua op's pool (each shard worker borrows ≥1 state per request).
+        # A bookkeeping bug that drops borrows below N indicates a lost
+        # accounting path on the concurrent shard fan-out.
+        if f['borrow_count'] < N:
+            return f'{label}/{op}: borrow={f[\"borrow_count\"]} < N={N}'
+    return None
+go_d = delta(view(json.loads('''$GO_DPL_BASELINE''')), view(json.loads('''$GO_DPL_STATS''')))
+ja_d = delta(view(json.loads('''$JAVA_DPL_BASELINE''')), view(json.loads('''$JAVA_DPL_STATS''')))
+if not go_d:
+    print('go: no operator_detail with lua pool fields')
+else:
+    err = check_invariant('go', go_d) or check_invariant('java', ja_d)
+    print(err or 'match')
+")
+  if [[ "$dpl_invariant_ok" == "match" ]]; then
+    metrics_pass=$((metrics_pass + 1))
+    echo "    [11] data_parallel+lua concurrent invariant (borrow=reuse+create) Go + Java"
+  else
+    fail "metrics: data_parallel+lua concurrent invariant: $dpl_invariant_ok"
+  fi
+
+  if $cpp_dpl_ready; then
+    cpp_metrics_total=$((cpp_metrics_total + 1))
+    cpp_dpl_invariant_ok=$(python3 -c "
+import json
+N = $DPL_N
+FIELDS = ('borrow_count', 'reuse_count', 'create_count')
+def view(stats):
+    detail = stats.get('operator_detail') or {}
+    out = {}
+    for op, fields in detail.items():
+        if all(k in fields for k in FIELDS):
+            out[op] = {k: fields[k] for k in FIELDS}
+    return out
+def delta(before, after):
+    out = {}
+    for op in after:
+        b = before.get(op, {k: 0 for k in FIELDS})
+        out[op] = {k: after[op][k] - b[k] for k in FIELDS}
+    return out
+cpp_d = delta(view(json.loads('''$CPP_DPL_BASELINE''')), view(json.loads('''$CPP_DPL_STATS''')))
+err = None
+for op, f in cpp_d.items():
+    if f['borrow_count'] != f['reuse_count'] + f['create_count']:
+        err = f'cpp/{op}: borrow={f[\"borrow_count\"]} != reuse={f[\"reuse_count\"]} + create={f[\"create_count\"]}'
+        break
+    if f['borrow_count'] < N:
+        err = f'cpp/{op}: borrow={f[\"borrow_count\"]} < N={N}'
+        break
+print(err or 'match')
+")
+    if [[ "$cpp_dpl_invariant_ok" == "match" ]]; then
+      cpp_metrics_pass=$((cpp_metrics_pass + 1))
+      echo "    [11] data_parallel+lua concurrent invariant C++"
+    else
+      fail "metrics: data_parallel+lua concurrent invariant C++: $cpp_dpl_invariant_ok"
+    fi
+  fi
+
+  dpl_cleanup
+else
+  fail "metrics: data_parallel+lua servers failed to start"
+  dpl_cleanup
+fi
+
 if [[ $metrics_total -gt 0 && $metrics_pass -eq $metrics_total ]]; then
   pass "metrics parity ($metrics_pass/$metrics_total checks)"
 elif [[ $metrics_total -eq 0 ]]; then
