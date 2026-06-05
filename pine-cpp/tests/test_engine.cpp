@@ -348,3 +348,83 @@ TEST_CASE("Engine::execute is safe to call concurrently from many threads on the
   // peak — a stronger bound would be flaky on under-provisioned CI.
   CHECK(engine.peak_concurrency() > 0);
 }
+
+TEST_CASE("Engine: cancel mid-flight then immediately destroy is safe (M13)") {
+  // Audit M13 — the dual isolated pools (dag_pool_ + shard_pool_) live as
+  // unique_ptr members on Engine. When the user fires a stop_token and
+  // destroys the Engine right after execute() returns, the pool dtors
+  // must drain workers cleanly without racing on tasks that observed
+  // cancel and bailed via the fast `propagate_and_signal` path
+  // (engine.cpp:828-832). Existing R10-4 case proves cancel works for
+  // ONE execute, but never destroys Engine — the dtor path is exercised
+  // only by static-storage cleanup at process exit, when no in-flight
+  // task ever existed. This test loops cancel→destroy so a sanitizer
+  // build (TSan/ASan) can flag any UAF or torn pool teardown.
+  struct SlowOp : public pine::Operator {
+    void init(const pine::OperatorConfig&) override {
+    }
+    void execute(const pine::OperatorInput&, pine::OperatorOutput&) override {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+  };
+  static const pine::OperatorSchema s_m13{
+      "m13_slow_op", pine::OpType::Transform, "test operator: 50 ms sleep for cancel→destroy loop", {}};
+  static bool registered = false;
+  if (!registered) {
+    pine::register_operator_typed<SlowOp>(s_m13);
+    registered = true;
+  }
+
+  // 4-node linear DAG so cancel-mid-flight has work still queued in
+  // dag_pool when execute() returns. Total without cancel ~200 ms.
+  static const char* kCfg = R"({
+      "_PINEAPPLE_VERSION": "0.9.0",
+      "pipeline_config": {
+        "operators": {
+          "n1": {"type_name": "m13_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}},
+          "n2": {"type_name": "m13_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}},
+          "n3": {"type_name": "m13_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}},
+          "n4": {"type_name": "m13_slow_op", "$metadata": {"item_input": [], "item_output": [], "common_input": [], "common_output": []}}
+        },
+        "pipeline_map": {"stage": {"pipeline": ["n1", "n2", "n3", "n4"]}}
+      },
+      "pipeline_group": {"main": {"pipeline": ["stage"]}}
+    })";
+
+  static const std::map<std::string, Variant> empty_res;
+  constexpr int kIterations = 12;
+
+  std::atomic<int> survived{0};
+  for (int it = 0; it < kIterations; ++it) {
+    // Engine in unique_ptr so we can `reset()` to trigger destructor at
+    // a precise moment, immediately after execute() returns. RAII alone
+    // would also work but `reset()` makes the cancel→destroy ordering
+    // explicit at the call site.
+    auto engine = std::make_unique<Engine>(load_config_from_json(kCfg));
+    Request req;
+
+    std::stop_source src;
+    auto tok = src.get_token();
+
+    std::thread canceller([&src]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      src.request_stop();
+    });
+
+    try {
+      engine->execute(req, empty_res, tok);
+    } catch (const Error&) {
+      // Cancel may surface as a thrown Error — accepted.
+    }
+
+    // Critical sequence: destroy Engine *while* worker loops in both
+    // dag_pool_ and shard_pool_ are still draining their queues. The
+    // ThreadPool dtor (thread_pool.cpp:16) flips stopping_=true, notifies,
+    // and joins each worker. Any read-after-free of the captured `&` lambda
+    // state (cancel_source / fatal_err / done_cv) would land here.
+    engine.reset();
+    canceller.join();
+    survived.fetch_add(1, std::memory_order_relaxed);
+  }
+  CHECK(survived.load() == kIterations);
+}
