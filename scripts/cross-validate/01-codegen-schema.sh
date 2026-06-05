@@ -28,6 +28,7 @@ def extract_structure(schemas):
                 'type': pspec.get('Type', ''),
                 'required': pspec.get('Required', False),
                 'default': normalize_value(pspec.get('Default')),
+                'templatable': pspec.get('Templatable', False),
             }
         result[name] = params
     return result
@@ -84,6 +85,7 @@ def extract_structure(schemas):
                 'type': pspec.get('Type', ''),
                 'required': pspec.get('Required', False),
                 'default': normalize_value(pspec.get('Default')),
+                'templatable': pspec.get('Templatable', False),
             }
         result[name] = params
     return result
