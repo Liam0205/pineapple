@@ -161,24 +161,54 @@ activity_json="$(gh api graphql -f query='
   }' \
   -F owner="$owner" -F repo="$repo" -F pr="$pr_number" 2>/dev/null)"
 
+# Two kinds of "couldn't read activity":
+#   (a) gh produced no stdout at all (network down, gh broken, missing auth)
+#   (b) gh returned a GraphQL error envelope `{"errors":[...]}` and exit 0 — a
+#       common shape for auth expiry, transient 5xx, and schema mismatch. The
+#       envelope is non-empty, so a `[ -z ]` guard alone is not enough; without
+#       this branch the jq filters below would hit `.data == null` and die with
+#       "Cannot iterate over null", leaving the four counters as empty strings
+#       and leaking "integer expression expected" from the later `[ -eq ]` test.
+# Both paths must surface as "work remains" so the next-step block fires and
+# the operator looks at the PR by hand — silently treating a malformed
+# envelope as a clean terminal state would defeat the autonomous loop.
+activity_unreadable=0
 if [ -z "$activity_json" ]; then
+  activity_unreadable=1
+elif printf '%s' "$activity_json" \
+       | jq -e 'has("errors") or .data == null' >/dev/null 2>&1; then
+  activity_unreadable=1
+fi
+
+if [ "$activity_unreadable" -eq 1 ]; then
   log "  ! could not query PR activity — assuming work remains, see comments manually."
-  new_issue_comments=0
+  # Force the next-step block to fire (total_new > 0) so the operator must
+  # inspect the PR manually rather than the script silently exiting 0.
+  new_issue_comments=1
   new_review_submissions=0
   new_inline_comments=0
   unresolved_threads=0
 else
+  # `// []` collapses an absent or null `nodes` to an empty array so jq stays
+  # total even on partial responses; `?` on the inner inline-comments traversal
+  # tolerates a thread node missing its comments. `2>/dev/null` + `${var:-0}`
+  # keep the four counters numeric on any further surprise so the arithmetic
+  # and `[ -eq ]` tests below never hit an empty operand.
   new_issue_comments="$(printf '%s' "$activity_json" \
     | jq --arg t "$push_cutoff" \
-        '[.data.repository.pullRequest.comments.nodes[] | select(.createdAt > $t)] | length')"
+        '[(.data.repository.pullRequest.comments.nodes // [])[] | select(.createdAt > $t)] | length' 2>/dev/null)"
   new_review_submissions="$(printf '%s' "$activity_json" \
     | jq --arg t "$push_cutoff" \
-        '[.data.repository.pullRequest.reviews.nodes[] | select(.createdAt > $t)] | length')"
+        '[(.data.repository.pullRequest.reviews.nodes // [])[] | select(.createdAt > $t)] | length' 2>/dev/null)"
   new_inline_comments="$(printf '%s' "$activity_json" \
     | jq --arg t "$push_cutoff" \
-        '[.data.repository.pullRequest.reviewThreads.nodes[].comments.nodes[] | select(.createdAt > $t)] | length')"
+        '[(.data.repository.pullRequest.reviewThreads.nodes // [])[].comments.nodes[]? | select(.createdAt > $t)] | length' 2>/dev/null)"
   unresolved_threads="$(printf '%s' "$activity_json" \
-    | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length')"
+    | jq '[(.data.repository.pullRequest.reviewThreads.nodes // [])[] | select(.isResolved==false)] | length' 2>/dev/null)"
+  new_issue_comments="${new_issue_comments:-0}"
+  new_review_submissions="${new_review_submissions:-0}"
+  new_inline_comments="${new_inline_comments:-0}"
+  unresolved_threads="${unresolved_threads:-0}"
 fi
 
 total_new=$(( new_issue_comments + new_review_submissions + new_inline_comments ))
