@@ -79,6 +79,64 @@ TEST_CASE("ColumnFrame: apply_output type-mismatch promotes column to Json") {
   CHECK(frame.item(2, "score").as_number() == 30.0);
 }
 
+TEST_CASE("ColumnFrame: present-null write promotes typed column to Json") {
+  // The null-write branch of write_item_field_locked (column_frame.cpp:278-282)
+  // must turn a typed column into a JsonColumn so the slot can carry
+  // present-null (validity=true, value=null). Existing coverage only
+  // exercises the *type-mismatch* retry branch (line 283-287); this case
+  // pins the null-write branch separately.
+  auto frame = make_frame();
+  OperatorOutput out;
+  out.set_item(1, "score", Variant());  // explicit null, not absent
+  frame.apply_output(out, "op", false);
+  CHECK(frame.item(0, "score").as_number() == 10.0);
+  CHECK(frame.item(1, "score").is_null());
+  CHECK(frame.item(2, "score").as_number() == 30.0);
+
+  // A subsequent typed write must still land — the column is now JsonColumn
+  // and JsonColumn accepts any Variant.
+  OperatorOutput out2;
+  out2.set_item(1, "score", Variant(std::string("recovered")));
+  frame.apply_output(out2, "op", false);
+  CHECK(frame.item(1, "score").as_string() == "recovered");
+}
+
+TEST_CASE("ColumnFrame: object/array write promotes StringColumn to Json") {
+  // First write picks a typed column based on the value's runtime type
+  // (column_frame.cpp:260-272). A subsequent object/array write into a
+  // StringColumn cannot succeed via TypedColumn::set (it rejects the type)
+  // and must fall through to the type-mismatch retry branch
+  // (column_frame.cpp:283-287). Existing tests only cover string→typed
+  // numeric mismatches — this case exercises object/array → StringColumn.
+  auto frame = make_frame();
+  OperatorOutput out;
+  out.set_item(0, "tag", Variant(std::string("hello")));  // creates StringColumn
+  frame.apply_output(out, "op", false);
+
+  OperatorOutput out2;
+  Variant::object_t obj{{"k", Variant(std::string("v"))}};
+  out2.set_item(1, "tag", Variant(std::move(obj)));  // StringColumn → Json
+  frame.apply_output(out2, "op", false);
+
+  CHECK(frame.item(0, "tag").as_string() == "hello");
+  REQUIRE(frame.item(1, "tag").is_object());
+  CHECK(frame.item(1, "tag").as_object().at("k").as_string() == "v");
+  CHECK(frame.item(2, "tag").is_null());
+
+  // Array write into the now-promoted JsonColumn must also land cleanly.
+  OperatorOutput out3;
+  Variant::array_t arr{Variant(1.0), Variant(std::string("two"))};
+  out3.set_item(2, "tag", Variant(std::move(arr)));
+  frame.apply_output(out3, "op", false);
+  REQUIRE(frame.item(2, "tag").is_array());
+  CHECK(frame.item(2, "tag").as_array().size() == 2);
+  CHECK(frame.item(2, "tag").as_array()[0].as_number() == 1.0);
+  CHECK(frame.item(2, "tag").as_array()[1].as_string() == "two");
+  // Earlier rows still hold their pre-promotion values.
+  CHECK(frame.item(0, "tag").as_string() == "hello");
+  REQUIRE(frame.item(1, "tag").is_object());
+}
+
 TEST_CASE("ColumnFrame: apply_output removes rows preserves remaining fields") {
   auto frame = make_frame();
   OperatorOutput out;
