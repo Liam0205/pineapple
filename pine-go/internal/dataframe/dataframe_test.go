@@ -512,6 +512,48 @@ func TestApplyOutputCombinedRemoveThenAdd(t *testing.T) {
 	}
 }
 
+// TestApplyOutputCombinedRemoveThenReorder pins the boundary between
+// stage 3 (remove) and stage 4 (reorder) in ApplyOutput. The reorder
+// permutation must be sized to the *post-compact* row count, and its
+// indices must address post-compact slots — feeding original indices
+// would silently re-ingest removed rows. Existing coverage:
+// TestApplyOutputRemoveItems and TestApplyOutputReorder each test one
+// stage in isolation; the combination chain only surfaces in the
+// 5-stage Java fiveStageOrdering test, with no Go counterpart.
+func TestApplyOutputCombinedRemoveThenReorder(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, nil, []map[string]any{
+				{"id": int64(0)},
+				{"id": int64(1)},
+				{"id": int64(2)},
+				{"id": int64(3)},
+				{"id": int64(4)},
+			})
+			out := types.NewOperatorOutput()
+			out.RemoveItem(1) // post-compact rows: [0, 2, 3, 4]
+			out.RemoveItem(3) // drops original id=3 → post-compact: [0, 2, 4]
+			// Reorder must use the post-compact length (3) and the
+			// post-compact slot indices. order = [2, 0, 1] means
+			// new[i] = post[order[i]] → expected ids [4, 0, 2].
+			out.SetItemOrder([]int{2, 0, 1})
+
+			if err := ApplyOutput(f, out, "op", false); err != nil {
+				t.Fatal(err)
+			}
+			if f.ItemCount() != 3 {
+				t.Fatalf("ItemCount = %d, want 3", f.ItemCount())
+			}
+			expected := []int64{4, 0, 2}
+			for i, want := range expected {
+				if got := f.Item(i, "id"); got != want {
+					t.Errorf("item[%d] id = %v, want %v", i, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestToResultIsolation(t *testing.T) {
 	for _, tm := range testModes {
 		t.Run(tm.name, func(t *testing.T) {
