@@ -817,6 +817,117 @@ func TestColumnFrameLazyColumnCreation(t *testing.T) {
 	}
 }
 
+// TestColumnFrameKColumnsConcurrentWriteThenRemoveReorder exercises the
+// extension of TestColumnFrameLazyColumnCreation to K=10 newly-created
+// columns followed by a single ApplyOutput that combines remove + reorder.
+// The contract being pinned: after the structural pass every one of the K
+// columns must observe the same per-row permutation, and the per-column
+// `visited` scratch buffer is reset between columns inside ApplyOutput
+// (column_frame.go:237-241).
+//
+// Run under `-race` to catch any per-column write that escapes ApplyOutput's
+// frame-level Lock; without this case, K column reorder consistency was
+// only indirectly covered by single-engine integration tests.
+func TestColumnFrameKColumnsConcurrentWriteThenRemoveReorder(t *testing.T) {
+	const N = 8 // initial row count
+	const K = 10
+
+	items := make([]map[string]any, N)
+	for i := range items {
+		items[i] = map[string]any{"id": i}
+	}
+	f := NewFrame(StorageModeColumn, map[string]any{}, items)
+
+	// Phase 1: K goroutines each create a unique column with a deterministic
+	// per-row value so we can compute the post-permutation expectation
+	// without depending on goroutine ordering.
+	var wg sync.WaitGroup
+	for k := 0; k < K; k++ {
+		wg.Add(1)
+		go func(k int) {
+			defer wg.Done()
+			out := types.NewOperatorOutput()
+			for i := 0; i < N; i++ {
+				// Encode (column, row) so any cross-column bleed is detectable.
+				out.SetItem(i, "col_"+itoa(k), k*1000+i)
+			}
+			if err := f.ApplyOutput(out, "writer_"+itoa(k), false); err != nil {
+				t.Errorf("col_%d write: %v", k, err)
+			}
+		}(k)
+	}
+	wg.Wait()
+
+	// Sanity: every (k, i) pair landed correctly before structural ops.
+	for k := 0; k < K; k++ {
+		for i := 0; i < N; i++ {
+			if got := f.Item(i, "col_"+itoa(k)); got != k*1000+i {
+				t.Fatalf("pre-structural col_%d[%d]: got %v, want %d", k, i, got, k*1000+i)
+			}
+		}
+	}
+
+	// Phase 2: single ApplyOutput that removes one row then reorders the
+	// remainder. Both stages walk every column and share the visited
+	// bitmap (column_frame.go:237-241); a missing reset between columns
+	// would leave later columns in a partially-permuted state while
+	// earlier columns reordered correctly.
+	out := types.NewOperatorOutput()
+	out.RemoveItem(2) // drop row originally carrying id=2
+	// After removal we have rows whose original ids are 0,1,3,4,5,6,7
+	// (length 7). Apply a non-identity permutation with two cycles plus
+	// a fixed point to make a per-column reset bug visible.
+	// new[i] = old[order[i]]: order = [3, 0, 5, 6, 1, 4, 2]
+	out.SetItemOrder([]int{3, 0, 5, 6, 1, 4, 2})
+	if err := f.ApplyOutput(out, "structural", false); err != nil {
+		t.Fatalf("structural ApplyOutput: %v", err)
+	}
+
+	// Compute expected post-structural id sequence the same way ApplyOutput
+	// does: remove first, then reorder.
+	postRemove := []int{0, 1, 3, 4, 5, 6, 7}
+	order := []int{3, 0, 5, 6, 1, 4, 2}
+	expectedIDs := make([]int, len(order))
+	for i, oi := range order {
+		expectedIDs[i] = postRemove[oi]
+	}
+
+	if f.ItemCount() != len(expectedIDs) {
+		t.Fatalf("item count: got %d, want %d", f.ItemCount(), len(expectedIDs))
+	}
+	for i, expectedID := range expectedIDs {
+		// `id` field validates the remove+reorder are consistent on the
+		// pre-existing column.
+		if got := f.Item(i, "id"); got != expectedID {
+			t.Errorf("post-structural id[%d]: got %v, want %d", i, got, expectedID)
+		}
+		// Every K newly-created column must follow the same permutation;
+		// the original row carrying col_k = k*1000+expectedID must now
+		// sit at row i.
+		for k := 0; k < K; k++ {
+			want := k*1000 + expectedID
+			if got := f.Item(i, "col_"+itoa(k)); got != want {
+				t.Errorf("post-structural col_%d[%d]: got %v, want %d", k, i, got, want)
+			}
+		}
+	}
+}
+
+// Local int-to-string helper to avoid pulling strconv into the test file
+// solely for diagnostic field names.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	digits := []byte{}
+	x := n
+	for x > 0 {
+		digits = append([]byte{byte('0' + x%10)}, digits...)
+		x /= 10
+	}
+	return string(digits)
+}
+
 func TestColumnFrameStructuralBlocksReaders(t *testing.T) {
 	items := make([]map[string]any, 20)
 	for i := range items {
