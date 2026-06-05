@@ -19,6 +19,8 @@ Randomization dimensions:
   - Resource operators (transform_resource_lookup, recall_resource with static resource_config)
   - merge_dedup, reorder_shuffle_by_salt, filter_paginate operators
   - transform_copy all 4 directions (common_to_item, item_to_common, common_to_common, item_to_item)
+  - Templatable params (PR #74): filter_truncate.top_n optionally rendered as
+    `{{field}}` with the source value injected into request.common
 
 Usage:
     python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,java,cpp]
@@ -242,6 +244,7 @@ def gen_operator(rng: random.Random, name: str,
     item_in: list[str] = []
     item_out: list[str] = []
     common_in: list[str] = []
+    common_in_template: list[str] = []
     common_out: list[str] = []
 
     config: dict[str, Any] = {"type_name": op_type}
@@ -252,7 +255,16 @@ def gen_operator(rng: random.Random, name: str,
         config["data_parallel"] = dp
 
     if op_type == "filter_truncate":
-        config["top_n"] = rng.randint(1, 30)
+        # ~20% chance: use {{field}} template for top_n (PR #74 templatable param).
+        # Forces the runtime template-resolution path to be exercised under fuzz,
+        # not just static fixtures (audit gap H1).
+        if rng.random() < 0.20:
+            tmpl_name = f"_fuzz_tmpl_top_n_{name}"
+            config["top_n"] = "{{" + tmpl_name + "}}"
+            config["_fuzz_template_common_field"] = (tmpl_name, rng.randint(1, 30))
+            common_in_template = [tmpl_name]
+        else:
+            config["top_n"] = rng.randint(1, 30)
         item_in = prev_item_outputs[:2] if prev_item_outputs else []
 
     elif op_type == "filter_condition":
@@ -469,6 +481,8 @@ def gen_operator(rng: random.Random, name: str,
         "item_input": item_in,
         "item_output": item_out,
     }
+    if common_in_template:
+        config["$metadata"]["common_input_template"] = common_in_template
 
     # Randomly add defaults for declared input fields (20% chance each)
     if rng.random() < 0.2 and item_in:
@@ -609,6 +623,15 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
                 common_outputs.append("_fuzz_page")
             if "_fuzz_size" not in common_outputs:
                 common_outputs.append("_fuzz_size")
+
+        # Handle templatable params: inject template-source field into common
+        # so that {{field}} resolution at runtime can read the value (PR #74).
+        tmpl_field = op_config.pop("_fuzz_template_common_field", None)
+        if tmpl_field is not None:
+            tmpl_name, tmpl_val = tmpl_field
+            common[tmpl_name] = tmpl_val
+            if tmpl_name not in common_outputs:
+                common_outputs.append(tmpl_name)
 
         # Collect resource configs from resource operators
         fuzz_resource = op_config.pop("_fuzz_resource", None)
@@ -1282,7 +1305,8 @@ def main():
              "request_items": 0, "resources": 0, "debug": 0, "return_trace": 0,
              "sources": 0, "defaults": 0, "sparse_items": 0,
              "merge_dedup": 0, "shuffle_by_salt": 0, "paginate": 0,
-             "resource_lookup": 0, "recall_resource": 0}
+             "resource_lookup": 0, "recall_resource": 0,
+             "templated": 0}
     start_time = time.time()
 
     def _progress(i: int):
@@ -1370,6 +1394,11 @@ def main():
                         for op in ops.values()
                     ):
                         stats["defaults"] += 1
+                    if any(
+                        op.get("$metadata", {}).get("common_input_template")
+                        for op in ops.values()
+                    ):
+                        stats["templated"] += 1
 
                 with open(config_file, "w") as f:
                     json.dump(config, f, ensure_ascii=False)
@@ -1581,6 +1610,7 @@ def main():
     print(
         f"            resource_lookup={stats['resource_lookup']}"
         f" recall_resource={stats['recall_resource']}"
+        f" templated={stats['templated']}"
     )
     # Stratified summary:
     print(
