@@ -56,16 +56,63 @@ create_tag "$TAG_ROOT"
 create_tag "$TAG_GO"
 
 # --- Push tags ---
+#
+# Release tags are immutable contracts: once pushed, downstream consumers
+# (pkg.go.dev, Maven Central, PyPI mirrors) cache the tag → commit mapping
+# by SHA. Silently moving a remote tag to a different commit is a
+# semantic break, even when it appears to "succeed".
+#
+# So we do NOT trust `git push`'s exit code as the only signal — the
+# pre-push hook in this repo can produce non-zero outer rc even on a
+# successful inner push, which would have made the old fallback to
+# `--force` fire on every release. Instead we inspect the remote state
+# first via `ls-remote` and decide deterministically.
 
 push_tag() {
   local tag="$1"
-  if git push origin "$tag" 2>/dev/null; then
-    echo "  pushed $tag"
-  else
-    echo "  [WARN] normal push failed for $tag, retrying with --force"
-    git push origin "$tag" --force
-    echo "  pushed $tag (force)"
+
+  # Resolve the local commit the tag points at. Use `^{commit}` so this
+  # also works if the tag is later switched to an annotated form.
+  local local_sha
+  local_sha="$(git rev-parse "${tag}^{commit}")"
+
+  # Look up the remote tag, preferring the dereferenced commit SHA
+  # (annotated tag) over the raw tag-object SHA (lightweight tag).
+  local remote_sha
+  remote_sha="$(git ls-remote origin "refs/tags/${tag}^{}" | awk '{print $1}')"
+  if [ -z "$remote_sha" ]; then
+    remote_sha="$(git ls-remote origin "refs/tags/${tag}" | awk '{print $1}')"
   fi
+
+  if [ -z "$remote_sha" ]; then
+    echo "  pushing $tag (new)..."
+    git push origin "$tag"
+    echo "  pushed $tag"
+    return 0
+  fi
+
+  if [ "$remote_sha" = "$local_sha" ]; then
+    echo "  $tag already on remote at the same commit — skipping."
+    return 0
+  fi
+
+  cat >&2 <<EOF
+
+  [ERROR] tag $tag already exists on remote at a different commit:
+            local:  $local_sha
+            remote: $remote_sha
+
+          A release tag must not be moved silently — downstream consumers
+          (pkg.go.dev, Maven Central, PyPI mirrors) cache release artifacts
+          by SHA, and a force-push here will silently divert future fetches
+          to a different tree.
+
+          If this move is genuinely intended, delete the remote tag first
+          and re-run this script:
+            git push origin :refs/tags/$tag
+
+EOF
+  exit 1
 }
 
 echo "Pushing tags..."
