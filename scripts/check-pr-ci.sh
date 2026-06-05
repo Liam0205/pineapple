@@ -175,6 +175,14 @@ activity_json="$(gh api graphql -f query='
 activity_unreadable=0
 if [ -z "$activity_json" ]; then
   activity_unreadable=1
+elif ! printf '%s' "$activity_json" | jq empty >/dev/null 2>&1; then
+  # gh produced non-empty stdout that is not valid JSON (auth interstitial,
+  # captive-portal HTML, transient gateway error page, etc.). Without this
+  # guard the next `jq -e has("errors")` would itself fail to parse, the
+  # elif would be false, and we would silently fall through to the readable
+  # branch where every counter collapses to 0 via `${var:-0}` — masquerading
+  # as a clean terminal "done" state.
+  activity_unreadable=1
 elif printf '%s' "$activity_json" \
        | jq -e 'has("errors") or .data == null' >/dev/null 2>&1; then
   activity_unreadable=1
