@@ -6,6 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from apple.base import OpCall
 from apple.compiler import compile_flow
 from apple.flow import Flow, SubFlow
 
@@ -1505,6 +1506,155 @@ class TestSubFlowTemplateInteraction:
         )
         cfg = compile_flow(flow)
         assert "pipeline_config" in cfg
+
+
+class TestSubFlowContractThreeBucketUnion:
+    """validator.py:288-292 unions all three common_input buckets
+    (common_input + common_input_skip + common_input_template) against
+    the SubFlow contract. M1 covers the template bucket alone; M2 covers
+    the skip bucket alone via underscore filtering. Neither pins down
+    the case where a single op activates all three buckets at once with
+    a SubFlow contract that selectively declares only some fields.
+
+    Without this test, a regression that, e.g., dropped the skip bucket
+    from the union (line 290) while the template bucket still resolves
+    would still pass M1 and M2 but break the contract check for any op
+    that declares both a template *and* a non-control skip field. PR #78
+    commit message named this combination but never asserted it.
+
+    These cases drive `validate_subflow_field_coverage` directly with
+    hand-built OpCalls so all three buckets can be populated indepen-
+    dently — the public DSL surface (`flow.py`) does not expose a knob
+    for non-underscore `common_input_skip` entries.
+
+    Audit gap L8.
+    """
+
+    @staticmethod
+    def _make_op(
+        type_name: str = "synthetic_op",
+        *,
+        common_input=None,
+        common_input_skip=None,
+        common_input_template=None,
+        common_output=None,
+    ) -> OpCall:
+        return OpCall(
+            type_name=type_name,
+            params={},
+            common_input=list(common_input or []),
+            common_input_skip=list(common_input_skip or []),
+            common_input_template=list(common_input_template or []),
+            common_output=list(common_output or []),
+        )
+
+    def test_three_buckets_all_covered_by_subflow_contract(self):
+        """Single op activates all three buckets at once. Contract lists
+        every field. Union path must accept — no exception."""
+        from apple.validator import validate_subflow_field_coverage
+
+        op = self._make_op(
+            common_input=["regular"],
+            common_input_skip=["bookkeeping"],
+            common_input_template=["user_id"],
+        )
+        validate_subflow_field_coverage(
+            sf_path="sf",
+            sf_ops=[("synthetic_op_1", op)],
+            sf_common_input=["regular", "bookkeeping", "user_id"],
+            sf_item_input=None,
+        )
+
+    def test_three_buckets_only_template_missing_from_contract_raises(self):
+        """Contract covers regular + bookkeeping but NOT user_id. The
+        op activates all three buckets. A regression that dropped the
+        common_input_template entry from the union would silently pass
+        — this test fires."""
+        from apple.validator import (
+            ValidationError,
+            validate_subflow_field_coverage,
+        )
+
+        op = self._make_op(
+            common_input=["regular"],
+            common_input_skip=["bookkeeping"],
+            common_input_template=["user_id"],
+        )
+        with pytest.raises(ValidationError, match=r"'user_id'.*SubFlow 'sf' contract"):
+            validate_subflow_field_coverage(
+                sf_path="sf",
+                sf_ops=[("synthetic_op_1", op)],
+                sf_common_input=["regular", "bookkeeping"],
+                sf_item_input=None,
+            )
+
+    def test_three_buckets_only_skip_missing_from_contract_raises(self):
+        """Symmetric: contract covers regular + user_id but omits the
+        non-underscore skip-bucket entry. Locks the skip bucket's
+        contribution to the union. Underscore-prefixed entries are
+        filtered out (M2); plain identifiers are NOT and must surface
+        contract gaps here."""
+        from apple.validator import (
+            ValidationError,
+            validate_subflow_field_coverage,
+        )
+
+        op = self._make_op(
+            common_input=["regular"],
+            common_input_skip=["bookkeeping"],
+            common_input_template=["user_id"],
+        )
+        with pytest.raises(ValidationError, match=r"'bookkeeping'.*SubFlow 'sf' contract"):
+            validate_subflow_field_coverage(
+                sf_path="sf",
+                sf_ops=[("synthetic_op_1", op)],
+                sf_common_input=["regular", "user_id"],
+                sf_item_input=None,
+            )
+
+    def test_three_buckets_only_common_input_missing_from_contract_raises(self):
+        """Contract covers bookkeeping + user_id but omits the plain
+        common_input field. Pins the common_input bucket's contribution
+        — without it, a regression that swapped the union to only
+        skip+template would silently accept the op."""
+        from apple.validator import (
+            ValidationError,
+            validate_subflow_field_coverage,
+        )
+
+        op = self._make_op(
+            common_input=["regular"],
+            common_input_skip=["bookkeeping"],
+            common_input_template=["user_id"],
+        )
+        with pytest.raises(ValidationError, match=r"'regular'.*SubFlow 'sf' contract"):
+            validate_subflow_field_coverage(
+                sf_path="sf",
+                sf_ops=[("synthetic_op_1", op)],
+                sf_common_input=["bookkeeping", "user_id"],
+                sf_item_input=None,
+            )
+
+    def test_underscore_skip_bypasses_contract_with_other_buckets_active(self):
+        """Mix the M2-style underscore-filtered skip (`_if_1`) with a
+        non-underscore common_input and template. Contract covers only
+        regular + user_id; the underscore skip must be filtered before
+        the contract check. Combined with the other two buckets being
+        contract-covered, validation passes — pinning the M2 filter
+        survives the three-bucket union path."""
+        from apple.validator import validate_subflow_field_coverage
+
+        op = self._make_op(
+            common_input=["regular"],
+            common_input_skip=["_if_1"],
+            common_input_template=["user_id"],
+        )
+        validate_subflow_field_coverage(
+            sf_path="sf",
+            sf_ops=[("synthetic_op_1", op)],
+            sf_common_input=["regular", "user_id"],
+            sf_item_input=None,
+        )
 
 
 class TestSubFlowMultiSkipContractInteraction:
