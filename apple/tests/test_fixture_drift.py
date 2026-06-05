@@ -238,10 +238,58 @@ def _build_e2e_apple_dsl_flow() -> Flow:
     return flow
 
 
+def _build_e2e_apple_dsl_control_flow() -> Flow:
+    """Round-trip pair for ``e2e_apple_dsl_control.json``.
+
+    Covers DSL surface that ``e2e_apple_dsl.json`` does not:
+
+    * ``if_/else_/end_if_`` control-flow primitives → ``for_branch_control``
+      operators with the deterministic ``if_<id>`` / ``else_<id>`` names and
+      Lua-emitted ``evaluate`` bodies.
+    * ``common_input_skip`` propagation onto downstream business ops (issue
+      #74's three-bucket skip metadata).
+    * Caller-widened row-set markers on ``reorder_sort``
+      (``consumes_row_set`` + ``mutates_row_set``).
+
+    Any compiler change that re-spells those fields, drops a marker, or
+    shifts the ctrl-field naming scheme will diverge the round-trip.
+    """
+    flow = Flow(
+        name="apple_e2e_ifelse",
+        common_input=["enabled"],
+        item_output=["item_id", "item_score", "mark"],
+    )
+    flow.recall_static(
+        item_output=["item_id", "item_score"],
+        items=[
+            {"item_id": "a", "item_score": 1.0},
+            {"item_id": "b", "item_score": 2.0},
+        ],
+    )
+    flow.if_("{{enabled}}")._add_op(
+        "transform_by_lua",
+        item_input=["item_score"],
+        item_output=["item_score", "mark"],
+        lua_script="function f() return item_score, true end",
+        function_for_item="f",
+        function_for_common="",
+    ).else_()._add_op(
+        "transform_by_lua",
+        item_input=["item_score"],
+        item_output=["item_score", "mark"],
+        lua_script="function f() return item_score, false end",
+        function_for_item="f",
+        function_for_common="",
+    ).end_if_()
+    flow.reorder_sort(item_input=["item_score"], order="desc")
+    return flow
+
+
 # Map fixture file -> builder function. Only fixtures with a known DSL
 # source belong here; others are covered by the shape-drift tests above.
 DSL_SOURCED_FIXTURES = {
     "e2e_apple_dsl.json": _build_e2e_apple_dsl_flow,
+    "e2e_apple_dsl_control.json": _build_e2e_apple_dsl_control_flow,
 }
 
 

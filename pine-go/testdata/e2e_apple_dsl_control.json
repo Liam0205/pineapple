@@ -1,0 +1,151 @@
+{
+  "_PINEAPPLE_VERSION": "0.9.13",
+  "_PINEAPPLE_CREATE_TIME": "2026-06-05T00:00:00Z",
+  "pipeline_config": {
+    "operators": {
+      "recall_static_2F9573": {
+        "type_name": "recall_static",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": [
+            "item_id",
+            "item_score"
+          ]
+        },
+        "recall": true,
+        "additive_writes_row_set": true,
+        "items": [
+          {
+            "item_id": "a",
+            "item_score": 1.0
+          },
+          {
+            "item_id": "b",
+            "item_score": 2.0
+          }
+        ]
+      },
+      "if_1": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "enabled"
+          ],
+          "common_output": [
+            "_if_1"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if (enabled) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "transform_by_lua_C36269": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [
+            "item_score"
+          ],
+          "item_output": [
+            "item_score",
+            "mark"
+          ],
+          "common_input_skip": [
+            "_if_1"
+          ]
+        },
+        "skip": [
+          "_if_1"
+        ],
+        "lua_script": "function f() return item_score, true end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "else_2": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [
+            "_if_1"
+          ],
+          "common_output": [
+            "_else_2"
+          ],
+          "item_input": [],
+          "item_output": []
+        },
+        "for_branch_control": true,
+        "lua_script": "function evaluate() if ((_if_1)) then return false else return true end end",
+        "function_for_item": "",
+        "function_for_common": "evaluate"
+      },
+      "transform_by_lua_91BB49": {
+        "type_name": "transform_by_lua",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [
+            "item_score"
+          ],
+          "item_output": [
+            "item_score",
+            "mark"
+          ],
+          "common_input_skip": [
+            "_else_2"
+          ]
+        },
+        "skip": [
+          "_else_2"
+        ],
+        "lua_script": "function f() return item_score, false end",
+        "function_for_item": "f",
+        "function_for_common": ""
+      },
+      "reorder_sort_798553": {
+        "type_name": "reorder_sort",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [
+            "item_score"
+          ],
+          "item_output": []
+        },
+        "consumes_row_set": true,
+        "mutates_row_set": true,
+        "order": "desc"
+      }
+    },
+    "pipeline_map": {}
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": [
+        "recall_static_2F9573",
+        "if_1",
+        "transform_by_lua_C36269",
+        "else_2",
+        "transform_by_lua_91BB49",
+        "reorder_sort_798553"
+      ]
+    }
+  },
+  "flow_contract": {
+    "common_input": [
+      "enabled"
+    ],
+    "item_input": [],
+    "common_output": [],
+    "item_output": [
+      "item_id",
+      "item_score",
+      "mark"
+    ]
+  }
+}
