@@ -235,6 +235,47 @@ TEST_CASE("TypedColumnStore::reorder_rows shares visited bitmap across K>2 colum
   CHECK(store.column("j")->get(5).as_string() == "six");
 }
 
+TEST_CASE("Derived-class static type can call 1-arg reorder(order) (name-hiding fix)") {
+  // Regression for 0dec52a: TypedColumn/JsonColumn override the 2-arg
+  // reorder(order, visited_scratch); by C++ name-hiding rules, that
+  // suppresses the base-class 1-arg convenience overload reorder(order)
+  // unless the derived class re-imports it via `using Column::reorder`.
+  // All callers in the runtime go through Column* / unique_ptr<Column>,
+  // so the typed-static-type call path is exercised only here.
+  // Without `using Column::reorder` in each derived class, this test
+  // would fail to compile.
+  {
+    Int64Column c(3);
+    REQUIRE(c.set(0, Variant(10.0)));
+    REQUIRE(c.set(1, Variant(20.0)));
+    REQUIRE(c.set(2, Variant(30.0)));
+    c.reorder({2, 0, 1});
+    CHECK(c.get(0).as_number() == 30.0);
+    CHECK(c.get(1).as_number() == 10.0);
+    CHECK(c.get(2).as_number() == 20.0);
+  }
+  {
+    StringColumn c(3);
+    REQUIRE(c.set(0, Variant(std::string("a"))));
+    REQUIRE(c.set(1, Variant(std::string("b"))));
+    REQUIRE(c.set(2, Variant(std::string("c"))));
+    c.reorder({2, 0, 1});
+    CHECK(c.get(0).as_string() == "c");
+    CHECK(c.get(1).as_string() == "a");
+    CHECK(c.get(2).as_string() == "b");
+  }
+  {
+    JsonColumn c;
+    REQUIRE(c.append(Variant(1.0)));
+    REQUIRE(c.append(Variant(std::string("two"))));
+    REQUIRE(c.append(Variant(true)));
+    c.reorder({2, 0, 1});
+    CHECK(c.get(0).as_bool() == true);
+    CHECK(c.get(1).as_number() == 1.0);
+    CHECK(c.get(2).as_string() == "two");
+  }
+}
+
 TEST_CASE("Int64Column precision boundary detection") {
   using pine::int64_lossy_as_double;
   // Within IEEE 754 binary64 precise range: 0..2^53
