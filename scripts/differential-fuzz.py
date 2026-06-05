@@ -787,6 +787,44 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     else:
         group_pipeline = pipeline
 
+    # ~30% chance: decorate each SubFlow entry with field-list contracts
+    # (common_input/item_input/common_output/item_output). These mirror the
+    # SubFlow contracts emitted by the Apple compiler (issue #78) — they
+    # are validated at compile time but ignored by all three runtimes,
+    # which only read `pipeline`. Injecting them here exercises the
+    # forward-compat boundary: every runtime parser must tolerate the
+    # extra keys without erroring or letting them leak into operator
+    # bookkeeping. Without this, nightly fuzz never observed pipeline_map
+    # entries with anything but `pipeline`. (Audit gap H4.)
+    if pipeline_map and rng.random() < 0.3:
+        # Map operator name -> its $metadata fields, for picking plausible
+        # contract subsets. Skip pipeline_map entries that recurse into
+        # other SubFlows; we only collect direct-leaf operator metadata.
+        op_meta = {n: o.get("$metadata", {}) for n, o in operators.items()}
+        for sf_name, sf_entry in pipeline_map.items():
+            members = sf_entry["pipeline"]
+            ci, ii, co, io = set(), set(), set(), set()
+            for m in members:
+                meta = op_meta.get(m)
+                if not meta:
+                    # Nested SubFlow reference; skip — its own iteration
+                    # will fill its contract.
+                    continue
+                ci.update(meta.get("common_input", []))
+                ii.update(meta.get("item_input", []))
+                co.update(meta.get("common_output", []))
+                io.update(meta.get("item_output", []))
+            # Only emit non-empty buckets — empty lists would still be
+            # parsed but provide zero fuzz signal beyond the key presence.
+            if ci:
+                sf_entry["common_input"] = sorted(ci)
+            if ii:
+                sf_entry["item_input"] = sorted(ii)
+            if co:
+                sf_entry["common_output"] = sorted(co)
+            if io:
+                sf_entry["item_output"] = sorted(io)
+
     # Randomly inject storage_mode
     # 50/50 storage_mode split. The prior 75% row / 25% column bias
     # was inherited from when pine-cpp lacked a RowFrame
