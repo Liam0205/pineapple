@@ -120,6 +120,42 @@ public class FrameEquivalenceTest {
     }
 
     @Test
+    @DisplayName("Remove + immediate reorder uses post-compact index")
+    void removeThenReorderPostCompactIndex() {
+        // Targeted check that the reorder index after a remove walks the
+        // *post-compact* row space, not the original. Without this, a
+        // bug that fed reorder original indices would silently re-ingest
+        // the removed row at a new position. fiveStageOrdering exercises
+        // the same path indirectly while mixing four other stages; this
+        // case isolates the remove → reorder boundary so a regression
+        // points at the right stage transition.
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            items.add(new LinkedHashMap<>(Map.of("id", i)));
+        }
+        Frame row = new DataFrame(new LinkedHashMap<>(), copyItems(items));
+        Frame col = new ColumnFrame(new LinkedHashMap<>(), copyItems(items));
+
+        OperatorOutput out = new OperatorOutput();
+        out.removeItem(1);  // drop id=1 → post-compact rows: [0, 2, 3, 4]
+        out.removeItem(3);  // drop id=3 (original) → post-compact: [0, 2, 4]
+        // reorder uses the post-compact length (3) and the post-compact
+        // row identities. order = [2, 0, 1] means new[i] = post[order[i]].
+        out.setItemOrder(List.of(2, 0, 1));
+        applyBoth(row, col, out, "op", false);
+
+        assertEquals(3, row.itemCount());
+        assertEquals(3, col.itemCount());
+        // Expected ids: post[2]=4, post[0]=0, post[1]=2
+        List<Map<String, Object>> rowItems = row.toResultItems(List.of("id"));
+        List<Map<String, Object>> colItems = col.toResultItems(List.of("id"));
+        assertEquals(4, rowItems.get(0).get("id"));
+        assertEquals(0, rowItems.get(1).get("id"));
+        assertEquals(2, rowItems.get(2).get("id"));
+        assertEquals(rowItems, colItems, "remove_then_reorder — items mismatch");
+    }
+
+    @Test
     @DisplayName("Additions + recall _source stamp equivalence")
     void additionsWithRecall() {
         List<Map<String, Object>> items = new ArrayList<>();
