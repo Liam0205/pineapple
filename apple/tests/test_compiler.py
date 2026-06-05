@@ -1677,4 +1677,95 @@ class TestSubFlowMultiSkipContractInteraction:
             compile_flow(flow)
 
 
+class TestExplicitNullScalarParamRejection:
+    """Audit M5: scalar ``param=None`` must be rejected at compile time.
+
+    The Java/C++ runtime ``Init`` paths reject explicit JSON ``null`` for
+    typed scalar params (commits 1fa18b3 / 452aee4). Apple compiles
+    ``ttl=None`` straight to JSON ``null`` and used to defer the failure to
+    runtime — meaning a DSL author would only see the divergence after a
+    load attempt against any one of the three engines. Pulling the check
+    forward into the validator gives a line-anchored ValidationError at
+    compile time.
+    """
+
+    def test_redis_set_ttl_none_rejected(self):
+        from apple.validator import ValidationError
+
+        flow = Flow(
+            name="ttl_none",
+            common_input=["uid"],
+            item_input=["x"],
+            item_output=["x"],
+        )
+        flow.transform_redis_set(
+            common_input=["uid"],
+            item_input=["x"],
+            item_output=["x"],
+            key_prefix="{{uid}}",
+            resource_name="cache",
+            ttl=None,
+        )
+        with pytest.raises(ValidationError, match=r"param 'ttl'.*explicitly None"):
+            compile_flow(flow)
+
+    def test_redis_set_key_prefix_none_rejected(self):
+        from apple.validator import ValidationError
+
+        flow = Flow(
+            name="kp_none",
+            common_input=["uid"],
+            item_input=["x"],
+            item_output=["x"],
+        )
+        flow.transform_redis_set(
+            common_input=["uid"],
+            item_input=["x"],
+            item_output=["x"],
+            key_prefix=None,
+            resource_name="cache",
+        )
+        with pytest.raises(ValidationError, match=r"param 'key_prefix'.*explicitly None"):
+            compile_flow(flow)
+
+    def test_redis_set_fail_on_error_none_rejected(self):
+        from apple.validator import ValidationError
+
+        flow = Flow(
+            name="foe_none",
+            common_input=["uid"],
+            item_input=["x"],
+            item_output=["x"],
+        )
+        flow.transform_redis_set(
+            common_input=["uid"],
+            item_input=["x"],
+            item_output=["x"],
+            key_prefix="{{uid}}",
+            resource_name="cache",
+            fail_on_error=None,
+        )
+        with pytest.raises(ValidationError, match=r"param 'fail_on_error'.*explicitly None"):
+            compile_flow(flow)
+
+    def test_any_type_param_none_tolerated(self):
+        """``type: "any"`` params (filter_condition.value) are not gated.
+
+        Container/any-typed params have no clean "missing vs explicit null"
+        contract, so the validator skips them — the runtime is the source
+        of truth there.
+        """
+        flow = Flow(
+            name="any_none_ok",
+            item_input=["score"],
+            item_output=["score"],
+        )
+        flow.filter_condition(
+            item_input=["score"],
+            item_output=["score"],
+            value=None,
+        )
+        compile_flow(flow)
+
+
 
