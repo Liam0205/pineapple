@@ -82,21 +82,33 @@ with open('$fixture_file') as f:
 print(' '.join(data.get('expected_error', {}).get('wrapping_exact_engines', [])))
 " 2>/dev/null)
 
-  # Verify both errors contain expected substring
+  # Verify both errors contain expected substring.
+  #
+  # Substring checks use `grep -q ... <<< "$var"` (here-string) rather than
+  # `echo "$var" | grep -q ...`. With `pipefail` set above, the pipe form
+  # races: grep -q closes its stdin as soon as it finds a match, and if
+  # the upstream echo has not finished writing yet (Go's parallel-shard
+  # errors can be tens of KB once goroutine stacks attach), echo gets
+  # SIGPIPE → "write error: Broken pipe" → non-zero exit on the left side
+  # of the pipe → `pipefail` propagates non-zero → `! pipeline` evaluates
+  # true → we set go_ok=false even though the match succeeded. Observed
+  # on CI for runtime_parallel_shard_error.json (Go-only flake; Java/C++
+  # error strings happen to be short enough not to trip it). Here-strings
+  # write the full content before grep runs, so there is no race.
   go_ok=true
   java_ok=true
   cpp_ok=true
 
   if [[ -n "$expected_contains" ]]; then
-    if ! echo "$go_err" | grep -qFi "$expected_contains"; then
+    if ! grep -qFi "$expected_contains" <<< "$go_err"; then
       go_ok=false
     fi
-    if ! echo "$java_err" | grep -qFi "$expected_contains"; then
+    if ! grep -qFi "$expected_contains" <<< "$java_err"; then
       java_ok=false
     fi
     if [[ -n "${CPP_RUN:-}" ]]; then
       if [[ -n "$cpp_err" ]]; then
-        if ! echo "$cpp_err" | grep -qFi "$expected_contains"; then
+        if ! grep -qFi "$expected_contains" <<< "$cpp_err"; then
           cpp_ok=false
         fi
       else
@@ -112,18 +124,18 @@ print(' '.join(data.get('expected_error', {}).get('wrapping_exact_engines', []))
     for eng in $wrapping_engines; do
       case "$eng" in
         go)
-          if ! echo "$go_err" | grep -qF "$wrapping_exact" >/dev/null; then
+          if ! grep -qF "$wrapping_exact" <<< "$go_err"; then
             go_ok=false
           fi
           ;;
         java)
-          if ! echo "$java_err" | grep -qF "$wrapping_exact" >/dev/null; then
+          if ! grep -qF "$wrapping_exact" <<< "$java_err"; then
             java_ok=false
           fi
           ;;
         cpp|c++)
           if [[ -n "${CPP_RUN:-}" ]]; then
-            if [[ -z "$cpp_err" ]] || ! echo "$cpp_err" | grep -qF "$wrapping_exact" >/dev/null; then
+            if [[ -z "$cpp_err" ]] || ! grep -qF "$wrapping_exact" <<< "$cpp_err"; then
               cpp_ok=false
             fi
           fi
