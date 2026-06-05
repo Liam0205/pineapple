@@ -1248,3 +1248,117 @@ class TestSubFlowContractEnforcement:
         )
         with pytest.raises(ValidationError, match=r"common_input field 'missing_common'"):
             compile_flow(flow_bad_common)
+
+
+class TestMarkerWidenSemantics:
+    """Row-set marker merge between the codegen registry and caller overrides
+    on `_FlowBase._add_op` (see flow.py:138-145).
+
+    The contract is True-OR: the effective marker is `registry OR caller`. This
+    means a caller can only widen a marker (False→True), never narrow one
+    (True→False). The registry stays the source of truth — it mirrors the Go
+    interface assertions (ConsumesRowSet / AdditiveWritesRowSet /
+    MutatesRowSet), and DSL callsites must not be able to lie about an
+    operator's row-set semantics. `_add_op` accepts overrides on all three
+    markers because it is the back-channel dynamic-dispatch path used when an
+    operator has not yet declared the matching marker interface on the Go
+    side. `BaseOp._apply` only exposes consumes_row_set as a widen-knob (see
+    base.py:151-161) — additive/mutates are taken purely from the registry.
+
+    Audit gaps M3 + M4.
+    """
+
+    def _add_lua_with_overrides(self, flow, **overrides):
+        flow._add_op(
+            "transform_by_lua",
+            item_input=["x"], item_output=["y"],
+            lua_script="function f() return 0 end",
+            function_for_item="f", function_for_common="",
+            **overrides,
+        )
+
+    def test_registry_false_caller_widens_all_three_markers(self):
+        """transform_by_lua is all-False in the registry. _add_op accepts
+        override=True for all three markers and the compiled JSON reflects
+        the widened values."""
+        flow = Flow(name="t", item_input=["x"], item_output=["y"])
+        self._add_lua_with_overrides(
+            flow,
+            consumes_row_set=True,
+            additive_writes_row_set=True,
+            mutates_row_set=True,
+        )
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        assert op.get("consumes_row_set") is True
+        assert op.get("additive_writes_row_set") is True
+        assert op.get("mutates_row_set") is True
+
+    def test_registry_false_no_override_keeps_all_false(self):
+        """Without overrides, transform_by_lua's compiled JSON omits the
+        markers (False is the default and is not emitted)."""
+        flow = Flow(name="t", item_input=["x"], item_output=["y"])
+        self._add_lua_with_overrides(flow)
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        assert "consumes_row_set" not in op
+        assert "additive_writes_row_set" not in op
+        assert "mutates_row_set" not in op
+
+    def test_registry_true_caller_false_does_not_narrow(self):
+        """filter_truncate has consumes=True, mutates=True in the registry.
+        A caller passing override=False MUST NOT downgrade the effective
+        markers — the registry wins under True-OR. This is the protection
+        flow.py:138-145 documents: DSL callsites cannot narrow a marker the
+        Go interface assertion has set."""
+        flow = Flow(name="t", common_input=["top_n"], item_input=["x"], item_output=["x"])
+        flow._add_op(
+            "filter_truncate",
+            common_input=["top_n"], item_input=["x"], item_output=["x"],
+            top_n=10,
+            consumes_row_set=False,
+            mutates_row_set=False,
+        )
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        assert op.get("consumes_row_set") is True
+        assert op.get("mutates_row_set") is True
+
+    def test_registry_true_caller_true_idempotent(self):
+        """True OR True is True — caller restating the registry value must
+        not flip the marker or duplicate-emit anything."""
+        flow = Flow(name="t", common_input=["top_n"], item_input=["x"], item_output=["x"])
+        flow._add_op(
+            "filter_truncate",
+            common_input=["top_n"], item_input=["x"], item_output=["x"],
+            top_n=10,
+            consumes_row_set=True,
+            mutates_row_set=True,
+        )
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        assert op.get("consumes_row_set") is True
+        assert op.get("mutates_row_set") is True
+
+    def test_caller_partial_override_independent_per_marker(self):
+        """The three markers are merged independently. Widening one must
+        not affect the others."""
+        flow = Flow(name="t", item_input=["x"], item_output=["y"])
+        self._add_lua_with_overrides(flow, additive_writes_row_set=True)
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        assert "consumes_row_set" not in op
+        assert op.get("additive_writes_row_set") is True
+        assert "mutates_row_set" not in op
+
+    def test_truthy_override_coerced_to_bool(self):
+        """flow.py:127 `bool(v)` — non-bool truthy values widen the marker
+        through the same True-OR path. This is the documented coercion
+        contract; without it a caller passing 1 / "yes" / a non-empty list
+        could silently no-op against a registry-False marker."""
+        flow = Flow(name="t", item_input=["x"], item_output=["y"])
+        self._add_lua_with_overrides(flow, consumes_row_set=1)
+        cfg = compile_flow(flow)
+        op = next(iter(cfg["pipeline_config"]["operators"].values()))
+        assert op.get("consumes_row_set") is True
+
