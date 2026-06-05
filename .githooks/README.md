@@ -67,6 +67,25 @@ If you script around `git push` (CI, automation, `set -e` wrappers), either
 disable this hook in that context or ignore the push exit code and parse the
 report.
 
+### Hook exit-code policy (after push has succeeded)
+
+Even though the *outer* `git push` exit code is unreliable (see above), the
+hook itself uses a deliberate policy when deciding what status to return
+once the inner push has already updated the remote:
+
+| Situation | Hook exit | Why |
+| --- | --- | --- |
+| Lint failed before pushing | `1` | Push aborted; nothing reached the remote. |
+| Inner push failed | non-zero | Real push failure; surface verbatim. |
+| CI passed, no new review activity, no unresolved threads | `0` | Terminal state — nothing left to do. |
+| CI passed, but new review activity or unresolved threads exist | `1` | The hook printed a Claude-targeted instruction block on stderr describing exactly what to read and fix; **returning non-zero forces that stderr to be read by tooling that only inspects exit status** (agent loops, `set -e` drivers). |
+| CI failed | `1` | Failing jobs were listed on stderr. |
+| `gh` / `jq` unavailable | non-fatal pass-through | Push happened; CI watch was skipped. |
+
+The "review activity remains" path uses an internal `75` from
+`check-pr-ci.sh` so it can be told apart from a CI failure (`1`); the
+caller hook collapses both to `1` for the final exit status.
+
 ### Configuration (env vars)
 
 CI registration can lag a few seconds after a fresh push, so

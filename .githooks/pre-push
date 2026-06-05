@@ -145,8 +145,14 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 if [ -x "${repo_root}/scripts/check-pr-ci.sh" ]; then
   "${repo_root}/scripts/check-pr-ci.sh"
   ci_rc=$?
-  # rc 2 = no PR / gh missing → non-fatal. rc 1 = CI failed → surface as failure.
-  if [ "$ci_rc" -eq 1 ]; then
+  # rc 2  = no PR / gh missing → non-fatal, fall through.
+  # rc 1  = CI failed          → surface as failure.
+  # rc 75 = CI passed but new review activity / unresolved threads remain →
+  #         surface as failure too. Returning 0 here would let the outer push
+  #         exit 0 and any tooling that only inspects exit status (agent
+  #         loops, CI driver scripts) would silently miss the
+  #         "address review feedback" stderr block.
+  if [ "$ci_rc" -eq 1 ] || [ "$ci_rc" -eq 75 ]; then
     exit 1
   fi
   # rc 0 path: check-pr-ci.sh has already printed either the "nothing more to

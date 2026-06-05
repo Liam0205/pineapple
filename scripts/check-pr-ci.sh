@@ -2,10 +2,17 @@
 # check-pr-ci.sh — block until the current branch's PR finishes CI, then report.
 #
 # Exit codes:
-#   0  all CI checks passed (a review-status reminder is still printed to stderr)
-#   1  one or more CI checks failed (all failing jobs listed on stderr)
-#   2  no PR found for the current branch, or gh unavailable (treated as non-fatal
-#      by the caller hook, but returned distinctly here)
+#   0  all CI checks passed AND no new review activity since the last push
+#      AND no unresolved review threads — terminal state.
+#   1  one or more CI checks failed (all failing jobs listed on stderr).
+#   2  no PR found for the current branch, or gh unavailable (treated as
+#      non-fatal by the caller hook, but returned distinctly here).
+#   75 CI passed, but there is new review activity since the last push or
+#      lingering unresolved review threads. The instruction block above
+#      this exit explains exactly what to do next. Surfacing this as a
+#      non-zero distinct code lets the caller hook fail the outer push so
+#      tooling that only inspects exit status (e.g. agent loops) doesn't
+#      treat the stderr instructions as silent context.
 #
 # This script does NOT push. It only inspects the already-pushed branch's PR.
 set -uo pipefail
@@ -264,4 +271,4 @@ log "the loop is done. Stop pushing and tell the user the PR is ready."
 log ""
 log "Current state: push_cutoff=${push_cutoff}, new_total=${total_new}, unresolved_threads=${unresolved_threads}, reviewDecision=${review_decision}"
 log "════════════════════════════════════════════════════════════"
-exit 0
+exit 75
