@@ -86,9 +86,26 @@ push_tag() {
 
   if [ -z "$remote_sha" ]; then
     echo "  pushing $tag (new)..."
-    git push origin "$tag"
-    echo "  pushed $tag"
-    return 0
+    # The repo's pre-push hook self-wraps the push: an inner push performs
+    # the real ref update, after which the outer `git push` we run here can
+    # exit non-zero even though the ref landed (the OUTER push sees a stale
+    # zero→SHA expectation against a now-already-at-SHA remote). Under the
+    # script-level `set -e`, that non-zero rc would abort the script after
+    # the first tag, leaving TAG_GO unpushed and breaking the dual-tag
+    # contract. So tolerate non-zero rc and verify the actual remote state
+    # via ls-remote — same pattern the already-exists branch below uses.
+    git push origin "$tag" || true
+    local pushed_sha
+    pushed_sha="$(git ls-remote origin "refs/tags/${tag}^{}" | awk '{print $1}')"
+    if [ -z "$pushed_sha" ]; then
+      pushed_sha="$(git ls-remote origin "refs/tags/${tag}" | awk '{print $1}')"
+    fi
+    if [ "$pushed_sha" = "$local_sha" ]; then
+      echo "  pushed $tag (remote verified at $local_sha)"
+      return 0
+    fi
+    echo "  [ERROR] $tag did not land on remote: expected $local_sha, got '${pushed_sha:-<none>}'" >&2
+    exit 1
   fi
 
   if [ "$remote_sha" = "$local_sha" ]; then
