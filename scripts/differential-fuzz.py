@@ -240,15 +240,23 @@ def gen_operator(rng: random.Random, name: str,
         "transform_resource_lookup", "recall_resource",
     ]
     # Deliberately excluded from random op generation (audit L3):
-    # * transform_bench_cpu / transform_bench_sleep / reorder_topn_boost and
-    #   the rest of the bench-stub family — these are throughput-only stubs
-    #   gated by build flags (Go pine_bench tag, Java -Dpine.bench=true,
-    #   C++ PINE_BUILD_BENCH_STUBS=ON) and intentionally have no
-    #   cases/expected fixture surface. Including them would force the
-    #   cross-runtime oracle to reason about timing-derived outputs that
-    #   are not part of the engine's pure-function contract. byte-equal
-    #   work parity is locked separately by fixtures/pipelines/
-    #   bench_cpu_work_parity.json (audit M12).
+    # * transform_bench_cpu / transform_bench_sleep — production operators
+    #   (no build-tag gating; package transform, registered unconditionally
+    #   in all three runtimes), but their outputs encode synthetic CPU/
+    #   sleep work whose absolute values are deterministic only under
+    #   matching iteration counts. byte-equal work parity is locked by
+    #   fixtures/pipelines/bench_cpu_work_parity.json (audit M12) running
+    #   through Section 03; random fuzz would have to reason about the
+    #   work-quantity arithmetic, which adds no signal beyond M12.
+    # * reorder_topn_boost and the rest of the bench-stub family
+    #   (recall_feed_data, transform_redis_zrangebyscore, observe_datahub,
+    #   transform_generate_request_id, ...) — gated by build flags
+    #   (Go pine_bench tag, Java -Dpine.bench=true, C++
+    #   PINE_BUILD_BENCH_STUBS=ON) and have no cases/expected on the
+    #   throughput-only realistic_for_you_*.json fixtures. byte-equal
+    #   reorder parity for the one stub that does real work
+    #   (reorder_topn_boost) is locked by reorder_topn_boost_parity.json
+    #   running through Section 19 with bench-enabled binaries.
     # * transform_redis_get / transform_redis_set — depend on a live
     #   redis-server. Combinatorial coverage lives in
     #   scripts/cross-validate/11-redis-integration.sh; H11 in the
