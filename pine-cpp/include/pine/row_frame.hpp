@@ -60,6 +60,13 @@ class RowFrame : public Frame {
 
   std::pair<std::string, int> validate_strict_items(const std::vector<std::string>& fields) const override;
 
+  // Lock-free read-side mirrors (see Frame for contract).
+  void with_read_lock(const std::function<void()>& body) const override;
+  Variant common_no_lock(const std::string& field) const override;
+  bool has_common_no_lock(const std::string& field) const override;
+  std::size_t item_count_no_lock() const override;
+  bool item_has_no_lock(std::size_t index, const std::string& field) const override;
+
  private:
   mutable std::shared_mutex mu_;
   Variant::object_t common_;
