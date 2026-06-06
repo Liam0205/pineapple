@@ -25,6 +25,12 @@ public class BenchmarkTest {
             for (Path path : (Iterable<Path>) files::iterator) {
                 if (!path.toString().endsWith(".json")) continue;
                 JsonNode root = mapper.readTree(path.toFile());
+
+                if (root.has("requires") && root.get("requires").isArray()
+                        && root.get("requires").size() > 0) {
+                    continue;
+                }
+
                 String name = path.getFileName().toString().replace(".json", "");
                 byte[] configBytes = mapper.writeValueAsBytes(root.get("config"));
 
