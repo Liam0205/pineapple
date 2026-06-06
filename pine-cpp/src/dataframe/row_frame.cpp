@@ -374,6 +374,23 @@ bool RowFrame::item_has_no_lock(std::size_t index, const std::string& field) con
   return src[index].find(field) != src[index].end();
 }
 
+Variant RowFrame::item_no_lock(std::size_t index, const std::string& field) const {
+  const auto& src = view_items_ ? *view_items_ : items_;
+  if (view_items_) {
+    if (index >= view_count_) {
+      return Variant();
+    }
+    index += view_offset_;
+  } else if (index >= src.size()) {
+    return Variant();
+  }
+  auto it = src[index].find(field);
+  if (it == src[index].end()) {
+    return Variant();
+  }
+  return it->second;
+}
+
 // Factory selecting Frame implementation by storage_mode. Unknown
 // values fall back to "column" — mirrors pine-go NewFrame behavior.
 std::unique_ptr<Frame> make_frame(const std::string& storage_mode, Variant::object_t common,

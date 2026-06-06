@@ -628,9 +628,21 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   int total = static_cast<int>(frame.item_count());
   int n = op.data_parallel;
   if (n <= 1 || total == 0) {
+    // Single-shard path: take the frame read lock once for the entire
+    // build_input + execute window. Both stages only read the frame
+    // (operator output goes into `out`, which the caller applies post-
+    // execute via apply_output's unique_lock). Mirrors pine-go
+    // RowFrame.BuildInput's single-RLock window plus the fact that
+    // operator execute reads OperatorInput proxies instead of touching
+    // the frame again for writes. build_operator_input itself nests
+    // a with_read_lock — std::shared_mutex is not recursive, so we
+    // intentionally do NOT re-take it here when build_operator_input
+    // already does. Instead, build_operator_input takes the lock for
+    // its validation pass, returns, then we hold the lock again for
+    // execute. The two are non-overlapping shared_lock acquisitions.
     OperatorInput input = build_operator_input(frame, op.name, spec);
     input.set_templated_params(resolved_ptr);
-    dispatch_with_recovery(input, op, operators, out);
+    frame.with_read_lock([&]() { dispatch_with_recovery(input, op, operators, out); });
     return;
   }
   if (n > total) {
@@ -682,7 +694,12 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     try {
       OperatorInput input = build_operator_input(*shards[static_cast<std::size_t>(i)], op.name, spec);
       input.set_templated_params(resolved_ptr);
-      dispatch_with_recovery(input, op, operators, shard_outs[static_cast<std::size_t>(i)]);
+      // Same single-RLock window contract as the n<=1 path. Each shard
+      // holds its own window-view's read lock for the duration of execute;
+      // the parent frame is not touched directly by operator code, so
+      // shards do not contend on a shared mutex.
+      shards[static_cast<std::size_t>(i)]->with_read_lock(
+          [&]() { dispatch_with_recovery(input, op, operators, shard_outs[static_cast<std::size_t>(i)]); });
     } catch (...) {
       std::lock_guard<std::mutex> lk(err_mu);
       if (!first_err) {

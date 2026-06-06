@@ -97,6 +97,7 @@ class Frame {
   virtual bool has_common_no_lock(const std::string& field) const = 0;
   virtual std::size_t item_count_no_lock() const = 0;
   virtual bool item_has_no_lock(std::size_t index, const std::string& field) const = 0;
+  virtual Variant item_no_lock(std::size_t index, const std::string& field) const = 0;
 };
 
 // Factory: build the Frame implementation that matches storage_mode.
