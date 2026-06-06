@@ -15,6 +15,18 @@ for fixture in "$REPO_ROOT"/fixtures/pipelines/*.json; do
   [[ -f "$fixture" ]] || continue
   fname=$(basename "$fixture")
 
+  # Skip fixtures that need external prepopulated state (redis) or
+  # specially-built bench-tag binaries. Production binaries (used here)
+  # don't register bench stubs, so render-dag would error out.
+  if python3 -c "
+import json, sys
+data = json.load(open('$fixture'))
+req = set(data.get('requires', []) or [])
+sys.exit(0 if req & {'redis', 'redis-unavailable', 'bench'} else 1)
+"; then
+    continue
+  fi
+
   config_file="$WORK_DIR/dag_config_${fname}"
   python3 -c "
 import json

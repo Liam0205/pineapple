@@ -39,7 +39,23 @@ echo "==> Iterating pipeline fixtures"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 fixture_count=0
+skipped=0
 for fixture in "$REPO_ROOT"/fixtures/pipelines/*.json; do
+    # Skip fixtures that need external prepopulated state (redis) or
+    # specially-built binaries (bench-tag stubs). The sanitizer build
+    # is the production binary set — bench stubs aren't registered, so
+    # `reorder_topn_boost` etc. cannot be loaded here. These fixtures
+    # have dedicated cross-validate sections (Section 11 for redis,
+    # Section 19 for bench).
+    if python3 -c "
+import json, sys
+data = json.load(open('$fixture'))
+req = set(data.get('requires', []) or [])
+sys.exit(0 if req & {'redis', 'redis-unavailable', 'bench'} else 1)
+"; then
+        skipped=$((skipped + 1))
+        continue
+    fi
     fixture_count=$((fixture_count + 1))
     cfg="$WORK_DIR/cfg.json"
     req="$WORK_DIR/req.json"
@@ -59,7 +75,7 @@ else:
     # run executor
     "$RUN" -config "$cfg" -request "$req" >/dev/null || true
 done
-echo "    Ran $fixture_count fixtures through dag + run."
+echo "    Ran $fixture_count fixtures through dag + run (skipped $skipped requires-tagged)."
 
 echo "==> HTTP server smoke under sanitizers"
 SRV_CFG="$WORK_DIR/srv_cfg.json"
