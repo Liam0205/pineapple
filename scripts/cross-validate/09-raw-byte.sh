@@ -31,6 +31,12 @@ with open('$config_file', 'w') as cf:
 import json, sys
 with open('$fixture_file') as f:
     data = json.load(f)
+# Skip fixtures that need external prepopulated state (redis) or
+# specially-built bench-tag binaries. Section 11/17 cover redis;
+# Section 19 covers bench-only stubs.
+requires = set(data.get('requires', []) or [])
+if requires & {'redis', 'redis-unavailable', 'bench'}:
+    sys.exit(0)
 cases = data.get('cases', [])
 if not cases:
     sys.exit(0)
