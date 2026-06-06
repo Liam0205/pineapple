@@ -459,4 +459,44 @@ std::pair<std::string, int> ColumnFrame::validate_strict_items(const std::vector
   return {"", -1};
 }
 
+void ColumnFrame::with_read_lock(const std::function<void()>& body) const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  body();
+}
+
+Variant ColumnFrame::common_no_lock(const std::string& field) const {
+  const auto& src = view_common_ ? *view_common_ : common_;
+  auto it = src.find(field);
+  if (it == src.end()) {
+    return Variant();
+  }
+  return it->second;
+}
+
+bool ColumnFrame::has_common_no_lock(const std::string& field) const {
+  const auto& src = view_common_ ? *view_common_ : common_;
+  return src.find(field) != src.end();
+}
+
+std::size_t ColumnFrame::item_count_no_lock() const {
+  return view_items_ ? view_count_ : items_->row_count();
+}
+
+bool ColumnFrame::item_has_no_lock(std::size_t index, const std::string& field) const {
+  const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+  if (view_items_) {
+    if (index >= view_count_) {
+      return false;
+    }
+    index += view_offset_;
+  } else if (index >= store->row_count()) {
+    return false;
+  }
+  const Column* col = store->column(field);
+  if (!col) {
+    return false;
+  }
+  return col->is_present(index);
+}
+
 }  // namespace pine

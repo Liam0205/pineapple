@@ -335,6 +335,45 @@ std::pair<std::string, int> RowFrame::validate_strict_items(const std::vector<st
   return {"", -1};
 }
 
+void RowFrame::with_read_lock(const std::function<void()>& body) const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  body();
+}
+
+Variant RowFrame::common_no_lock(const std::string& field) const {
+  const auto& src = view_common_ ? *view_common_ : common_;
+  auto it = src.find(field);
+  if (it == src.end()) {
+    return Variant();
+  }
+  return it->second;
+}
+
+bool RowFrame::has_common_no_lock(const std::string& field) const {
+  const auto& src = view_common_ ? *view_common_ : common_;
+  return src.find(field) != src.end();
+}
+
+std::size_t RowFrame::item_count_no_lock() const {
+  if (view_items_) {
+    return view_count_;
+  }
+  return items_.size();
+}
+
+bool RowFrame::item_has_no_lock(std::size_t index, const std::string& field) const {
+  const auto& src = view_items_ ? *view_items_ : items_;
+  if (view_items_) {
+    if (index >= view_count_) {
+      return false;
+    }
+    index += view_offset_;
+  } else if (index >= src.size()) {
+    return false;
+  }
+  return src[index].find(field) != src[index].end();
+}
+
 // Factory selecting Frame implementation by storage_mode. Unknown
 // values fall back to "column" — mirrors pine-go NewFrame behavior.
 std::unique_ptr<Frame> make_frame(const std::string& storage_mode, Variant::object_t common,

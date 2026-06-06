@@ -2,6 +2,7 @@
 
 #include "pine/pine.hpp"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -76,6 +77,26 @@ class Frame {
   // On failure returns (field_name, row_index) of the first violation.
   // ColumnFrame uses bitmap scans; RowFrame checks per-row maps.
   virtual std::pair<std::string, int> validate_strict_items(const std::vector<std::string>& fields) const = 0;
+
+  // ---- internal: lock-free read-side mirrors ----
+  //
+  // The public read methods (common/has_common/item/item_has/item_count)
+  // each acquire the internal shared_mutex per call. Hot paths that read
+  // many fields under one logical "no concurrent writer" window (e.g.
+  // build_operator_input's strict/nullable validation loop, which fires
+  // 5000 × M times per request on large fixtures) collapse those calls
+  // by taking the read lock once via with_read_lock and then dispatching
+  // through the *_no_lock variants below — mirroring pine-go RowFrame
+  // BuildInput (`f.mu.RLock(); defer f.mu.RUnlock(); ...`) and pine-java
+  // DataFrame.buildInput (`rwLock.readLock().lock(); try { ... }`).
+  //
+  // Contract: the *_no_lock methods are only safe to call from a callable
+  // invoked through with_read_lock() on the same Frame instance.
+  virtual void with_read_lock(const std::function<void()>& body) const = 0;
+  virtual Variant common_no_lock(const std::string& field) const = 0;
+  virtual bool has_common_no_lock(const std::string& field) const = 0;
+  virtual std::size_t item_count_no_lock() const = 0;
+  virtual bool item_has_no_lock(std::size_t index, const std::string& field) const = 0;
 };
 
 // Factory: build the Frame implementation that matches storage_mode.
