@@ -1,5 +1,7 @@
 #include "pine/operator.hpp"
 
+#include <unordered_set>
+
 #include "operators/_helpers.hpp"
 
 namespace pine {
@@ -11,21 +13,14 @@ class MergeDedupOp : public Operator, public ConsumesRowSet, public MutatesRowSe
     field_ = cfg.metadata.item_input.at(0);
   }
   void execute(const OperatorInput& input, OperatorOutput& out) override {
-    std::vector<std::string> seen;
-    for (std::size_t i = 0; i < input.item_count(); ++i) {
+    const std::size_t n = input.item_count();
+    std::unordered_set<std::string> seen;
+    seen.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
       Variant fv = input.item(i, field_);
-      std::string key = operators::dedup_key(fv);
-      bool dup = false;
-      for (const auto& s : seen) {
-        if (s == key) {
-          dup = true;
-          break;
-        }
-      }
-      if (dup) {
+      auto [_it, inserted] = seen.emplace(operators::dedup_key(fv));
+      if (!inserted) {
         out.remove_item(static_cast<int>(i));
-      } else {
-        seen.push_back(key);
       }
     }
   }
