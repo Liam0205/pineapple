@@ -499,4 +499,24 @@ bool ColumnFrame::item_has_no_lock(std::size_t index, const std::string& field) 
   return col->is_present(index);
 }
 
+Variant ColumnFrame::item_no_lock(std::size_t index, const std::string& field) const {
+  const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+  if (view_items_) {
+    if (index >= view_count_) {
+      return Variant();
+    }
+    index += view_offset_;
+  } else if (index >= store->row_count()) {
+    return Variant();
+  }
+  const Column* col = store->column(field);
+  if (!col) {
+    return Variant();
+  }
+  if (col->is_null(index)) {
+    return Variant();
+  }
+  return col->get(index);
+}
+
 }  // namespace pine

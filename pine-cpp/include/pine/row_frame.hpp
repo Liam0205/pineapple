@@ -66,6 +66,7 @@ class RowFrame : public Frame {
   bool has_common_no_lock(const std::string& field) const override;
   std::size_t item_count_no_lock() const override;
   bool item_has_no_lock(std::size_t index, const std::string& field) const override;
+  Variant item_no_lock(std::size_t index, const std::string& field) const override;
 
  private:
   mutable std::shared_mutex mu_;

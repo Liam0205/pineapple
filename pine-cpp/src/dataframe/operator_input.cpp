@@ -12,7 +12,15 @@ OperatorInput::OperatorInput(const Frame& frame, const InputFieldSpec& spec)
 }
 
 Variant OperatorInput::common(const std::string& field) const {
-  Variant v = frame_->common(field);
+  // The proxy reads through Frame::common_no_lock by design. The engine
+  // (run_dag → dispatch_with_recovery) wraps the entire build_input +
+  // execute window in frame.with_read_lock, so lock acquisition for the
+  // many per-row reads inside an operator collapses to a single
+  // shared_lock per operator dispatch — mirroring pine-go RowFrame
+  // BuildInput's `f.mu.RLock(); defer f.mu.RUnlock(); ...` window.
+  // Direct callers outside the engine (unit tests, integration shims)
+  // must satisfy the same precondition.
+  Variant v = frame_->common_no_lock(field);
   if (!v.is_null()) {
     return v;
   }
@@ -28,7 +36,9 @@ Variant OperatorInput::item(std::size_t index, const std::string& field) const {
   if (index >= cached_item_count_) {
     return Variant(nullptr);
   }
-  Variant v = frame_->item(index, field);
+  // See common(): assumes caller holds frame.read_lock() — engine wraps
+  // the full operator dispatch window in frame.with_read_lock.
+  Variant v = frame_->item_no_lock(index, field);
   if (!v.is_null()) {
     return v;
   }
