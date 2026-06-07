@@ -603,6 +603,21 @@ Apple 结构校验的目标是把明确的配置错误（非 Transform、有 com
 
 此规则防止业务参数与元数据声明不匹配导致运行时静默错误：DAG builder 和 `BuildInput` 只追踪 `$metadata`，如果 `lookup_key` 不在 `item_input` 中，运行时不会为该算子构造对应字段，lookup 变成 silent no-op。
 
+### 8. 显式 None 标量参数拒绝（audit M5）
+
+`validate_explicit_null_params` 在编译期拒绝把 `param=None` 传给 scalar 类型参数，调用顺序排在 `validate_templated_params` 之后、`detect_dead_code` 之前。
+
+背景：Java / C++ 运行时的 `Init` 路径（commits `1fa18b3` / `452aee4`）以 `containsKey` 守卫参数查找，使显式 JSON `null` 被归类为「类型不匹配」而非静默回退到声明默认值。Apple 把 `ttl=None` 直接编译成 JSON `null`，因此手动传 `None` 标量的 DSL 作者原本只能在运行时、且仅当三引擎措辞一致时才看到分歧。把拒绝前移到校验器，让作者获得与其他 schema 违规相同的、带行号定位的 `ValidationError`。
+
+判定规则：
+
+- 按 `op.type_name` 通过 `_lookup_params_schema` 取算子 codegen schema；无 schema 的算子跳过（无干净的「缺省 vs 显式 null」契约）
+- 仅当参数值为 `None` 且其声明 `type` 落在 `_TEMPLATABLE_SCALAR_TYPES`（`string` / `int` / `int64` / `float` / `float64` / `bool`）时拒绝
+- 容器 / `any` 类型参数（如 `filter_condition.value` 在 `type=any` 下）容忍显式 `None`
+- `apple_generated` 不可导入时静默跳过，保证 pre-codegen 开发流程仍可编译
+
+错误消息复用 `_op_location(name, op)`，因此在嵌套 `SubFlow` 中同样带 `subflow_path` 与源码位置，并附上 parity 依据（commits `1fa18b3` / `452aee4`）。
+
 ## 关键不变量：校验顺序必须与执行顺序对齐
 
 校验正确性取决于编译器使用的算子顺序与运行时使用的顺序假设一致。
