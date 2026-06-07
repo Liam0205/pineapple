@@ -55,45 +55,62 @@ fi
 
 # High-fanout fixtures: each picked because the DAG has 3+ root nodes that
 # get seeded simultaneously by the engine's seed loop, maximising the race
-# window between seed enqueue and worker propagate.
+# window between seed enqueue and worker propagate. Format:
+# "subdir:filename:iters:parallel" — subdir relative to fixtures/.
 HIGH_FANOUT=(
-    multi_recall_row_set_ordering.json   # 6 roots
-    recall_merge_filter_sort.json        # 4 roots
-    parallel_recall_set_comparison.json  # 3 roots
-    data_parallel.json                   # 3 roots
-    data_parallel_lua.json               # 3 roots
-    barrier_transform_reorder.json       # 4 roots
+    pipelines:multi_recall_row_set_ordering.json:50:8     # 6 roots
+    pipelines:recall_merge_filter_sort.json:50:8          # 4 roots
+    pipelines:parallel_recall_set_comparison.json:50:8    # 3 roots
+    pipelines:data_parallel.json:50:8                     # 3 roots
+    pipelines:data_parallel_lua.json:50:8                 # 3 roots
+    pipelines:barrier_transform_reorder.json:50:8         # 4 roots
+    # large_5000 has 4 no-dep transforms (copy/dispatch/lua/normalize)
+    # all reading and writing the same Frame concurrently — exactly the
+    # write-while-read race surface that RowFrame/ColumnFrame's
+    # shared_mutex is supposed to protect. Lower iter/parallel because
+    # one iteration is ~30ms instead of ~1ms.
+    benchmarks:large_5000_config.json:5:4                 # 4-way disjoint transforms
 )
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-echo "==> Stress: $ITERATIONS iterations × $PARALLEL parallel workers per fixture"
-for fname in "${HIGH_FANOUT[@]}"; do
-    fixture="$REPO_ROOT/fixtures/pipelines/$fname"
-    [[ -f "$fixture" ]] || { echo "    skip $fname (missing)"; continue; }
-    cfg="$WORK_DIR/cfg_$fname"
-    req="$WORK_DIR/req_$fname"
+echo "==> Stress: high-fanout fixtures (per-fixture iter × parallel listed)"
+for spec in "${HIGH_FANOUT[@]}"; do
+    IFS=':' read -r subdir fname iters par <<< "$spec"
+    fixture="$REPO_ROOT/fixtures/$subdir/$fname"
+    [[ -f "$fixture" ]] || { echo "    skip $subdir/$fname (missing)"; continue; }
+    cfg="$WORK_DIR/cfg_${subdir}_$fname"
+    req="$WORK_DIR/req_${subdir}_$fname"
     python3 -c "
 import json
 data = json.load(open('$fixture'))
-json.dump(data.get('config', {}), open('$cfg', 'w'))
+# benchmarks/*_config.json has the engine config at top level; pipelines/*.json
+# wraps it under 'config' alongside cases.
+cfg = data.get('config', data)
+json.dump(cfg, open('$cfg', 'w'))
 cases = data.get('cases', [])
 if cases:
     json.dump(cases[0].get('request', {}), open('$req', 'w'))
 else:
-    json.dump({'common': {}, 'items': []}, open('$req', 'w'))
+    # benchmarks fixtures have a sibling *_request.json file.
+    import os
+    sibling = '$fixture'.replace('_config.json', '_request.json')
+    if os.path.exists(sibling):
+        json.dump(json.load(open(sibling)), open('$req', 'w'))
+    else:
+        json.dump({'common': {}, 'items': []}, open('$req', 'w'))
 "
-    echo "    Stressing $fname"
-    for ((iter=0; iter<ITERATIONS; iter++)); do
+    echo "    Stressing $subdir/$fname (iter=$iters par=$par)"
+    for ((iter=0; iter<iters; iter++)); do
         pids=()
-        for ((p=0; p<PARALLEL; p++)); do
+        for ((p=0; p<par; p++)); do
             "${NOASLR[@]}" "$RUN" -config "$cfg" -request "$req" >/dev/null 2>>"$WORK_DIR/run.err" &
             pids+=("$!")
         done
         for pid in "${pids[@]}"; do
             if ! wait "$pid"; then
-                echo "    pineapple-run failed under TSan (iter=$iter, fixture=$fname)" >&2
+                echo "    pineapple-run failed under TSan (iter=$iter, fixture=$subdir/$fname)" >&2
                 tail -n 60 "$WORK_DIR/run.err" >&2 || true
                 exit 1
             fi
