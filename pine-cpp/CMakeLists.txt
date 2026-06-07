@@ -246,6 +246,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_metrics_collector.cpp
         tests/test_template.cpp
         tests/test_arena.cpp
+        tests/test_shared_mutex.cpp
     )
     target_sources(pine_cpp_tests PRIVATE src/server/http_metrics.cpp src/server/http_stats.cpp)
     target_link_libraries(pine_cpp_tests PRIVATE pine_cpp_core doctest::doctest)
