@@ -2,7 +2,6 @@
 
 #include "pine/frame.hpp"
 
-#include <optional>
 #include <set>
 
 namespace pine {
@@ -139,58 +138,51 @@ InputFieldSpec compute_input_field_spec(const OperatorConfig& config) {
 
 OperatorInput build_operator_input(const Frame& frame, const std::string& op_name,
                                    const InputFieldSpec& spec) {
-  // Strict-item path stays as the dedicated batch scan — for ColumnFrame
-  // this is a per-column bitmap walk inside one lock, way cheaper than a
-  // per-row item_has loop. For RowFrame it is also already a single-lock
-  // implementation. Run it before the with_read_lock window.
+  // CONTRACT: caller wraps build_operator_input + dispatch_with_recovery
+  // in a single frame.with_read_lock(). All reads here go through
+  // *_no_lock — re-entering the locking variants would deadlock on
+  // std::shared_mutex (not recursive). The strict_item batch scan
+  // also uses the no_lock variant.
+  //
+  // Stage history (chore/bench_and_doc):
+  //   - stage-1 (eab4415): nested an inner frame.with_read_lock around
+  //     these loops. Two locking windows per op (build_input + dispatch).
+  //   - stage-2 (9f7db78): added the engine-side dispatch with_read_lock.
+  //   - stage-3 (this commit): collapse the two windows into one. The
+  //     engine takes a single read_lock, build_operator_input runs
+  //     lock-free beneath it. On a clean machine 1k req × 20 conc,
+  //     calibrated_2c4g shows stage-3 ≈ stage-2 (234 vs 234 QPS, both
+  //     +4% over the merge_dedup-only baseline of 225). Stage-3 keeps
+  //     the win with one fewer lambda.
   if (!spec.strict_item.empty()) {
-    auto [bad_field, bad_row] = frame.validate_strict_items(spec.strict_item);
+    auto [bad_field, bad_row] = frame.validate_strict_items_no_lock(spec.strict_item);
     if (bad_row >= 0) {
       throw ExecutionError(
           op_name, "required field \"" + bad_field + "\" is nil on item[" + std::to_string(bad_row) + "]");
     }
   }
 
-  // Remaining checks — strict/nullable common + nullable item — run
-  // inside one shared-lock window on the frame, mirroring pine-go
-  // RowFrame.BuildInput (`f.mu.RLock(); defer f.mu.RUnlock(); ...`)
-  // and pine-java DataFrame.buildInput
-  // (`rwLock.readLock().lock(); try { ... }`). On hot paths
-  // (nullable_item × N rows × M fields) this collapses up to N×M
-  // separate shared_lock acquisitions into one. We capture any
-  // validation error outside the lambda and throw after the window
-  // closes — the RAII lock guard still releases on normal return.
-  std::optional<ExecutionError> err;
-  frame.with_read_lock([&]() {
-    for (const auto& field : spec.strict_common) {
-      Variant v = frame.common_no_lock(field);
-      if (v.is_null()) {
-        err.emplace(op_name, "required field \"" + field + "\" is nil in common");
-        return;
+  for (const auto& field : spec.strict_common) {
+    Variant v = frame.common_no_lock(field);
+    if (v.is_null()) {
+      throw ExecutionError(op_name, "required field \"" + field + "\" is nil in common");
+    }
+  }
+
+  for (const auto& field : spec.nullable_common) {
+    if (!frame.has_common_no_lock(field)) {
+      throw ExecutionError(op_name, "required field \"" + field + "\" is missing in common");
+    }
+  }
+
+  const std::size_t n = frame.item_count_no_lock();
+  for (const auto& field : spec.nullable_item) {
+    for (std::size_t i = 0; i < n; ++i) {
+      if (!frame.item_has_no_lock(i, field)) {
+        throw ExecutionError(
+            op_name, "required field \"" + field + "\" is missing on item[" + std::to_string(i) + "]");
       }
     }
-
-    for (const auto& field : spec.nullable_common) {
-      if (!frame.has_common_no_lock(field)) {
-        err.emplace(op_name, "required field \"" + field + "\" is missing in common");
-        return;
-      }
-    }
-
-    const std::size_t n = frame.item_count_no_lock();
-    for (const auto& field : spec.nullable_item) {
-      for (std::size_t i = 0; i < n; ++i) {
-        if (!frame.item_has_no_lock(i, field)) {
-          err.emplace(op_name,
-                      "required field \"" + field + "\" is missing on item[" + std::to_string(i) + "]");
-          return;
-        }
-      }
-    }
-  });
-
-  if (err) {
-    throw *err;
   }
 
   // Return lazy proxy (PERF-1b)

@@ -519,4 +519,23 @@ Variant ColumnFrame::item_no_lock(std::size_t index, const std::string& field) c
   return col->get(index);
 }
 
+std::pair<std::string, int> ColumnFrame::validate_strict_items_no_lock(
+    const std::vector<std::string>& fields) const {
+  const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+  std::size_t offset = view_items_ ? view_offset_ : 0;
+  std::size_t count = view_items_ ? view_count_ : store->row_count();
+  for (const auto& field : fields) {
+    const Column* col = store->column(field);
+    if (!col) {
+      return {field, 0};
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+      if (col->is_null(offset + i)) {
+        return {field, static_cast<int>(i)};
+      }
+    }
+  }
+  return {"", -1};
+}
+
 }  // namespace pine
