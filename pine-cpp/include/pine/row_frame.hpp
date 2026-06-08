@@ -67,6 +67,8 @@ class RowFrame : public Frame {
   std::size_t item_count_no_lock() const override;
   bool item_has_no_lock(std::size_t index, const std::string& field) const override;
   Variant item_no_lock(std::size_t index, const std::string& field) const override;
+  std::pair<std::string, int> validate_strict_items_no_lock(
+      const std::vector<std::string>& fields) const override;
 
  private:
   mutable std::shared_mutex mu_;
