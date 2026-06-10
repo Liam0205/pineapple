@@ -374,40 +374,6 @@ bool RowFrame::item_has_no_lock(std::size_t index, const std::string& field) con
   return src[index].find(field) != src[index].end();
 }
 
-Variant RowFrame::item_no_lock(std::size_t index, const std::string& field) const {
-  const auto& src = view_items_ ? *view_items_ : items_;
-  if (view_items_) {
-    if (index >= view_count_) {
-      return Variant();
-    }
-    index += view_offset_;
-  } else if (index >= src.size()) {
-    return Variant();
-  }
-  auto it = src[index].find(field);
-  if (it == src[index].end()) {
-    return Variant();
-  }
-  return it->second;
-}
-
-std::pair<std::string, int> RowFrame::validate_strict_items_no_lock(
-    const std::vector<std::string>& fields) const {
-  const auto& rows = view_items_ ? *view_items_ : items_;
-  std::size_t offset = view_items_ ? view_offset_ : 0;
-  std::size_t count = view_items_ ? view_count_ : rows.size();
-  for (const auto& field : fields) {
-    for (std::size_t i = 0; i < count; ++i) {
-      const auto& row = rows[offset + i];
-      auto it = row.find(field);
-      if (it == row.end() || it->second.is_null()) {
-        return {field, static_cast<int>(i)};
-      }
-    }
-  }
-  return {"", -1};
-}
-
 // Factory selecting Frame implementation by storage_mode. Unknown
 // values fall back to "column" — mirrors pine-go NewFrame behavior.
 std::unique_ptr<Frame> make_frame(const std::string& storage_mode, Variant::object_t common,
