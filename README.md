@@ -2,7 +2,7 @@
 
 # Pineapple
 
-高性能 DAG 流水线引擎。**Python 声明，Go/Java/Python/C++ 四引擎执行，JSON 解耦。**
+高性能 DAG 流水线引擎。**Python 声明，Go/Java/C++ 三引擎执行，JSON 解耦。**
 
 算子只需声明输入/输出字段，引擎自动推导依赖、构建 DAG、并行调度——你专注业务逻辑，Pineapple 负责把它跑快。
 
@@ -15,11 +15,11 @@
 ```
 Python DSL (Apple)  ──compile──>  JSON Config
                                       │
-                          ┌───────────┼───────────┬───────────┐
-                          v           v           v           v
-                   Pine-Go (Go)  Pine-Java    Pine-Python  Pine-C++
-                   构建 DAG       构建 DAG      构建 DAG     构建 DAG
-                   并行执行       并行执行      线程池执行   per-node 并行
+                          ┌───────────┼───────────┐
+                          v           v           v
+                   Pine-Go (Go)  Pine-Java     Pine-C++
+                   构建 DAG       构建 DAG      构建 DAG
+                   并行执行       并行执行      per-node 并行
 ```
 
 | 组件 | 语言 | 职责 |
@@ -27,23 +27,24 @@ Python DSL (Apple)  ──compile──>  JSON Config
 | **Apple** | Python | 声明式 DSL，编译输出 JSON 配置 |
 | **Pine-Go** | Go | 主执行引擎：解析配置、构建 DAG、并行调度 |
 | **Pine-Java** | Java | 第二执行引擎，与 Pine-Go 行为一致 |
-| **Pine-Python** | Python | 第三执行引擎，用于原型验证和测试 |
-| **Pine-C++** | C++23 | 第四执行引擎（标杆运行时），完全 parity + 性能上限探索 |
+| **Pine-C++** | C++23 | 第三执行引擎（标杆运行时），完全 parity + 性能上限探索 |
 
 **工程团队**用 Go/Java/C++ 开发高性能算子；**业务团队**用 Python DSL 编排逻辑。两侧通过 JSON 配置彻底解耦。
+
+> 曾经存在的 Pine-Python 运行时引擎已于 v0.9.7 后移除。仓库中的 Python 代码仅为 Apple DSL 声明层（编译器），不是运行时。
 
 ## 核心特性
 
 - **隐式构图** — 算子声明输入/输出字段，引擎自动推导 DAG 依赖并执行传递性归约
 - **无锁并行** — DAG 中无依赖的算子自动并行执行
 - **编译期校验** — 死代码、字段缺失、写后未读等问题在部署前拦截
-- **Lua 嵌入** — 内置 Lua 算子支持轻量自定义计算，仅比 Go 原生慢约 1.3x
+- **Lua 嵌入** — 内置 Lua 算子支持轻量自定义计算。端到端开销约 1.2-2x;隔离算子级开销随运行时与计算复杂度变化（C++/LuaJIT 约 3-5x、Java 约 2-9x、Go 约 6-17x），计算密集型热路径建议写原生算子
 - **配置热加载** — 服务运行时自动无停机重载引擎配置
 - **动态资源** — 后台定时刷新的内存资源管理器，无锁读
 - **白盒可观测** — 算子级 trace、`/stats` 端点、可插拔 Prometheus 接口
 - **行存/列存可切换** — DataFrame 支持两种存储模式
-- **四引擎一致性** — Go/Java/Python/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息一致
-- **Pine-C++ 标杆运行时** — 完整第四运行时，17 个内置算子、HTTP server（热加载/graceful shutdown）、ColumnFrame/RowFrame 双物理实现、OperatorInput lazy 投影、LuaJIT 集成、metrics/resource 对等
+- **三引擎一致性** — Go/Java/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息一致
+- **Pine-C++ 标杆运行时** — 完整第三运行时，内置算子与 Go/Java 完全对等、HTTP server（热加载/graceful shutdown）、ColumnFrame/RowFrame 双物理实现、OperatorInput lazy 投影、LuaJIT 集成、metrics/resource 对等
 
 ## 从旧版迁移（Breaking Change）
 
@@ -135,7 +136,7 @@ Apple DSL 侧同步变更：`OpCall(..., row_dependency=True)` → `OpCall(..., 
 
 - Go 1.26+（Pine-Go）
 - Java 21+（Pine-Java）
-- Python 3.11+（Apple DSL + Pine-Python）
+- Python 3.11+（Apple DSL）
 - CMake 3.20+ / C++23 编译器 / LuaJIT（Pine-C++，可选）
 
 ### 1. 编写 Pipeline
@@ -222,14 +223,17 @@ pineapple/
 │   └── src/test/java/      #   测试 + 基准 + fuzz
 ├── pine-cpp/               # C++ 执行引擎 (Pine-C++)
 │   ├── include/pine/       #   公共头文件
-│   ├── src/                #   config/dag/dataframe/runtime/server/lua/redis
-│   ├── operators/          #   17 个内置算子
-│   ├── cmd/                #   pineapple-run / pineapple-render-dag / pineapple-server / pineapple-codegen
+│   ├── src/                #   config/dag/dataframe/runtime/server/lua/redis/http/resource
+│   ├── operators/          #   内置算子（与 Go/Java 对等）+ bench stubs（编译开关 PINE_BUILD_BENCH_STUBS）
+│   ├── cmd/                #   pineapple-run / pineapple-render-dag / pineapple-server / pineapple-codegen / pineapple-cause-chain-probe
 │   └── tests/              #   doctest 单测套件
-├── fixtures/               # 共享测试 fixtures（四引擎公用）
+├── fixtures/               # 共享测试 fixtures（三引擎公用）
 │   ├── operators/          #   算子级单元 fixtures
 │   ├── pipelines/          #   Pipeline 级端到端 fixtures
-│   └── errors/             #   错误路径 fixtures
+│   ├── errors/             #   错误路径 fixtures
+│   ├── error_chain/        #   ExecutionError 因果链 fixtures
+│   ├── server_byte_exact/  #   server 响应字节级一致 fixtures
+│   └── benchmarks/         #   benchmark 配置/请求（含 calibrated 生产 proxy）
 ├── scripts/                # 开发者脚本
 ├── design_doc/             # 设计文档
 └── doc/                    # 生成的算子文档 & 报告
@@ -237,18 +241,18 @@ pineapple/
 
 ### Pine-C++ 标杆运行时
 
-`pine-cpp/` 是完整的第四运行时（C++23），定位为**在完全 parity 前提下的标杆实现**。
+`pine-cpp/` 是完整的第三运行时（C++23），定位为**在完全 parity 前提下的标杆实现**。
 
 当前能力：
 
-- **17 个内置算子**，与 Go/Java/Python 完全对等
-- **HTTP server**：`pineapple-cpp-server`，含热加载、graceful shutdown、HTTP/1.1 keep-alive、`/health`/`/execute`/`/stats`/`/dag` 端点
-- **CLI**：`pineapple-cpp-run`、`pineapple-cpp-render-dag`、`pineapple-cpp-codegen`
-- **Frame 多态**：ColumnFrame（列存）+ RowFrame（行存），OperatorInput lazy 投影
+- **内置算子与 Go/Java 完全对等**（清单见 `pine-cpp/CMakeLists.txt` 与 `doc/operators/`）
+- **HTTP server**：`pineapple-server`，含热加载、graceful shutdown、HTTP/1.1 keep-alive、客户端断连取消、`/health`/`/execute`/`/stats`/`/dag` 端点
+- **CLI**：`pineapple-run`、`pineapple-render-dag`、`pineapple-codegen`、`pineapple-cause-chain-probe`
+- **Frame 多态**：ColumnFrame（列存）+ RowFrame（行存），OperatorInput lazy 投影；锁形态（per-call `shared_mutex`）与 Go/Java 完全镜像
 - **LuaJIT**：StatePool、沙箱隔离、`_G["..."]` 变量注入
-- **可观测**：`metrics::Provider`、`resource::Manager`、`/stats.http`、cause chain
-- **CI**：cpp-build、cpp-test（doctest 145）、cpp-sanitizer（ASan/UBSan）、cpp-lint（-Werror）
-- **Cross-validate**：全 section 接入，四引擎一致性验证
+- **可观测**：`metrics::Provider`、`resource::Manager`、`/stats.http`、`/stats.resources`、cause chain
+- **CI**：cpp-build、cpp-test（doctest）、cpp-sanitizer（ASan/UBSan）、cpp-tsan（ThreadSanitizer）、cpp-lint（-Werror）
+- **Cross-validate**：全 section 接入，三引擎一致性验证
 
 
 ### 常用脚本
@@ -257,15 +261,19 @@ pineapple/
 |------|------|
 | `scripts/go-test.sh` | Go 全量测试 |
 | `scripts/java-test.sh` | Java 全量测试 |
-| `scripts/test-all.sh` | Go + Java + Python 全量测试 |
+| `scripts/test-all.sh` | Go + Apple(Python) + Java 全量测试 |
 | `scripts/lint.sh` | Go + Java + Python lint |
 | `scripts/go-bench.sh` | Go 性能基准 |
 | `scripts/java-bench.sh` | Java 性能基准 |
+| `scripts/bench-cross-runtime.sh` | 跨引擎 HTTP server benchmark（fixture 驱动，cgroup 资源隔离） |
 | `scripts/go-fuzz.sh` | Go fuzz 测试 |
 | `scripts/java-fuzz.sh` | Java fuzz 测试 |
-| `scripts/cross-validate.sh` | 四引擎交叉验证（schema + DAG + 执行 + 错误 + server + metrics） |
-| `scripts/codegen.sh` | 代码生成（支持 `--backend go\|java\|python\|cpp`） |
-| `scripts/render-dag.sh` | DAG 可视化（支持 `--backend go\|java\|python\|cpp`） |
+| `scripts/differential-fuzz.sh` | 三引擎差异模糊测试（随机生成 pipeline 比对输出） |
+| `scripts/cross-validate.sh` | 三引擎交叉验证（schema + DAG + 执行 + 错误 + server + metrics 等） |
+| `scripts/cpp-sanitizer-smoke.sh` | C++ ASan/UBSan 冒烟 |
+| `scripts/cpp-tsan-smoke.sh` | C++ ThreadSanitizer 高并发压测 |
+| `scripts/codegen.sh` | 代码生成（`--backend go\|java`） |
+| `scripts/render-dag.sh` | DAG 可视化（`--backend go\|java`） |
 | `scripts/apple-compile.sh` | Apple DSL 编译为 JSON |
 | `scripts/run-pipeline.sh` | 单次执行 pipeline |
 | `scripts/bump-version.sh` | 版本号同步更新 |
@@ -275,26 +283,36 @@ pineapple/
 CI 在每次 push/PR 时自动运行：
 
 - **Lint** — Go (golangci-lint)、Java (checkstyle, failOnViolation=true)、Python (ruff)、C++ (-Werror)
-- **Test** — Go/Java/Python/C++ 全量测试 + 覆盖率
-- **Fuzz** — Go/Java fuzz + 四引擎差异模糊测试
-- **Benchmark** — Go/Java/Python 性能基准
-- **Cross-validation** — 四引擎 schema/DAG/执行/错误/server/metrics 一致性
+- **Test** — Go/Java/Apple/C++ 全量测试 + 覆盖率
+- **Sanitizer** — C++ ASan/UBSan 冒烟 + ThreadSanitizer 高并发压测
+- **Fuzz** — Go/Java fuzz + 三引擎差异模糊测试
+- **Benchmark** — Go/Java 性能基准
+- **Cross-validation** — 三引擎 schema/DAG/执行/错误/server/metrics 一致性
 - **Codegen check** — 确保生成代码与源码同步
 
 ### 交叉验证
 
-`scripts/cross-validate.sh` 验证四引擎的一致性（具体 section 以 `scripts/cross-validate/` 目录为准）：
+`scripts/cross-validate.sh` 验证三引擎的一致性，当前 19 个 section（具体以 `scripts/cross-validate/` 目录为准）：
 
-1. **Schema parity** — 四端 codegen 导出的算子 schema 必须一致
-2. **DAG parity** — 相同配置，四端渲染的 DAG（DOT + Mermaid，含 collapse）必须一致
-3. **Execution parity** — 相同配置 + 请求，四端执行结果必须一致
+1. **Schema parity** — 三端 codegen 导出的算子 schema 与 apple_generated 产物字节级一致
+2. **DAG parity** — 相同配置，三端渲染的 DAG（DOT + Mermaid，含 collapse）必须一致
+3. **Execution parity** — 相同配置 + 请求，三端执行结果必须一致
 4. **Column-store parity** — 以列存模式重复执行验证
-5. **Error parity** — 非法配置/请求，四端返回相同的错误分类和消息
+5. **Error parity** — 非法配置/请求，三端返回相同的错误分类和消息
 6. **Server parity** — HTTP 端点的 status code、body 结构、Content-Type 一致
-7. **Cancellation parity** — 超时和运行时错误的取消行为一致
-8. **Metrics parity** — `/stats` 结构和数值一致
-9. **Cause chain parity** — ExecutionError 因果链可解包一致
-10. **Resource metrics parity** — `/stats.resources` 子树（redis 资源级指标）结构与正确性一致，含 `metrics_name` 为空的负例
+7. **Cancellation parity** — 超时、运行时错误与客户端断连的取消行为一致
+8. **Concurrent parity** — 并发请求下的行为与计数一致
+9. **Raw-byte parity** — 不归一化的原始字节输出比对（key 顺序）
+10. **Hot-reload parity** — 配置与 `resource_config` 热加载行为一致
+11. **Redis integration** — redis 算子在三端的真实 redis 行为一致
+12. **Extensibility parity** — 下游扩展模式（middleware、未注册路径等负空间）一致
+13. **Metrics parity** — `/stats` 结构和数值一致（含 lua_pool 计数器、data_parallel 并发不变量）
+14. **Byte-exact execute** — server `/execute` 响应字节级一致
+15. **Error cause chain** — ExecutionError 因果链可解包一致
+16. **Resource metrics** — `/stats.resources` 子树结构与三态（无流量/有量/不可达）一致
+17. **Templated params** — `{{field}}` 模板参数解析一致
+18. **SubFlow contract stderr** — Apple 编译期 SubFlow 契约报错文案稳定
+19. **Bench-stub parity** — bench 构建下 `reorder_topn_boost` 字节级一致
 
 ### 为下游构建 Cross-Validation 体系
 
@@ -384,40 +402,39 @@ def normalize_json(text):
 
 ## Benchmark
 
-跨引擎性能对比（HTTP server 模式，小/中型 pipeline）。
+跨引擎性能对比（HTTP server 模式，`scripts/bench-cross-runtime.sh`，10000 请求 × 16 并发，server 以 2C/4G cgroup 隔离）。`realistic_calibrated` 为按真实流量校准的生产 proxy fixture，其余为合成压测。
 
-### 延迟 (sequential requests, median ms)
+### 吞吐量 (QPS)
 
-| Fixture | Go | Java | Python |
+| Fixture | Go | Java | C++ |
 |---|---|---|---|
-| small_010 (10 items) | 0.28 | 1.10 | 0.79 |
-| small_050 (50 items) | 0.33 | 1.17 | 0.90 |
-| small_100 (100 items) | 0.36 | 1.14 | 1.02 |
-| medium_0100 (100 items) | 0.53 | 1.58 | 1.60 |
-| medium_0500 (500 items) | 1.68 | 2.10 | 3.52 |
-| medium_1000 (1000 items) | 2.96 | 2.92 | 5.84 |
+| small_010 (10 items) | 37078 | 5825 | 20794 |
+| small_050 (50 items) | 26976 | 5201 | 17244 |
+| small_100 (100 items) | 19585 | 4748 | 13904 |
+| medium_0100 (100 items) | 12025 | 3681 | 8578 |
+| medium_0500 (500 items) | 2921 | 2034 | 2938 |
+| medium_1000 (1000 items) | 1446 | 1360 | 1647 |
+| large_0100 (100 items) | 6395 | 2855 | 4855 |
+| large_0500 (500 items) | 1439 | 1439 | 1671 |
+| large_1000 (1000 items) | 728 | 917 | 902 |
+| large_5000 (5000 items) | 142 | 212 | 174 |
+| **realistic_calibrated (生产校准)** | **120** | **124** | **221** |
 
-### 吞吐量 (RPS, concurrency=16)
+### P50 延迟 (ms)
 
-| Fixture | Go | Java | Python |
+| Fixture | Go | Java | C++ |
 |---|---|---|---|
-| small_010 | 3205 | 3367 | 1619 |
-| small_050 | 3000 | 3411 | 1393 |
-| small_100 | 2782 | 3308 | 1159 |
-| medium_0100 | 2189 | 3042 | 706 |
-| medium_0500 | 859 | 2506 | 301 |
-| medium_1000 | 591 | 1786 | 176 |
+| small_010 | 0.3 | 2.0 | 0.6 |
+| medium_0500 | 5.0 | 6.3 | 5.2 |
+| large_1000 | 20.5 | 14.8 | 16.1 |
+| large_5000 | 102.2 | 67.9 | 83.9 |
+| **realistic_calibrated** | **123.6** | **121.9** | **65.0** |
 
-### Pine-Python 建议用法
+要点：
 
-Pine-Python 受 CPython GIL 限制，并发吞吐量无法随核数线性扩展。建议用途：
-
-- **单元测试** — 无需编译 Go/Java 即可验证 pipeline 逻辑正确性
-- **原型验证** — 快速迭代 pipeline 配置，确认 DAG 结构和算子行为
-- **CI cross-validate** — 作为第三方校验源，确保三引擎行为一致
-- **低 QPS 场景** — 内部工具、离线批处理、开发环境
-
-生产高并发场景请使用 Pine-Go 或 Pine-Java。
+- **生产校准场景下 C++ 领先约 1.8x**（QPS 221 vs 120/124；P50 65ms vs ~122ms），这是"标杆运行时"定位的体现
+- 合成 small/medium 场景 Go 吞吐最高（轻量请求路径开销最低）；大行数场景（large_1000+）Java 的 JIT 热循环优化使其反超
+- 各引擎数字会随版本演进，复现方式：`scripts/bench-cross-runtime.sh --requests 10000 --concurrency 16`，报告落在 `bench-results/`
 
 ## 文档
 
