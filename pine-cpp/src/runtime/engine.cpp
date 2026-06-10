@@ -628,16 +628,9 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   int total = static_cast<int>(frame.item_count());
   int n = op.data_parallel;
   if (n <= 1 || total == 0) {
-    // Stage-3: one with_read_lock window covers build_input + execute.
-    // build_operator_input dispatches through Frame::*_no_lock under
-    // this outer lock, and OperatorInput::item also goes through
-    // *_no_lock — so the entire reader path runs under one shared_lock
-    // hold per operator dispatch.
-    frame.with_read_lock([&]() {
-      OperatorInput input = build_operator_input(frame, op.name, spec);
-      input.set_templated_params(resolved_ptr);
-      dispatch_with_recovery(input, op, operators, out);
-    });
+    OperatorInput input = build_operator_input(frame, op.name, spec);
+    input.set_templated_params(resolved_ptr);
+    dispatch_with_recovery(input, op, operators, out);
     return;
   }
   if (n > total) {
@@ -687,13 +680,9 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
       guard.emplace(central);
     }
     try {
-      // Stage-3: one with_read_lock window per shard, covering
-      // build_input + dispatch (same contract as the n<=1 path).
-      shards[static_cast<std::size_t>(i)]->with_read_lock([&]() {
-        OperatorInput input = build_operator_input(*shards[static_cast<std::size_t>(i)], op.name, spec);
-        input.set_templated_params(resolved_ptr);
-        dispatch_with_recovery(input, op, operators, shard_outs[static_cast<std::size_t>(i)]);
-      });
+      OperatorInput input = build_operator_input(*shards[static_cast<std::size_t>(i)], op.name, spec);
+      input.set_templated_params(resolved_ptr);
+      dispatch_with_recovery(input, op, operators, shard_outs[static_cast<std::size_t>(i)]);
     } catch (...) {
       std::lock_guard<std::mutex> lk(err_mu);
       if (!first_err) {
