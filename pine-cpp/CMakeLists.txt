@@ -258,4 +258,15 @@ if(PINE_CPP_BUILD_TESTS)
 
     enable_testing()
     add_test(NAME pine_cpp_tests COMMAND pine_cpp_tests)
+
+    # Isolated Lua-vs-native operator benchmark (manual run, not a ctest).
+    # See tests/bench_lua_isolated.cpp header for usage; archived results in
+    # .code-review/sharedmutex-deep-dive/lua-vs-native-three-runtimes.md.
+    add_executable(pine_lua_isolated_bench tests/bench_lua_isolated.cpp)
+    target_link_libraries(pine_lua_isolated_bench PRIVATE pine_cpp_core)
+    target_include_directories(pine_lua_isolated_bench PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    pine_cpp_target_warnings(pine_lua_isolated_bench)
 endif()
