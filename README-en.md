@@ -2,7 +2,7 @@ English | [简体中文](README.md)
 
 # Pineapple
 
-High-performance DAG pipeline engine. **Declare in Python, execute in Go/Java/Python/C++ (four engines), decouple via JSON.**
+High-performance DAG pipeline engine. **Declare in Python, execute in Go/Java/C++ (three engines), decouple via JSON.**
 
 Operators declare their input/output fields; the engine automatically infers dependencies, builds the DAG, and schedules parallel execution — you focus on business logic, Pineapple makes it fast.
 
@@ -15,11 +15,11 @@ Suitable for any scenario requiring **multi-step data processing pipelines**: se
 ```
 Python DSL (Apple)  ──compile──>  JSON Config
                                       │
-                          ┌───────────┼───────────┬───────────┐
-                          v           v           v           v
-                   Pine-Go (Go)  Pine-Java    Pine-Python  Pine-C++
-                   Build DAG      Build DAG    Build DAG    Build DAG
-                   parallel exec  parallel     threadpool   per-node parallel
+                          ┌───────────┼───────────┐
+                          v           v           v
+                   Pine-Go (Go)  Pine-Java     Pine-C++
+                   Build DAG      Build DAG     Build DAG
+                   parallel exec  parallel      per-node parallel
 ```
 
 | Component | Language | Role |
@@ -27,22 +27,24 @@ Python DSL (Apple)  ──compile──>  JSON Config
 | **Apple** | Python | Declarative DSL, compiles to JSON config |
 | **Pine-Go** | Go | Primary execution engine: parse config, build DAG, parallel scheduling |
 | **Pine-Java** | Java | Second execution engine, behavior-consistent with Pine-Go |
-| **Pine-Python** | Python | Third execution engine, for prototyping and testing |
-| **Pine-C++** | C++23 | Fourth execution engine (benchmark runtime), full parity + performance ceiling |
+| **Pine-C++** | C++23 | Third execution engine (benchmark runtime), full parity + performance ceiling |
 
 **Engineering teams** develop high-performance operators in Go/Java/C++; **product teams** compose logic with the Python DSL. The two sides are fully decoupled via JSON config.
+
+> The former Pine-Python runtime engine was removed after v0.9.7. The Python code in this repository is the Apple DSL declaration layer (a compiler), not a runtime.
 
 ## Key Features
 
 - **Implicit graph construction** — Operators declare input/output fields; engine infers DAG dependencies with transitive reduction
 - **Lock-free parallelism** — Independent operators in the DAG execute in parallel automatically
 - **Compile-time validation** — Dead code, missing fields, write-after-write detected before deployment
-- **Embedded Lua** — Built-in Lua operators for lightweight custom computation, only ~1.3x slower than native Go
+- **Embedded Lua** — Built-in Lua operators for lightweight custom computation. End-to-end overhead ~1.2-2x; isolated operator-level overhead varies by runtime and compute complexity (C++/LuaJIT ~3-5x, Java ~2-9x, Go ~6-17x) — write native operators for compute-heavy hot paths
 - **Hot config reload** — Service automatically reloads engine config without downtime
 - **Dynamic resources** — Background-refreshed in-memory resource manager with lock-free reads
 - **White-box observability** — Operator-level traces, `/stats` endpoint, pluggable Prometheus interface
 - **Row/Column storage** — DataFrame supports both storage modes
-- **Quad-engine consistency** — Go/Java/Python/C++ engines verified via CI cross-validation for schema, DAG, execution, error, server, and metrics parity
+- **Tri-engine consistency** — Go/Java/C++ engines verified via CI cross-validation for schema, DAG, execution, error, server, and metrics parity
+- **Pine-C++ benchmark runtime** — Complete third runtime with operator parity, HTTP server (hot reload / graceful shutdown), ColumnFrame/RowFrame dual physical layouts, lazy OperatorInput projection, LuaJIT integration, metrics/resource parity
 
 ## Migrating from Older Versions (Breaking Change)
 
@@ -133,7 +135,7 @@ The new model uses three marker interfaces for precise row-set dependency declar
 
 - Go 1.26+ (Pine-Go)
 - Java 21+ (Pine-Java)
-- Python 3.11+ (Apple DSL + Pine-Python)
+- Python 3.11+ (Apple DSL)
 
 ### 1. Write a Pipeline
 
@@ -217,10 +219,19 @@ pineapple/
 ├── pine-java/              # Java execution engine (Pine-Java)
 │   ├── src/main/java/      #   Engine implementation + CLI tools
 │   └── src/test/java/      #   Tests + benchmarks + fuzz
-├── fixtures/               # Shared test fixtures (used by both Go and Java)
+├── pine-cpp/               # C++ execution engine (Pine-C++)
+│   ├── include/pine/       #   Public headers
+│   ├── src/                #   config/dag/dataframe/runtime/server/lua/redis/http/resource
+│   ├── operators/          #   Built-in operators (parity with Go/Java) + bench stubs (PINE_BUILD_BENCH_STUBS)
+│   ├── cmd/                #   pineapple-run / pineapple-render-dag / pineapple-server / pineapple-codegen / pineapple-cause-chain-probe
+│   └── tests/              #   doctest unit suite
+├── fixtures/               # Shared test fixtures (used by all three engines)
 │   ├── operators/          #   Operator-level unit fixtures
 │   ├── pipelines/          #   Pipeline-level end-to-end fixtures
-│   └── errors/             #   Error path fixtures
+│   ├── errors/             #   Error path fixtures
+│   ├── error_chain/        #   ExecutionError cause-chain fixtures
+│   ├── server_byte_exact/  #   Byte-exact server response fixtures
+│   └── benchmarks/         #   Benchmark configs/requests (incl. calibrated production proxies)
 ├── scripts/                # Developer scripts
 ├── design_doc/             # Design documents
 └── doc/                    # Generated operator docs & reports
@@ -234,15 +245,19 @@ pineapple/
 |--------|---------|
 | `scripts/go-test.sh` | Run all Go tests |
 | `scripts/java-test.sh` | Run all Java tests |
-| `scripts/test-all.sh` | Run Go + Java + Python tests |
+| `scripts/test-all.sh` | Run Go + Apple (Python) + Java tests |
 | `scripts/lint.sh` | Lint Go + Java + Python |
 | `scripts/go-bench.sh` | Go benchmarks |
 | `scripts/java-bench.sh` | Java benchmarks |
+| `scripts/bench-cross-runtime.sh` | Cross-engine HTTP server benchmark (fixture-driven, cgroup-isolated) |
 | `scripts/go-fuzz.sh` | Go fuzz testing |
 | `scripts/java-fuzz.sh` | Java fuzz testing |
-| `scripts/cross-validate.sh` | Go/Java cross-validation (schema + DAG + execution) |
-| `scripts/codegen.sh` | Code generation (supports `--backend go\|java`) |
-| `scripts/render-dag.sh` | DAG visualization (supports `--backend go\|java`) |
+| `scripts/differential-fuzz.sh` | Tri-engine differential fuzzing (random pipelines, output diff) |
+| `scripts/cross-validate.sh` | Tri-engine cross-validation (schema + DAG + execution + errors + server + metrics, 19 sections) |
+| `scripts/cpp-sanitizer-smoke.sh` | C++ ASan/UBSan smoke |
+| `scripts/cpp-tsan-smoke.sh` | C++ ThreadSanitizer high-fanout stress |
+| `scripts/codegen.sh` | Code generation (`--backend go\|java`) |
+| `scripts/render-dag.sh` | DAG visualization (`--backend go\|java`) |
 | `scripts/apple-compile.sh` | Compile Apple DSL to JSON |
 | `scripts/run-pipeline.sh` | One-shot pipeline execution |
 | `scripts/bump-version.sh` | Synchronize version across all components |
@@ -251,25 +266,37 @@ pineapple/
 
 CI runs automatically on every push/PR:
 
-- **Lint** — Go (golangci-lint), Java (checkstyle), Python (ruff)
-- **Test** — Full Go/Java/Python test suites with coverage
-- **Fuzz** — Go/Java fuzz testing
+- **Lint** — Go (golangci-lint), Java (checkstyle, failOnViolation=true), Python (ruff), C++ (-Werror)
+- **Test** — Full Go/Java/Apple/C++ test suites with coverage
+- **Sanitizer** — C++ ASan/UBSan smoke + ThreadSanitizer stress
+- **Fuzz** — Go/Java fuzz + tri-engine differential fuzzing
 - **Benchmark** — Go/Java performance benchmarks
-- **Cross-validation** — Go/Java schema parity + DAG parity + execution result consistency
+- **Cross-validation** — Tri-engine schema/DAG/execution/error/server/metrics parity
 - **Codegen check** — Ensures generated code is in sync with source
 
 ### Cross-Validation
 
-`scripts/cross-validate.sh` verifies consistency between the Go and Java engines:
+`scripts/cross-validate.sh` verifies consistency across the three engines, currently 19 sections (see `scripts/cross-validate/` for the authoritative list):
 
-1. **Schema parity** — Operator schemas exported by both codegen tools (names, param types, required flags, defaults) must match
-2. **DAG parity** — Same config input must produce identical DAG output (DOT + Mermaid, including collapse) from both engines
-3. **Execution parity** — Same config + request must yield identical results (after JSON normalization) from both engines
+1. **Schema parity** — Operator schemas and apple_generated artifacts exported by all three codegen tools must match byte-for-byte
+2. **DAG parity** — Same config input must produce identical DAG output (DOT + Mermaid, including collapse) from all engines
+3. **Execution parity** — Same config + request must yield identical results (after JSON normalization)
 4. **Column-store parity** — Repeats execution verification in column-store mode
 5. **Error parity** — Invalid configs/requests must produce the same error classification and messages
 6. **Server parity** — HTTP endpoints must return matching status codes, body structure, and Content-Type
-7. **Cancellation parity** — Timeout and runtime error cancellation behavior must match
-8. **Resource metrics parity** — `/stats.resources` subtree (redis resource-level metrics) matches in shape and correctness across engines, including the empty-`metrics_name` negative case
+7. **Cancellation parity** — Timeout, runtime error, and client-disconnect cancellation behavior must match
+8. **Concurrent parity** — Behavior and counters under concurrent requests must match
+9. **Raw-byte parity** — Un-normalized raw byte output comparison (key ordering)
+10. **Hot-reload parity** — Config and `resource_config` hot-reload behavior must match
+11. **Redis integration** — Redis operators behave identically against a live redis
+12. **Extensibility parity** — Downstream extension patterns (middleware, unregistered paths) must match
+13. **Metrics parity** — `/stats` structure and values must match (incl. lua_pool counters, data_parallel invariants)
+14. **Byte-exact execute** — Server `/execute` responses must match byte-for-byte
+15. **Error cause chain** — ExecutionError cause chains unwrap identically
+16. **Resource metrics** — `/stats.resources` subtree matches in shape across no-traffic/under-load/unreachable states
+17. **Templated params** — `{{field}}` template parameter resolution must match
+18. **SubFlow contract stderr** — Apple compile-time SubFlow contract error wording stays stable
+19. **Bench-stub parity** — `reorder_topn_boost` matches byte-for-byte under bench builds
 
 ### Building Cross-Validation for Downstream Projects
 
@@ -358,40 +385,39 @@ See `scripts/cross-validate.sh` for a complete production implementation.
 
 ## Benchmark
 
-Cross-engine performance comparison (HTTP server mode, small/medium pipelines).
+Cross-engine performance comparison (HTTP server mode, `scripts/bench-cross-runtime.sh`, 10000 requests × 16 concurrency, server cgroup-isolated to 2C/4G). `realistic_calibrated` is a production proxy fixture calibrated against real traffic; the rest are synthetic stress tests.
 
-### Latency (sequential requests, median ms)
+### Throughput (QPS)
 
-| Fixture | Go | Java | Python |
+| Fixture | Go | Java | C++ |
 |---|---|---|---|
-| small_010 (10 items) | 0.28 | 1.10 | 0.79 |
-| small_050 (50 items) | 0.33 | 1.17 | 0.90 |
-| small_100 (100 items) | 0.36 | 1.14 | 1.02 |
-| medium_0100 (100 items) | 0.53 | 1.58 | 1.60 |
-| medium_0500 (500 items) | 1.68 | 2.10 | 3.52 |
-| medium_1000 (1000 items) | 2.96 | 2.92 | 5.84 |
+| small_010 (10 items) | 37078 | 5825 | 20794 |
+| small_050 (50 items) | 26976 | 5201 | 17244 |
+| small_100 (100 items) | 19585 | 4748 | 13904 |
+| medium_0100 (100 items) | 12025 | 3681 | 8578 |
+| medium_0500 (500 items) | 2921 | 2034 | 2938 |
+| medium_1000 (1000 items) | 1446 | 1360 | 1647 |
+| large_0100 (100 items) | 6395 | 2855 | 4855 |
+| large_0500 (500 items) | 1439 | 1439 | 1671 |
+| large_1000 (1000 items) | 728 | 917 | 902 |
+| large_5000 (5000 items) | 142 | 212 | 174 |
+| **realistic_calibrated (production proxy)** | **120** | **124** | **221** |
 
-### Throughput (RPS, concurrency=16)
+### P50 Latency (ms)
 
-| Fixture | Go | Java | Python |
+| Fixture | Go | Java | C++ |
 |---|---|---|---|
-| small_010 | 3205 | 3367 | 1619 |
-| small_050 | 3000 | 3411 | 1393 |
-| small_100 | 2782 | 3308 | 1159 |
-| medium_0100 | 2189 | 3042 | 706 |
-| medium_0500 | 859 | 2506 | 301 |
-| medium_1000 | 591 | 1786 | 176 |
+| small_010 | 0.3 | 2.0 | 0.6 |
+| medium_0500 | 5.0 | 6.3 | 5.2 |
+| large_1000 | 20.5 | 14.8 | 16.1 |
+| large_5000 | 102.2 | 67.9 | 83.9 |
+| **realistic_calibrated** | **123.6** | **121.9** | **65.0** |
 
-### Pine-Python Recommended Usage
+Highlights:
 
-Pine-Python is limited by CPython's GIL and cannot scale throughput linearly with cores. Recommended use cases:
-
-- **Unit testing** — Validate pipeline logic without compiling Go/Java
-- **Prototyping** — Rapidly iterate pipeline configs, verify DAG structure and operator behavior
-- **CI cross-validation** — Serve as a third-party verification source for tri-engine parity
-- **Low-QPS scenarios** — Internal tools, offline batch processing, development environments
-
-For production high-concurrency workloads, use Pine-Go or Pine-Java.
+- **C++ leads by ~1.8x on the production-calibrated scenario** (QPS 221 vs 120/124; P50 65ms vs ~122ms) — this is what the "benchmark runtime" positioning means
+- Go has the highest throughput on synthetic small/medium fixtures (lowest lightweight-request overhead); Java's JIT hot-loop optimization wins at large row counts (large_1000+)
+- Numbers evolve with versions. Reproduce with `scripts/bench-cross-runtime.sh --requests 10000 --concurrency 16`; reports land in `bench-results/`
 
 ## Documentation
 
