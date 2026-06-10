@@ -1,65 +1,58 @@
 #pragma once
 
 #include <atomic>
+#include <cassert>
 #include <cstdint>
-#include <thread>
+#include <mutex>
+#include <semaphore>
 
 namespace pine {
 
-// SharedMutex is a lightweight, writer-priority read-write mutex.
+// SharedMutex is a reader-writer mutex that ports Go's sync.RWMutex
+// algorithm to C++ (go/src/sync/rwmutex.go, Go 1.26). It exists because
+// the uncontended fast path of glibc's pthread_rwlock (the engine behind
+// std::shared_mutex on Linux) costs ~25 instructions per acquisition —
+// full function prologue/epilogue (PLT-called, never inlined), a TLS
+// load for self-deadlock detection, a reader/writer-preference policy
+// branch, and only then the LOCK XADD that does the real work. Go's
+// RLock fast path inlines to LOCK XADD + sign test: ~3 instructions.
 //
-// Why this exists. glibc's pthread_rwlock (the implementation behind
-// std::shared_mutex) costs ~30 ns per uncontended lock_shared / unlock_shared
-// pair on Linux x86_64 — the kernel-aware fast path still does several
-// atomic exchanges on per-rwlock state plus signal-mask juggling. On
-// pine-cpp's hot read paths (OperatorInput::item firing N×M times per
-// operator dispatch) those atomics dominate the profile (~20% on
-// large_5000) even though the contention is essentially zero.
+// Why the first pine::SharedMutex (CAS-based) failed: it used
+// load + compare_exchange loops for both lock_shared and unlock_shared.
+// That costs two atomic cacheline accesses per op instead of one, and
+// under concurrent readers the CAS fails and retries (every successful
+// +1 invalidates every other reader's expected value) — measured 2029ns
+// per pair at 16 readers vs 1294ns for pthread_rwlock. Its writer-pending
+// path also made readers spin on std::this_thread::yield(), burning CPU
+// that the 2-core cgroup'd server needed for actual work.
 //
-// Go's sync.RWMutex.RLock and Java's ReentrantReadWriteLock.readLock
-// both achieve sub-10 ns uncontended cost via runtime-specific tricks
-// (sync.Pool-style pinning in Go, JIT inlining + escape analysis in
-// Java). On the C++ side we don't have those, so we implement a small
-// futex-free spin/yield based reader-writer lock that pays roughly one
-// CAS per uncontended lock_shared.
+// The Go algorithm fixes all three problems at once:
 //
-// Semantics. Mirrors std::shared_mutex enough to satisfy
-// std::shared_lock / std::unique_lock as RAII holders:
-//   - lock_shared / unlock_shared: read locks, multiple readers permitted
-//   - lock / unlock: exclusive write lock
-//   - try_lock_shared / try_lock: non-blocking
+//   reader_count_  int32   — readers currently holding the lock. A writer
+//                            "announces" itself by subtracting kMaxReaders,
+//                            driving the count deeply negative. Readers
+//                            fetch_add(1) unconditionally — never retry,
+//                            never roll back — and the *sign* of the result
+//                            tells them whether a writer is in the way.
+//   reader_wait_   int32   — how many pre-announcement readers the writer
+//                            must wait out. The last of them posts
+//                            writer_sem_.
+//   writer_mu_             — serialises writers against each other.
+//   reader_sem_ / writer_sem_ — counting semaphores for blocking (futex
+//                            underneath); nobody ever spins.
 //
-// State word layout (atomic<uint32_t>):
-//   bit 31:     writer_holding  (1 = exclusive lock held)
-//   bit 30:     writer_pending  (1 = a writer is waiting; new readers
-//                                 must block to avoid writer starvation)
-//   bits 0-29:  reader_count    (number of currently-held read locks)
+// Fast paths (the only paths production traffic hits — pine frames are
+// request-local, so writer contention is rare):
+//   lock_shared:   one LOCK XADD + a not-taken branch
+//   unlock_shared: one LOCK XADD + a not-taken branch
 //
-// Concurrency design. All three operations (lock_shared, lock,
-// unlock_*) work via CAS rather than fetch_add. CAS-only operation
-// avoids the rollback-window race that fetch_add-then-check would
-// otherwise expose: a reader that fetch_add'd just before a writer
-// committed kWriterHolding via plain store could leave the state word
-// holding both writer bits and a reader bit, and the reader's
-// subsequent unlock_shared (fetch_sub 1) would underflow the reader
-// count into the upper bits. Using CAS in lock_shared ensures we
-// only commit the read lock if the observed state was clean of
-// writer flags at commit time.
+// Semantics match std::shared_mutex closely enough for std::shared_lock
+// and std::unique_lock: lock/unlock, lock_shared/unlock_shared,
+// try_lock, try_lock_shared. Not recursive. Writer-preferring: once a
+// writer announces, new readers queue behind it (no writer starvation).
 //
-// Reader path: load → check writer flags → CAS to add 1.
-// Writer path: load → check no writer ahead → CAS to set pending →
-//   spin to drain readers → CAS pending→holding.
-// Both unlocks: CAS-decrement / CAS-clear.
-//
-// Spin policy: std::this_thread::yield. For pine-cpp's contention
-// pattern (short read windows + brief writes) yielding is sufficient
-// and avoids futex syscall overhead. If a future workload shows
-// lock-bound starvation, swap in a futex-based wait — the public
-// interface doesn't change.
-//
-// Thread safety: all member functions are safe to call concurrently.
-// No reentrance: a thread that holds a read or write lock must not try
-// to take another lock on the same instance (matches std::shared_mutex).
+// Unlock-of-unlocked is UB (asserted in debug builds), same stance as
+// std::shared_mutex — this is an engine-internal lock, not a public API.
 class SharedMutex {
  public:
   SharedMutex() noexcept = default;
@@ -69,48 +62,39 @@ class SharedMutex {
   // ---- shared (reader) locking ----
 
   void lock_shared() noexcept {
-    for (;;) {
-      uint32_t s = state_.load(std::memory_order_acquire);
-      if ((s & kWriterMask) != 0) {
-        // Writer holding or pending — yield and retry. Stalling here
-        // (rather than fetch_add'ing and rolling back) is what gives
-        // the writer a stable reader_count to drain against.
-        std::this_thread::yield();
-        continue;
-      }
-      // Try to commit reader_count + 1. CAS rather than fetch_add so
-      // that if a writer set kWriterPending between our load and the
-      // CAS, we observe it and retry instead of polluting the state
-      // with a transient reader bump.
-      uint32_t want = s + 1;
-      if (state_.compare_exchange_weak(s, want, std::memory_order_acquire, std::memory_order_acquire)) {
-        return;
-      }
-      // CAS failed — another reader or writer raced us. Retry.
+    if (reader_count_.fetch_add(1, std::memory_order_acquire) < 0) {
+      // A writer is pending or active. Our +1 is already counted — the
+      // writer's unlock() will see us in the queued total and post
+      // reader_sem_ exactly once for us. Block; no spinning.
+      reader_sem_.acquire();
     }
   }
 
   bool try_lock_shared() noexcept {
-    uint32_t s = state_.load(std::memory_order_acquire);
-    if ((s & kWriterMask) != 0) {
-      return false;
+    // Cannot blind fetch_add here: bumping reader_count_ while negative
+    // would enrol us in the writer's queue accounting and we would have
+    // to block to keep it balanced. CAS only when no writer is around.
+    int32_t s = reader_count_.load(std::memory_order_relaxed);
+    while (s >= 0) {
+      if (reader_count_.compare_exchange_weak(s, s + 1, std::memory_order_acquire,
+                                              std::memory_order_relaxed)) {
+        return true;
+      }
     }
-    uint32_t want = s + 1;
-    return state_.compare_exchange_strong(s, want, std::memory_order_acquire, std::memory_order_acquire);
+    return false;
   }
 
   void unlock_shared() noexcept {
-    // CAS-decrement so we never observe an underflow even if another
-    // thread is concurrently mutating writer flags. fetch_sub would
-    // be cheaper but mixes badly with the writer's CAS pending→holding
-    // transition that assumes clean reader_count==0 transitions.
-    for (;;) {
-      uint32_t s = state_.load(std::memory_order_acquire);
-      // Must have at least one reader to release; protocol violation
-      // otherwise. We don't assert in release builds; just clamp.
-      uint32_t want = s - 1;  // safe: reader bits live in low 30 bits
-      if (state_.compare_exchange_weak(s, want, std::memory_order_release, std::memory_order_acquire)) {
-        return;
+    int32_t r = reader_count_.fetch_sub(1, std::memory_order_release);
+    if (r < 0) {
+      // Mirrors Go's rUnlockSlow fatal checks: r == 0 means unlock of an
+      // unlocked mutex; r == -kMaxReaders means unlock_shared while only
+      // a writer holds it.
+      assert(r != 0 && r != -kMaxReaders && "unlock_shared of unlocked SharedMutex");
+      // A writer is waiting for the pre-announcement readers to drain.
+      // The last one out posts the writer's semaphore.
+      if (reader_wait_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        writer_sem_.release();
       }
     }
   }
@@ -118,66 +102,61 @@ class SharedMutex {
   // ---- exclusive (writer) locking ----
 
   void lock() noexcept {
-    // Stage 1: claim writer_pending. Loop CAS-from-no-writer until we
-    // get it. While another writer holds the pending or holding bit
-    // we yield and retry.
-    for (;;) {
-      uint32_t s = state_.load(std::memory_order_acquire);
-      if ((s & kWriterMask) != 0) {
-        std::this_thread::yield();
-        continue;
-      }
-      uint32_t want = s | kWriterPending;
-      if (state_.compare_exchange_weak(s, want, std::memory_order_acq_rel, std::memory_order_acquire)) {
-        break;
-      }
-    }
-
-    // Stage 2: wait for reader_count to drain, then atomically flip
-    // pending → holding. The transition CAS verifies the state is
-    // exactly kWriterPending (no readers, no other writer flags) —
-    // any racing reader that bumped reader_count after we set pending
-    // will have rolled back via its own CAS retry by the time we get
-    // here.
-    for (;;) {
-      uint32_t expected = kWriterPending;
-      if (state_.compare_exchange_weak(expected, kWriterHolding, std::memory_order_acq_rel,
-                                       std::memory_order_acquire)) {
-        return;
-      }
-      // expected reflects the actual state. If readers are still in,
-      // wait; otherwise (shouldn't happen) restart.
-      if ((expected & kWriterPending) == 0) {
-        // writer_pending unexpectedly cleared — start over to be safe.
-        return lock();
-      }
-      std::this_thread::yield();
+    // Resolve competition with other writers first.
+    writer_mu_.lock();
+    // Announce to readers that a writer is pending: drive reader_count_
+    // negative. fetch_sub returns the previous value = the number of
+    // readers holding the lock at announcement time.
+    int32_t r = reader_count_.fetch_sub(kMaxReaders, std::memory_order_acq_rel);
+    assert(r < kMaxReaders && "lock() while already write-locked");
+    // Wait for those readers to drain. They may have *already* drained
+    // between our fetch_sub and here — each of them decremented
+    // reader_wait_ below zero, and our fetch_add(r) brings it back to
+    // exactly zero in that case, meaning: nothing to wait for.
+    if (r != 0 && reader_wait_.fetch_add(r, std::memory_order_acq_rel) + r != 0) {
+      writer_sem_.acquire();
     }
   }
 
   bool try_lock() noexcept {
-    uint32_t expected = 0;
-    return state_.compare_exchange_strong(expected, kWriterHolding, std::memory_order_acq_rel,
-                                          std::memory_order_acquire);
+    if (!writer_mu_.try_lock()) {
+      return false;
+    }
+    int32_t expected = 0;
+    if (!reader_count_.compare_exchange_strong(expected, -kMaxReaders, std::memory_order_acq_rel,
+                                               std::memory_order_relaxed)) {
+      writer_mu_.unlock();
+      return false;
+    }
+    return true;
   }
 
   void unlock() noexcept {
-    state_.store(0, std::memory_order_release);
+    // Un-announce: bring reader_count_ back to non-negative. The new
+    // value (old + kMaxReaders) is the number of readers that arrived
+    // while we held the lock — they are all blocked on reader_sem_.
+    int32_t r = reader_count_.fetch_add(kMaxReaders, std::memory_order_release) + kMaxReaders;
+    assert(r < kMaxReaders && "unlock of unlocked SharedMutex");
+    if (r > 0) {
+      reader_sem_.release(r);
+    }
+    // Let the next writer in.
+    writer_mu_.unlock();
   }
 
-  // Test/debug only — exposes the raw state word so tests can verify
-  // that the mutex returns to a quiescent state after a stress run.
-  uint32_t debug_state() const noexcept {
-    return state_.load(std::memory_order_acquire);
+  // Test/debug only.
+  int32_t debug_reader_count() const noexcept {
+    return reader_count_.load(std::memory_order_acquire);
   }
 
  private:
-  static constexpr uint32_t kWriterHolding = 1u << 31;
-  static constexpr uint32_t kWriterPending = 1u << 30;
-  static constexpr uint32_t kWriterMask = kWriterHolding | kWriterPending;
-  static constexpr uint32_t kReaderMask = (1u << 30) - 1;
+  static constexpr int32_t kMaxReaders = 1 << 30;
 
-  std::atomic<uint32_t> state_{0};
+  std::atomic<int32_t> reader_count_{0};
+  std::atomic<int32_t> reader_wait_{0};
+  std::mutex writer_mu_;
+  std::counting_semaphore<> reader_sem_{0};
+  std::counting_semaphore<1> writer_sem_{0};
 };
 
 }  // namespace pine
