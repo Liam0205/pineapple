@@ -102,6 +102,8 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
   - **`Frame` 抽象基类**（`include/pine/frame.hpp`，R3-L3）：`ColumnFrame` 和 `RowFrame` 两个物理实现。`Operator::execute` 签名为 `const Frame&`（不绑定具体实现）。`pine::make_frame(storage_mode, common, items)` 工厂按 `Config.storage_mode` 路由（`"row"` → RowFrame，其他 → ColumnFrame）
   - `ColumnFrame` 为请求级 DataFrame，内部使用 `shared_mutex` 自治并发；canonical 5-stage write log（common writes / item writes / removals / reorder / additions）。NaN/Inf 在 apply_output 三阶段校验（R3-H2）。**行删除使用 bitmap 查找**（PERF-16）替代线性扫描
   - `RowFrame` 为行存 DataFrame，items 以 `vector<FlatMap<string, Variant>>` 存储，同样内部 `shared_mutex` + 5-stage write log + NaN/Inf 校验。适用于逐行访问密集场景（Lua snapshot、remote request、observe logging）
+  - **Frame 锁形态：per-call `std::shared_mutex`**——每次 `item()` / `common()` 内部自取锁，与 pine-go（`sync.RWMutex` per-call）和 pine-java（`ReentrantReadWriteLock` per-call）完全镜像。这是 2026-06 锁优化战役的最终决策：曾实现 dispatch 级 hoist（单 op 一次锁窗口，calibrated +4%）但为跨运行时锁形态对齐而 revert（commit `3c87bd6`）；历史方案与数据见 git log `9f7db78` / `a7d3b31` 与 `.code-review/sharedmutex-deep-dive/analysis.md`
+  - `include/pine/shared_mutex.hpp`：`pine::SharedMutex`，Go `sync.RWMutex` 协议的 C++ port（fetch_add + 负数宣告 + semaphore），单次拿放 10.14ns 超 Go 的 13.75ns（该组件的设计验收标准），10 doctest + TSan 验证。**当前 Frame 不使用它**：锁在 calibrated 负载上仅占 ~2% CPU，切换收益（0.4-0.9 个百分点）低于二进制布局噪声。它是已验证备件——当出现锁占比 >5% 的负载时，一行替换 typedef 即可启用
   - `OperatorOutput` write-log 模式：算子只声明写入意图，由 frame 应用，便于 trace/debug。`item_writes_` 内部为 `vector<ItemWrite>`（`struct ItemWrite { int index; std::string field; Variant value; }`），`set_item` 为 O(1) 摊销 push_back；`apply_output` 按顺序重放（last-write-wins 语义），`snapshot_output` 显式 group 到 map 保持最终状态视图
   - **ValidateOutput 类型约束**（R3-H1）：每个算子 execute 后、apply_output 前，按 operator_type 检查输出方法是否合法（Recall 不能 SetCommon 等），违规抛 ExecutionError `"type violation: operator type X must not call [Method1 Method2]"`
 - **算子输入投影层**
@@ -114,6 +116,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
   - `OperatorTraits<T>` 编译期 `std::is_base_of_v` 标记检查
   - `register_operator_with_traits(schema, factory, ...)` 底层 API + `register_operator_typed<T>(schema)` 模板 + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
   - 内置算子均使用 `PINE_REGISTER_OPERATOR_T`，按 category 拆分到 `operators/<category>/<name>.cpp`（具体清单见 `pine-cpp/CMakeLists.txt`）。Benchmark stub 算子（`transform_bench_cpu` / `transform_bench_sleep` 等 9 个）仅供性能测试。Bench stub 使用 iteration-based 校准模式 + 正态分布延迟模拟，确保跨运行时可比性
+  - `merge_dedup`：与 Go（map）/ Java（LinkedHashSet）一致用 hash set 去重（`unordered_set`）。历史教训：曾是 vector 线性扫描 O(N²)，large_5000（5000 行）上慢 Go 10 倍，`bd3fb75` 修复
   - `observe_log` 完整实现（R3-L8）：init 读取 metadata 字段列表和 `log_prefix`，execute 构造 `{common, items}` snapshot 后 **RapidJSON Writer** 紧凑输出到 stderr（PERF-15 从手写 `dump_json` 迁移到 RapidJSON，消除 22.4% 序列化热点）。紧凑模式抑制所有 `\n` / 缩进 / 冒号后空格，与 Go `json.Marshal` 格式对齐
   - `[pine-debug]` stderr 日志（R3-L6）：debug=true 的算子在 execute 后、apply_output 前输出 `operator/duration/input_size/output_size/input/output` 单行日志
   - `inline constexpr const char* kVersion`（R3-L2）：编译期版本常量，对齐 Go `const Version`，由 `scripts/bump-version.sh` 同步
