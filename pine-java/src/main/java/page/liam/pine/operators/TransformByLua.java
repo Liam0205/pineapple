@@ -29,6 +29,31 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     private String operatorName;
     private boolean debug;
 
+    /**
+     * Lua compiler backend selection (system property {@code pine.lua.compiler}):
+     *
+     * <ul>
+     *   <li>{@code luajc} (default) — LuaJ's luajc compiler
+     *       ({@link org.luaj.vm2.luajc.LuaJC}): compiles Lua source directly
+     *       to JVM bytecode classes, so hot scripts get the full C2 JIT
+     *       treatment (inlining, loop opts). Backed by Apache BCEL.
+     *   <li>{@code luac} — LuaJ's classic {@link LuaC} bytecode interpreter
+     *       path. Lower one-time compile cost, slower steady-state.
+     * </ul>
+     *
+     * <p>Scripts that luajc cannot compile (known 3.0.1 edge cases: certain
+     * varargs/upvalue shapes) automatically fall back to luac — per script,
+     * decided once at operator init and remembered for every pool state
+     * created afterwards (see {@link LuaPool}). The fallback never changes
+     * observable Lua semantics: both backends run the same LuaJ runtime,
+     * libraries, and sandbox; only the execution strategy differs.
+     */
+    static final String COMPILER_PROP = "pine.lua.compiler";
+
+    static boolean luajcRequested() {
+        return !"luac".equalsIgnoreCase(System.getProperty(COMPILER_PROP, "luajc"));
+    }
+
     @Override
     public void init(OperatorParams params) {
         script = params.getString("lua_script");
@@ -50,14 +75,38 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             isItemMode = false;
         }
 
-        // Validate script compiles and defines the function
-        Globals g = createSandboxedGlobals();
-        g.load(script).call();
-        if (g.get(funcName).isnil()) {
-            throw new IllegalArgumentException("lua: script does not define function \"" + funcName + "\"");
+        // Validate script compiles and defines the function. This is also
+        // where the luajc-vs-luac decision is made: if luajc is requested
+        // (default) we try compiling + running the script under luajc once;
+        // on any Error/Exception from the bytecode compiler we fall back to
+        // luac for this script and remember the choice for every pool state.
+        boolean useLuajc = false;
+        if (luajcRequested()) {
+            try {
+                Globals probe = createSandboxedGlobals(true);
+                probe.load(script).call();
+                if (probe.get(funcName).isnil()) {
+                    throw new IllegalArgumentException("lua: script does not define function \"" + funcName + "\"");
+                }
+                useLuajc = true;
+            } catch (IllegalArgumentException e) {
+                throw e;  // semantic validation failure — not a compiler issue
+            } catch (Throwable t) {
+                // luajc could not handle this script (BCEL generation edge
+                // case). Fall through to the luac path below; if luac also
+                // fails, that failure propagates as the real error.
+                useLuajc = false;
+            }
+        }
+        if (!useLuajc) {
+            Globals g = createSandboxedGlobals(false);
+            g.load(script).call();
+            if (g.get(funcName).isnil()) {
+                throw new IllegalArgumentException("lua: script does not define function \"" + funcName + "\"");
+            }
         }
 
-        pool = new LuaPool(script);
+        pool = new LuaPool(script, useLuajc);
     }
 
     @Override
@@ -201,14 +250,20 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
     }
 
-    private static Globals createSandboxedGlobals() {
+    private static Globals createSandboxedGlobals(boolean luajc) {
         Globals globals = new Globals();
         globals.load(new org.luaj.vm2.lib.BaseLib());
         globals.load(new org.luaj.vm2.lib.PackageLib());
         globals.load(new org.luaj.vm2.lib.TableLib());
         globals.load(new org.luaj.vm2.lib.StringLib());
         globals.load(new org.luaj.vm2.lib.MathLib());
+        // LuaC always installs first: luajc's Globals.Loader still needs a
+        // compiler installed for prototype parsing, and LuaJC.install only
+        // swaps the loader while keeping the compiler.
         LuaC.install(globals);
+        if (luajc) {
+            org.luaj.vm2.luajc.LuaJC.install(globals);
+        }
         globals.set("dofile", LuaValue.NIL);
         globals.set("loadfile", LuaValue.NIL);
         globals.set("require", LuaValue.NIL);
@@ -280,6 +335,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     static class LuaPool {
         private final ConcurrentLinkedQueue<Globals> pool = new ConcurrentLinkedQueue<>();
         private final String initScript;
+        // Compiler backend decided once at operator init (luajc with
+        // verified compile, or luac fallback) — every pool state uses it.
+        private final boolean luajc;
         private volatile boolean closed;
         final AtomicLong borrowCount = new AtomicLong();
         final AtomicLong returnCount = new AtomicLong();
@@ -293,10 +351,11 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         private final Set<String> baselineKeys;
         private final ConcurrentHashMap<Globals, Map<String, LuaValue>> snapshots = new ConcurrentHashMap<>();
 
-        LuaPool(String script) {
+        LuaPool(String script, boolean luajc) {
             this.initScript = script;
+            this.luajc = luajc;
             // Build baseline key set from a fresh sandboxed globals after loading script
-            Globals g = createSandboxedGlobals();
+            Globals g = createSandboxedGlobals(luajc);
             g.load(initScript).call();
             baselineKeys = snapshotKeys(g);
             pool.offer(g);
@@ -320,7 +379,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             if (g == null) {
                 createCount.incrementAndGet();
                 if (mCreate != null) mCreate.inc();
-                g = createSandboxedGlobals();
+                g = createSandboxedGlobals(luajc);
                 g.load(initScript).call();
             } else {
                 reuseCount.incrementAndGet();
