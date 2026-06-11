@@ -54,6 +54,16 @@
             <version>3.0.1</version>
         </dependency>
 
+        <!-- BCEL backs LuaJ's luajc compiler (org.luaj.vm2.luajc.LuaJC):
+             Lua source -> JVM bytecode so C2 optimizes scripts like plain
+             Java. Runtime-optional — only touched when the luajc path is
+             enabled (see TransformByLua.createSandboxedGlobals). -->
+        <dependency>
+            <groupId>org.apache.bcel</groupId>
+            <artifactId>bcel</artifactId>
+            <version>6.10.0</version>
+        </dependency>
+
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
