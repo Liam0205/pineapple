@@ -24,9 +24,6 @@ BUILD_DIR="$CPP_DIR/build-tsan"
 # that can mask as nondeterministic hangs in stress runs.
 export TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:history_size=7"
 
-PARALLEL="${TSAN_PARALLEL:-8}"
-ITERATIONS="${TSAN_ITERATIONS:-50}"
-
 echo "==> Configuring pine-cpp with ThreadSanitizer"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
