@@ -316,7 +316,7 @@ C++ 侧提供注册路径：
 
 C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputFieldSpec 之上的 lazy read-only proxy。与 Go/Java 的 eager map 构建不同，C++ 采用按需读取策略：
 
-- `build_operator_input(frame, op_name, spec)` 先批量校验 strict 字段（`Frame::batch_validate_strict_items` 虚方法，ColumnFrame/RowFrame 各自实现最优路径），校验通过后构造 proxy
+- `build_operator_input(frame, op_name, spec)` 校验顺序为先 common（strict→nullable）后 item（strict→nullable）——common 先于 item 是跨运行时报错对等契约（多违反时三运行时须抛同一首错）；strict item 走 `Frame::validate_strict_items` 虚方法（ColumnFrame/RowFrame 各自实现最优路径），校验通过后构造 proxy
 - `common(field)` / `item(i, field)` 在调用时才从 Frame 读取，自动替换 defaulted 字段的 nil 值为默认值
 - 算子签名为 `execute(const OperatorInput&, OperatorOutput&)`，与 Go `Execute(ctx, *OperatorInput, *OperatorOutput)` 语义等价
 
