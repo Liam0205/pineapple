@@ -99,3 +99,7 @@
 - `llmdoc/memory/reflections/redis-resourcemanager-migration-and-pine-python-removal.md` — Redis→ResourceManager 句柄型资源迁移 + pine-python 运行时下线 PR 收尾复盘，记录"难而正确"归属判据（可共享/可声明/配置驱动→ResourceManager，算子私有→Closer）、"Python"双义陷阱、llmdoc baseline 先 fetch 教训、clang-format commit 阶段无 gate、ruleset 无 required_status_checks 核查路径、pre-push 自包装 hook 行为。
 - `llmdoc/memory/reflections/resource-metrics-fanout-stats.md` — 资源级指标 fan-out 与 `/stats.resources` 复盘，记录 fan-out（Tee）路由相对 Collector-only/现状的三选一决策、resources 恒存在键作为跨运行时强断言、探针 probe-once-then-tick 便于测试，以及"scope 靠路由而非过滤"两条教训。
 - `llmdoc/memory/reflections/bench-lock-optimization-campaign.md` — Bench 归因与 Frame 锁优化战役复盘（9 commits），记录 merge_dedup O(N²)→O(N) 修复、op-attribution 归因脚本、fixture 代表性错误（large_5000 误导 vs calibrated 真实场景）、zombie 进程污染整天 bench 数据、microbench 访问模式失真、二进制布局噪声、SharedMutex v1 失败三根因与 v2（Go 协议）备件化、Frame 维持 per-call 锁形态与 Go/Java 对齐的最终决策。
+
+## memory/decisions/
+
+- `llmdoc/memory/decisions/perf-evolution-roadmap.md` — 引擎侧性能演进路线决策：两个校准事实（per-item VM 边界主导、VM 层加速被端到端稀释）、三步路线（typed-ColumnFrame/arena → common-mode 列内核负载迁移 → 条件触发的 VM 适配层可插拔）、明确不做项（VM 直摸 Go heap、简单脚本负载上的 VM 优化），与外部 Go-native Lua VM 项目松耦合。
