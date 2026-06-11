@@ -454,6 +454,28 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 `fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。
 
+### Lua 语言版本契约：脚本必须停留在 5.1 核心交集
+
+三运行时的 Lua 实现各不相同，可用语言特性的交集 ≈ **Lua 5.1 核心**：
+
+| 运行时 | 实现 | 语言版本 |
+|---|---|---|
+| pine-go | gopher-lua（纯 Go 解释器） | 5.1 + 少量 5.2 库函数 |
+| pine-java | LuaJ 3.0.1（JVM 解释器） | 5.2 子集 |
+| pine-cpp | LuaJIT 2.1（汇编解释器 + trace JIT） | 5.1 + 自选 5.2/5.3 回移（拒绝 `_ENV` 等语义变更） |
+
+**用户脚本（`lua_script` 参数）禁止使用 Lua 5.2+ 特性**，否则只有部分运行时能执行，打破 byte-equal 契约。典型禁用项：
+
+- `goto` / `::label::`（5.2；LuaJIT 支持但 LuaJ/gopher-lua 行为不一）
+- `_ENV`、`setfenv` 替代语义（5.2 语义变更）
+- 原生位运算符 `& | ~ << >>`、整除 `//`（5.3）
+- 整数子类型 `math.type` / `math.tointeger` / `math.maxinteger`（5.3）——三引擎 number 均为 double 语义，与 `transform_by_lua` 的 JSON 边界一致，>2^53 整数本就会丢精度
+- `utf8` 标准库（5.3）、`<close>` / `<const>`（5.4）
+
+该交集是长期约束而非暂时状态：gopher-lua 无 5.3+ 跟进计划，LuaJIT 明确拒绝 5.2+ 语义。现状校验（2026-06）：仓库 262 个 Lua 脚本均在 5.1 核心内。
+
+性能特征（隔离算子级，非契约，随环境波动）：LuaJIT 对循环密集脚本惩罚最小（trace JIT），gopher-lua 最大（纯解释 + 装箱分配），计算密集型热路径在 pine-go 上应写原生算子。三运行时倍率数据与复现 harness 见 `pine-go/benchmarks/bench_isolated_test.go`、`pine-java .../IsolatedLuaBench.java`、`pine-cpp/tests/bench_lua_isolated.cpp`。
+
 ## 元数据契约注释与生成文档
 
 算子源文件中的文档注释由语言特定的解析器提取 metadata contract：
