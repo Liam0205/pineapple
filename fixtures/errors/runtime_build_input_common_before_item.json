@@ -1,0 +1,38 @@
+{
+  "name": "BuildInput error: common violation reported before item violation",
+  "description": "When one operator violates BOTH a strict common field and a strict item field at once, every runtime must surface the common error first. pine-go RowFrame/ColumnFrame.BuildInput and pine-java DataFrame.buildInput validate common (strict then nullable) before item, so the canonical first error is the common one. Single-violation fixtures cannot catch a runtime that front-loads the strict-item batch scan and flips to item-first; this fixture locks the cross-runtime ordering as part of the byte-exact error contract.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "build_input_common_before_item": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function f() return x end",
+          "function_for_item": "f",
+          "function_for_common": "",
+          "strict_common": ["c"],
+          "strict_item": ["x"],
+          "$metadata": {
+            "common_input": ["c"],
+            "common_output": [],
+            "item_input": ["x"],
+            "item_output": ["y"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["build_input_common_before_item"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["y"]
+    }
+  },
+  "request": {"common": {}, "items": [{}]},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "required field \"c\" is nil in common",
+    "wrapping_exact": "pine: execution error in operator \"build_input_common_before_item\": required field \"c\" is nil in common",
+    "wrapping_exact_engines": ["go", "java", "cpp"]
+  }
+}

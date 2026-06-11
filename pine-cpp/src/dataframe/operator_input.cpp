@@ -129,28 +129,17 @@ InputFieldSpec compute_input_field_spec(const OperatorConfig& config) {
 
 OperatorInput build_operator_input(const Frame& frame, const std::string& op_name,
                                    const InputFieldSpec& spec) {
-  // Strict-item path stays as the dedicated batch scan — for ColumnFrame
-  // this is a per-column bitmap walk inside one lock, way cheaper than a
-  // per-row item_has loop. For RowFrame it is also already a single-lock
-  // implementation. Run it before the with_read_lock window.
-  if (!spec.strict_item.empty()) {
-    auto [bad_field, bad_row] = frame.validate_strict_items(spec.strict_item);
-    if (bad_row >= 0) {
-      throw ExecutionError(
-          op_name, "required field \"" + bad_field + "\" is nil on item[" + std::to_string(bad_row) + "]");
-    }
-  }
-
-  // Remaining checks — strict/nullable common + nullable item — run
-  // inside one shared-lock window on the frame, mirroring pine-go
-  // RowFrame.BuildInput (`f.mu.RLock(); defer f.mu.RUnlock(); ...`)
-  // and pine-java DataFrame.buildInput
-  // (`rwLock.readLock().lock(); try { ... }`). On hot paths
-  // (nullable_item × N rows × M fields) this collapses up to N×M
-  // separate shared_lock acquisitions into one. We capture any
-  // validation error outside the lambda and throw after the window
-  // closes — the RAII lock guard still releases on normal return.
+  // Validation order is part of the byte-exact error contract: when a config
+  // violates both a common and an item field, all three runtimes must surface
+  // the same first error. pine-go RowFrame/ColumnFrame.BuildInput and
+  // pine-java DataFrame.buildInput check common (strict then nullable) before
+  // item (strict then nullable), so we do too:
+  //   strict_common → nullable_common → strict_item → nullable_item.
   std::optional<ExecutionError> err;
+
+  // Window 1: strict + nullable common collapsed into one shared-lock window,
+  // mirroring pine-go `f.mu.RLock(); defer f.mu.RUnlock()`. Validation errors
+  // are captured outside the lambda and thrown after the RAII guard releases.
   frame.with_read_lock([&]() {
     for (const auto& field : spec.strict_common) {
       Variant v = frame.common_no_lock(field);
@@ -166,7 +155,26 @@ OperatorInput build_operator_input(const Frame& frame, const std::string& op_nam
         return;
       }
     }
+  });
+  if (err) {
+    throw *err;
+  }
 
+  // Strict-item batch scan — for ColumnFrame a per-column bitmap walk inside
+  // one lock, cheaper than a per-row item_has loop. It takes its own lock, so
+  // it must sit outside the common/item windows (shared_mutex is non-recursive
+  // and cannot nest), and ordered after common, before nullable item.
+  if (!spec.strict_item.empty()) {
+    auto [bad_field, bad_row] = frame.validate_strict_items(spec.strict_item);
+    if (bad_row >= 0) {
+      throw ExecutionError(
+          op_name, "required field \"" + bad_field + "\" is nil on item[" + std::to_string(bad_row) + "]");
+    }
+  }
+
+  // Window 2: nullable item — the hot path (N rows × M fields) still collapses
+  // up to N×M separate shared_lock acquisitions into one window.
+  frame.with_read_lock([&]() {
     const std::size_t n = frame.item_count_no_lock();
     for (const auto& field : spec.nullable_item) {
       for (std::size_t i = 0; i < n; ++i) {
@@ -178,7 +186,6 @@ OperatorInput build_operator_input(const Frame& frame, const std::string& op_nam
       }
     }
   });
-
   if (err) {
     throw *err;
   }
