@@ -461,7 +461,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 | 运行时 | 实现 | 语言版本 |
 |---|---|---|
 | pine-go | gopher-lua（纯 Go 解释器） | 5.1 + 少量 5.2 库函数 |
-| pine-java | LuaJ 3.0.1（JVM 解释器） | 5.2 子集 |
+| pine-java | LuaJ 3.0.1（默认 luajc 编译到 JVM bytecode,`pine.lua.compiler=luac` 可切回解释;不可编译脚本自动 fallback luac） | 5.2 子集 |
 | pine-cpp | LuaJIT 2.1（汇编解释器 + trace JIT） | 5.1 + 自选 5.2/5.3 回移（拒绝 `_ENV` 等语义变更） |
 
 **用户脚本（`lua_script` 参数）禁止使用 Lua 5.2+ 特性**，否则只有部分运行时能执行，打破 byte-equal 契约。典型禁用项：
