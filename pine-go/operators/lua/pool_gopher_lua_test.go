@@ -1,3 +1,5 @@
+//go:build !lua_wangshu
+
 package lua
 
 import (
@@ -15,8 +17,8 @@ func TestNewStatePool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	L := sp.Borrow()
-	defer sp.Return(L)
+	L := sp.borrowState()
+	defer sp.returnState(L)
 
 	if err := L.CallByParam(glua.P{
 		Fn:      L.GetGlobal("hello"),
@@ -44,7 +46,7 @@ func TestSnapshotAndClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	L := sp.Borrow()
+	L := sp.borrowState()
 
 	// Call the function that creates a new global
 	if err := L.CallByParam(glua.P{Fn: L.GetGlobal("f"), NRet: 1, Protect: true}); err != nil {
@@ -58,11 +60,11 @@ func TestSnapshotAndClear(t *testing.T) {
 	}
 
 	// Return the state — should clear non-baseline globals
-	sp.Return(L)
+	sp.returnState(L)
 
 	// Borrow again and check new_global is gone
-	L2 := sp.Borrow()
-	defer sp.Return(L2)
+	L2 := sp.borrowState()
+	defer sp.returnState(L2)
 	if L2.GetGlobal("new_global") != glua.LNil {
 		t.Error("new_global should have been cleared")
 	}
@@ -77,8 +79,8 @@ func TestPoolConcurrent(t *testing.T) {
 	done := make(chan error, 10)
 	for i := 0; i < 10; i++ {
 		go func(val float64) {
-			L := sp.Borrow()
-			defer sp.Return(L)
+			L := sp.borrowState()
+			defer sp.returnState(L)
 
 			L.SetGlobal("x", glua.LNumber(val))
 			if err := L.CallByParam(glua.P{
@@ -147,22 +149,22 @@ func TestPoolReturnRestoresModifiedBaseline(t *testing.T) {
 	const n = 5
 	states := make([]*glua.LState, n)
 	for i := range states {
-		states[i] = sp.Borrow()
+		states[i] = sp.borrowState()
 		if err := states[i].CallByParam(glua.P{Fn: states[i].GetGlobal("hijack"), NRet: 1, Protect: true}); err != nil {
 			t.Fatal(err)
 		}
 		states[i].Pop(1)
 	}
 	for _, L := range states {
-		sp.Return(L)
+		sp.returnState(L)
 	}
 
 	for i := 0; i < n; i++ {
-		L := sp.Borrow()
+		L := sp.borrowState()
 		if L.GetGlobal("tostring").Type() != glua.LTFunction {
 			t.Errorf("state %d: tostring not restored after Return", i)
 		}
-		sp.Return(L)
+		sp.returnState(L)
 	}
 }
 
@@ -190,11 +192,11 @@ func TestPoolWarmSetBoundedOverflowCollectable(t *testing.T) {
 		// the first minIdle refill the warm set, the rest overflow to sync.Pool.
 		states := make([]*glua.LState, total)
 		for i := range states {
-			states[i] = sp.Borrow()
+			states[i] = sp.borrowState()
 			wps = append(wps, weak.Make(states[i]))
 		}
 		for _, L := range states {
-			sp.Return(L)
+			sp.returnState(L)
 		}
 	}()
 
@@ -231,16 +233,16 @@ func TestWarmStatesSurviveGC(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Warm up so at least one state is resident in the warm set.
-	sp.Return(sp.Borrow())
+	sp.returnState(sp.borrowState())
 
 	createBefore := atomic.LoadInt64(&sp.createCount)
 	for i := 0; i < 5; i++ {
 		runtime.GC()
-		L := sp.Borrow()
+		L := sp.borrowState()
 		if L == nil {
 			t.Fatal("unexpected nil borrow")
 		}
-		sp.Return(L)
+		sp.returnState(L)
 	}
 	if c := atomic.LoadInt64(&sp.createCount); c != createBefore {
 		t.Fatalf("create_count rose from %d to %d across GC cycles — warm states not surviving GC (issue #67)", createBefore, c)
@@ -263,16 +265,16 @@ func TestBorrowAfterCloseReturnsNil(t *testing.T) {
 	}
 
 	// Drain any cached states from the pool
-	L := sp.Borrow()
-	sp.Return(L)
+	L := sp.borrowState()
+	sp.returnState(L)
 
 	sp.Close()
 
 	// After Close, pool.New returns nil because sp.closed == true.
 	// The sync.Pool may still return previously cached (now-closed) states,
 	// so borrow twice to exhaust the cache and trigger pool.New.
-	_ = sp.Borrow() // may get cached (closed) state
-	L2 := sp.Borrow()
+	_ = sp.borrowState() // may get cached (closed) state
+	L2 := sp.borrowState()
 	if L2 != nil {
 		t.Errorf("expected nil from Borrow after Close (pool.New path), got %v", L2)
 	}
@@ -284,11 +286,11 @@ func TestReturnAfterCloseNoPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	L := sp.Borrow()
+	L := sp.borrowState()
 	sp.Close()
 
 	// Return after Close should not panic or corrupt state.
-	sp.Return(L)
+	sp.returnState(L)
 
 	if atomic.LoadInt64(&sp.returnCount) != 1 {
 		t.Errorf("expected returnCount=1, got %d", atomic.LoadInt64(&sp.returnCount))
@@ -330,11 +332,11 @@ func TestPoolReuseCountAccounting(t *testing.T) {
 	// Sequential reuse: return before borrowing again so the next borrow is a
 	// hit. reuse_count must climb and no fresh states should be created.
 	for i := 0; i < 5; i++ {
-		L := sp.Borrow()
+		L := sp.borrowState()
 		if L == nil {
 			t.Fatal("unexpected nil borrow")
 		}
-		sp.Return(L)
+		sp.returnState(L)
 		checkInvariant()
 	}
 	if r := atomic.LoadInt64(&sp.reuseCount); r == 0 {
@@ -344,8 +346,8 @@ func TestPoolReuseCountAccounting(t *testing.T) {
 	// Force a miss: hold two states at once. The pool holds at most one idle
 	// state, so the second borrow must build a fresh one.
 	beforeCreate := atomic.LoadInt64(&sp.createCount)
-	a := sp.Borrow()
-	b := sp.Borrow()
+	a := sp.borrowState()
+	b := sp.borrowState()
 	if a == nil || b == nil {
 		t.Fatal("unexpected nil borrow")
 	}
@@ -353,8 +355,8 @@ func TestPoolReuseCountAccounting(t *testing.T) {
 		t.Fatalf("holding two states did not create a new one: create_count=%d", c)
 	}
 	checkInvariant()
-	sp.Return(a)
-	sp.Return(b)
+	sp.returnState(a)
+	sp.returnState(b)
 	checkInvariant()
 
 	if _, ok := sp.statsSnapshot()["reuse_count"]; !ok {
