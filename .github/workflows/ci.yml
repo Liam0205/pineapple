@@ -453,7 +453,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          go test -bench=. -benchmem -count=1 -run=^$ ./benchmarks/ ./integration/ | tee benchmark.txt
+          # benchmarks 是独立子 module (pine-go/benchmarks/go.mod),
+          # 通过 replace 指令引用主 module; 主 module 内的 integration/ 仍属于 pine-go。
+          (cd benchmarks && go test -bench=. -benchmem -count=1 -run=^$ ./...) | tee benchmark.txt
+          go test -bench=. -benchmem -count=1 -run=^$ ./integration/ | tee -a benchmark.txt
       - name: Write benchmark summary
         if: always()
         shell: bash

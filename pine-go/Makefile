@@ -20,8 +20,12 @@ lint: ## golangci-lint(沿用仓根 .golangci.yml 若存在)
 test: ## 单元测试(含 race)
 	go test -race ./...
 
-bench: ## go test -bench(默认 ./benchmarks/, 可 `make bench BENCH=./internal/...`)
-	go test -bench=. -benchmem -count=1 -run='^$$' $(or $(BENCH),./benchmarks/)
+bench: ## go test -bench(默认走 benchmarks/ 子 module; 主 module 用 `make bench BENCH=./internal/...`)
+ifdef BENCH
+	go test -bench=. -benchmem -count=1 -run='^$$' $(BENCH)
+else
+	cd benchmarks && go test -bench=. -benchmem -count=1 -run='^$$' ./...
+endif
 
 race: ## 仅 race(test 已含 race,本 target 兼容 wangshu 习惯)
 	go test -race ./...
