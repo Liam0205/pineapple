@@ -10,10 +10,10 @@ import (
 
 // closerValue is a test resource value that records whether it was closed.
 type closerValue struct {
-	id        int
-	closed    atomic.Bool
-	closeErr  error
-	onClose   func(id int)
+	id       int
+	closed   atomic.Bool
+	closeErr error
+	onClose  func(id int)
 }
 
 func (c *closerValue) Close() error {

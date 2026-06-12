@@ -5,7 +5,7 @@ func Nop() Provider { return nopProvider{} }
 
 type nopProvider struct{}
 
-func (nopProvider) NewCounter(MetricOpts) Counter       { return nopCounter{} }
+func (nopProvider) NewCounter(MetricOpts) Counter        { return nopCounter{} }
 func (nopProvider) NewGauge(MetricOpts) Gauge            { return nopGauge{} }
 func (nopProvider) NewHistogram(HistogramOpts) Histogram { return nopHistogram{} }
 

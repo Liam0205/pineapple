@@ -11,8 +11,8 @@ import (
 func main() {
 	// CPU-type operators and their P50 mean targets (ms)
 	targets := []struct {
-		Name   string
-		P50Ms  float64
+		Name  string
+		P50Ms float64
 	}{
 		{"filter_impression", 1.1},
 		{"filter_blocked_creator", 0.1},

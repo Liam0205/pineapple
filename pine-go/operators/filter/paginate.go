@@ -8,10 +8,11 @@
 // by position: common_input[0] = page (0-indexed), common_input[1] = size.
 //
 // Metadata contract (typical usage):
-//   CommonInput:  [<page_field>, <size_field>]
-//   CommonOutput: []
-//   ItemInput:    []
-//   ItemOutput:   []
+//
+//	CommonInput:  [<page_field>, <size_field>]
+//	CommonOutput: []
+//	ItemInput:    []
+//	ItemOutput:   []
 package filter
 
 import (

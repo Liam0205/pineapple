@@ -20,10 +20,10 @@ type luaVsGoCase struct {
 
 var luaVsGoCases = []luaVsGoCase{
 	{
-		name:    "L1_identity",
+		name:      "L1_identity",
 		luaScript: "function f() return item_x end",
-		luaFunc: "f",
-		goType:  "bench_identity",
+		luaFunc:   "f",
+		goType:    "bench_identity",
 		itemGen: func(n int) []any {
 			items := make([]any, n)
 			for i := range items {
@@ -140,11 +140,11 @@ func buildLuaConfig(tc luaVsGoCase, items []any) map[string]any {
 	}
 
 	luaOp := map[string]any{
-		"type_name":          "transform_by_lua",
-		"lua_script":         tc.luaScript,
-		"function_for_item":  tc.luaFunc,
+		"type_name":           "transform_by_lua",
+		"lua_script":          tc.luaScript,
+		"function_for_item":   tc.luaFunc,
 		"function_for_common": "",
-		"$metadata":          meta,
+		"$metadata":           meta,
 	}
 	if inputs, ok := tc.metadata["item_input"]; ok {
 		luaOp["$metadata"].(map[string]any)["item_input"] = inputs

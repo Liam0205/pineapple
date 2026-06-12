@@ -8,10 +8,11 @@
 // The item field to check is determined by item_input metadata (first field).
 //
 // Metadata contract (typical usage):
-//   CommonInput:  []
-//   CommonOutput: []
-//   ItemInput:    [<field>]
-//   ItemOutput:   []
+//
+//	CommonInput:  []
+//	CommonOutput: []
+//	ItemInput:    [<field>]
+//	ItemOutput:   []
 package filter
 
 import (

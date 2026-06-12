@@ -9,10 +9,11 @@
 // deterministic ordering. Same salt + same items → same shuffle.
 //
 // Metadata contract (typical usage):
-//   CommonInput:  [<salt_fields...>]
-//   CommonOutput: []
-//   ItemInput:    [<item_key_field>]
-//   ItemOutput:   []
+//
+//	CommonInput:  [<salt_fields...>]
+//	CommonOutput: []
+//	ItemInput:    [<item_key_field>]
+//	ItemOutput:   []
 package reorder
 
 import (

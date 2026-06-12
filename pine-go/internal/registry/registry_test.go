@@ -80,8 +80,8 @@ func TestDuplicateRegistrationPanics(t *testing.T) {
 func TestValidateAndExtractParamsRequired(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
-		Name:     "test",
-		Type: types.OpTypeTransform,
+		Name:        "test",
+		Type:        types.OpTypeTransform,
 		Description: "Test op.",
 		Params: map[string]types.ParamSpec{
 			"required_param": {Type: "string", Required: true, Description: "A required param."},
@@ -97,8 +97,8 @@ func TestValidateAndExtractParamsRequired(t *testing.T) {
 func TestValidateAndExtractParamsDefault(t *testing.T) {
 	Reset()
 	schema := types.OperatorSchema{
-		Name:     "test",
-		Type: types.OpTypeTransform,
+		Name:        "test",
+		Type:        types.OpTypeTransform,
 		Description: "Test op.",
 		Params: map[string]types.ParamSpec{
 			"optional": {Type: "float64", Required: false, Default: 0.5, Description: "Optional param."},

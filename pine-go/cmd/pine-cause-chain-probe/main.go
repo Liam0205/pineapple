@@ -2,9 +2,13 @@
 //
 // Constructs a FakeRedisError, wraps it in pine ExecutionError, then uses
 // errors.As to recover the inner cause. Prints either:
-//   PASS:<recovered_inner_msg>
+//
+//	PASS:<recovered_inner_msg>
+//
 // or
-//   FAIL:<reason>
+//
+//	FAIL:<reason>
+//
 // on stdout. cross-validate Section 15 runs this probe against the same-
 // shaped probe in pine-java / pine-python / pine-cpp and asserts stdout is
 // byte-identical, confirming that the cause-chain capability stays at parity

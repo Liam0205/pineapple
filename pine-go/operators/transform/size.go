@@ -8,10 +8,11 @@
 // it waits for all recalls and barriers to stabilize the item set.
 //
 // Metadata contract (typical usage):
-//   CommonInput:  []
-//   CommonOutput: [<target_field>]
-//   ItemInput:    []
-//   ItemOutput:   []
+//
+//	CommonInput:  []
+//	CommonOutput: [<target_field>]
+//	ItemInput:    []
+//	ItemOutput:   []
 package transform
 
 import (

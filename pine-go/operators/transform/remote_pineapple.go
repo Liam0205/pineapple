@@ -15,10 +15,11 @@
 //   - item_response ([]string, optional): Downstream item response field names, positionally mapped to item_output.
 //
 // Metadata contract (typical usage):
-//   CommonInput:  [<local_common_fields...>]
-//   CommonOutput: [<local_common_output_fields...>]
-//   ItemInput:    [<local_item_fields...>]
-//   ItemOutput:   [<local_item_output_fields...>]
+//
+//	CommonInput:  [<local_common_fields...>]
+//	CommonOutput: [<local_common_output_fields...>]
+//	ItemInput:    [<local_item_fields...>]
+//	ItemOutput:   [<local_item_output_fields...>]
 package transform
 
 import (
