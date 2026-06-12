@@ -1148,8 +1148,8 @@ func TestSourcesForwardReferenceRejected(t *testing.T) {
 					"common_input": []string{}, "common_output": []string{"x"},
 					"item_input": []string{}, "item_output": []string{},
 				},
-				"field": "x",
-				"value": 1,
+				"field":   "x",
+				"value":   1,
 				"sources": []string{"op_b"},
 			},
 			"op_b": map[string]any{

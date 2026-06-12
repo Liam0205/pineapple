@@ -8,10 +8,11 @@
 // The dedup key field is determined by item_input metadata (first field).
 //
 // Metadata contract (typical usage):
-//   CommonInput:  []
-//   CommonOutput: []
-//   ItemInput:    [item_id, _source]
-//   ItemOutput:   [item_id]
+//
+//	CommonInput:  []
+//	CommonOutput: []
+//	ItemInput:    [item_id, _source]
+//	ItemOutput:   [item_id]
 package merge
 
 import (

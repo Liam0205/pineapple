@@ -1,17 +1,19 @@
 // Operator: observe_log
 // Type: Observe
 // Description: Reads declared input fields and writes them to Go standard log.
-//   This is a read-only operator: it produces no output fields and does not
-//   modify the DataFrame. It is exempt from dead-code detection.
+//
+//	This is a read-only operator: it produces no output fields and does not
+//	modify the DataFrame. It is exempt from dead-code detection.
 //
 // Params:
 //   - log_prefix (string, optional, default ""): Prefix prepended to each log line.
 //
 // Metadata contract (typical usage):
-//   CommonInput:  [<fields to observe>]
-//   CommonOutput: []
-//   ItemInput:    [<fields to observe>]
-//   ItemOutput:   []
+//
+//	CommonInput:  [<fields to observe>]
+//	CommonOutput: []
+//	ItemInput:    [<fields to observe>]
+//	ItemOutput:   []
 package observe
 
 import (

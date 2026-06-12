@@ -6,10 +6,11 @@
 //   - items (any, required): JSON array of item maps to emit as candidates.
 //
 // Metadata contract (typical usage):
-//   CommonInput:  []
-//   CommonOutput: []
-//   ItemInput:    []
-//   ItemOutput:   [item_id, ...]
+//
+//	CommonInput:  []
+//	CommonOutput: []
+//	ItemInput:    []
+//	ItemOutput:   [item_id, ...]
 package recall
 
 import (

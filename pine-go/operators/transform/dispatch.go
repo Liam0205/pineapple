@@ -6,10 +6,11 @@
 // The target item field is determined by item_output metadata (first field).
 //
 // Metadata contract (typical usage):
-//   CommonInput:  [<common_field>]
-//   CommonOutput: []
-//   ItemInput:    []
-//   ItemOutput:   [<item_field>]
+//
+//	CommonInput:  [<common_field>]
+//	CommonOutput: []
+//	ItemInput:    []
+//	ItemOutput:   [<item_field>]
 package transform
 
 import (

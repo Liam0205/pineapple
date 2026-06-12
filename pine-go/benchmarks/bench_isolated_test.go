@@ -26,8 +26,8 @@ var isolatedCases = []isolatedCase{
 		itemInput:  []string{"item_x"},
 		itemOutput: []string{"item_y"},
 		luaParams: map[string]any{
-			"lua_script":         "function f() return item_x end",
-			"function_for_item":  "f",
+			"lua_script":          "function f() return item_x end",
+			"function_for_item":   "f",
 			"function_for_common": "",
 		},
 		itemGen: func(n int) []map[string]any {
@@ -39,14 +39,14 @@ var isolatedCases = []isolatedCase{
 		},
 	},
 	{
-		name:      "L2_arithmetic",
-		goFactory: func() pine.Operator { return &benchArithmetic{} },
-		goParams:  map[string]any{"rate": 0.85, "base": 10.0},
+		name:       "L2_arithmetic",
+		goFactory:  func() pine.Operator { return &benchArithmetic{} },
+		goParams:   map[string]any{"rate": 0.85, "base": 10.0},
 		itemInput:  []string{"item_price"},
 		itemOutput: []string{"item_result"},
 		luaParams: map[string]any{
-			"lua_script":         "function f() return item_price * 0.85 + 10.0 end",
-			"function_for_item":  "f",
+			"lua_script":          "function f() return item_price * 0.85 + 10.0 end",
+			"function_for_item":   "f",
 			"function_for_common": "",
 		},
 		itemGen: func(n int) []map[string]any {
@@ -58,8 +58,8 @@ var isolatedCases = []isolatedCase{
 		},
 	},
 	{
-		name:      "L3_branching",
-		goFactory: func() pine.Operator { return &benchBranching{} },
+		name:       "L3_branching",
+		goFactory:  func() pine.Operator { return &benchBranching{} },
 		itemInput:  []string{"item_price"},
 		itemOutput: []string{"item_discounted"},
 		luaParams: map[string]any{
@@ -69,7 +69,7 @@ var isolatedCases = []isolatedCase{
   elseif item_price > 100 then return item_price * 0.9
   else return item_price * 0.95 end
 end`,
-			"function_for_item":  "f",
+			"function_for_item":   "f",
 			"function_for_common": "",
 		},
 		itemGen: func(n int) []map[string]any {
@@ -81,9 +81,9 @@ end`,
 		},
 	},
 	{
-		name:      "L4_multi_field",
-		goFactory: func() pine.Operator { return &benchMultiField{} },
-		goParams:  map[string]any{"w1": 0.5, "w2": 0.3, "w3": 0.2},
+		name:       "L4_multi_field",
+		goFactory:  func() pine.Operator { return &benchMultiField{} },
+		goParams:   map[string]any{"w1": 0.5, "w2": 0.3, "w3": 0.2},
 		itemInput:  []string{"item_a", "item_b", "item_c"},
 		itemOutput: []string{"item_score"},
 		luaParams: map[string]any{
@@ -93,7 +93,7 @@ end`,
   if score > 1 then score = 1 end
   return score
 end`,
-			"function_for_item":  "f",
+			"function_for_item":   "f",
 			"function_for_common": "",
 		},
 		itemGen: func(n int) []map[string]any {
@@ -109,8 +109,8 @@ end`,
 		},
 	},
 	{
-		name:      "L5_iterative",
-		goFactory: func() pine.Operator { return &benchIterative{} },
+		name:       "L5_iterative",
+		goFactory:  func() pine.Operator { return &benchIterative{} },
 		itemInput:  []string{"item_x"},
 		itemOutput: []string{"item_poly"},
 		luaParams: map[string]any{
@@ -123,7 +123,7 @@ end`,
   end
   return result
 end`,
-			"function_for_item":  "f",
+			"function_for_item":   "f",
 			"function_for_common": "",
 		},
 		itemGen: func(n int) []map[string]any {

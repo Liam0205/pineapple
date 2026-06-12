@@ -10,18 +10,19 @@
 // written to the corresponding output fields by position.
 //
 // Metadata contract (typical usage):
-//   direction="common_to_item":
-//     CommonInput:  [<source_fields...>]
-//     ItemOutput:   [<target_fields...>]  (each item gets the same common value)
-//   direction="item_to_item":
-//     ItemInput:    [<source_fields...>]
-//     ItemOutput:   [<target_fields...>]
-//   direction="common_to_common":
-//     CommonInput:  [<source_fields...>]
-//     CommonOutput: [<target_fields...>]
-//   direction="item_to_common" (typically used with consumes_row_set):
-//     ItemInput:    [<source_field>]
-//     CommonOutput: [<target_field>]   (collects all item values into a list)
+//
+//	direction="common_to_item":
+//	  CommonInput:  [<source_fields...>]
+//	  ItemOutput:   [<target_fields...>]  (each item gets the same common value)
+//	direction="item_to_item":
+//	  ItemInput:    [<source_fields...>]
+//	  ItemOutput:   [<target_fields...>]
+//	direction="common_to_common":
+//	  CommonInput:  [<source_fields...>]
+//	  CommonOutput: [<target_fields...>]
+//	direction="item_to_common" (typically used with consumes_row_set):
+//	  ItemInput:    [<source_field>]
+//	  CommonOutput: [<target_field>]   (collects all item values into a list)
 package transform
 
 import (

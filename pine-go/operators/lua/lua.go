@@ -10,10 +10,11 @@
 // Exactly one of function_for_item or function_for_common must be provided.
 //
 // Metadata contract (typical usage):
-//   CommonInput:  [<common fields read as scalar globals>]
-//   CommonOutput: [<return values from function_for_common>]
-//   ItemInput:    [<item fields — scalars in item mode, lists in common mode>]
-//   ItemOutput:   [<return values from function_for_item>]
+//
+//	CommonInput:  [<common fields read as scalar globals>]
+//	CommonOutput: [<return values from function_for_common>]
+//	ItemInput:    [<item fields — scalars in item mode, lists in common mode>]
+//	ItemOutput:   [<return values from function_for_item>]
 //
 // Performance: Lua is ~1.3x slower than native Go for simple operations, scaling
 // to ~2x for compute-intensive loops (1000 items). The overhead comes from VM

@@ -9,9 +9,9 @@ import (
 // OpStats holds per-operator cumulative execution statistics.
 // All fields are updated atomically and are safe for concurrent access.
 type OpStats struct {
-	ExecCount      int64 // number of successful executions
-	SkipCount      int64 // number of times the operator was skipped
-	ErrorCount     int64 // number of errors (fatal)
+	ExecCount       int64 // number of successful executions
+	SkipCount       int64 // number of times the operator was skipped
+	ErrorCount      int64 // number of errors (fatal)
 	TotalDurationNs int64 // cumulative execution time in nanoseconds
 	MaxDurationNs   int64 // maximum single-execution time in nanoseconds
 }
@@ -19,8 +19,8 @@ type OpStats struct {
 // Stats accumulates per-operator execution statistics across requests.
 // Thread-safe for concurrent updates from multiple Execute calls.
 type Stats struct {
-	mu    sync.RWMutex
-	ops   map[string]*OpStats
+	mu  sync.RWMutex
+	ops map[string]*OpStats
 	// scheduler-level
 	runCount        int64
 	peakConcurrency int64
@@ -128,12 +128,12 @@ func (s *Stats) RecordConcurrency(n int64) {
 
 // Snapshot returns a point-in-time copy of all operator statistics.
 type OpStatsSnapshot struct {
-	ExecCount      int64   `json:"exec_count"`
-	SkipCount      int64   `json:"skip_count"`
-	ErrorCount     int64   `json:"error_count"`
-	TotalDurationNs int64  `json:"total_duration_ns"`
-	MaxDurationNs   int64  `json:"max_duration_ns"`
-	AvgDurationNs   int64  `json:"avg_duration_ns"`
+	ExecCount       int64 `json:"exec_count"`
+	SkipCount       int64 `json:"skip_count"`
+	ErrorCount      int64 `json:"error_count"`
+	TotalDurationNs int64 `json:"total_duration_ns"`
+	MaxDurationNs   int64 `json:"max_duration_ns"`
+	AvgDurationNs   int64 `json:"avg_duration_ns"`
 }
 
 // Snapshot returns a point-in-time copy of all operator statistics.

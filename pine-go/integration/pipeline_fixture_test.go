@@ -55,12 +55,12 @@ func toFloat64(v any) (float64, bool) {
 }
 
 type pipelineFixture struct {
-	Name            string                    `json:"name"`
-	Requires        []string                  `json:"requires"`
-	StrictOrder     *bool                     `json:"strict_order"`
-	Config          json.RawMessage           `json:"config"`
-	StaticResources map[string]any            `json:"static_resources"`
-	Cases           []pipelineCase            `json:"cases"`
+	Name            string          `json:"name"`
+	Requires        []string        `json:"requires"`
+	StrictOrder     *bool           `json:"strict_order"`
+	Config          json.RawMessage `json:"config"`
+	StaticResources map[string]any  `json:"static_resources"`
+	Cases           []pipelineCase  `json:"cases"`
 }
 
 type pipelineCase struct {

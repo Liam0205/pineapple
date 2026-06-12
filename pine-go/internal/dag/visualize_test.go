@@ -15,18 +15,18 @@ func buildTestGraph(t *testing.T) *Graph {
 	sequence := []string{"recall_a", "recall_b", "transform_c", "filter_d"}
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"id", "score"}},
 		},
 		"recall_b": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"id", "tag"}},
 		},
 		"transform_c": {
 			TypeName:     "transform_copy",
@@ -124,11 +124,11 @@ func TestTransitiveReduction(t *testing.T) {
 	sequence := []string{"recall_a", "filter_b", "transform_c"}
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"x"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"x"}},
 		},
 		"filter_b": {
 			TypeName:       "filter_condition",
@@ -189,18 +189,18 @@ func buildTwoSubFlowGraph(t *testing.T) *Graph {
 	sequence := []string{"recall_a", "recall_b", "transform_c", "filter_d", "reorder_e"}
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"id", "score"}},
 		},
 		"recall_b": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"id", "tag"}},
 		},
 		"transform_c": {
 			TypeName:     "transform_copy",
@@ -305,11 +305,11 @@ func TestRenderCollapsedMixedSubFlows(t *testing.T) {
 	sequence := []string{"standalone_a", "grouped_b", "grouped_c"}
 	operators := map[string]config.OperatorConfig{
 		"standalone_a": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"x"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"x"}},
 		},
 		"grouped_b": {
 			TypeName:       "filter_condition",
@@ -357,18 +357,18 @@ func buildNestedSubFlowGraph(t *testing.T) *Graph {
 	sequence := []string{"recall_a", "recall_b", "merge_c", "transform_d", "filter_e"}
 	operators := map[string]config.OperatorConfig{
 		"recall_a": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"id", "score"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"id", "score"}},
 		},
 		"recall_b": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"id", "tag"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"id", "tag"}},
 		},
 		"merge_c": {
 			TypeName:     "noop",
@@ -471,11 +471,11 @@ func buildDeepNestedGraph(t *testing.T) *Graph {
 	}
 	operators := map[string]config.OperatorConfig{
 		"recall_top": {
-			TypeName:     "recall_static",
+			TypeName:             "recall_static",
 			OperatorType:         string(types.OpTypeRecall),
 			Recall:               true,
 			AdditiveWritesRowSet: true,
-			Meta:         config.Metadata{ItemOutput: []string{"item_id", "item_score"}},
+			Meta:                 config.Metadata{ItemOutput: []string{"item_id", "item_score"}},
 		},
 		"ctrl_if": {
 			TypeName:     "transform_by_lua",
@@ -564,13 +564,13 @@ func buildDeepNestedGraph(t *testing.T) *Graph {
 		},
 	}
 	opToSubFlow := map[string]string{
-		"transform_l1":      "L1",
-		"ctrl_l1_if":        "L1",
-		"transform_l2":      "L1/L2",
-		"ctrl_l1_l2_if":     "L1/L2",
-		"transform_l3":      "L1/L2/L3",
-		"ctrl_l1_l2_l3_if":  "L1/L2/L3",
-		"transform_leaf":    "L1/L2/L3",
+		"transform_l1":     "L1",
+		"ctrl_l1_if":       "L1",
+		"transform_l2":     "L1/L2",
+		"ctrl_l1_l2_if":    "L1/L2",
+		"transform_l3":     "L1/L2/L3",
+		"ctrl_l1_l2_l3_if": "L1/L2/L3",
+		"transform_leaf":   "L1/L2/L3",
 	}
 
 	g, err := Build(sequence, operators, opToSubFlow)

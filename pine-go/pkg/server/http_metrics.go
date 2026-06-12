@@ -55,8 +55,8 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 // HttpDurationBucket aggregates count and total duration (in nanoseconds)
 // for a method+path key. Mirrors the operators.total_duration_ns convention.
 type HttpDurationBucket struct {
-	Count  int64 `json:"count"`
-	SumNs  int64 `json:"sum_ns"`
+	Count int64 `json:"count"`
+	SumNs int64 `json:"sum_ns"`
 }
 
 // HttpStats accumulates per-(method,path,status) request counts and

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
-	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 	_ "github.com/Liam0205/pineapple/pine-go/operators"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
 type recordingCounter struct {
