@@ -73,16 +73,13 @@ jobs:
 
   go-test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: pine-go
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version-file: pine-go/go.mod
           cache-dependency-path: pine-go/go.sum
-      - run: go test -coverprofile=coverage.out -covermode=atomic ./...
+      - run: make go-cover
       - name: Upload Go coverage
         uses: actions/upload-artifact@v7
         if: always()
@@ -274,19 +271,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
-      - name: Configure with tests enabled
-        working-directory: pine-cpp
-        run: |
-          cmake -S . -B build-tests \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DPINE_CPP_BUILD_TESTS=ON \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-      - name: Build tests
-        working-directory: pine-cpp
-        run: cmake --build build-tests --target pine_cpp_tests -j"$(nproc)"
-      - name: Run tests via ctest
-        working-directory: pine-cpp/build-tests
-        run: ctest --output-on-failure
+      - name: Build + run tests
+        run: make cpp-test PARALLEL=$(nproc)
 
   java-benchmark:
     runs-on: ubuntu-latest
@@ -364,7 +350,7 @@ jobs:
             redis-server=5:7.* cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
           redis-server --version
       - name: Cross-validate Go vs Java vs C++
-        run: bash scripts/cross-validate.sh | tee cross-validate-output.txt
+        run: make cross-validate | tee cross-validate-output.txt
       - name: Fail on any divergence
         run: |
           if grep -q "^FAIL:" cross-validate-output.txt; then
@@ -402,19 +388,13 @@ jobs:
 
   codegen-check:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: pine-go
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version-file: pine-go/go.mod
           cache-dependency-path: pine-go/go.sum
-      - name: Run codegen
-        run: go run ./cmd/pineapple-codegen -output ../apple_generated -doc-dir ../doc/operators -operators-dir operators
-      - name: Check no diff
-        run: git diff --exit-code
+      - run: make codegen-check
 
   fuzz:
     runs-on: ubuntu-latest
