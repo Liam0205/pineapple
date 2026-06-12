@@ -16,10 +16,14 @@ import (
 
 func init() {
 	// Wire the package-level Backend variable to the gopher-lua factory.
-	// The matching wangshu file installs a panicking init when its build
-	// tag is selected.
+	// The matching wangshu file installs its own init when its build tag is
+	// selected.
 	backend = gopherLuaBackend{}
 }
+
+// backendName is the build-tag-selected identifier surfaced to tests via
+// activeBackendName(). Mirror in backend_wangshu.go.
+const backendName = "gopher-lua"
 
 type gopherLuaBackend struct{}
 
