@@ -19,16 +19,18 @@
 // Performance: Lua is ~1.3x slower than native Go for simple operations, scaling
 // to ~2x for compute-intensive loops (1000 items). The overhead comes from VM
 // interpretation and Go↔Lua type conversion. See design_doc/13_lua_vs_go_benchmark.md.
+//
+// Backend: the underlying VM is selected at build time. Default is gopher-lua;
+// the wangshu backend (https://github.com/Liam0205/wangshu) is opt-in via
+// `-tags=lua_wangshu`. See backend.go for the abstraction.
 package lua
 
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
-	glua "github.com/yuin/gopher-lua"
 )
 
 func init() {
@@ -51,7 +53,7 @@ type LuaOp struct {
 	pine.MetadataHolder
 	pine.DebugHolder
 	pine.ConcurrentSafeMarker
-	pool       *statePool
+	pool       Pool
 	funcName   string
 	isItemMode bool
 }
@@ -76,22 +78,22 @@ func (o *LuaOp) Init(params map[string]any) error {
 		o.isItemMode = false
 	}
 
-	var err error
-	o.pool, err = newStatePool(script)
+	pool, err := backend.NewPool(script)
 	if err != nil {
 		return fmt.Errorf("lua: failed to load script: %w", err)
 	}
+	o.pool = pool
 
 	// Validate that the declared function exists in the script.
-	L := o.pool.Borrow()
-	if L == nil {
+	eng := o.pool.Borrow()
+	if eng == nil {
 		return fmt.Errorf("lua: failed to borrow state for validation")
 	}
-	if L.GetGlobal(o.funcName) == glua.LNil {
-		o.pool.Return(L)
+	if !eng.HasFunction(o.funcName) {
+		o.pool.Return(eng)
 		return fmt.Errorf("lua: function %q not defined in script", o.funcName)
 	}
-	o.pool.Return(L)
+	o.pool.Return(eng)
 
 	return nil
 }
@@ -109,33 +111,30 @@ func (o *LuaOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.O
 			map[bool]string{true: "item", false: "common"}[o.isItemMode], o.funcName)
 	}
 
-	L := o.pool.Borrow()
-	if L == nil {
+	eng := o.pool.Borrow()
+	if eng == nil {
 		return fmt.Errorf("lua: pool is closed")
 	}
-	defer o.pool.Return(L)
+	defer o.pool.Return(eng)
 
-	L.SetContext(ctx)
-	defer L.RemoveContext()
+	eng.SetContext(ctx)
+	defer eng.RemoveContext()
 
 	if o.isItemMode {
-		return o.executeForItem(L, in, out)
+		return o.executeForItem(eng, in, out)
 	}
-	return o.executeForCommon(L, in, out)
+	return o.executeForCommon(eng, in, out)
 }
 
 // executeForItem calls the Lua function once per item.
 // Common fields: scalar globals (set once). Item fields: scalar globals (set per item).
-// Return values map positionally to itemOutput via SetItem.
-func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+// Return values map positionally to itemOutput.
+func (o *LuaOp) executeForItem(eng Engine, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	// Set common globals once
 	for _, field := range o.CommonInput {
-		L.SetGlobal(field, toLua(L, in.Common(field)))
-	}
-
-	fn := L.GetGlobal(o.funcName)
-	if fn == glua.LNil {
-		return fmt.Errorf("lua: function %q not found", o.funcName)
+		if err := eng.SetGlobal(field, in.Common(field)); err != nil {
+			return fmt.Errorf("lua: common[%s]: %w", field, err)
+		}
 	}
 
 	nret := len(o.ItemOutput)
@@ -144,184 +143,62 @@ func (o *LuaOp) executeForItem(L *glua.LState, in *pine.OperatorInput, out *pine
 	for i := 0; i < n; i++ {
 		// Set item globals for this item
 		for _, field := range o.ItemInput {
-			L.SetGlobal(field, toLua(L, in.Item(i, field)))
+			if err := eng.SetGlobal(field, in.Item(i, field)); err != nil {
+				return fmt.Errorf("lua: item[%d].%s: %w", i, field, err)
+			}
 		}
 
-		if err := L.CallByParam(glua.P{Fn: fn, NRet: nret, Protect: true}); err != nil {
+		results, err := eng.Call(o.funcName, nret)
+		if err != nil {
 			return fmt.Errorf("lua: item[%d]: %w", i, err)
 		}
-
-		// Collect return values (stack has them in order, first return at bottom)
 		for j := 0; j < nret; j++ {
-			val, err := fromLua(L.Get(-(nret - j)))
-			if err != nil {
-				L.Pop(nret)
-				return fmt.Errorf("item[%d]: %w", i, err)
-			}
-			out.SetItem(i, o.ItemOutput[j], val)
+			out.SetItem(i, o.ItemOutput[j], results[j])
 		}
-		L.Pop(nret)
 	}
 
 	return nil
 }
 
 // executeForCommon calls the Lua function once.
-// Common fields: scalar globals. Item fields: Lua table globals (arrays of all items).
-// Return values map positionally to commonOutput via SetCommon.
-func (o *LuaOp) executeForCommon(L *glua.LState, in *pine.OperatorInput, out *pine.OperatorOutput) error {
+// Common fields: scalar globals. Item fields: list globals (arrays of all items).
+// Return values map positionally to commonOutput.
+func (o *LuaOp) executeForCommon(eng Engine, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	// Set common globals as scalars
 	for _, field := range o.CommonInput {
-		L.SetGlobal(field, toLua(L, in.Common(field)))
+		if err := eng.SetGlobal(field, in.Common(field)); err != nil {
+			return fmt.Errorf("lua: common[%s]: %w", field, err)
+		}
 	}
 
-	// Set item fields as Lua tables (1-indexed arrays)
+	// Set item fields as arrays (one element per item, in order). The backend
+	// is responsible for mapping []any to its native sequence container.
 	n := in.ItemCount()
 	for _, field := range o.ItemInput {
-		tbl := L.NewTable()
+		arr := make([]any, n)
 		for i := 0; i < n; i++ {
-			tbl.Append(toLua(L, in.Item(i, field)))
+			arr[i] = in.Item(i, field)
 		}
-		L.SetGlobal(field, tbl)
-	}
-
-	fn := L.GetGlobal(o.funcName)
-	if fn == glua.LNil {
-		return fmt.Errorf("lua: function %q not found", o.funcName)
+		if err := eng.SetGlobal(field, arr); err != nil {
+			return fmt.Errorf("lua: items[].%s: %w", field, err)
+		}
 	}
 
 	nret := len(o.CommonOutput)
-	if err := L.CallByParam(glua.P{Fn: fn, NRet: nret, Protect: true}); err != nil {
+	results, err := eng.Call(o.funcName, nret)
+	if err != nil {
 		return fmt.Errorf("lua: %w", err)
 	}
-
-	// Collect return values positionally
 	for j := 0; j < nret; j++ {
-		val, err := fromLua(L.Get(-(nret - j)))
-		if err != nil {
-			L.Pop(nret)
-			return err
-		}
-		out.SetCommon(o.CommonOutput[j], val)
+		out.SetCommon(o.CommonOutput[j], results[j])
 	}
-	L.Pop(nret)
 
 	return nil
 }
 
-func toLua(L *glua.LState, v any) glua.LValue {
-	if v == nil {
-		return glua.LNil
-	}
-	switch x := v.(type) {
-	case bool:
-		return glua.LBool(x)
-	case float64:
-		return glua.LNumber(x)
-	case int64:
-		return glua.LNumber(float64(x))
-	case int:
-		return glua.LNumber(float64(x))
-	case string:
-		return glua.LString(x)
-	case []any:
-		tbl := L.NewTable()
-		for _, elem := range x {
-			tbl.Append(toLua(L, elem))
-		}
-		return tbl
-	case map[string]any:
-		tbl := L.NewTable()
-		for k, val := range x {
-			L.SetField(tbl, k, toLua(L, val))
-		}
-		return tbl
-	default:
-		rv := reflect.ValueOf(v)
-		switch rv.Kind() {
-		case reflect.Slice, reflect.Array:
-			tbl := L.NewTable()
-			for i := 0; i < rv.Len(); i++ {
-				tbl.Append(toLua(L, rv.Index(i).Interface()))
-			}
-			return tbl
-		case reflect.Map:
-			tbl := L.NewTable()
-			for _, k := range rv.MapKeys() {
-				L.SetField(tbl, fmt.Sprint(k.Interface()), toLua(L, rv.MapIndex(k).Interface()))
-			}
-			return tbl
-		}
-		return glua.LString(fmt.Sprintf("%v", v))
-	}
-}
-
-func fromLua(v glua.LValue) (any, error) {
-	switch x := v.(type) {
-	case *glua.LNilType:
-		return nil, nil
-	case glua.LBool:
-		return bool(x), nil
-	case glua.LNumber:
-		return float64(x), nil
-	case glua.LString:
-		return string(x), nil
-	case *glua.LTable:
-		maxN := x.MaxN()
-		if maxN > 0 {
-			arr := make([]any, 0, maxN)
-			contiguous := true
-			for i := 1; i <= maxN; i++ {
-				raw := x.RawGetInt(i)
-				if raw == glua.LNil {
-					contiguous = false
-					break
-				}
-				elem, err := fromLua(raw)
-				if err != nil {
-					return nil, err
-				}
-				arr = append(arr, elem)
-			}
-			if contiguous {
-				return arr, nil
-			}
-		}
-		m := make(map[string]any)
-		var iterErr error
-		x.ForEach(func(key, val glua.LValue) {
-			if iterErr != nil {
-				return
-			}
-			strKey, ok := key.(glua.LString)
-			if !ok {
-				iterErr = fmt.Errorf("lua: table has non-string key of type %q", key.Type().String())
-				return
-			}
-			converted, err := fromLua(val)
-			if err != nil {
-				iterErr = err
-				return
-			}
-			m[string(strKey)] = converted
-		})
-		if iterErr != nil {
-			return nil, iterErr
-		}
-		if len(m) == 0 {
-			// Lua empty table → empty array (cross-runtime convention)
-			return []any{}, nil
-		}
-		return m, nil
-	default:
-		// reflect.Kind not supported (struct, chan, func, etc.), fallback to string
-		return v.String(), nil
-	}
-}
-
 // OperatorStats implements pine.StatsProvider.
 func (o *LuaOp) OperatorStats() map[string]int64 {
-	return o.pool.statsSnapshot()
+	return o.pool.StatsSnapshot()
 }
 
 // Close implements pine.Closer. It marks the state pool closed so the engine
@@ -337,7 +214,7 @@ func (o *LuaOp) Close() error {
 // SetMetricsProvider implements pine.MetricsAware.
 func (o *LuaOp) SetMetricsProvider(p metrics.Provider) {
 	name := o.OperatorName()
-	o.pool.setMetrics(
+	o.pool.SetMetrics(
 		p.NewCounter(metrics.MetricOpts{
 			Name: "pine_lua_pool_borrow_total", Help: "Total Lua state borrows.", LabelNames: []string{"operator"},
 		}).With(name),
