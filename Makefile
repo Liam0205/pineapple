@@ -10,13 +10,17 @@
 # bash 语法(process substitution / array)需要,默认 /bin/sh 会报 syntax error。
 SHELL := /bin/bash
 
+# 默认 -j 并发数(本机 12 核)。CI 上以 `make <target> PARALLEL=$(nproc)` 覆盖。
+# 禁止 cmake/make 裸 -j: 无上界会触发 OOM swap 风暴(本仓 feedback)。
+PARALLEL ?= 12
+
 .PHONY: help all \
         fmt fmt-check \
         lint \
         test go-test apple-test java-test cpp-test \
         bench go-bench java-bench bench-cross-runtime bench-lua-backends \
         fuzz go-fuzz java-fuzz differential-fuzz \
-        cover \
+        cover go-cover java-cover \
         codegen codegen-check \
         cross-validate \
         hooks tidy clean
@@ -68,19 +72,23 @@ apple-test: ## 仅 apple Python 测试
 java-test: ## 仅 pine-java 测试
 	bash scripts/java-test.sh
 
-cpp-test: ## 仅 pine-cpp 测试(CMake + ctest)
+cpp-test: ## 仅 pine-cpp 测试(CMake + ctest; 并发数由 PARALLEL 控制)
 	cmake -S pine-cpp -B pine-cpp/build-tests \
 	    -DCMAKE_BUILD_TYPE=Debug \
 	    -DPINE_CPP_BUILD_TESTS=ON \
 	    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-	cmake --build pine-cpp/build-tests --target pine_cpp_tests -j12
+	cmake --build pine-cpp/build-tests --target pine_cpp_tests -j$(PARALLEL)
 	cd pine-cpp/build-tests && ctest --output-on-failure
 
 # ------- Coverage -------------------------------------------------------------
 
-cover: ## pine-go + pine-java 覆盖率产物
+cover: go-cover java-cover ## 各语言覆盖率产物
+
+go-cover: ## pine-go coverprofile + 终端 func 摘要
 	cd pine-go && go test -coverprofile=coverage.out -covermode=atomic ./...
 	cd pine-go && go tool cover -func=coverage.out | tail -1
+
+java-cover: ## pine-java Jacoco 报告
 	cd pine-java && mvn test -B -q jacoco:report
 
 # ------- Benchmark ------------------------------------------------------------
