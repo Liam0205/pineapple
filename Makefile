@@ -32,7 +32,7 @@ help:
 
 # ------- 复合 target ----------------------------------------------------------
 
-all: lint test codegen-check ## 本地提交前全检(不含跨语言慢 job:cross-validate / differential-fuzz)
+all: fmt-check lint test codegen-check ## 本地提交前全检(不含跨语言慢 job:cross-validate / differential-fuzz / fuzz)
 
 # ------- 格式化 ---------------------------------------------------------------
 
