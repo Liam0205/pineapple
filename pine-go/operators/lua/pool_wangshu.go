@@ -495,17 +495,20 @@ func (e *wangshuEngine) tableToGo(t *Table) (any, error) {
 	m := make(map[string]any)
 	var iterErr error
 	_ = wt.ForEach(func(key, val wangshu.Value) bool {
+		// Both key and val are pinned by ForEach via fromInnerWithPin (godoc:
+		// "fn 不在外保留时,可在 fn 末尾顺手 Release 复合 val/key 防 pin 槽
+		// 累积"). We never carry either past this callback — converted goes
+		// into m by value or iterErr aborts — so release both unconditionally.
+		defer key.Release()
+		defer val.Release()
 		if iterErr != nil {
-			val.Release()
 			return false
 		}
 		if !key.IsString() {
 			iterErr = fmt.Errorf("lua: table has non-string key of type %q", wangshuTypeName(key))
-			val.Release()
 			return false
 		}
 		converted, ferr := e.fromValue(val)
-		val.Release()
 		if ferr != nil {
 			iterErr = ferr
 			return false
