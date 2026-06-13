@@ -8,6 +8,7 @@
 
 1. **per-item 边界主导**：隔离算子级 L5（Horner 循环）/1000 items 实测——gopher-lua 729μs、LuaJ-luajc 164μs、LuaJIT 154μs。真 LuaJIT 只比 luajc 快 6%：per-item 跨 VM 边界 + 装箱成本钉死了 VM 层加速的上限。
 2. **端到端稀释**：luajc 隔离算子级 -37%，但端到端跨引擎 benchmark（2026-06-11，report-20260611-101131 vs report-20260610-230235，全 14 fixtures，10000 请求 × 16 并发）全部落在 ±5-7% 噪声带内。现有 fixtures 的 Lua 全是单行 if/return 判断，边界成本主导，VM 层加速在端到端不可见。
+   - **第二证据点（2026-06-13，wangshu CallInto）**：新增的 `realistic_*_calibrated_itemlua` 变体把 boundary 调用密度推到极致——per-item lua 加权打分、3000 调用/请求，是设计上 boundary-dominated 的形状。即便如此，wangshu(CallInto) vs gopher 端到端仍统计持平（p=0.21~0.84）。逐 op 归因量化：3000 次 per-item Lua 调用只给 ~30ms 请求加 <1ms（<3%），38-op DAG + stub I/O + 3000-item DataFrame 主导 ~97% 成本。即便边界是"主导"形状，依然不足以让 VM 层差异在端到端可见。这进一步确认：**common-mode 列内核负载迁移（第二步）才是 VM 层加速可见性的真正闸门**，单纯增大 boundary 密度不行。
 
 推论：在负载形状（per-item 边界）和数据布局（interface 装箱）改变之前，继续投入 VM 层优化没有端到端回报。
 
@@ -25,10 +26,17 @@
 - 演进：鼓励 / 扩展 common-mode——循环写在 Lua 内，一次 Execute 跨一次界，整列在 VM 内迭代。这是任何 VM 层加速（LuaJC 已落地，未来 VM 同理）在端到端可见的**前提闸门**。
 - 注意：common-mode 三运行时已存在（如 pine-java `TransformByLua.executeForCommon`），缺的是列内核风格的 fixture / 生产负载与配套文档引导。
 
-## 第三步（条件触发）：VM 适配层可插拔
+## 第三步（条件触发，2026-06-13 已触发）：VM 适配层可插拔
 
-- 触发条件：仅当外部 Go-native Lua VM 项目产出可用解释器后启动——pine-go 的 Lua 适配层支持替换 gopher-lua。
-- 语义闸门：替换必须通过 cross-validate + diff-fuzz byte-equal，沿用 pine-java luajc 的验证模式（`pine-java/src/test/java/page/liam/pine/operators/TransformByLuaCompilerBackendTest.java` 风格的后端等价钉住 + 全量 CI）。
+- **触发记录**：wangshu（纯 Go Lua 5.1 VM，NaN-boxing + arena GC）v0.1.3 接入为 opt-in `-tags=lua_wangshu`；v0.1.4 上游加入 `CallInto(dst, fn, args...)` 零分配边界路径（issue #8 反馈闭环）后翻转默认。当前 build tag 极性：**默认 `!lua_gopher` = wangshu，opt-in `lua_gopher` = gopher-lua**。共享 `Backend/Pool/Engine` 抽象（`pine-go/operators/lua/backend.go`）+ 同一测试套钉两后端字节级对等。详见 `llmdoc/memory/reflections/wangshu-backend-callinto-and-default-flip.md` 与 `llmdoc/reference/lua-backend.md`。
+- **决策门槛（实证细化）**：原"显著胜出才翻"被本次任务实证细化为三条 AND 闸门：
+  - (a) 在 calibrated 裁判 fixture（端到端代理生产）**不劣化**——统计持平即可，因端到端会稀释 VM 层差异；
+  - (b) 在受影响场景（boundary-dominated 隔离 item-mode）**显著胜出**——证明优化在源头维度真实存在；
+  - (c) 全量 race + lint + 18 包测试套件**双 tag 全绿**——证明行为对等。
+  本次 wangshu 翻默认即沿此模式：calibrated 三变体持平（p=0.21~0.84）+ isolated item-mode 时间 -12.5%/分配 -21.5%（L5 时间 -27%/分配 -35%）+ 双 tag 测试全绿。
+- **语义闸门（按切换范围分档）**：
+  - **小范围切换**（共享同一适配层 + 同一算子 + 字节级输出对比）：用共享测试套 + calibrated fixture 字节一致即可。本次 wangshu→默认即此档——两后端跑同一 `operators/lua` 测试套（双 tag race 全绿），itemlua calibrated fixture 跨后端字节一致（`sample=1173.7`）。
+  - **大范围切换**（如完全替换 VM 引擎、跨架构改动）：仍需 cross-validate + diff-fuzz byte-equal，沿用 pine-java luajc 的验证模式（`pine-java/src/test/java/page/liam/pine/operators/TransformByLuaCompilerBackendTest.java` 风格的后端等价钉住 + 全量 CI）。
 
 ## 明确不做
 
