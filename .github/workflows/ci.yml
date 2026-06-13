@@ -468,9 +468,12 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          # benchmarks 是独立子 module (pine-go/benchmarks/go.mod),
-          # 通过 replace 指令引用主 module; 主 module 内的 integration/ 仍属于 pine-go。
-          (cd benchmarks && go test -bench=. -benchmem -count=1 -run=^$ ./...) | tee benchmark.txt
+          # benchmarks 是独立子 module (pine-go/benchmarks/go.mod),通过 replace
+          # 指令引用主 module。`make bench` 默认带 -tags=pine_bench 让 stub
+          # 算子 + BenchmarkCalibrated 都被编译运行(否则 //go:build pine_bench
+          # 下的源文件在 CI 既不编译也不跑,silent-skip)。
+          make bench | tee benchmark.txt
+          # integration/ 仍在主 module,单独跑(不依赖 pine_bench)。
           go test -bench=. -benchmem -count=1 -run=^$ ./integration/ | tee -a benchmark.txt
       - name: Write benchmark summary
         if: always()
