@@ -7,7 +7,7 @@ using namespace pine;
 namespace {
 
 constexpr const char* kParallelConfig = R"({
-  "_PINEAPPLE_VERSION": "0.10.0",
+  "_PINEAPPLE_VERSION": "0.10.1",
   "pipeline_config": {
     "operators": {
       "copy_tag": {
