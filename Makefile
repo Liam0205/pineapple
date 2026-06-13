@@ -142,9 +142,10 @@ hooks: ## 安装 git hooks(一次性; 等价 git config core.hooksPath .githooks
 	git config core.hooksPath .githooks
 	@echo "hooks installed: $$(git config core.hooksPath)"
 
-tidy: ## go mod tidy + git diff 守门(pine-java/pine-cpp 由 mvn/CMake 自管,无对应概念)
+tidy: ## go mod tidy(主 module + benchmarks 子 module) + git diff 守门(pine-java/pine-cpp 由 mvn/CMake 自管,无对应概念)
 	cd pine-go && go mod tidy
-	git diff --exit-code pine-go/go.mod pine-go/go.sum
+	cd pine-go/benchmarks && go mod tidy
+	git diff --exit-code pine-go/go.mod pine-go/go.sum pine-go/benchmarks/go.mod pine-go/benchmarks/go.sum
 
 clean: ## 清理 pine-go / pine-cpp / pine-java build 产物
 	cd pine-go && go clean -testcache -cache
