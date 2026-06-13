@@ -317,7 +317,16 @@ func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
 			out[j] = nil
 			continue
 		}
-		out[j] = e.fromValue(dst[j])
+		val, ferr := e.fromValue(dst[j])
+		if ferr != nil {
+			// Release remaining dst entries (own and tail) before returning,
+			// mirroring gopher-lua's `L.Pop(nret)` on the same error path.
+			for k := j; k < n; k++ {
+				dst[k].Release()
+			}
+			return nil, ferr
+		}
+		out[j] = val
 		dst[j].Release()
 	}
 	return out, nil
@@ -418,37 +427,43 @@ func (e *wangshuEngine) makeMapTable(m map[string]any) (wangshu.Value, error) {
 // fromValue lifts a wangshu.Value back to a Go any, mirroring the gopher-lua
 // fromLua conventions: contiguous 1..N arrays become []any, everything else
 // becomes map[string]any, and an empty table becomes []any{} (cross-runtime
-// convention).
+// convention). Returns an error when a sub-table contains a non-string key —
+// the cross-runtime contract requires only string-keyed tables to be valid maps,
+// and gopher-lua's fromLua raises the same shape via a "lua: table has
+// non-string key of type %q" message; cross-validate Section 12 (error parity)
+// asserts byte equality.
 //
 // Function values are returned as a "<function>" string placeholder to avoid
 // leaking pin slots into operator output; this matches gopher-lua's default
 // behavior for non-data kinds.
-func (e *wangshuEngine) fromValue(v wangshu.Value) any {
+func (e *wangshuEngine) fromValue(v wangshu.Value) (any, error) {
 	switch {
 	case v.IsNil():
-		return nil
+		return nil, nil
 	case v.IsBool():
-		return v.Bool()
+		return v.Bool(), nil
 	case v.IsNumber():
-		return v.Number()
+		return v.Number(), nil
 	case v.IsString():
-		return v.Str()
+		return v.Str(), nil
 	case v.IsTable():
 		return e.tableToGo(v.AsTable())
 	case v.IsFunction():
-		return "<function>"
+		return "<function>", nil
 	}
-	return v.Display()
+	return v.Display(), nil
 }
 
 // tableToGo walks a wangshu Table and converts it to []any when the integer
 // keys are contiguous 1..N, else map[string]any. Mirrors fromLua on the
 // gopher-lua side so cross-backend tests see the same shape.
 //
-// Released or empty tables map to []any{} by cross-runtime convention.
-func (e *wangshuEngine) tableToGo(t *Table) any {
+// Released or empty tables map to []any{} by cross-runtime convention. Tables
+// with non-string keys (other than the integer 1..N array shape) raise an
+// error byte-equal to gopher-lua's, so cross-runtime fixtures keep parity.
+func (e *wangshuEngine) tableToGo(t *Table) (any, error) {
 	if t == nil {
-		return []any{}
+		return []any{}, nil
 	}
 	wt := (*wangshu.Table)(t)
 	n := wt.Len()
@@ -462,29 +477,76 @@ func (e *wangshuEngine) tableToGo(t *Table) any {
 				elem.Release()
 				break
 			}
-			arr = append(arr, e.fromValue(elem))
+			converted, ferr := e.fromValue(elem)
 			elem.Release()
+			if ferr != nil {
+				return nil, ferr
+			}
+			arr = append(arr, converted)
 		}
 		if contiguous {
-			return arr
+			return arr, nil
 		}
 	}
-	// Non-array shape: enumerate string keys via ForEach (wangshu issue #5).
-	// Mirrors the gopher-lua fromLua map branch — only string keys land in the
-	// map; an all-non-string-key table degrades to the empty-map placeholder.
+	// Non-array shape: enumerate keys via ForEach (wangshu issue #5). Mirrors
+	// the gopher-lua fromLua map branch — only string keys land in the map; a
+	// non-string key raises a parity-byte-equal error. ForEach has no early-exit
+	// path for errors, so capture into iterErr and return false to stop walking.
 	m := make(map[string]any)
+	var iterErr error
 	_ = wt.ForEach(func(key, val wangshu.Value) bool {
-		if key.IsString() {
-			m[key.Str()] = e.fromValue(val)
+		if iterErr != nil {
+			val.Release()
+			return false
 		}
+		if !key.IsString() {
+			iterErr = fmt.Errorf("lua: table has non-string key of type %q", wangshuTypeName(key))
+			val.Release()
+			return false
+		}
+		converted, ferr := e.fromValue(val)
 		val.Release()
+		if ferr != nil {
+			iterErr = ferr
+			return false
+		}
+		m[key.Str()] = converted
 		return true
 	})
+	if iterErr != nil {
+		return nil, iterErr
+	}
 	if len(m) == 0 {
 		// Empty table → empty array (cross-runtime convention, matches fromLua).
-		return []any{}
+		return []any{}, nil
 	}
-	return m
+	return m, nil
+}
+
+// wangshuTypeName returns the Lua type name string matching gopher-lua's
+// LValueType.String() output for the same kind. Used to make
+// "lua: table has non-string key of type %q" byte-equal across backends.
+func wangshuTypeName(v wangshu.Value) string {
+	switch {
+	case v.IsNil():
+		return "nil"
+	case v.IsBool():
+		return "boolean"
+	case v.IsNumber():
+		return "number"
+	case v.IsString():
+		return "string"
+	case v.IsFunction():
+		return "function"
+	case v.IsTable():
+		return "table"
+	}
+	// Fallback for kinds gopher-lua exposes via its 9-name table but wangshu's
+	// public API does not currently surface (userdata/thread/channel). The
+	// Display() output is human-readable rather than the LValueType string;
+	// cross-validate fixtures only exercise scalar/table keys, so this branch
+	// is unreached today but kept to avoid a silent empty quote.
+	return v.Display()
 }
 
 // Table is a local type alias so internal helpers (tableToGo) don't have to
