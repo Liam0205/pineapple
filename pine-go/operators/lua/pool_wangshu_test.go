@@ -169,3 +169,86 @@ func TestWangshuPoolConcurrentCounters(t *testing.T) {
 		t.Fatalf("borrow_count(%d) != reuse_count(%d) + misses(%d)", b, reuse, c-1)
 	}
 }
+
+// TestWangshuSetGlobalCompositeNoPinLeak guards against the v0.10.0 regression
+// where wangshuEngine.SetGlobal handed a NewTable() Value to st.SetGlobal but
+// never Released it. Each call left a permanent pin slot + arena table alive,
+// so high-throughput common-mode LuaOp form (where every ItemInput field is
+// lifted into a []any → wangshu Table per request) leaked linearly with QPS.
+//
+// Strategy: drive a tight Borrow → SetGlobal([]any of N entries) → Call →
+// Return loop, periodically forcing wangshu's collector via the script (the
+// only safepoint path that runs the sweep), and assert that arena KB does not
+// grow unboundedly across iterations. With the leak this asserts within a few
+// hundred iterations; without it the arena oscillates around a small steady
+// state regardless of iteration count.
+func TestWangshuSetGlobalCompositeNoPinLeak(t *testing.T) {
+	const script = `
+function f()
+    local s = 0
+    for i = 1, #xs do s = s + xs[i] end
+    return s
+end
+function gc() collectgarbage("collect") end
+`
+	wp, err := newWangshuPool(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wp.Close()
+
+	// Drive 2k iterations of the leaky shape. Use a fixed warm state so we
+	// observe one state's pin table, not amortization across the warm pool.
+	const iters = 2000
+	const itemsPerIter = 100
+
+	arr := make([]any, itemsPerIter)
+	for i := range arr {
+		arr[i] = float64(i)
+	}
+
+	var arenaAfterWarmup float64
+	for r := 0; r < iters; r++ {
+		eng := wp.Borrow()
+		if eng == nil {
+			t.Fatal("unexpected nil borrow")
+		}
+		we := eng.(*wangshuEngine)
+		if err := we.SetGlobal("xs", arr); err != nil {
+			t.Fatalf("SetGlobal: %v", err)
+		}
+		if _, err := we.Call("f", 1); err != nil {
+			t.Fatalf("Call: %v", err)
+		}
+		// Force a sweep so dropped pins actually return arena bytes. Without
+		// this we'd race the collector's own threshold heuristic.
+		if _, err := we.Call("gc", 0); err != nil {
+			t.Fatalf("gc Call: %v", err)
+		}
+		// Sample arena right after warm-up so the assertion compares like to
+		// like (post-first-Call internal allocations are baked into baseline).
+		if r == 100 {
+			arenaAfterWarmup = we.st.GCCountKB()
+		}
+		wp.Return(eng)
+	}
+
+	// Re-borrow to read the same state's arena counter. The pool's warm tier
+	// is LIFO so we get the most recently returned state — the one we were
+	// hammering above.
+	eng := wp.Borrow()
+	we := eng.(*wangshuEngine)
+	arenaFinal := we.st.GCCountKB()
+	wp.Return(eng)
+
+	// Tolerance: allow a small drift (intern interactions, idle freelist
+	// fragmentation). The leak grows ~1 KB per iteration; (iters-100) at
+	// 100 items reproduces ≈ 2 MB of growth pre-fix. 256 KB headroom is
+	// well above noise (single-state arena baseline) and well below leak
+	// magnitude.
+	const maxGrowthKB = 256.0
+	if grow := arenaFinal - arenaAfterWarmup; grow > maxGrowthKB {
+		t.Fatalf("wangshu arena grew by %.1f KB across %d iterations (warmup=%.1f, final=%.1f); pin leak suspected",
+			grow, iters-100, arenaAfterWarmup, arenaFinal)
+	}
+}
