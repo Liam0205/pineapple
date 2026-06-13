@@ -152,15 +152,25 @@ func (wp *wangshuPool) takeWarm() *wangshu.State {
 // Return puts the state back. ResetGlobalsToBaseline (wangshu issue #6) wipes
 // any script-level scratch globals so the next borrower sees a clean _G — the
 // same isolation the gopher-lua side gets via snapshotGlobals/resetToBaseline.
+//
+// When the pool is already closed, the state is being discarded so the reset +
+// RemoveContext are skipped (mirrors gopher-lua's pool_gopher_lua.go:262-285
+// closed-branch behavior, which only drops the snapshot and skips
+// resetToBaseline).
 func (wp *wangshuPool) Return(eng Engine) {
 	we, ok := eng.(*wangshuEngine)
 	if !ok || we == nil {
 		return
 	}
-	// Wipe script-level globals back to the post-load baseline, then drop any
-	// ctx so it does not leak into the next borrow.
-	we.st.ResetGlobalsToBaseline()
-	we.st.RemoveContext()
+	wp.mu.Lock()
+	closed := wp.closed
+	wp.mu.Unlock()
+	if !closed {
+		// Wipe script-level globals back to the post-load baseline, then drop
+		// any ctx so it does not leak into the next borrow.
+		we.st.ResetGlobalsToBaseline()
+		we.st.RemoveContext()
+	}
 	wp.returnState(we.st)
 }
 
