@@ -108,7 +108,13 @@ else:
         for pid in "${pids[@]}"; do
             if ! wait "$pid"; then
                 echo "    pineapple-run failed under TSan (iter=$iter, fixture=$subdir/$fname)" >&2
-                tail -n 60 "$WORK_DIR/run.err" >&2 || true
+                # Print the full run.err so the WARNING head + read/write
+                # stacks survive — TSan reports for high-fanout fixtures
+                # (6-root DAG / 4-way parallel) can exceed 200 lines, and a
+                # tail-truncated report drops the very lines a fix needs
+                # (Read of size N at 0xDEAD by main thread / Previous write
+                # of size N at 0xDEAD by thread T1).
+                cat "$WORK_DIR/run.err" >&2 || true
                 exit 1
             fi
         done
