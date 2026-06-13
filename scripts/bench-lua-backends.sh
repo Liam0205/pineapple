@@ -12,8 +12,12 @@
 # 选项:
 #   -bench PATTERN  传给 go test -bench 的正则(默认 BenchmarkCalibrated)
 #   -count N        每后端采样次数(默认 10)
-#   -procs N        GOMAXPROCS(默认 4;对照 synthetic 同口径)
-#   -serial         等价 -procs 1,去除 DAG 调度抖动,隔离 Lua 路径
+#   -procs N        GOMAXPROCS(默认 4;对照 synthetic 同口径)。仅作用于
+#                   GOMAXPROCS,bench 不分 cpu 维度——非 serial 模式下不传 -cpu,
+#                   依赖 BenchmarkCalibrated/Isolated 内部不调用 b.RunParallel
+#                   保持单 cpu 列输出,避免 benchstat 看到混合维度。
+#   -serial         等价 -procs 1,额外加 -cpu=1 显式锁死单 cpu 列,去除 DAG
+#                   调度抖动,隔离 Lua 路径
 #   -keep DIR       结果输出目录(默认临时目录,跑完打印路径)
 #
 # 前置依赖:

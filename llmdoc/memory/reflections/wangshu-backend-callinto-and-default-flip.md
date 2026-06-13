@@ -16,7 +16,7 @@
 
 ## What Went Wrong
 - 最初准备直接信 README 头条数字。如果只跑 calibrated 不做 isolated 对照,会得出反向结论(wangshu 持平),从而错过 boundary cost 这条线。
-- 复刻 wangshu 后端时只复刻了实现路径(Backend/Pool/Engine),**没复刻 backend-specific 的测试套**——gopher 侧 `pool_gopher_lua_test.go` 在 `//go:build !lua_wangshu` 下钉住 borrow/return/create/reuse/active 5 元组不变量,wangshu 侧从 commit e882665 起一直缺这层覆盖,直到这次审计才补上 `pool_wangshu_test.go`。
+- 复刻 wangshu 后端时只复刻了实现路径(Backend/Pool/Engine),**没复刻 backend-specific 的测试套**——gopher 侧 `pool_gopher_lua_test.go` 当时在 `//go:build !lua_wangshu` 下(翻默认后的现极性是 `lua_gopher`)钉住 borrow/return/create/reuse/active 5 元组不变量,wangshu 侧从 commit e882665 起一直缺这层覆盖,直到这次审计才补上 `pool_wangshu_test.go`。
 - `TestRefreshDefersCloseWhileBorrowed` 偶发失败时,第一反应是怀疑翻转引入的回归。实证两个 tag 下都偶发,与 Lua 后端无关——这是测试本身的同步点 bug,与本次任务无关但顺手暴露。
 - 翻默认时 build tag 极性反转,涉及 5 个 tag 文件 + 3 处 doc comment + Makefile + script + bench 注释,容易遗漏。
 

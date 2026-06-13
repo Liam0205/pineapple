@@ -17,7 +17,7 @@
 - `Pool`：5 元组计数器 + 双层 warm/sync.Pool 复用模型（见下节）
 - `Engine`：单次脚本执行单元，封装 `LoadString` / `SetGlobal` / `Call` / 读返回值等边界操作
 
-两后端共享同一 `pine-go/operators/lua/` 测试套（`pool_test.go` 在两个 tag 下都跑 race），加 backend-specific 的 pool 计数器测试（`pool_gopher_lua_test.go` `//go:build !lua_wangshu` / `pool_wangshu_test.go`）钉住 borrow/return/create/reuse/active 5 元组对等。新加后端必须复刻 backend-specific 的计数器测试套，不可仅复刻实现。
+两后端共享同一 backend-agnostic 测试套（`lua_test.go` / `backend_isolation_test.go` / `sandbox_test.go` 在两个 tag 下都跑 race），加 backend-specific 的 pool 计数器测试（`pool_gopher_lua_test.go` `//go:build lua_gopher` / `pool_wangshu_test.go` `//go:build !lua_gopher`）钉住 borrow/return/create/reuse/active 5 元组对等。新加后端必须复刻 backend-specific 的计数器测试套,不可仅复刻实现。
 
 ## wangshu 边界 API 契约（CallInto）
 

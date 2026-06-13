@@ -28,7 +28,7 @@
 
 ## 第三步（条件触发，2026-06-13 已触发）：VM 适配层可插拔
 
-- **触发记录**：wangshu（纯 Go Lua 5.1 VM，NaN-boxing + arena GC）v0.1.3 接入为 opt-in `-tags=lua_wangshu`；v0.1.4 上游加入 `CallInto(dst, fn, args...)` 零分配边界路径（issue #8 反馈闭环）后翻转默认。当前 build tag 极性：**默认 `!lua_gopher` = wangshu，opt-in `lua_gopher` = gopher-lua**。共享 `Backend/Pool/Engine` 抽象（`pine-go/operators/lua/backend.go`）+ 同一测试套钉两后端字节级对等。详见 `llmdoc/memory/reflections/wangshu-backend-callinto-and-default-flip.md` 与 `llmdoc/reference/lua-backend.md`。
+- **触发记录**：wangshu（纯 Go Lua 5.1 VM，NaN-boxing + arena GC）v0.1.3 接入为 opt-in（初始 build tag 为 `lua_wangshu`，翻默认时连同极性反转改名为 `lua_gopher`）；v0.1.4 上游加入 `CallInto(dst, fn, args...)` 零分配边界路径（issue #8 反馈闭环）后翻转默认。当前 build tag 极性：**默认 `!lua_gopher` = wangshu，opt-in `lua_gopher` = gopher-lua**。共享 `Backend/Pool/Engine` 抽象（`pine-go/operators/lua/backend.go`）+ 同一测试套钉两后端字节级对等。详见 `llmdoc/memory/reflections/wangshu-backend-callinto-and-default-flip.md` 与 `llmdoc/reference/lua-backend.md`。
 - **决策门槛（实证细化）**：原"显著胜出才翻"被本次任务实证细化为三条 AND 闸门：
   - (a) 在 calibrated 裁判 fixture（端到端代理生产）**不劣化**——统计持平即可，因端到端会稀释 VM 层差异；
   - (b) 在受影响场景（boundary-dominated 隔离 item-mode）**显著胜出**——证明优化在源头维度真实存在；
