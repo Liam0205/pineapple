@@ -104,11 +104,11 @@ java-bench: ## pine-java fixture benchmark
 bench-cross-runtime: ## 跨引擎 benchmark(三引擎 × 多 fixture; 需 hey + Go/Java/C++ toolchain)
 	bash scripts/bench-cross-runtime.sh
 
-# wangshu vs gopher-lua 后端对比 benchmark。仅在 wangshu backend 接入后生效。
-# 现阶段为占位 target, 实现待 task #5 完成后填充(参见 task #6)。
-bench-lua-backends: ## [TODO] wangshu vs gopher-lua on realistic_*_calibrated
-	@echo "bench-lua-backends: TODO — wangshu backend 尚未接入(见 .code-review/go-native-lua-vm/roadmap.md)"
-	@exit 1
+# wangshu vs gopher-lua 后端对比 benchmark:同机串行连跑两后端 + benchstat。
+# 默认裁判 fixture 是 realistic_for_you_calibrated(见 benchmark-hygiene.md)。
+# 需 benchstat: go install golang.org/x/perf/cmd/benchstat@latest
+bench-lua-backends: ## wangshu vs gopher-lua on realistic_*_calibrated(benchstat delta)
+	bash scripts/bench-lua-backends.sh
 
 # ------- Fuzz -----------------------------------------------------------------
 
