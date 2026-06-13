@@ -4,9 +4,10 @@
 # benchmarks 已拆为独立 go module (pine-go/benchmarks/go.mod),
 # 默认走子 module; 传 `./internal/...` 等参数可以指向主 module 内的基准。
 #
-# 子 module 内的 BenchmarkCalibrated / BenchmarkIsolated 都在 //go:build pine_bench
-# 下,所以脚本默认带 pine_bench tag,确保 `make bench` 与 `scripts/go-bench.sh`
-# 不会静默跳过这些基准。后端对照用 TAGS=lua_gopher 追加(见 bench-lua-backends.sh)。
+# 子 module 内的 BenchmarkCalibrated 在 //go:build pine_bench 下(BenchmarkIsolated /
+# BenchmarkLuaVsGo / BenchmarkSmallPipeline 等不带 tag),所以脚本默认带 pine_bench
+# tag,确保 `make bench` 与 `scripts/go-bench.sh` 不会静默跳过 Calibrated 这一档。
+# 后端对照用 TAGS=lua_gopher 追加(见 bench-lua-backends.sh)。
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
