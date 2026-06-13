@@ -6,6 +6,11 @@
 #   - 不内联多步命令: 所有具体步骤仍位于 scripts/*.sh,Makefile 只做命名与组合。
 #   - target 命名与 wangshu Makefile 对齐(fmt/lint/test/bench/fuzz/cover/tidy/hooks/all),
 #     避免双 muscle memory; 多语言专属 target 走 <lang>-<verb> 形式。
+#   - `all` 名义对齐但语义有意收窄:wangshu `all` 是 `fmt lint test fuzz
+#     conformance difftest bench-test`(单语言可全检);本仓 `all` 是
+#     `fmt-check lint test codegen-check`,跨语言慢 job(fuzz / cross-validate /
+#     differential-fuzz / cpp 系列)走显式 target,避免本地 `make all` 阻塞 1h+。
+#     完整全检走 `make all && make fuzz && make cross-validate && make differential-fuzz`。
 
 # bash 语法(process substitution / array)需要,默认 /bin/sh 会报 syntax error。
 SHELL := /bin/bash
