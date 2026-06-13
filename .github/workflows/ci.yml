@@ -37,6 +37,13 @@ concurrency:
 jobs:
   go-lint:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 双 tag 矩阵守门翻默认闸门 (c)(perf-evolution-roadmap §"决策门槛"):
+        # default = wangshu(默认 Lua 后端);lua_gopher = gopher-lua opt-in。
+        # 任一后端 lint 红即拦截,避免 gopher-lua 在默认 build 不被链入而静默漂移。
+        lua_backend: [default, gopher]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -46,6 +53,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           working-directory: pine-go
+          args: ${{ matrix.lua_backend == 'gopher' && '--build-tags=lua_gopher' || '' }}
 
   apple-lint:
     runs-on: ubuntu-latest
@@ -87,6 +95,23 @@ jobs:
           name: go-coverage
           path: pine-go/coverage.out
           retention-days: 30
+
+  # 翻默认闸门 (c)(perf-evolution-roadmap §"决策门槛"):双 tag 全绿。
+  # 默认走 wangshu(go-test);此 job 守门 gopher-lua opt-in 后端,只跑直接消费
+  # Lua 后端的包(operators/lua + integration),避免重复全量回归。
+  go-test-gopher:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pine-go
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: pine-go/go.mod
+          cache-dependency-path: pine-go/go.sum
+      - name: Test under -tags=lua_gopher
+        run: go test -race -tags=lua_gopher ./operators/lua/... ./integration/...
 
   apple-test:
     runs-on: ubuntu-latest
