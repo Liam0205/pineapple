@@ -20,9 +20,9 @@
 // to ~2x for compute-intensive loops (1000 items). The overhead comes from VM
 // interpretation and Go↔Lua type conversion. See design_doc/13_lua_vs_go_benchmark.md.
 //
-// Backend: the underlying VM is selected at build time. Default is gopher-lua;
-// the wangshu backend (https://github.com/Liam0205/wangshu) is opt-in via
-// `-tags=lua_wangshu`. See backend.go for the abstraction.
+// Backend: the underlying VM is selected at build time. Default is wangshu
+// (https://github.com/Liam0205/wangshu), a pure-Go Lua 5.1 VM; gopher-lua is
+// opt-in via `-tags=lua_gopher`. See backend.go for the abstraction.
 package lua
 
 import (

@@ -1,9 +1,9 @@
 // Package lua's backend layer abstracts the underlying Lua VM so the operator
 // (LuaOp in lua.go) is VM-agnostic. Two implementations live under build tags:
 //
-//   - default(!lua_wangshu): gopher-lua via *_gopher_lua.go
-//   - opt-in(lua_wangshu):  wangshu via *_wangshu.go, see
+//   - default(!lua_gopher): wangshu via *_wangshu.go, see
 //     https://github.com/Liam0205/wangshu
+//   - opt-in(lua_gopher):   gopher-lua via *_gopher_lua.go
 //
 // Selection happens at compile time so a single binary embeds exactly one
 // backend, with zero runtime dispatch cost. The active backend exposes a

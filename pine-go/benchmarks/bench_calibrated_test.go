@@ -6,11 +6,11 @@
 //
 // Purpose: this is the *only* judge for the wangshu-vs-gopher-lua backend
 // decision (see llmdoc/guides/benchmark-hygiene.md — calibrated fixtures are
-// the sole arbiter of perf decisions). gopher-lua is the default backend; wangshu
-// is opt-in via lua_wangshu. Run the same target under both and diff with benchstat:
+// the sole arbiter of perf decisions). wangshu is the default backend; gopher-lua
+// is opt-in via lua_gopher. Run the same target under both and diff with benchstat:
 //
-//	go test -tags='pine_bench'              -run='^$' -bench=BenchmarkCalibrated -count=10 ./... > gopher.txt
-//	go test -tags='pine_bench lua_wangshu'  -run='^$' -bench=BenchmarkCalibrated -count=10 ./... > wangshu.txt
+//	go test -tags='pine_bench lua_gopher' -run='^$' -bench=BenchmarkCalibrated -count=10 ./... > gopher.txt
+//	go test -tags='pine_bench'            -run='^$' -bench=BenchmarkCalibrated -count=10 ./... > wangshu.txt
 //	benchstat gopher.txt wangshu.txt
 //
 // Requires the pine_bench build tag so the external-dependency operators

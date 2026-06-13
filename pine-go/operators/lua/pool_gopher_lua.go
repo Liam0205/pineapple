@@ -1,4 +1,4 @@
-//go:build !lua_wangshu
+//go:build lua_gopher
 
 package lua
 
@@ -15,9 +15,9 @@ import (
 )
 
 func init() {
-	// Wire the package-level Backend variable to the gopher-lua factory.
-	// The matching wangshu file installs its own init when its build tag is
-	// selected.
+	// Wire the package-level Backend variable to the gopher-lua factory. This is
+	// the opt-in backend (build with `-tags=lua_gopher`); the default wangshu
+	// file installs its own init under the inverse build tag.
 	backend = gopherLuaBackend{}
 }
 
