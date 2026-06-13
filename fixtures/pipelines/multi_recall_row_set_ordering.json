@@ -2,7 +2,7 @@
   "name": "multi-recall row-set ordering (ConsumesRowSet semantics)",
   "description": "Regression test for differential fuzz divergence #945: operators between recalls must wait for preceding recall via ConsumesRowSet before iterating items.",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.0",
+    "_PINEAPPLE_VERSION": "0.10.1",
     "pipeline_config": {
       "operators": {
         "recall_a": {
