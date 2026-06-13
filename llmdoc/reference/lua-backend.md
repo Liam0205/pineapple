@@ -104,6 +104,39 @@ issue #8 反馈闭环：边界双拷贝（state.go:557 + wangshu.go:371，每调
 
 calibrated 端到端：`fixtures/benchmarks/realistic_*_calibrated*` 系列。其中 `realistic_*_calibrated_itemlua` 变体把 boundary 调用密度推到极致（per-item lua 加权打分，3000 调用/请求），用于钉住 boundary-dominated 形状下的端到端表现——本次 wangshu 翻默认时该变体两后端字节一致（`sample=1173.7`）、统计持平（p=0.21~0.84）。
 
+## Arena 列轨 ABI（已评估的备选边界通道，未采用）
+
+wangshu v0.1.4 公共 API 提供一条专为"per-item 整列投喂"设计的零拷贝边界通道，pineapple 现未使用。本节记录其契约与不采用的硬约束，供未来想优化 commonMode 边界的人查阅，避免重新发现后不知"落地需破 parity"而误动手。
+
+### ABI 用法
+
+- 宿主侧构造：`NewArena(nrows)` + `AddFloatColumn / AddInt64Column / AddBoolColumn / AddStringColumn(name, vals, present)`，再 `Program.Call(state, arena)` 执行。
+- 脚本侧：固定全局名 `arena`，读 `arena.<col>[i]`（**1-based** 下标）与 `arena.rows`（行数）。
+- 列**零拷贝引用**：宿主 `[]float64` 等列切片**不复制**，就地 NaN-box 暴露给脚本；不进 pin 表；同一 `*Arena` 只挂载一次，稳态零重建。
+- null 经 presence bitmap 表达（`present` 参数）；列**只读**。
+
+### 与现 commonMode 路径的对比
+
+现 commonMode 走 `SetGlobal([]any) → makeArrayTable`：`NewTable` + N 次 `SetIndex` 逐元素装箱 + `RawSet` 构表。arena 通道消除**每请求 O(N×字段)** 的逐元素装箱 / table rehash / arena 表分配——整列以零拷贝引用一次性进 VM。
+
+### 限制
+
+- 列**只读**（脚本不可写回 arena 列）。
+- int64 在 `|v| > 2^53` 时**读取报错**（超出 float64 尾数精度）。
+- **不支持嵌套 table / map 列**，只支持扁平标量列（float / int64 / bool / string）。
+
+### 未采用原因
+
+落地需把 Lua 脚本访问约定从 `field[i]` 改成 `arena.field[i]`，而 `lua_script` 是四引擎共享的**字节级对等产物**（部分由 `apple/control.py` 自动生成、部分用户手写）——只改 wangshu 破 parity，真落地需四引擎都支持 arena ABI，是跨引擎工程。原型边界收益（Boundary 口径 N=100 -22% ~ N=3000 -46%、B/op -83%~-87%，提速随列长增长）真实，但端到端会被引擎框架稀释（沿性能演进路线校准事实 2 的逻辑，大概率落到个位数）。评估数据与"不立即落地、仅 profiling 证明 commonMode 边界为生产端到端热点才立项"的决策见 `llmdoc/memory/decisions/perf-evolution-roadmap.md` 第二步；完整调查方法与绝对数据见 `llmdoc/memory/reflections/wangshu-borrow-optimization-survey.md`。
+
+### makeArrayTable 的 N=1000 rehash 悬崖（commonMode 现路径已知特性）
+
+`makeArrayTable` 用 `NewTable()` 构表，**array 段起始 `asize=0`**，逐个 `SetIndex(1..N)` 触发 Lua 5.1 经典 table 动态 rehash 扩容。在特定列长（实测 N≈1000）上出现**非单调性能悬崖**——比更大的 N（如 N=3000）反而更慢，稳定复现、方差极小。
+
+- 这是 commonMode 当前就存在的特性，生产在 N≈1000 规模观测到反常延迟时可据此定位（无需回读 wangshu table 源码）。
+- arena 列轨路径（零拷贝、不逐元素 SetIndex）天然没有此悬崖。
+- 修复无需上 arena、**不破 parity、不改脚本**：若 wangshu 提供带 size 提示的 `NewTable`，`makeArrayTable` 预分配 array 段容量即可消除，是独立可做的本地优化候选。
+
 ## 决策记忆
 
 - 翻默认门槛：见 `llmdoc/memory/decisions/perf-evolution-roadmap.md` 第三步——三条 AND 闸门（calibrated 不劣化 + 受影响场景显著胜出 + 双 tag 全绿）。
