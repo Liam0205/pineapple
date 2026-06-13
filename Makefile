@@ -28,7 +28,8 @@ PARALLEL ?= 12
         cover go-cover java-cover \
         codegen codegen-check \
         cross-validate \
-        hooks tidy clean
+        hooks tidy clean \
+        bump tag-release check-pr-ci
 
 # 默认 target: 输出帮助。"裸跑 make"不会触发任何动作,避免误操作。
 help:
@@ -151,3 +152,17 @@ clean: ## 清理 pine-go / pine-cpp / pine-java build 产物
 	cd pine-go && go clean -testcache -cache
 	rm -rf pine-cpp/build pine-cpp/build-*
 	cd pine-java && mvn -B -q clean
+
+# ------- Release / 诊断 ------------------------------------------------------
+
+bump: ## 跨 5 处同步版本号 + 全验(用法: make bump VERSION=0.10.0)
+ifndef VERSION
+	$(error VERSION not set; usage: make bump VERSION=0.10.0)
+endif
+	bash scripts/bump-version.sh $(VERSION)
+
+tag-release: ## 校验 4 处版本号一致 + 创建并推送 vX.Y.Z + pine-go/vX.Y.Z 双 tag
+	bash scripts/tag-release.sh
+
+check-pr-ci: ## 阻塞等当前 PR 的 CI(并报告 review 活动 / 未解决线程);.githooks/pre-push 已自动调用,本 target 仅作手动诊断入口
+	bash scripts/check-pr-ci.sh
