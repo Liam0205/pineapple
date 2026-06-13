@@ -129,7 +129,8 @@ func TestInFlightBorrowDefersClose(t *testing.T) {
 // that is currently borrowed defers the close until the borrow is released.
 func TestRefreshDefersCloseWhileBorrowed(t *testing.T) {
 	var counter int32
-	first := &closerValue{id: 1}
+	firstClosed := make(chan struct{})
+	first := &closerValue{id: 1, onClose: func(int) { close(firstClosed) }}
 	second := &closerValue{id: 2}
 
 	m := NewManager(nil)
@@ -155,23 +156,42 @@ func TestRefreshDefersCloseWhileBorrowed(t *testing.T) {
 		t.Fatalf("borrowed value = %v, want first", h.Value())
 	}
 
-	// Wait for the refresh to replace the value.
+	// Wait until the refresh has committed the swap, observed by a probe borrow
+	// returning `second`. Gating on `counter` alone is racy: the fetcher bumps
+	// counter *before* refreshLoop runs value.Swap, so the slot may still hold
+	// `first` when counter reaches 2.
 	deadline := time.Now().Add(time.Second)
-	for atomic.LoadInt32(&counter) < 2 && time.Now().Before(deadline) {
+	swapped := false
+	for time.Now().Before(deadline) {
+		if ph, ok := m.Get("res"); ok {
+			v := ph.Value()
+			ph.Release()
+			if v == second {
+				swapped = true
+				break
+			}
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if atomic.LoadInt32(&counter) < 2 {
-		t.Fatal("refresh did not run")
+	if !swapped {
+		t.Fatal("refresh did not commit the swap to second")
 	}
 
-	// The superseded first value must NOT be closed while still borrowed.
+	// The superseded first value must NOT be closed while still borrowed, even
+	// after its Manager reference has been dropped by the refresh.
 	if first.closed.Load() {
 		t.Fatal("superseded value closed while still borrowed (use-after-close)")
 	}
 
+	// Releasing the last borrow drops first's final reference. The close fires
+	// once refs reaches 0 — which may be ordered either side of refreshLoop's own
+	// old.release(), so wait on the close signal rather than reading the flag
+	// immediately (the prior version's race).
 	h.Release()
-	if !first.closed.Load() {
-		t.Error("superseded value not closed after borrow released")
+	select {
+	case <-firstClosed:
+	case <-time.After(time.Second):
+		t.Error("superseded value not closed within 1s after borrow released")
 	}
 }
 
