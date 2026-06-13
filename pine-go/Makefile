@@ -37,6 +37,7 @@ cover: ## 覆盖率产物 + 终端摘要
 fuzz: ## 自动发现 func Fuzz* 各跑 30s 冒烟(沿用仓根 scripts/go-fuzz.sh 实现)
 	bash ../scripts/go-fuzz.sh 30s
 
-tidy: ## go mod tidy + git diff 守门
+tidy: ## go mod tidy(主 module + benchmarks 子 module) + git diff 守门
 	go mod tidy
-	git diff --exit-code go.mod go.sum
+	cd benchmarks && go mod tidy
+	git diff --exit-code go.mod go.sum benchmarks/go.mod benchmarks/go.sum
