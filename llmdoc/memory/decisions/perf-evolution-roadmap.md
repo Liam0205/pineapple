@@ -25,6 +25,11 @@
 - 现状：transform_by_lua 的 item-mode 每 item 跨一次 VM 边界（per-item globals 装箱 + invoke），这是校准事实 1 的根源。
 - 演进：鼓励 / 扩展 common-mode——循环写在 Lua 内，一次 Execute 跨一次界，整列在 VM 内迭代。这是任何 VM 层加速（LuaJC 已落地，未来 VM 同理）在端到端可见的**前提闸门**。
 - 注意：common-mode 三运行时已存在（如 pine-java `TransformByLua.executeForCommon`），缺的是列内核风格的 fixture / 生产负载与配套文档引导。
+- **边界层量化数据点（2026-06-13，wangshu Arena 列轨 ABI）**：本步此前只有"列内核负载迁移才是 VM 加速可见性闸门"的定性论断（design_doc/13:91 自陈）。wangshu v0.1.4 公共 API 审计提供了首个边界层实证——commonMode 现走 `SetGlobal([]any) → makeArrayTable`（`NewTable` + N 次 `SetIndex` 逐元素装箱）；对照原型把整列改走 `Program.Call(state, arena)` 零拷贝列轨（宿主 `[]float64` 不复制、脚本读 `arena.<col>[i]`），Boundary 微基准量化：N=100 边界 **-22%**、N=3000 边界 **-46%**，B/op **-83%~-87%**，提速随列长增长（消除 N 次 SetIndex 装箱 + table rehash）。这坐实"列内核迁移确有 VM 边界回报"。但三条克制限定，**不构成"立即做"指令**：
+  - (a) 这是 **Boundary 微基准**，不是 calibrated 端到端裁判；端到端会被引擎框架稀释（再次印证校准事实 2 的逻辑——38-op DAG / stub I/O / 3000-item DataFrame 主导成本），-46% 边界提速落到端到端大概率只剩个位数；
+  - (b) 落地需把 Lua 脚本访问约定从 `field[i]` 改成 `arena.field[i]`，而 `lua_script` 是四引擎共享的**字节级对等产物**——只改 wangshu 破 parity，真落地需四引擎都支持 arena ABI，是**跨引擎工程**（先在 `apple/` 层统一脚本改写，再四引擎同步 + cross-validate 字节对等），不是 pine-go 本地优化；
+  - (c) 触发条件：**仅当 profiling 证明 commonMode 边界是生产端到端热点时才立项**。在此之前作为"第二步是 VM 加速可见性真正闸门"论断的实证补强留痕。
+  - 完整调查方法、绝对 ns 数据、N=1000 rehash 悬崖意外发现见 `llmdoc/memory/reflections/wangshu-borrow-optimization-survey.md`；arena ABI 契约与限制见 `llmdoc/reference/lua-backend.md`。
 
 ## 第三步（条件触发，2026-06-13 已触发）：VM 适配层可插拔
 
