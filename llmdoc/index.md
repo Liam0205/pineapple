@@ -31,7 +31,7 @@
 - `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 与 `/stats.resources` 子树 schema）、内置 HTTP metrics middleware（各运行时 default-on）、资源级指标 fan-out（Tee）路由与 Collector 契约、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
 - `llmdoc/reference/admin-pprof-disclosure.md` — pine-go 可选 admin server 的 pprof 暴露面、默认关闭契约、五条 `/debug/pprof/*` 路径的信息泄漏内容、运维约束(网络层隔离/认证反代/诊断窗口)与跨 runtime 对等(pine-cpp/pine-java 不实现 admin pprof)。
-- `llmdoc/reference/lua-backend.md` — pine-go Lua 后端选择参考：build-tag 极性（默认 `!lua_gopher` = wangshu / opt-in `lua_gopher` = gopher-lua）、Backend/Pool/Engine 三层抽象、wangshu CallInto 零分配边界 API 与 dst 复用契约、pool 5 元组计数器与不变量（`borrow_count == reuse_count + (create_count - 1)`）、双层 warm/sync.Pool 复用模型、baseline 重置契约、`scripts/bench-lua-backends.sh` 后端对比入口。
+- `llmdoc/reference/lua-backend.md` — pine-go Lua 后端选择参考：build-tag 极性（默认 `!lua_gopher` = wangshu / opt-in `lua_gopher` = gopher-lua）、Backend/Pool/Engine 三层抽象、wangshu 双向 pin 所有权边界 API（返回值方向 CallInto/dst 复用契约 + 入参方向 SetGlobal/NewTable 灌复合值必须 Release，否则随 QPS 线性泄漏）、内存模型与 GC 触发点（safepoint 仅 opcode 路径、宿主 API 不触发 GC、arena 延迟归还的合理爬坡 vs 真泄漏判据）、非字符串 key 错误对等（`fromValue`/`tableToGo` 返回 `(any,error)`、与 gopher-lua 字节级一致、cross-validate Section 5 断言）、pool 5 元组计数器与不变量（`borrow_count == reuse_count + (create_count - 1)`）、双层 warm/sync.Pool 复用模型、baseline 重置契约（含 closed-branch 跳过例外）、`scripts/bench-lua-backends.sh` 后端对比入口。
 
 ## memory/
 
@@ -102,6 +102,7 @@
 - `llmdoc/memory/reflections/bench-lock-optimization-campaign.md` — Bench 归因与 Frame 锁优化战役复盘（9 commits），记录 merge_dedup O(N²)→O(N) 修复、op-attribution 归因脚本、fixture 代表性错误（large_5000 误导 vs calibrated 真实场景）、zombie 进程污染整天 bench 数据、microbench 访问模式失真、二进制布局噪声、SharedMutex v1 失败三根因与 v2（Go 协议）备件化、Frame 维持 per-call 锁形态与 Go/Java 对齐的最终决策。
 - `llmdoc/memory/reflections/review-driven-build-input-error-ordering.md` — 评审驱动的 build_operator_input 报错顺序回归修复复盘，记录锁优化 `eab4415` 把 `validate_strict_items` 移出锁窗口致 strict_item 被提到 common 之前、翻转跨运行时首错优先级的静默回归，沉淀"校验顺序/首错优先级属字节级对等契约""error fixture 需覆盖多违反优先级""perf 改动触及校验路径需复核 error-parity"三条教训。
 - `llmdoc/memory/reflections/wangshu-backend-callinto-and-default-flip.md` — wangshu 后端引入、CallInto 反馈闭环（issue #8 上游 30 分钟采纳）与默认翻转（`!lua_gopher` = wangshu）复盘，记录测量路径不对等（PureVM 9x vs Embedded 慢 1.7x）、复刻后端漏复刻 backend-specific pool 计数器测试套、calibrated 端到端持平但 boundary-dominated 隔离负载明确胜出的决策模式、refreshLoop counter 前置递增 flaky 根因。
+- `llmdoc/memory/reflections/wangshu-pin-table-input-leak-fix.md` — wangshu SetGlobal 入参方向 pin-table 泄漏修复复盘（v0.10.0→0.10.1），记录 NewTable 占 pin 槽 / SetGlobal 只拷 GCRef 不接管所有权、`cb58e08`（返回值方向）与 `477dacd`（入参方向）是同一 footgun 两面、5 元组计数器不变量钉不住资源泄漏（须直接采样 GCCountKB）、safepoint 仅 opcode 路径致 arena 延迟归还、复刻后端审计须逐边界过资源所有权方向。
 
 ## memory/decisions/
 
