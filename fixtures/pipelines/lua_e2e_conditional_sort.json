@@ -1,7 +1,7 @@
 {
   "name": "Lua E2E: recall → discount → stats → conditional sort",
   "config": {
-    "_PINEAPPLE_VERSION": "0.9.13",
+    "_PINEAPPLE_VERSION": "0.10.0",
     "pipeline_config": {
       "operators": {
         "recall_items": {
