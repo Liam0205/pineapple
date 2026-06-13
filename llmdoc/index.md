@@ -8,7 +8,7 @@
 
 ## overview/
 
-- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Apple DSL 声明层 + Go / Java / C++ 三运行时拆分的设计决策（含 pine-python 运行时已于 v0.9.7 后移除、资源数据型/句柄型区分）；包含各运行时 CLI/HTTP 入口点（含 pine-cpp server timeout / max-body-size / dag-pool-size / shard-pool-size flag）。
+- `llmdoc/overview/project-overview.md` — Pineapple 是什么、系统边界在哪里，以及 Apple DSL 声明层 + Go / Java / C++ 三运行时拆分的设计决策（含 pine-python 运行时已于 v0.9.7 后移除、资源数据型/句柄型区分、pine-go Lua 后端 build-tag 选择默认 wangshu/`-tags=lua_gopher` opt-in gopher-lua）；包含各运行时 CLI/HTTP 入口点（含 pine-cpp server timeout / max-body-size / dag-pool-size / shard-pool-size flag）。
 
 ## architecture/
 
@@ -22,7 +22,7 @@
 - `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint（含 Java checkstyle `failOnViolation=true` + `OneStatementPerLine`、C++ clang-format）/ test / coverage / fuzz / differential-fuzz / cross-validate / nightly cross-runtime benchmark / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径），以及本地 `.githooks/` 体系（`pre-commit` staged-only 格式 gate + `pre-push` 工程级 lint + 自包装 CI watch）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则。
 - `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价）。
-- `llmdoc/guides/benchmark-hygiene.md` — Benchmark 噪声卫生：跑前/跑后 load 与残留进程检查、同日同机对照纪律、±5-7% 二进制布局噪声与 perf stat 交叉验证、fixture 代表性（calibrated 为性能决策唯一裁判）、microbench 访问模式戒律、逐 op 删除归因法。
+- `llmdoc/guides/benchmark-hygiene.md` — Benchmark 噪声卫生：跑前/跑后 load 与残留进程检查、同日同机对照纪律、±5-7% 二进制布局噪声与 perf stat 交叉验证、fixture 代表性（calibrated 为性能决策唯一裁判）、microbench 访问模式戒律、逐 op 删除归因法、测量路径对称性（PureVM vs CallOnly vs Boundary 不可互推）。
 
 ## reference/
 
@@ -31,6 +31,7 @@
 - `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 与 `/stats.resources` 子树 schema）、内置 HTTP metrics middleware（各运行时 default-on）、资源级指标 fan-out（Tee）路由与 Collector 契约、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
 - `llmdoc/reference/admin-pprof-disclosure.md` — pine-go 可选 admin server 的 pprof 暴露面、默认关闭契约、五条 `/debug/pprof/*` 路径的信息泄漏内容、运维约束(网络层隔离/认证反代/诊断窗口)与跨 runtime 对等(pine-cpp/pine-java 不实现 admin pprof)。
+- `llmdoc/reference/lua-backend.md` — pine-go Lua 后端选择参考：build-tag 极性（默认 `!lua_gopher` = wangshu / opt-in `lua_gopher` = gopher-lua）、Backend/Pool/Engine 三层抽象、wangshu CallInto 零分配边界 API 与 dst 复用契约、pool 5 元组计数器与不变量（`borrow_count == reuse_count + (create_count - 1)`）、双层 warm/sync.Pool 复用模型、baseline 重置契约、`scripts/bench-lua-backends.sh` 后端对比入口。
 
 ## memory/
 
@@ -100,7 +101,8 @@
 - `llmdoc/memory/reflections/resource-metrics-fanout-stats.md` — 资源级指标 fan-out 与 `/stats.resources` 复盘，记录 fan-out（Tee）路由相对 Collector-only/现状的三选一决策、resources 恒存在键作为跨运行时强断言、探针 probe-once-then-tick 便于测试，以及"scope 靠路由而非过滤"两条教训。
 - `llmdoc/memory/reflections/bench-lock-optimization-campaign.md` — Bench 归因与 Frame 锁优化战役复盘（9 commits），记录 merge_dedup O(N²)→O(N) 修复、op-attribution 归因脚本、fixture 代表性错误（large_5000 误导 vs calibrated 真实场景）、zombie 进程污染整天 bench 数据、microbench 访问模式失真、二进制布局噪声、SharedMutex v1 失败三根因与 v2（Go 协议）备件化、Frame 维持 per-call 锁形态与 Go/Java 对齐的最终决策。
 - `llmdoc/memory/reflections/review-driven-build-input-error-ordering.md` — 评审驱动的 build_operator_input 报错顺序回归修复复盘，记录锁优化 `eab4415` 把 `validate_strict_items` 移出锁窗口致 strict_item 被提到 common 之前、翻转跨运行时首错优先级的静默回归，沉淀"校验顺序/首错优先级属字节级对等契约""error fixture 需覆盖多违反优先级""perf 改动触及校验路径需复核 error-parity"三条教训。
+- `llmdoc/memory/reflections/wangshu-backend-callinto-and-default-flip.md` — wangshu 后端引入、CallInto 反馈闭环（issue #8 上游 30 分钟采纳）与默认翻转（`!lua_gopher` = wangshu）复盘，记录测量路径不对等（PureVM 9x vs Embedded 慢 1.7x）、复刻后端漏复刻 backend-specific pool 计数器测试套、calibrated 端到端持平但 boundary-dominated 隔离负载明确胜出的决策模式、refreshLoop counter 前置递增 flaky 根因。
 
 ## memory/decisions/
 
-- `llmdoc/memory/decisions/perf-evolution-roadmap.md` — 引擎侧性能演进路线决策：两个校准事实（per-item VM 边界主导、VM 层加速被端到端稀释）、三步路线（typed-ColumnFrame/arena → common-mode 列内核负载迁移 → 条件触发的 VM 适配层可插拔）、明确不做项（VM 直摸 Go heap、简单脚本负载上的 VM 优化），与外部 Go-native Lua VM 项目松耦合。
+- `llmdoc/memory/decisions/perf-evolution-roadmap.md` — 引擎侧性能演进路线决策：两个校准事实（per-item VM 边界主导、VM 层加速被端到端稀释，含 itemlua 第二证据点）、三步路线（typed-ColumnFrame/arena → common-mode 列内核负载迁移 → 第三步 VM 适配层可插拔已于 2026-06-13 触发，wangshu 翻默认）、明确不做项（VM 直摸 Go heap、简单脚本负载上的 VM 优化）、翻默认三条 AND 闸门（calibrated 不劣化 + 受影响场景显著胜出 + 双 tag 全绿）、按切换范围分档的语义闸门。

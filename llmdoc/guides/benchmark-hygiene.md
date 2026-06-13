@@ -43,3 +43,10 @@
 
 - 跨运行时回归的逐算子归因用**逐 op 删除对比法**：见 `scripts/bench-attrib-large-5000.py`，逐个从 fixture 中删除算子并对比各运行时耗时比率，定位贡献最大的算子
 - 修改其中 config 路径与 drop 列表即可复用于任意 fixture
+
+## 测量路径对称性
+
+比较两个 VM / Lua 后端 / 任何嵌入式组件时，**两侧必须跑同样的宿主↔组件边界数据传递**；PureVM-only（脚本内数据硬编码、无 SetGlobal/读返回）和 Embedded（SetGlobal + Call + 读返回）是不同测量，不可互推：
+
+- 反例：wangshu 官方 baseline 测 PureVM 报 simple 9x faster than gopher，但 LuaOp 真实嵌入路径（SetGlobal+Call+读返回）wangshu 反而慢 1.7x。两个数字都对，但口径不同——嵌入者不能从 PureVM 数字推出生产收益
+- 规则：发布性能比较时显式标注口径（**PureVM** vs **CallOnly** vs **Boundary**）；PR / issue 评估嵌入收益时优先 Boundary 档
