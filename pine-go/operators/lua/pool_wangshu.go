@@ -263,16 +263,23 @@ func (e *wangshuEngine) HasFunction(name string) bool {
 // wangshu Tables on the fly. Anything left over (chan, func, struct...) is
 // stringified to keep parity with the gopher-lua side's reflect fallback.
 //
-// LuaOp owns Table release: SetGlobal pins the table to the pool's State via
-// NewTable; SetGlobal itself overwrites the global slot with the table Value,
-// and the state's pin table holds the strong ref until the slot is overwritten
-// or the state is reset. Per-Execute the same global names get reused, so the
-// pin table churns one slot per global instead of growing.
+// Pin-table contract: NewTable() values returned by toValue (table-kind) hold a
+// pin slot until Release(). st.SetGlobal copies the GCRef into the globals
+// table — it does NOT take ownership of the pin slot. We therefore Release wv
+// after SetGlobal: the table stays reachable through globals (mark root), and
+// the pin slot returns to freePins for reuse. Without this Release the slot
+// accumulates per call — high-throughput LuaOp form (common-mode SetGlobal of
+// []any per ItemInput field per request) leaked one pin slot + one arena
+// table per call, growing arena linearly with QPS.
+//
+// Release is a no-op for scalar Values (kBool/kNumber/kString) so we can call
+// it unconditionally without branching on kind.
 func (e *wangshuEngine) SetGlobal(name string, value any) error {
 	wv, err := e.toValue(value)
 	if err != nil {
 		return fmt.Errorf("global %q: %w", name, err)
 	}
+	defer wv.Release()
 	e.st.SetGlobal(name, wv)
 	return nil
 }
@@ -400,9 +407,13 @@ func (e *wangshuEngine) makeArrayTable(arr []any) (wangshu.Value, error) {
 		// 1-indexed per Lua convention; SetIndex returns error only on a
 		// released table, which we just created.
 		if err := t.SetIndex(i+1, ev); err != nil {
+			ev.Release()
 			tv.Release()
 			return wangshu.Nil(), fmt.Errorf("array[%d]: %w", i, err)
 		}
+		// Parent table now holds the GCRef via internal RawSet; the child
+		// pin slot is redundant. No-op for scalars.
+		ev.Release()
 	}
 	return tv, nil
 }
@@ -417,9 +428,13 @@ func (e *wangshuEngine) makeMapTable(m map[string]any) (wangshu.Value, error) {
 			return wangshu.Nil(), fmt.Errorf("map[%q]: %w", k, err)
 		}
 		if err := t.Set(wangshu.String(k), vv); err != nil {
+			vv.Release()
 			tv.Release()
 			return wangshu.Nil(), fmt.Errorf("map[%q]: %w", k, err)
 		}
+		// Parent table holds the GCRef now. Release the child pin slot to
+		// keep the pin table flat under nested-composite SetGlobal traffic.
+		vv.Release()
 	}
 	return tv, nil
 }
