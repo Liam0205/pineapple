@@ -225,6 +225,10 @@ func (wp *wangshuPool) SetMetrics(borrow, ret, create metrics.Counter, active me
 // wangshuEngine adapts a *wangshu.State to backend.Engine. Single-borrow scoped.
 type wangshuEngine struct {
 	st *wangshu.State
+	// dst is the caller-owned results buffer reused across Call invocations so
+	// the zero-alloc CallInto path (wangshu v0.1.4, issue #8) stays alloc-free.
+	// Grown on demand to fit the largest nret seen; never shrinks.
+	dst []wangshu.Value
 }
 
 // SetContext forwards ctx to wangshu's internal cancellation hook so deadline
@@ -264,9 +268,18 @@ func (e *wangshuEngine) SetGlobal(name string, value any) error {
 }
 
 // Call resolves the named global as a function and invokes it with no args
-// (data flows in via globals). nret return values are lifted to Go-side
-// types. The function Value is Release()'d so the pin slot doesn't accumulate
-// one per Call.
+// (data flows in via globals). nret return values are lifted to Go-side types.
+//
+// Uses CallInto (wangshu v0.1.4, issue #8) with a reused, engine-owned dst
+// buffer so scalar returns (bool/number) cost zero allocations per call — the
+// boundary-dominated per-item path pineapple lives on. The function Value is
+// Release()'d so the pin slot doesn't accumulate one per Call.
+//
+// Contract: CallInto's dst values alias the VM stack and must be consumed before
+// the next VM entry. We do exactly that — fromValue lifts each into a Go-side
+// value (strings copy arena bytes, composites pin) before returning, and the
+// caller (LuaOp) reads the []any before the next Call. Each dst[j] is Release()'d
+// after lift: a no-op for scalars, mandatory for pinned composites.
 func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
 	fn := e.st.GetGlobal(fnName)
 	if !fn.IsFunction() {
@@ -275,18 +288,23 @@ func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
 	}
 	defer fn.Release()
 
-	results, err := e.st.Call(fn)
+	if cap(e.dst) < nret {
+		e.dst = make([]wangshu.Value, nret)
+	}
+	dst := e.dst[:nret]
+
+	n, err := e.st.CallInto(dst, fn)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]any, nret)
 	for j := 0; j < nret; j++ {
-		if j >= len(results) {
+		if j >= n {
 			out[j] = nil
 			continue
 		}
-		out[j] = e.fromValue(results[j])
-		results[j].Release()
+		out[j] = e.fromValue(dst[j])
+		dst[j].Release()
 	}
 	return out, nil
 }
