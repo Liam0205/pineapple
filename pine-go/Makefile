@@ -20,7 +20,7 @@ lint: ## golangci-lint(沿用仓根 .golangci.yml 若存在)
 test: ## 单元测试(含 race)
 	go test -race ./...
 
-bench: ## go test -bench(默认走 benchmarks/ 子 module; 主 module 用 `make bench BENCH=./internal/...`; 后端对比用 `make bench TAGS=lua_wangshu`)
+bench: ## go test -bench(默认走 benchmarks/ 子 module; 主 module 用 `make bench BENCH=./internal/...`; gopher-lua 对照用 `make bench TAGS=lua_gopher`)
 ifdef BENCH
 	go test $(if $(TAGS),-tags='$(TAGS)') -bench=. -benchmem -count=1 -run='^$$' $(BENCH)
 else

@@ -1,4 +1,4 @@
-//go:build lua_wangshu
+//go:build !lua_gopher
 
 package lua
 

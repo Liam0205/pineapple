@@ -69,15 +69,15 @@ echo
 COMMON_FLAGS=(-run='^$' -bench="$BENCH_PATTERN" -benchmem -count="$COUNT")
 [[ "$PROCS" == 1 ]] && COMMON_FLAGS+=(-cpu=1)
 
-# ─── 后端 A: gopher-lua(默认 tag,作为 benchstat 基线) ──────────────────────
+# ─── 后端 A: gopher-lua(opt-in lua_gopher tag,作为 benchstat 基线) ──────────
 echo "==> [1/2] gopher-lua (GOMAXPROCS=$PROCS, count=$COUNT, bench=$BENCH_PATTERN)"
-( cd "$BENCH_DIR" && GOMAXPROCS="$PROCS" go test -tags=pine_bench "${COMMON_FLAGS[@]}" ./... ) \
+( cd "$BENCH_DIR" && GOMAXPROCS="$PROCS" go test -tags='pine_bench lua_gopher' "${COMMON_FLAGS[@]}" ./... ) \
   | tee "$GOPHER_OUT" | tail -3
 echo
 
-# ─── 后端 B: wangshu(opt-in lua_wangshu tag) ────────────────────────────────
+# ─── 后端 B: wangshu(默认 tag) ─────────────────────────────────────────────
 echo "==> [2/2] wangshu (GOMAXPROCS=$PROCS, count=$COUNT, bench=$BENCH_PATTERN)"
-( cd "$BENCH_DIR" && GOMAXPROCS="$PROCS" go test -tags='pine_bench lua_wangshu' "${COMMON_FLAGS[@]}" ./... ) \
+( cd "$BENCH_DIR" && GOMAXPROCS="$PROCS" go test -tags=pine_bench "${COMMON_FLAGS[@]}" ./... ) \
   | tee "$WANGSHU_OUT" | tail -3
 echo
 
