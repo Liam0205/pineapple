@@ -73,12 +73,7 @@ java-test: ## 仅 pine-java 测试
 	bash scripts/java-test.sh
 
 cpp-test: ## 仅 pine-cpp 测试(CMake + ctest; 并发数由 PARALLEL 控制)
-	cmake -S pine-cpp -B pine-cpp/build-tests \
-	    -DCMAKE_BUILD_TYPE=Debug \
-	    -DPINE_CPP_BUILD_TESTS=ON \
-	    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-	cmake --build pine-cpp/build-tests --target pine_cpp_tests -j$(PARALLEL)
-	cd pine-cpp/build-tests && ctest --output-on-failure
+	bash scripts/cpp-test.sh PARALLEL=$(PARALLEL)
 
 # ------- Coverage -------------------------------------------------------------
 
