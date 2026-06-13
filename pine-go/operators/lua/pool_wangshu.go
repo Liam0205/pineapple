@@ -305,6 +305,10 @@ func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
 
 	n, err := e.st.CallInto(dst, fn)
 	if err != nil {
+		// err: dst untouched per wangshu CallInto contract; skip Release.
+		// (See wangshu.go:397-419 — call paths bail before writing dst on
+		// type-check / pin-resolve / VM panic, leaving the slice in its prior
+		// post-Release zero state. Releasing now would double-free.)
 		return nil, err
 	}
 	out := make([]any, nret)
