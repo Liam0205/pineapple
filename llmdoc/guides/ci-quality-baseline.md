@@ -41,6 +41,19 @@
 
 Benchmark job 将 `go test -bench` 输出写入 `benchmark.txt`，同时追加到 `$GITHUB_STEP_SUMMARY` 供 PR/CI 页面直接查看；artifact 作为可下载原始结果保留。
 
+## 统一任务入口（Makefile）
+
+仓库提供顶层 `Makefile` 与 `pine-go/Makefile` 作为本地与 CI 共用的统一任务入口，封装跨四语言的格式化 / lint / test / bench / codegen / 版本管理等命令。目标列表以 `make help`（或两个 Makefile 自身）为准，禁止在本指南中硬编码完整清单。常用入口示例：
+
+- `make all` — 本地提交前全检（`fmt-check lint test codegen-check`，不含 cross-validate / differential-fuzz / fuzz 等慢 job）
+- `make fmt` / `make fmt-check` — 各语言格式化写回 / dry-run（CI 用，任何 diff 即 fail）
+- `make lint` / `make test` / `make bench` / `make codegen` — 全语言 lint / 测试 / benchmark / codegen
+- `make bench-lua-backends` — wangshu vs gopher-lua 后端对比（见 `llmdoc/reference/lua-backend.md`）
+- `make hooks` — 安装 git hooks（等价 `git config core.hooksPath .githooks`）
+- `make bump VERSION=X.Y.Z` / `make tag-release` — 跨 5 处同步版本号 + 全验 / 创建并推送双 tag
+
+CI 的多个 job 直接调用这些 make target（如 `make go-cover` / `make cpp-test` / `make cross-validate` / `make codegen-check` / `make bench`），使本地与流水线执行同一份命令序列、避免 CI 内联命令与本地操作漂移。`make bench` 默认走 `pine-go/benchmarks/` 独立子 module 并带 `-tags=pine_bench`，`TAGS` 追加在其上（如 `make bench TAGS=lua_gopher` 切换对照后端）。复杂跨语言序列（如 pine-cpp 的 cmake/ctest）抽取到 `scripts/` 下脚本（如 `scripts/cpp-test.sh`），由 make target 调用。
+
 ## Go lint
 
 工具：`golangci-lint`，配置位于 `.golangci.yml`。
