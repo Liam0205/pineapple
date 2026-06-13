@@ -50,6 +50,16 @@ jobs:
         with:
           go-version-file: pine-go/go.mod
           cache-dependency-path: pine-go/go.sum
+      - name: gofmt drift check
+        if: matrix.lua_backend == 'default'
+        working-directory: pine-go
+        run: |
+          out=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$out" ]; then
+            echo "::error::gofmt diff in:"
+            echo "$out"
+            exit 1
+          fi
       - uses: golangci/golangci-lint-action@v9
         with:
           working-directory: pine-go
