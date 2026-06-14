@@ -24,6 +24,17 @@ BUILD_DIR="$CPP_DIR/build-tsan"
 # that can mask as nondeterministic hangs in stress runs.
 export TSAN_OPTIONS="halt_on_error=1:second_deadlock_stack=1:history_size=7"
 
+# STRESS_MULTIPLIER scales every fixture's iteration count (and the server
+# burst count) without touching the per-fixture parallelism. Default 1 keeps
+# PR-time smoke fast; the nightly sanitizer workflow sets it higher (e.g. 8) to
+# widen the race window for narrow, runner-specific races that a single smoke
+# pass misses. Must be a positive integer.
+STRESS_MULTIPLIER="${STRESS_MULTIPLIER:-1}"
+case "$STRESS_MULTIPLIER" in
+    ''|*[!0-9]*) echo "STRESS_MULTIPLIER must be a positive integer, got '$STRESS_MULTIPLIER'" >&2; exit 2 ;;
+    0) echo "STRESS_MULTIPLIER must be >= 1" >&2; exit 2 ;;
+esac
+
 echo "==> Configuring pine-cpp with ThreadSanitizer"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -75,6 +86,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 echo "==> Stress: high-fanout fixtures (per-fixture iter × parallel listed)"
 for spec in "${HIGH_FANOUT[@]}"; do
     IFS=':' read -r subdir fname iters par <<< "$spec"
+    iters=$((iters * STRESS_MULTIPLIER))
     fixture="$REPO_ROOT/fixtures/$subdir/$fname"
     [[ -f "$fixture" ]] || { echo "    skip $subdir/$fname (missing)"; continue; }
     cfg="$WORK_DIR/cfg_${subdir}_$fname"
@@ -144,7 +156,7 @@ done
 # each request's seed loop; concurrent requests amplify the seed-vs-propagate
 # race window beyond what the single-shot CLI run reaches.
 PAYLOAD=$(cat "$SRV_REQ")
-for batch in $(seq 1 13); do
+for batch in $(seq 1 $((13 * STRESS_MULTIPLIER))); do
     pids=()
     for _ in $(seq 1 16); do
         curl -fsS -X POST -H "Content-Type: application/json" \

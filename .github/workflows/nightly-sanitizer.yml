@@ -1,0 +1,80 @@
+name: Nightly Sanitizer Stress
+
+# Proactively hunt narrow, runner-specific concurrency bugs (data races,
+# use-after-free, UB) that the PR-time cpp-tsan / cpp-sanitizer smokes only
+# catch by luck on a single pass. This runs the SAME smoke scripts but with
+# STRESS_MULTIPLIER cranked up, so the race window is hammered many times more
+# per night. On failure it files an issue with the full sanitizer report —
+# the diagnostic the PR smoke truncated/lost in earlier incidents (#96).
+
+on:
+  schedule:
+    - cron: "0 16 * * *"  # 00:00 UTC+8 — offset from diff-fuzz (14:00 UTC) so they don't contend
+  workflow_dispatch:
+    inputs:
+      stress-multiplier:
+        description: "Iteration multiplier over the PR-time smoke"
+        default: "8"
+
+concurrency:
+  group: nightly-sanitizer-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  tsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install LuaJIT and build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev util-linux
+
+      - name: Run TSan stress
+        id: tsan
+        env:
+          STRESS_MULTIPLIER: ${{ inputs.stress-multiplier || '8' }}
+        run: |
+          set -o pipefail
+          bash scripts/cpp-tsan-smoke.sh 2>&1 | tee /tmp/tsan-stress.log
+
+      - name: File issue on TSan failure
+        if: ${{ failure() && steps.tsan.conclusion == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/file-sanitizer-issue.sh tsan /tmp/tsan-stress.log
+
+  asan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install LuaJIT and build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev util-linux
+
+      - name: Run ASan/UBSan smoke
+        id: asan
+        run: |
+          set -o pipefail
+          bash scripts/cpp-sanitizer-smoke.sh 2>&1 | tee /tmp/asan-stress.log
+
+      - name: File issue on ASan failure
+        if: ${{ failure() && steps.asan.conclusion == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/file-sanitizer-issue.sh asan /tmp/asan-stress.log
