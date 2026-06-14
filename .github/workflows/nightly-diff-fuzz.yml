@@ -187,7 +187,12 @@ jobs:
           for case_dir in /tmp/diff-fuzz-nightly/divergence_* /tmp/diff-fuzz-nightly/unstable_*; do
             [ -d "$case_dir" ] || continue
             name=$(basename "$case_dir")
-            echo "=== TSan replay: $name (40 runs) ===" | tee -a "$REPORT"
+            # Progress to the CI log only — do NOT write the header into
+            # $REPORT. $REPORT must stay empty until an actual race is caught
+            # so "non-empty == race found" holds for the issue-body check
+            # below (most divergences are data-dependent output mismatches,
+            # not races, and would otherwise false-report a race).
+            echo "=== TSan replay: $name (40 runs) ==="
             for run in $(seq 1 40); do
               err=$("$TSAN_BIN" -config "$case_dir/config.json" -request "$case_dir/request.json" 2>&1 >/dev/null) || true
               if echo "$err" | grep -q 'ThreadSanitizer'; then
