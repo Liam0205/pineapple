@@ -18,6 +18,19 @@ import (
 // so steady-state borrow latency stays comparable across backends.
 const defaultMinIdleWangshu = 100
 
+// gcCadenceWangshu drives a workaround for wangshu's host-driven-alloc GC
+// pacing gap (pineapple #100 / wangshu #9): wangshu only checks its GC
+// threshold at VM opcode safepoints, so a boundary-dominated LuaOp workload
+// (large composite SetGlobal + tiny script) advances the collector's
+// accounting but rarely its trigger, and the arena climbs unbounded. Until the
+// upstream fix lands, Return drives an explicit sweep every gcCadenceWangshu
+// returns. Cost is negligible (microseconds per collect, well under 1ms across
+// thousands of returns); a power of two so the modulo is a mask.
+//
+// REMOVE once wangshu #9 makes host allocation drive GC cadence (or exposes a
+// host-callable pacing API): this whole cadence path becomes dead weight.
+const gcCadenceWangshu = 256
+
 var errWangshuPoolClosed = errors.New("lua wangshuPool: pool is closed")
 
 // wangshuPool holds a compiled Program + a two-tier idle State pool, the same
@@ -31,12 +44,26 @@ var errWangshuPoolClosed = errors.New("lua wangshuPool: pool is closed")
 type wangshuPool struct {
 	program *wangshu.Program
 
+	// collectProg is a standalone `collectgarbage("collect")` chunk run on a
+	// returning state every gcCadenceWangshu returns — the GC-pacing workaround
+	// (see gcCadenceWangshu). It is independent of the user program: running it
+	// on a state that already loaded `program` does not touch the user script's
+	// globals or reset baseline (verified). nil only if its compile failed, in
+	// which case the cadence sweep is silently skipped (the pool still works,
+	// just without the workaround).
+	collectProg *wangshu.Program
+
 	pool sync.Pool
 	mu   sync.Mutex
 
 	minIdle int
 	warm    []*wangshu.State
 	closed  bool
+
+	// gcReturnCount counts returns toward the gcCadenceWangshu sweep trigger.
+	// Separate from returnCount (which is a public /stats counter) so the
+	// workaround can be ripped out without perturbing stats.
+	gcReturnCount int64
 
 	// always-on counters (powers /stats)
 	borrowCount int64
@@ -60,6 +87,14 @@ func newWangshuPool(script string) (*wangshuPool, error) {
 	wp := &wangshuPool{
 		program: prog,
 		minIdle: defaultMinIdleWangshu,
+	}
+	// Compile the standalone collect chunk for the GC-pacing workaround. A
+	// compile failure here is non-fatal: the pool still functions, it just
+	// skips the cadence sweep (collectProg stays nil). collectgarbage is a
+	// stdlib builtin so this should never fail, but we don't want a workaround
+	// to be able to break pool construction.
+	if cp, cErr := wangshu.Compile([]byte(`collectgarbage("collect")`), "pine_gc_cadence"); cErr == nil {
+		wp.collectProg = cp
 	}
 	// Build the first state so compile-time syntax + script-level top-chunk
 	// failures (arithmetic against a missing global, runtime error inside the
@@ -170,6 +205,15 @@ func (wp *wangshuPool) Return(eng Engine) {
 		// any ctx so it does not leak into the next borrow.
 		we.st.ResetGlobalsToBaseline()
 		we.st.RemoveContext()
+		// GC-pacing workaround (pineapple #100 / wangshu #9): drive an explicit
+		// arena sweep every gcCadenceWangshu returns. Done here while this
+		// goroutine still exclusively owns the state (before returnState hands
+		// it back to warm/pool), honoring wangshu's single-goroutine-per-state
+		// contract. collectProg is independent of the user program and does not
+		// disturb globals/baseline. REMOVE when wangshu #9 lands.
+		if wp.collectProg != nil && atomic.AddInt64(&wp.gcReturnCount, 1)%gcCadenceWangshu == 0 {
+			_, _ = wp.collectProg.Run(we.st)
+		}
 	}
 	wp.returnState(we.st)
 }

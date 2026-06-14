@@ -252,3 +252,80 @@ function gc() collectgarbage("collect") end
 			grow, iters-100, arenaAfterWarmup, arenaFinal)
 	}
 }
+
+// TestWangshuGCCadenceBoundsArenaWithoutInLoopCollect is the regression guard
+// for the GC-pacing workaround (pineapple #100 / wangshu #9). Unlike
+// TestWangshuSetGlobalCompositeNoPinLeak above, the script defines NO gc
+// function and the loop NEVER triggers a collect itself — the realistic
+// embedding shape where user scripts don't self-GC. Arena boundedness here
+// comes solely from wangshuPool.Return's cadence sweep (every gcCadenceWangshu
+// returns).
+//
+// Without the workaround this loop leaks ~1 KB/iter (wangshu's auto-GC almost
+// never fires on host-driven allocs + tiny scripts); with it the arena stays
+// flat. The loop runs well past gcCadenceWangshu so multiple cadence sweeps
+// fire. Pinning a single warm state (LIFO re-borrow) keeps us measuring one
+// state's arena, not amortization across the pool.
+func TestWangshuGCCadenceBoundsArenaWithoutInLoopCollect(t *testing.T) {
+	// Script body is a few opcodes — the boundary-dominated shape that starves
+	// wangshu's safepoint-driven GC. No gc() function on purpose.
+	const script = `
+function f()
+    local s = 0
+    for i = 1, #xs do s = s + xs[i] end
+    return s
+end
+`
+	wp, err := newWangshuPool(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wp.Close()
+	if wp.collectProg == nil {
+		t.Fatal("collectProg failed to compile — cadence workaround inactive")
+	}
+
+	// Run several multiples of the cadence so the sweep fires repeatedly.
+	const iters = gcCadenceWangshu * 8
+	const itemsPerIter = 100
+
+	arr := make([]any, itemsPerIter)
+	for i := range arr {
+		arr[i] = float64(i)
+	}
+
+	var arenaAfterWarmup float64
+	const warmupAt = gcCadenceWangshu // sample after the first cadence sweep
+	for r := 0; r < iters; r++ {
+		eng := wp.Borrow()
+		if eng == nil {
+			t.Fatal("unexpected nil borrow")
+		}
+		we := eng.(*wangshuEngine)
+		if err := we.SetGlobal("xs", arr); err != nil {
+			t.Fatalf("SetGlobal: %v", err)
+		}
+		if _, err := we.Call("f", 1); err != nil {
+			t.Fatalf("Call: %v", err)
+		}
+		if r == warmupAt {
+			arenaAfterWarmup = we.st.GCCountKB()
+		}
+		wp.Return(eng) // cadence sweep fires here every gcCadenceWangshu returns
+	}
+
+	eng := wp.Borrow()
+	we := eng.(*wangshuEngine)
+	arenaFinal := we.st.GCCountKB()
+	wp.Return(eng)
+
+	// Pre-workaround this leaks ~1 KB/iter → ~iters KB of growth. With the
+	// cadence sweep the arena oscillates around its working set. Headroom well
+	// below the leak magnitude (iters*8 = 2048 iters ≈ 2 MB leak pre-fix) and
+	// above single-state arena noise.
+	const maxGrowthKB = 256.0
+	if grow := arenaFinal - arenaAfterWarmup; grow > maxGrowthKB {
+		t.Fatalf("wangshu arena grew by %.1f KB across %d iterations (warmup=%.1f, final=%.1f) with NO in-loop collect; cadence workaround not bounding arena",
+			grow, iters-warmupAt, arenaAfterWarmup, arenaFinal)
+	}
+}
