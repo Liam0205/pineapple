@@ -25,7 +25,7 @@ const defaultMinIdleWangshu = 100
 // accounting but rarely its trigger, and the arena climbs unbounded. Until the
 // upstream fix lands, Return drives an explicit sweep every gcCadenceWangshu
 // returns. Cost is negligible (microseconds per collect, well under 1ms across
-// thousands of returns); a power of two so the modulo is a mask.
+// thousands of returns).
 //
 // REMOVE once wangshu #9 makes host allocation drive GC cadence (or exposes a
 // host-callable pacing API): this whole cadence path becomes dead weight.
