@@ -794,9 +794,20 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
 
   // Completion latch: counts down from n. When it reaches 0, all nodes
   // have finished (either executed or skipped due to cancellation).
+  //
+  // `done` (guarded by done_mu) — not the bare `remaining` atomic — is the
+  // wait predicate. The last worker to finish must set `done` while holding
+  // done_mu and notify under the lock, so the main thread cannot leave the
+  // wait until that worker has released done_mu. Without this, a worker could
+  // decrement `remaining` to 0 (waking the main thread) but still be inside
+  // its notify path touching done_mu/done_cv when run_dag returns and those
+  // stack locals are destroyed — a use-after-scope race (TSan: a worker read
+  // of a run_dag stack slot racing a downstream to_result write that reused
+  // the same stack address).
   std::atomic<std::size_t> remaining{n};
   std::mutex done_mu;
   std::condition_variable done_cv;
+  bool done = false;
 
   std::function<void(std::size_t)> node_body;
 
@@ -820,7 +831,14 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
       }
     }
     if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      // Last node done. Set the predicate and notify under done_mu so the
+      // main thread's wait cannot return until we release the lock — this is
+      // what keeps our access to done_mu/done_cv ordered before run_dag's
+      // stack teardown. Notifying outside the lock (or relying on the bare
+      // `remaining` atomic as the predicate) leaves a window where the woken
+      // main thread destroys these locals while we're still touching them.
       std::lock_guard<std::mutex> lk(done_mu);
+      done = true;
       done_cv.notify_all();
     }
   };
@@ -974,10 +992,13 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     }
   }
 
-  // Wait for all nodes to complete.
+  // Wait for all nodes to complete. The predicate reads `done` (guarded by
+  // done_mu), so this returns only after the last worker released done_mu in
+  // propagate_and_signal — ensuring no worker is still touching these stack
+  // locals when run_dag returns and destroys them.
   {
     std::unique_lock<std::mutex> lk(done_mu);
-    done_cv.wait(lk, [&] { return remaining.load(std::memory_order_acquire) == 0; });
+    done_cv.wait(lk, [&] { return done; });
   }
 
   auto dag_end = std::chrono::steady_clock::now();
