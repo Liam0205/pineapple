@@ -1,7 +1,7 @@
 {
   "name": "multiple independent skip flags",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.1",
+    "_PINEAPPLE_VERSION": "0.10.2",
     "pipeline_config": {
       "operators": {
         "copy_tag": {
