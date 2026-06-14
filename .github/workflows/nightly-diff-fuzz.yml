@@ -16,6 +16,15 @@ concurrency:
   group: nightly-diff-fuzz-${{ github.ref }}
   cancel-in-progress: false
 
+# The default workflow token is read-only on this repo, so the two
+# "Open issue on ..." steps below were failing with
+# "Resource not accessible by integration (createIssue)" — swallowed by
+# continue-on-error, so a divergence run went red with no issue filed.
+# issues:write lets gh issue create succeed; contents:read keeps checkout working.
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   differential-fuzz:
     runs-on: ubuntu-latest
@@ -140,6 +149,81 @@ jobs:
           path: /tmp/diff-fuzz-divergences.tar.gz
           retention-days: 14
 
+      - name: Build C++ TSan binary
+        # Only when a divergence was found. The main fuzz runs a Release binary
+        # (a TSan build is 5-10x slower and would blow the job timeout across
+        # 10000 rounds). But a C++ divergence — especially a crash (cpp_rc!=0)
+        # under data_parallel / multi-root parallel — is very likely a data
+        # race that Release reports as nothing but a non-zero exit. So we build
+        # TSan once, here, to replay just the saved cases with full diagnostics.
+        # Same recipe as scripts/cpp-tsan-smoke.sh.
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
+        run: |
+          cmake -S pine-cpp -B pine-cpp/build-tsan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer -O1 -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
+            -DPINE_USE_JEMALLOC=OFF
+          cmake --build pine-cpp/build-tsan --target pineapple-run -j2
+
+      - name: TSan replay divergences
+        # Replay every saved divergence/unstable case under the TSan binary,
+        # many times each, to surface the data race head (WARNING + read/write
+        # stacks) that the Release fuzz only saw as a bare non-zero exit. The
+        # full report is appended to the step summary and saved as an artifact
+        # so a fix has the stacks it needs instead of waiting for the next
+        # narrow-window CI recurrence.
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
+        continue-on-error: true
+        env:
+          # halt_on_error=0: keep going so one case's race doesn't stop the
+          # sweep; second_deadlock_stack surfaces both sides of a lock-order race.
+          TSAN_OPTIONS: "halt_on_error=0 second_deadlock_stack=1"
+        run: |
+          TSAN_BIN=pine-cpp/build-tsan/pineapple-run
+          REPORT=/tmp/tsan-replay-report.log
+          : > "$REPORT"
+          found_race=0
+          for case_dir in /tmp/diff-fuzz-nightly/divergence_* /tmp/diff-fuzz-nightly/unstable_*; do
+            [ -d "$case_dir" ] || continue
+            name=$(basename "$case_dir")
+            echo "=== TSan replay: $name (40 runs) ===" | tee -a "$REPORT"
+            for run in $(seq 1 40); do
+              err=$("$TSAN_BIN" -config "$case_dir/config.json" -request "$case_dir/request.json" 2>&1 >/dev/null) || true
+              if echo "$err" | grep -q 'ThreadSanitizer'; then
+                found_race=1
+                {
+                  echo "--- $name run $run: ThreadSanitizer report ---"
+                  echo "$err"
+                  echo ""
+                } >> "$REPORT"
+                # one full report per case is enough to fix; stop hammering it
+                break
+              fi
+            done
+          done
+          {
+            echo "### TSan replay of divergence cases"
+            echo ""
+            if [ "$found_race" -eq 1 ]; then
+              echo "ThreadSanitizer surfaced a race during replay. Full stacks:"
+              echo '```'
+              cat "$REPORT"
+              echo '```'
+            else
+              echo "No ThreadSanitizer report across replays (the divergence may be non-race: data-dependent output mismatch, or a window too narrow even for 40x TSan replays). Release-level case outputs are in the divergence artifact."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload TSan replay report
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: diff-fuzz-tsan-replay-${{ github.run_number }}
+          path: /tmp/tsan-replay-report.log
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Open issue on divergence
         if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
         continue-on-error: true
@@ -196,6 +280,17 @@ jobs:
           \`\`\`
           $(tail -30 diff-fuzz-output.log)
           \`\`\`
+
+          ### TSan replay
+          $(if [ -s /tmp/tsan-replay-report.log ]; then
+              echo "ThreadSanitizer surfaced a race when replaying the saved case(s) under the TSan binary:"
+              echo '```'
+              head -120 /tmp/tsan-replay-report.log
+              echo '```'
+              echo "Full report: artifact \`diff-fuzz-tsan-replay-${{ github.run_number }}\`."
+            else
+              echo "TSan replay produced no race report (divergence may be a data-dependent output mismatch rather than a race, or the window is too narrow even under 40x TSan replay)."
+            fi)
           EOF
           )"
 
