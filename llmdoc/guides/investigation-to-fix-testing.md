@@ -72,6 +72,25 @@
 2. **先验证 design_doc 假设** — 确认文档中提到的接口或能力在实现中确实存在；design_doc 中的描述可能超前于实现
 3. **先修 bug，再更新文档** — 确保修复代码通过测试后，同步更新 design_doc、README 和 llmdoc
 
+## 跟进上游 issue 与临时止血的方法论
+
+当任务是跟进上游依赖（如 wangshu）的 issue、或为其缺陷加下游临时 workaround 时：
+
+### 跨 issue 根因归属：不顺 "follow-up" 措辞合并
+
+issue 之间"follow-up to #N"之类的引用关系是作者主观叙事，**不等于同根因**。判定一个新现象是否属于已提 issue 时，**回读被引用 issue 的正文实际范围**独立判定，而不是顺着 follow-up 措辞并入。
+
+- 反例风险：把标题挂 "follow-up to #100" 的现象并入只讲 pacing 的上游 issue，会让上游误以为是同一修法、只修一半（pacing 与 backing-release 是正交两层，前者修好不蕴含后者）
+- 本仓实例：#105 因此**新提独立的 wangshu#11**（arena grow-only / backing release）而非追评只讲 pacing 的 wangshu#9（详见 `llmdoc/memory/reflections/wangshu-rss-growonly-issue105-drop-fat-state.md`）
+
+### 临时止血阈值用 probe 测试实测标定 fixture
+
+止血 workaround 的阈值（如"arena 多大算 fat、该 drop"）**不要拍脑袋取值**，用一个 probe 测试实测标定：
+
+- 写最小 probe 复现"多大输入把被测量推过候选阈值"，取**实测拐点**而非估计值
+- 阈值留足余量，让 steady-state **绝不误触发**（本仓实例：取 16× 默认 initial arena，使健康稳态永不命中、只有真 ballooned 的 state 被 drop）
+- probe 实测数据本身属任务专属、易过时，**只留在 reflection / probe 测试**，不写进稳定文档当权威常量；稳定文档侧引用代码常量出处即可（如 `pool_wangshu.go` 的 `arenaDropThresholdKB`）
+
 ## 修复前的验证清单
 
 - 确认目标文件和函数签名与 design_doc 描述一致
