@@ -40,6 +40,10 @@ public class ParamSpec {
         return new ParamSpec(type, true, null, description, true);
     }
 
+    public static ParamSpec optionalTemplatable(String type, String description) {
+        return new ParamSpec(type, false, null, description, true);
+    }
+
     public static ParamSpec optionalTemplatable(String type, Object defaultValue, String description) {
         return new ParamSpec(type, false, defaultValue, description, true);
     }
