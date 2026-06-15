@@ -329,3 +329,214 @@ end
 			grow, iters-warmupAt, arenaAfterWarmup, arenaFinal)
 	}
 }
+
+// fatArrayItems is the element count that drives a single borrow's arena past
+// arenaDropThresholdKB. Empirically ~100k float64 elements lift wangshu's arena
+// to ~1032 KB (just over the 1024 KB threshold); 120k leaves comfortable
+// headroom so the drop fires deterministically across arena-layout noise. A
+// "small" borrow (smallArrayItems) stays at ~16 KB, two orders of magnitude
+// under the threshold, so it must NEVER trip the drop.
+const (
+	fatArrayItems   = 120000
+	smallArrayItems = 100
+)
+
+func fillArray(n int) []any {
+	arr := make([]any, n)
+	for i := range arr {
+		arr[i] = float64(i)
+	}
+	return arr
+}
+
+// TestWangshuDropsFatStateOnReturn is the regression guard for the arena-drop
+// workaround (pineapple #105 / wangshu #11). A borrow that balloons the arena
+// past arenaDropThresholdKB must be DROPPED on Return — not pooled — so the fat
+// backing slab is reclaimed instead of latching a high RSS high-water that the
+// #100 cadence sweep can't lower. The next borrow then rebuilds a clean state.
+//
+// Asserts: (1) the fat return increments dropFatCount and does NOT land in the
+// warm tier; (2) the post-drop borrow misses the (now-empty) warm/pool tiers and
+// creates a fresh state; (3) the 5-tuple invariant borrow == reuse + (create-1)
+// still holds across the drop.
+func TestWangshuDropsFatStateOnReturn(t *testing.T) {
+	wp, err := newWangshuPool(`function f() return #xs end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wp.Close()
+
+	checkInvariant := func(label string) {
+		t.Helper()
+		b := atomic.LoadInt64(&wp.borrowCount)
+		r := atomic.LoadInt64(&wp.reuseCount)
+		c := atomic.LoadInt64(&wp.createCount)
+		if b != r+(c-1) {
+			t.Fatalf("%s: borrow_count(%d) != reuse_count(%d) + misses(%d)", label, b, r, c-1)
+		}
+	}
+
+	// Drain the single pre-warmed state so the warm tier is empty and we control
+	// exactly what is pooled. This borrow reuses the pre-warm state; returning a
+	// SMALL workload keeps it (no drop), so warm holds exactly one lean state.
+	eng := wp.Borrow()
+	we := eng.(*wangshuEngine)
+	if err := we.SetGlobal("xs", fillArray(smallArrayItems)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := we.Call("f", 1); err != nil {
+		t.Fatal(err)
+	}
+	wp.Return(eng)
+	if d := atomic.LoadInt64(&wp.dropFatCount); d != 0 {
+		t.Fatalf("small workload tripped the drop: dropFatCount=%d, want 0", d)
+	}
+	if n := len(wp.warm); n != 1 {
+		t.Fatalf("warm tier after lean return = %d, want 1", n)
+	}
+	checkInvariant("after lean return")
+
+	// Borrow again (reuses the lean warm state), this time balloon the arena past
+	// the threshold. On Return it must be dropped: dropFatCount ticks and the warm
+	// tier ends up empty (the fat state is discarded, not re-pooled).
+	dropBefore := atomic.LoadInt64(&wp.dropFatCount)
+	eng = wp.Borrow()
+	we = eng.(*wangshuEngine)
+	if err := we.SetGlobal("xs", fillArray(fatArrayItems)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := we.Call("f", 1); err != nil {
+		t.Fatal(err)
+	}
+	if kb := we.st.GCCountKB(); kb <= arenaDropThresholdKB {
+		t.Fatalf("fat workload arena=%.1f KB did not exceed threshold %.0f KB; test fixture too small", kb, arenaDropThresholdKB)
+	}
+	wp.Return(eng)
+	if d := atomic.LoadInt64(&wp.dropFatCount); d != dropBefore+1 {
+		t.Fatalf("fat return did not drop: dropFatCount=%d, want %d", d, dropBefore+1)
+	}
+	if n := len(wp.warm); n != 0 {
+		t.Fatalf("warm tier after fat drop = %d, want 0 (fat state must not be pooled)", n)
+	}
+	checkInvariant("after fat drop")
+
+	// The next borrow finds warm empty and the overflow pool empty (the fat state
+	// was never Put there), so it must build a fresh state — create_count climbs.
+	createBefore := atomic.LoadInt64(&wp.createCount)
+	eng = wp.Borrow()
+	if eng == nil {
+		t.Fatal("unexpected nil borrow after drop")
+	}
+	if c := atomic.LoadInt64(&wp.createCount); c != createBefore+1 {
+		t.Fatalf("post-drop borrow did not create a fresh state: create_count=%d, want %d", c, createBefore+1)
+	}
+	wp.Return(eng)
+	checkInvariant("after post-drop rebuild")
+}
+
+// TestWangshuLeanWorkloadNeverDrops pins the negative: a sustained stream of
+// normal-sized borrows must never trip the arena-drop workaround. Dropping lean
+// states would defeat pooling (every borrow would miss + rebuild), so the
+// threshold has to sit well above any healthy steady-state working set.
+func TestWangshuLeanWorkloadNeverDrops(t *testing.T) {
+	wp, err := newWangshuPool(`function f() local s=0; for i=1,#xs do s=s+xs[i] end; return s end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wp.Close()
+
+	arr := fillArray(smallArrayItems)
+	for r := 0; r < 2000; r++ {
+		eng := wp.Borrow()
+		we := eng.(*wangshuEngine)
+		if err := we.SetGlobal("xs", arr); err != nil {
+			t.Fatalf("SetGlobal: %v", err)
+		}
+		if _, err := we.Call("f", 1); err != nil {
+			t.Fatalf("Call: %v", err)
+		}
+		wp.Return(eng)
+	}
+	if d := atomic.LoadInt64(&wp.dropFatCount); d != 0 {
+		t.Fatalf("lean workload tripped the drop %d times across 2000 returns; threshold too low", d)
+	}
+	// Steady-state reuse: with no drops, the warm tier keeps serving, so create
+	// stays at the pre-warm 1.
+	if c := atomic.LoadInt64(&wp.createCount); c != 1 {
+		t.Fatalf("lean workload created %d states (want 1 pre-warm); unexpected misses", c)
+	}
+}
+
+// TestWangshuDropFatStateConcurrent drives mixed lean/fat returns across
+// goroutines and asserts the counters stay balanced and the 5-tuple invariant
+// holds even when fat drops interleave with reuse. wangshu requires one
+// goroutine per state, which Borrow/Return already enforce (a state is owned by
+// exactly one borrower at a time), so this exercises the drop path under the
+// concurrent counter traffic it will see in production.
+func TestWangshuDropFatStateConcurrent(t *testing.T) {
+	wp, err := newWangshuPool(`function f() return #xs end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wp.Close()
+
+	const goroutines, iters = 8, 60
+	fat := fillArray(fatArrayItems)
+	lean := fillArray(smallArrayItems)
+
+	var wg sync.WaitGroup
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iters; i++ {
+				eng := wp.Borrow()
+				if eng == nil {
+					return
+				}
+				we := eng.(*wangshuEngine)
+				// Every 5th borrow goes fat to force interleaved drops.
+				arr := lean
+				if i%5 == 0 {
+					arr = fat
+				}
+				if err := we.SetGlobal("xs", arr); err != nil {
+					t.Errorf("SetGlobal: %v", err)
+					wp.Return(eng)
+					return
+				}
+				if _, err := we.Call("f", 1); err != nil {
+					t.Errorf("Call: %v", err)
+					wp.Return(eng)
+					return
+				}
+				wp.Return(eng)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	b := atomic.LoadInt64(&wp.borrowCount)
+	r := atomic.LoadInt64(&wp.returnCount)
+	a := atomic.LoadInt64(&wp.activeCount)
+	if b != goroutines*iters {
+		t.Fatalf("borrow_count = %d, want %d", b, goroutines*iters)
+	}
+	if b != r {
+		t.Fatalf("borrow_count(%d) != return_count(%d)", b, r)
+	}
+	if a != 0 {
+		t.Fatalf("active_count after balanced concurrent cycle = %d, want 0", a)
+	}
+	// Invariant holds even with drops: each drop forces a later create, so the
+	// reuse/create split shifts but borrow == reuse + (create-1) is preserved.
+	c := atomic.LoadInt64(&wp.createCount)
+	reuse := atomic.LoadInt64(&wp.reuseCount)
+	if b != reuse+(c-1) {
+		t.Fatalf("borrow_count(%d) != reuse_count(%d) + misses(%d) under concurrent drops", b, reuse, c-1)
+	}
+	// Sanity: the fat returns actually exercised the drop path.
+	if d := atomic.LoadInt64(&wp.dropFatCount); d == 0 {
+		t.Fatal("no drops recorded; concurrent test did not exercise the workaround")
+	}
+}
