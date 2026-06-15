@@ -82,17 +82,55 @@ issue #8 反馈闭环：边界双拷贝（state.go:557 + wangshu.go:371，每调
 
 - `Release()` 只是把 pin 槽归还 `freePins`（计入空闲），并不立刻 sweep 对应的 arena 字节
 - arena 字节要等**下一次脚本执行命中 safepoint** 时才被回收
-- 因此稳态达成前会有一段"延迟归还"的合理内存爬坡：pin 槽已释放但 arena 未 sweep。这是正常曲线形状，**不应与真泄漏混淆**——真泄漏的判据是 pin 槽计数本身随请求单调增长（如未 Release 的入参路径），而非 arena 字节滞后
+- 因此稳态达成前会有一段"延迟归还"的合理内存爬坡：pin 槽已释放但 arena 未 sweep。这是正常曲线形状，**不应与真泄漏混淆**（判据详见下文「三态内存判据」）
 
 内存上界仍由 Pool 复用模型决定（`minIdle + 当前 in-flight`，与 GC 周期 / uptime 无关）；本节只补充"何时真正释放字节"的时间维度，不改变上界结论。
 
-### GC pacing 缺口与 cadence sweep 工作区（pineapple #100 / wangshu #9）
+### auto-GC pacing 缺口与 cadence-sweep workaround（#100 / wangshu#9）
 
-承上节"safepoint 只在 opcode 触发"：wangshu 不仅在 opcode 才 sweep，连 **GC 阈值检查**也只发生在 VM opcode safepoint。boundary-dominated 的 LuaOp 形状（大复合 `SetGlobal` 灌入 + 极小脚本体）会让宿主侧分配把 collector 的**记账**推高，却几乎不推进它的**触发**——脚本体太短，命中的 safepoint 太少，阈值长期不被检查，arena 单调上爬。这与上节"延迟归还的合理爬坡"不同：那是稳态前的滞后、会随后续脚本执行收敛；此处是阈值根本不被检查导致的**无上限**增长。
+由"safepoint 仅 opcode 路径"派生出一个 pacing 缺口：wangshu 的 auto-GC 只在 VM opcode safepoint 检查 trigger 阈值。**boundary-dominated 负载**（common-mode `transform_by_lua` 用 `SetGlobal` 灌大 composite + 极短脚本）每次执行的 opcode 极少、safepoint 稀少，于是 GC 的内部 accounting（`bytesAllocSince`）在推进、trigger 却几乎不触发——auto-GC 被**饿死**，arena 线性爬升。
 
-工作区（`pine-go/operators/lua/pool_wangshu.go`）：`wangshuPool.Return` 每 `gcCadenceWangshu`（256）次归还，在该 goroutine 仍独占 state 时（交回 warm/pool 之前，遵守 wangshu 单 goroutine 单 state 契约）跑一段独立的 `collectgarbage("collect")` chunk（`collectProg`，与用户程序无关、不动 globals/baseline）显式驱动一次 sweep。单次开销微秒级，分摊到数千次归还可忽略。`collectProg` 编译失败时静默跳过（pool 仍可用，仅无此工作区）；计数用独立的 `gcReturnCount`，不扰动 `/stats` 的 `returnCount`。
+下游止血（v0.10.2 已 ship，对应上游 wangshu#9）：`pool_wangshu.go` 的 `wangshuPool.Return` 每 `gcCadenceWangshu`（= 256，常量出处见 `pool_wangshu.go`）次返还，在该 goroutine 仍独占 state 时（交回 warm/pool 之前，遵守 wangshu 单 goroutine 单 state 契约）跑一次独立的 `collectgarbage("collect")` 脚本（`collectProg`，编译名 `pine_gc_cadence`）主动推进一次 sweep。该 collect chunk 独立于用户程序，不触碰用户脚本 globals / 不复位 baseline；单次开销微秒级，分摊到数千次返还可忽略。`collectProg` 编译失败时静默跳过（pool 仍可用，仅无此 workaround）。计数用独立的 `gcReturnCount`（与公共 `/stats` 的 `return_count` 隔离，便于拆除 workaround 不扰动 stats）。代码标注 `REMOVE once wangshu#9 lands`。
 
-**临时性**：上游 wangshu #9 让宿主分配驱动 GC cadence（或暴露 host-callable pacing API）后，整条 cadence 路径应移除——代码已标 `REMOVE` 注记。
+### grow-only high-water latch（#105 / wangshu#11）
+
+cadence-sweep 让 GC accounting 平了，但生产 RSS 仍可能单调爬升——根因不在 pacing，而在 arena 的 **grow-only** 形态：
+
+- arena backing slab 只增不减：`grow64` 只翻倍 copy，整个 `Arena` 方法表**无任何 shrink / release backing 路径**
+- `sweep` / `freeObject` 只把死对象还内部 freelist（`Arena.Free` 累加 `freeBytes`），底层 `[]uint64` backing slab **永不交还 Go runtime**
+- 因此一个曾被偶发大分配 balloon 过的 state 会**永久变肥**；它被 warm / sync.Pool tier 缓存后，high-water RSS 被 **latch 住**，前述 cadence sweep 也压不下去（它只回 freelist，不动 backing slab）
+
+并发现：`Options.InitialArenaBytes` / `MaxArenaBytes` 是 **dead param**——全模块零读取，`NewState` → `crescent.New()` 无参传 `arena.New(arena.Options{})` 全零值，host **无生效的 arena cap 旋钮**。对应上游 wangshu#11（请求 arena backing release + 激活 cap + 暴露 high-water/Cap 观测 API）。下游止血见「drop-fat-state 止血契约」节。
+
+### 三态内存判据
+
+判断一条内存曲线是否异常，须区分三态（不可一概当真泄漏，也不可一概当可自愈）：
+
+- **(a) pin 槽随请求单调增** = 入参方向 pin 泄漏。**真 bug**，已在 v0.10.1（`477dacd`）修；判据是 pin 槽计数本身单调增长（globals/pin 是独立账本，5 元组计数器钉不住，须直接观测）
+- **(b) arena 字节滞后** = pin 槽已释放但 arena 未 sweep。**可自愈**：等下一次脚本执行命中 safepoint 即回落，是正常爬坡曲线
+- **(c) backing slab latch** = fat state 被池缓存、high-water 被 latch。**不自愈**：grow-only 决定 sweep 只回 freelist、backing 不交还 runtime，cadence sweep 也压不下；唯有 **drop 掉该 state** 才能让 Go runtime 回收 backing slab（#105 / wangshu#11）
+
+> 历史纠偏：本系列前篇 `wangshu-pin-table-input-leak-fix.md` 仅区分 (a)/(b) 两态，在 grow-only latch 场景下不充分——(c) 既非 pin 泄漏、也非可自愈的字节滞后，是第三种独立形态。
+
+### `GCCountKB` 语义陷阱
+
+`State.GCCountKB()` 的**实测语义是 `bump − freeBytes`**，即**活跃量**（sweep 后随 `freeBytes` 上升而回落），**不是 capacity 高水位**：
+
+- 门面注释（`wangshu.go`）写"含 freelist 空闲块"、core 注释写"活跃 KB"，两处**口径分叉**，必须读实现才能确认真实语义
+- 它会被 sweep / cadence sweep **拉回**，因此拿它做 drop 判据**必须在 reset/sweep 之前采样**，否则读到被拉回的小值、永远 drop 不掉 fat state（见下节顺序约束）
+- wangshu 公共 `State` 面**无 `Cap` / high-water 访问器**（这正是 wangshu#11 direction 3 的诉求），`GCCountKB` 的"sweep 前峰值"是目前唯一可用的"是否 ballooned"代理
+
+> 历史纠偏：前篇把 `GCCountKB` 当"真实资源量代理"的表述不精确——它是活跃量、会被 sweep 拉回，只有在 **sweep 前采样**时才具备"是否 ballooned"的判据意义。
+
+### drop-fat-state 止血契约（#105 / wangshu#11）
+
+针对 grow-only latch 的下游止血，实现于 `pool_wangshu.go`（`wangshuPool.Return`，commit `628c4ca`）：
+
+- 阈值 `arenaDropThresholdKB` = 1024（KB，= 16× wangshu 默认 64KB initial arena，常量与定标理由见 `pool_wangshu.go`）；命中计数 `dropFatCount`（**内部计数器，非公共 `/stats` 键**，仅供测试断言与"workaround 是否在触发"的廉价信号）
+- `Return` 在 reset/sweep **之前**采样 `GCCountKB()`，超阈值则 `drop=true`：**跳过 reset 和 cadence sweep、不回 warm/pool**，让 fat state 落出作用域被 Go runtime 回收（连同其 fat backing slab）；下次 `Borrow` 重建干净 ~64KB state。代价是 create-rate 略升、换 high-water 有界
+- **关键顺序约束（务必保持）**：drop 的 `GCCountKB` 采样必须排在 cadence sweep **之前**。两个 workaround（drop-fat-state + cadence-sweep）同在 `Return` 里且**顺序敏感、相互耦合**——cadence sweep 会拉回 `GCCountKB`，任何重排 `Return` 内部步骤的改动都可能**静默废掉 drop**（reflection 建议对此加注释级断言或测试钉住相对顺序防回归）
+
+> 临时性：drop-fat-state 与 cadence-sweep 均为**临时止血**，代码已标 `REMOVE once wangshu#11/#9 lands`。上游 wangshu#11 落地 arena shrink/rebuild（或激活 `MaxArenaBytes` cap / 暴露 arena-cap 观测）后，high-water 可就地释放，两节连同本文档此处临时内容一并拆除。
 
 ## 非字符串 key 错误对等（fromValue / tableToGo）
 
