@@ -31,6 +31,32 @@ const defaultMinIdleWangshu = 100
 // host-callable pacing API): this whole cadence path becomes dead weight.
 const gcCadenceWangshu = 256
 
+// arenaDropThresholdKB drives a workaround for wangshu's grow-only arena
+// (pineapple #105 / wangshu #11): wangshu's arena backing slab only ever grows
+// (grow64 doubles + copies; there is no shrink path), and Collect/sweep recycle
+// dead objects into the freelist without ever returning the backing []uint64 to
+// the runtime. So a state whose arena was ballooned once by an occasional large
+// host allocation stays fat for life — and the warm/sync.Pool tiers cache that
+// fat state, latching a high RSS high-water that the #100 cadence sweep cannot
+// lower (it only frees into the arena's own freelist).
+//
+// Workaround: on Return, if the state's arena grew past this threshold, drop the
+// state instead of returning it to the pool. The next Borrow builds a clean
+// ~64 KB state (wangshu's default InitialBytes). This trades a small bump in
+// create-rate for a bounded high-water.
+//
+// Threshold sizing: wangshu's default initial arena is 64 KB and a warm state's
+// steady-state working set sits in the low hundreds of KB. 1 MB is well above
+// any healthy steady state (so normal traffic never trips it) but far below the
+// multi-MB fat states that latch production RSS (#105's geometric steps reach
+// hundreds of MB). Only states that genuinely ballooned are dropped.
+//
+// REMOVE once wangshu #11 lands an arena shrink/rebuild after Collect (direction
+// 1) — then high-water memory is released in-place and dropping states is
+// unnecessary. A wired-up MaxArenaBytes (direction 2) or arena-cap observable
+// (direction 3) would also let this be retired or made exact.
+const arenaDropThresholdKB = 1024.0
+
 var errWangshuPoolClosed = errors.New("lua wangshuPool: pool is closed")
 
 // wangshuPool holds a compiled Program + a two-tier idle State pool, the same
@@ -64,6 +90,13 @@ type wangshuPool struct {
 	// Separate from returnCount (which is a public /stats counter) so the
 	// workaround can be ripped out without perturbing stats.
 	gcReturnCount int64
+
+	// dropFatCount counts states dropped by the arena-drop workaround (#105 /
+	// wangshu #11) — i.e. returns where GCCountKB exceeded arenaDropThresholdKB
+	// so the fat state was discarded instead of pooled. Internal-only (not a
+	// public /stats key); tests assert on it and it is a cheap signal that the
+	// workaround is firing. Goes away with the workaround when wangshu #11 lands.
+	dropFatCount int64
 
 	// always-on counters (powers /stats)
 	borrowCount int64
@@ -200,30 +233,51 @@ func (wp *wangshuPool) Return(eng Engine) {
 	wp.mu.Lock()
 	closed := wp.closed
 	wp.mu.Unlock()
+
+	drop := false
 	if !closed {
-		// Wipe script-level globals back to the post-load baseline, then drop
-		// any ctx so it does not leak into the next borrow.
-		we.st.ResetGlobalsToBaseline()
-		we.st.RemoveContext()
-		// GC-pacing workaround (pineapple #100 / wangshu #9): drive an explicit
-		// arena sweep every gcCadenceWangshu returns. Done here while this
-		// goroutine still exclusively owns the state (before returnState hands
-		// it back to warm/pool), honoring wangshu's single-goroutine-per-state
-		// contract. collectProg is independent of the user program and does not
-		// disturb globals/baseline. REMOVE when wangshu #9 lands.
-		if wp.collectProg != nil && atomic.AddInt64(&wp.gcReturnCount, 1)%gcCadenceWangshu == 0 {
-			_, _ = wp.collectProg.Run(we.st)
+		// Arena-drop workaround (pineapple #105 / wangshu #11): sample the arena
+		// BEFORE reset/sweep, while this borrow's large host allocation (the
+		// SetGlobal composite) is still live and counted. GCCountKB is
+		// bump−freeBytes (LIVE bytes, not capacity), so the cadence sweep below
+		// would deflate it and hide the state. wangshu exposes no arena-capacity
+		// observable (wangshu #11 direction 3), so live-at-peak is our proxy: a
+		// borrow whose live arena exceeds the threshold (16× the 64 KB default)
+		// has necessarily grown its backing past that point, and grow-only means
+		// that capacity is now latched. Drop such a state: skip reset/sweep (it's
+		// being discarded, like the closed branch) and don't pool it, so the fat
+		// backing slab is GC'd and the next Borrow rebuilds a clean ~64 KB state.
+		// REMOVE when wangshu #11 lands an arena shrink/rebuild (direction 1).
+		if we.st.GCCountKB() > arenaDropThresholdKB {
+			drop = true
+			atomic.AddInt64(&wp.dropFatCount, 1)
+		}
+
+		if !drop {
+			// Wipe script-level globals back to the post-load baseline, then drop
+			// any ctx so it does not leak into the next borrow.
+			we.st.ResetGlobalsToBaseline()
+			we.st.RemoveContext()
+			// GC-pacing workaround (pineapple #100 / wangshu #9): drive an explicit
+			// arena sweep every gcCadenceWangshu returns. Done here while this
+			// goroutine still exclusively owns the state (before returnState hands
+			// it back to warm/pool), honoring wangshu's single-goroutine-per-state
+			// contract. collectProg is independent of the user program and does not
+			// disturb globals/baseline. REMOVE when wangshu #9 lands.
+			if wp.collectProg != nil && atomic.AddInt64(&wp.gcReturnCount, 1)%gcCadenceWangshu == 0 {
+				_, _ = wp.collectProg.Run(we.st)
+			}
 		}
 	}
-	wp.returnState(we.st)
+	wp.returnState(we.st, drop)
 }
 
-func (wp *wangshuPool) returnState(st *wangshu.State) {
+func (wp *wangshuPool) returnState(st *wangshu.State, drop bool) {
 	wp.mu.Lock()
 	closed := wp.closed
 	wp.mu.Unlock()
 
-	if !closed {
+	if !closed && !drop {
 		wp.mu.Lock()
 		if !wp.closed && len(wp.warm) < wp.minIdle {
 			wp.warm = append(wp.warm, st)
@@ -233,6 +287,8 @@ func (wp *wangshuPool) returnState(st *wangshu.State) {
 			wp.pool.Put(st)
 		}
 	}
+	// drop || closed: st is not pooled. It falls out of scope here and the Go
+	// runtime reclaims it — and, for the drop case, its fat arena backing slab.
 
 	atomic.AddInt64(&wp.returnCount, 1)
 	atomic.AddInt64(&wp.activeCount, -1)
