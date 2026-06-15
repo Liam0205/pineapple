@@ -86,6 +86,14 @@ issue #8 反馈闭环：边界双拷贝（state.go:557 + wangshu.go:371，每调
 
 内存上界仍由 Pool 复用模型决定（`minIdle + 当前 in-flight`，与 GC 周期 / uptime 无关）；本节只补充"何时真正释放字节"的时间维度，不改变上界结论。
 
+### GC pacing 缺口与 cadence sweep 工作区（pineapple #100 / wangshu #9）
+
+承上节"safepoint 只在 opcode 触发"：wangshu 不仅在 opcode 才 sweep，连 **GC 阈值检查**也只发生在 VM opcode safepoint。boundary-dominated 的 LuaOp 形状（大复合 `SetGlobal` 灌入 + 极小脚本体）会让宿主侧分配把 collector 的**记账**推高，却几乎不推进它的**触发**——脚本体太短，命中的 safepoint 太少，阈值长期不被检查，arena 单调上爬。这与上节"延迟归还的合理爬坡"不同：那是稳态前的滞后、会随后续脚本执行收敛；此处是阈值根本不被检查导致的**无上限**增长。
+
+工作区（`pine-go/operators/lua/pool_wangshu.go`）：`wangshuPool.Return` 每 `gcCadenceWangshu`（256）次归还，在该 goroutine 仍独占 state 时（交回 warm/pool 之前，遵守 wangshu 单 goroutine 单 state 契约）跑一段独立的 `collectgarbage("collect")` chunk（`collectProg`，与用户程序无关、不动 globals/baseline）显式驱动一次 sweep。单次开销微秒级，分摊到数千次归还可忽略。`collectProg` 编译失败时静默跳过（pool 仍可用，仅无此工作区）；计数用独立的 `gcReturnCount`，不扰动 `/stats` 的 `returnCount`。
+
+**临时性**：上游 wangshu #9 让宿主分配驱动 GC cadence（或暴露 host-callable pacing API）后，整条 cadence 路径应移除——代码已标 `REMOVE` 注记。
+
 ## 非字符串 key 错误对等（fromValue / tableToGo）
 
 `fromValue` / `tableToGo` 签名为 `(any, error)`。Lua 函数返回的 table 含非字符串 key 时，wangshu 后端**传播错误而非静默吞掉**（旧版静默返回空 map）：
