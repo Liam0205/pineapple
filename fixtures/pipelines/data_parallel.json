@@ -1,7 +1,7 @@
 {
   "name": "data_parallel transform (sharded item execution)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.2",
+    "_PINEAPPLE_VERSION": "0.10.4",
     "pipeline_config": {
       "operators": {
         "copy_tag": {

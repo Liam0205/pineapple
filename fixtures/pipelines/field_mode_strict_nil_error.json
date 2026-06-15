@@ -1,7 +1,7 @@
 {
   "name": "strict field mode — nil triggers error",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.2",
+    "_PINEAPPLE_VERSION": "0.10.4",
     "pipeline_config": {
       "operators": {
         "write_nil": {
