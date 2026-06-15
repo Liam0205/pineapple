@@ -81,9 +81,9 @@ CFG
     write_config "$POS_CONFIG" ', "metrics_name": "cache"'
     write_config "$NEG_CONFIG" ''
 
-    GO_PORT=23011
-    JAVA_PORT=23012
-    CPP_PORT=23014
+    GO_PORT=26001
+    JAVA_PORT=26002
+    CPP_PORT=26004
 
     # scrape_resources <port>: print the /stats.resources subtree as compact
     # sorted JSON, retrying briefly so the probe goroutine (which runs one
@@ -363,7 +363,7 @@ else:
     # ============================================================
     # NEGATIVE CASE: no metrics_name → resources == {} in all engines
     # ============================================================
-    GO_PORT=23021; JAVA_PORT=23022; CPP_PORT=23024
+    GO_PORT=26011; JAVA_PORT=26012; CPP_PORT=26014
     "$WORK_DIR/pineapple-server" -config "$NEG_CONFIG" -addr ":$GO_PORT" &
     GO_PID=$!
     java -cp "$JAVA_CP" -Dpine.config="$NEG_CONFIG" -Dpine.port=$JAVA_PORT page.liam.pine.PineServer &
@@ -464,7 +464,7 @@ print(json.dumps(res, sort_keys=True) if res is not None else '__MISSING__')
 CFG
 
     # Pick fresh ports — old ones may still be in TIME_WAIT
-    GO_PORT=23031; JAVA_PORT=23032; CPP_PORT=23034
+    GO_PORT=26021; JAVA_PORT=26022; CPP_PORT=26024
     "$WORK_DIR/pineapple-server" -config "$UNREACH_CONFIG" -addr ":$GO_PORT" &
     GO_PID=$!
     java -cp "$JAVA_CP" -Dpine.config="$UNREACH_CONFIG" -Dpine.port=$JAVA_PORT page.liam.pine.PineServer &
