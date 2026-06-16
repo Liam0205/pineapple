@@ -207,11 +207,14 @@ func (wp *wangshuPool) Return(eng Engine) {
 	if !ok || we == nil {
 		return
 	}
-	// Release the Call fn cache (#112 finding #1) on every path: the pin slot
-	// belongs to this borrow's Engine wrapper and would otherwise accumulate
-	// across borrows. Order matters slightly — done before MaybeCollectNow so
-	// the freed slot is available if the sweep re-uses the freelist.
+	// Release the Call fn cache (#112 finding #1) and the GlobalsSlot cache
+	// (#115 finding B) on every path: both hold pin slots that belong to this
+	// borrow's Engine wrapper and would otherwise accumulate one (or more) per
+	// borrow across the state's lifetime. Order matters slightly — done before
+	// MaybeCollectNow so the freed slots are available if the sweep re-uses
+	// the freelist.
 	we.releaseFnCache()
+	we.releaseSlots()
 
 	wp.mu.Lock()
 	closed := wp.closed
@@ -311,6 +314,15 @@ type wangshuEngine struct {
 	// the zero-alloc CallInto path (wangshu v0.1.4, issue #8) stays alloc-free.
 	// Grown on demand to fit the largest nret seen; never shrinks.
 	dst []wangshu.Value
+	// slots caches pre-resolved GlobalsSlot handles per name within a borrow
+	// scope (#115 finding B, wangshu v0.2.0-rc4). The hot per-item loop
+	// (executeForItem: N items × M ItemInput fields) calls SetGlobal with a
+	// fixed set of M field names; without this every call re-interns the name.
+	// First SetGlobal for a name calls st.GlobalsSlot() and caches the handle;
+	// the remaining N×M − M SetGlobals fall through to SetBySlot. Cleared on
+	// Return via releaseSlots so pin slots don't accumulate across borrows.
+	// nil until the first SetGlobal of the borrow.
+	slots map[string]wangshu.GlobalsSlot
 }
 
 // releaseFnCache returns the cached fn pin slot to freePins. Called by the pool
@@ -320,6 +332,18 @@ func (e *wangshuEngine) releaseFnCache() {
 	if e.fnName != "" {
 		e.fn.Release()
 		e.fnName = ""
+	}
+}
+
+// releaseSlots unpins every cached GlobalsSlot handle. wangshu's doc note on
+// GlobalsSlot.Release is explicit: "长驻 State 下不 Release 仍正确,但反复创建大
+// 量不同 name 的 slot 时应配套". A long-lived pool state would otherwise
+// accumulate one pin slot per (borrow, ItemInput field name) pair across QPS.
+// Repeated Release is safe (idempotent), so unconditional clear is OK.
+func (e *wangshuEngine) releaseSlots() {
+	for k, s := range e.slots {
+		(&s).Release()
+		delete(e.slots, k)
 	}
 }
 
@@ -362,7 +386,20 @@ func (e *wangshuEngine) SetGlobal(name string, value any) error {
 		return fmt.Errorf("global %q: %w", name, err)
 	}
 	defer wv.Release()
-	e.st.SetGlobal(name, wv)
+	// #115 finding B: route through a pre-resolved GlobalsSlot so the hot
+	// per-item loop skips the `[]byte(name)` alloc + intern hash lookup that
+	// st.SetGlobal performs every call. The slot map is lazy-built on the
+	// first call and cleared in Return; for executeForItem's N×M shape this
+	// pays the intern cost M times instead of N×M times.
+	slot, ok := e.slots[name]
+	if !ok {
+		if e.slots == nil {
+			e.slots = make(map[string]wangshu.GlobalsSlot, 4)
+		}
+		slot = e.st.GlobalsSlot(name)
+		e.slots[name] = slot
+	}
+	e.st.SetBySlot(slot, wv)
 	return nil
 }
 
