@@ -253,22 +253,19 @@ function gc() collectgarbage("collect") end
 	}
 }
 
-// TestWangshuGCCadenceBoundsArenaWithoutInLoopCollect is the regression guard
-// for the GC-pacing workaround (pineapple #100 / wangshu #9). Unlike
-// TestWangshuSetGlobalCompositeNoPinLeak above, the script defines NO gc
-// function and the loop NEVER triggers a collect itself — the realistic
-// embedding shape where user scripts don't self-GC. Arena boundedness here
-// comes solely from wangshuPool.Return's cadence sweep (every gcCadenceWangshu
-// returns).
+// TestWangshuReturnDrivesArenaCompact pins the regression of the v0.2.0-rc3
+// upgrade: wangshu's auto-GC starves on boundary-dominated LuaOp workloads
+// (large SetGlobal + tiny script give few VM safepoints to check the trigger,
+// so bytesAllocSince climbs without firing). On Return we now call
+// MaybeCollectNow (wangshu #9 direction 2), which checks the threshold at the
+// host boundary; the collector internally runs arena.Compact() after sweep
+// (wangshu #11 direction 1 partial), so transient peaks release backing to the
+// Go runtime in-place. The user script defines NO gc function — boundedness
+// here comes purely from Return's MaybeCollectNow.
 //
-// Without the workaround this loop leaks ~1 KB/iter (wangshu's auto-GC almost
-// never fires on host-driven allocs + tiny scripts); with it the arena stays
-// flat. The loop runs well past gcCadenceWangshu so multiple cadence sweeps
-// fire. Pinning a single warm state (LIFO re-borrow) keeps us measuring one
+// Pinning a single warm state via LIFO re-borrow keeps us measuring one
 // state's arena, not amortization across the pool.
-func TestWangshuGCCadenceBoundsArenaWithoutInLoopCollect(t *testing.T) {
-	// Script body is a few opcodes — the boundary-dominated shape that starves
-	// wangshu's safepoint-driven GC. No gc() function on purpose.
+func TestWangshuReturnDrivesArenaCompact(t *testing.T) {
 	const script = `
 function f()
     local s = 0
@@ -281,12 +278,8 @@ end
 		t.Fatal(err)
 	}
 	defer wp.Close()
-	if wp.collectProg == nil {
-		t.Fatal("collectProg failed to compile — cadence workaround inactive")
-	}
 
-	// Run several multiples of the cadence so the sweep fires repeatedly.
-	const iters = gcCadenceWangshu * 8
+	const iters = 2000
 	const itemsPerIter = 100
 
 	arr := make([]any, itemsPerIter)
@@ -295,7 +288,7 @@ end
 	}
 
 	var arenaAfterWarmup float64
-	const warmupAt = gcCadenceWangshu // sample after the first cadence sweep
+	const warmupAt = 100
 	for r := 0; r < iters; r++ {
 		eng := wp.Borrow()
 		if eng == nil {
@@ -311,7 +304,7 @@ end
 		if r == warmupAt {
 			arenaAfterWarmup = we.st.GCCountKB()
 		}
-		wp.Return(eng) // cadence sweep fires here every gcCadenceWangshu returns
+		wp.Return(eng)
 	}
 
 	eng := wp.Borrow()
@@ -319,25 +312,27 @@ end
 	arenaFinal := we.st.GCCountKB()
 	wp.Return(eng)
 
-	// Pre-workaround this leaks ~1 KB/iter → ~iters KB of growth. With the
-	// cadence sweep the arena oscillates around its working set. Headroom well
-	// below the leak magnitude (iters*8 = 2048 iters ≈ 2 MB leak pre-fix) and
-	// above single-state arena noise.
+	// Without MaybeCollectNow this would leak ~1 KB/iter (v0.1.4 baseline).
+	// With it the arena oscillates around its working set.
 	const maxGrowthKB = 256.0
 	if grow := arenaFinal - arenaAfterWarmup; grow > maxGrowthKB {
-		t.Fatalf("wangshu arena grew by %.1f KB across %d iterations (warmup=%.1f, final=%.1f) with NO in-loop collect; cadence workaround not bounding arena",
+		t.Fatalf("wangshu arena grew by %.1f KB across %d iterations (warmup=%.1f, final=%.1f); Return.MaybeCollectNow not bounding arena",
 			grow, iters-warmupAt, arenaAfterWarmup, arenaFinal)
 	}
 }
 
-// fatArrayItems is the element count that drives a single borrow's arena past
-// arenaDropThresholdKB. Empirically ~100k float64 elements lift wangshu's arena
-// to ~1032 KB (just over the 1024 KB threshold); 120k leaves comfortable
-// headroom so the drop fires deterministically across arena-layout noise. A
-// "small" borrow (smallArrayItems) stays at ~16 KB, two orders of magnitude
-// under the threshold, so it must NEVER trip the drop.
+// fatArrayItems is the element count that drives a single borrow's post-Compact
+// ArenaCapKB above arenaDropThresholdKB. Calibrated against wangshu v0.2.0-rc3:
+// once a borrow's arena grow-doublings push capacity past the threshold, Compact
+// only shrinks cap to max(bump, 64 KiB), and bump is monotonic, so the cap
+// latches at the bump extent — the sustained-fat shape the threshold targets.
+// Empirically 200k float64 elements latch cap to ~1574 KiB (well above the 1024
+// KiB threshold); 100k latches at ~793 KiB (below). 200k gives comfortable
+// headroom so the drop fires deterministically across arena-layout noise.
+// smallArrayItems = 100 latches at the 64 KiB initial cap — Compact fully self-
+// heals it back to default so it must NEVER trip the drop.
 const (
-	fatArrayItems   = 120000
+	fatArrayItems   = 200000
 	smallArrayItems = 100
 )
 
@@ -349,11 +344,13 @@ func fillArray(n int) []any {
 	return arr
 }
 
-// TestWangshuDropsFatStateOnReturn is the regression guard for the arena-drop
-// workaround (pineapple #105 / wangshu #11). A borrow that balloons the arena
-// past arenaDropThresholdKB must be DROPPED on Return — not pooled — so the fat
-// backing slab is reclaimed instead of latching a high RSS high-water that the
-// #100 cadence sweep can't lower. The next borrow then rebuilds a clean state.
+// TestWangshuDropsFatStateOnReturn is the regression guard for the
+// sustained-fat drop path (pineapple #105 / wangshu #11 Direction 1 partial). A
+// borrow whose live set drives the arena cap past arenaDropThresholdKB and
+// stays latched there even after Return's MaybeCollectNow + Compact must be
+// DROPPED — not pooled — so the next Borrow rebuilds a clean ~64 KiB state.
+// Transient peaks (lean workloads) self-heal via Compact and must NOT be
+// dropped.
 //
 // Asserts: (1) the fat return increments dropFatCount and does NOT land in the
 // warm tier; (2) the post-drop borrow misses the (now-empty) warm/pool tiers and
@@ -407,9 +404,6 @@ func TestWangshuDropsFatStateOnReturn(t *testing.T) {
 	}
 	if _, err := we.Call("f", 1); err != nil {
 		t.Fatal(err)
-	}
-	if kb := we.st.GCCountKB(); kb <= arenaDropThresholdKB {
-		t.Fatalf("fat workload arena=%.1f KB did not exceed threshold %.0f KB; test fixture too small", kb, arenaDropThresholdKB)
 	}
 	wp.Return(eng)
 	if d := atomic.LoadInt64(&wp.dropFatCount); d != dropBefore+1 {
