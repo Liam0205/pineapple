@@ -44,25 +44,26 @@ with open('$config_file', 'w') as cf:
   dag_dir="$WORK_DIR/dag_${fname}"
   mkdir -p "$dag_dir"
 
-  "$WORK_DIR/pineapple-dag" -config "$config_file" -format dot > "$dag_dir/go.dot" 2>/dev/null &
-  "$WORK_DIR/pineapple-dag" -config "$config_file" -format mermaid > "$dag_dir/go.mmd" 2>/dev/null &
-  java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot > "$dag_dir/java.dot" 2>/dev/null &
-  java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid > "$dag_dir/java.mmd" 2>/dev/null &
+  { _rc=0; "$WORK_DIR/pineapple-dag" -config "$config_file" -format dot > "$dag_dir/go.dot" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/go.dot.rc"; } &
+  { _rc=0; "$WORK_DIR/pineapple-dag" -config "$config_file" -format mermaid > "$dag_dir/go.mmd" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/go.mmd.rc"; } &
   if [[ -n "${CPP_DAG:-}" ]]; then
-    "$CPP_DAG" -config "$config_file" -format dot > "$dag_dir/cpp.dot" 2>/dev/null &
-    "$CPP_DAG" -config "$config_file" -format mermaid > "$dag_dir/cpp.mmd" 2>/dev/null &
+    { _rc=0; "$CPP_DAG" -config "$config_file" -format dot > "$dag_dir/cpp.dot" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/cpp.dot.rc"; } &
+    { _rc=0; "$CPP_DAG" -config "$config_file" -format mermaid > "$dag_dir/cpp.mmd" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/cpp.mmd.rc"; } &
   fi
+  # JVM serial: avoid truncated output under CI resource pressure
+  _rc=0; java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot > "$dag_dir/java.dot" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/java.dot.rc"
+  _rc=0; java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid > "$dag_dir/java.mmd" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/java.mmd.rc"
 
   if [[ "$has_pipeline_map" == "true" ]]; then
     for cl in 1 2; do
-      "$WORK_DIR/pineapple-dag" -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/go.dot.c${cl}" 2>/dev/null &
-      "$WORK_DIR/pineapple-dag" -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/go.mmd.c${cl}" 2>/dev/null &
-      java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/java.dot.c${cl}" 2>/dev/null &
-      java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/java.mmd.c${cl}" 2>/dev/null &
+      { _rc=0; "$WORK_DIR/pineapple-dag" -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/go.dot.c${cl}" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/go.dot.c${cl}.rc"; } &
+      { _rc=0; "$WORK_DIR/pineapple-dag" -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/go.mmd.c${cl}" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/go.mmd.c${cl}.rc"; } &
       if [[ -n "${CPP_DAG:-}" ]]; then
-        "$CPP_DAG" -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/cpp.dot.c${cl}" 2>/dev/null &
-        "$CPP_DAG" -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/cpp.mmd.c${cl}" 2>/dev/null &
+        { _rc=0; "$CPP_DAG" -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/cpp.dot.c${cl}" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/cpp.dot.c${cl}.rc"; } &
+        { _rc=0; "$CPP_DAG" -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/cpp.mmd.c${cl}" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/cpp.mmd.c${cl}.rc"; } &
       fi
+      _rc=0; java_run page.liam.pine.RenderDAGCli -config "$config_file" -format dot -collapse "$cl" > "$dag_dir/java.dot.c${cl}" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/java.dot.c${cl}.rc"
+      _rc=0; java_run page.liam.pine.RenderDAGCli -config "$config_file" -format mermaid -collapse "$cl" > "$dag_dir/java.mmd.c${cl}" 2>/dev/null || _rc=$?; echo "$_rc" > "$dag_dir/java.mmd.c${cl}.rc"
     done
   fi
 
@@ -76,10 +77,16 @@ with open('$config_file', 'w') as cf:
       cpp_dag_total=$((cpp_dag_total + 1))
     fi
 
+    if [[ -f "${go_file}.rc" && "$(cat "${go_file}.rc")" != "0" ]]; then
+      fail "render-dag Go crashed (rc=$(cat "${go_file}.rc")): $fname ($label)"; return
+    fi
     if [[ ! -s "$go_file" ]]; then
       fail "render-dag Go failed: $fname ($label)"; return
     fi
 
+    if [[ -f "${java_file}.rc" && "$(cat "${java_file}.rc")" != "0" ]]; then
+      fail "render-dag Java crashed (rc=$(cat "${java_file}.rc")): $fname ($label)"; return
+    fi
     if [[ ! -s "$java_file" ]]; then
       fail "render-dag Java failed: $fname ($label)"; return
     fi
@@ -92,6 +99,9 @@ with open('$config_file', 'w') as cf:
     fi
 
     if [[ -n "${CPP_DAG:-}" ]]; then
+      if [[ -f "${cpp_file}.rc" && "$(cat "${cpp_file}.rc")" != "0" ]]; then
+        fail "render-dag C++ crashed (rc=$(cat "${cpp_file}.rc")): $fname ($label)"; return
+      fi
       if [[ ! -s "$cpp_file" ]]; then
         fail "render-dag C++ failed: $fname ($label)"; return
       fi
