@@ -12,7 +12,7 @@ go 1.26.2
 require github.com/Liam0205/pineapple/pine-go v0.0.0
 
 require (
-	github.com/Liam0205/wangshu v0.2.0-rc3 // indirect
+	github.com/Liam0205/wangshu v0.2.0-rc4 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
