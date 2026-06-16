@@ -43,3 +43,13 @@
 - 上游:跟踪 wangshu#11(arena backing release + 激活 `InitialArenaBytes`/`MaxArenaBytes` cap + 暴露 high-water/Cap 观测 API);落地后按 `REMOVE once wangshu#11/#9 lands` 标记拆除 `pool_wangshu.go` 两个 workaround,并同步删文档临时节。
 - 代码健壮性:`Return` 内部任何重排都可能废掉 drop(采样须早于 sweep)——考虑加注释级断言或测试钉住"drop 采样在 sweep 之前"的相对顺序,防静默回归。
 - 验证已做(写入备查):3 个测试钉死 fat-drop + 5 元组 invariant、lean 不误触发、并发 drop 平衡;两 build tag 全绿、race 干净、lint 0 issues。云端升级后观察 RSS 是否不再单调爬升、回到 `minIdle + in-flight` 上界。
+
+## 后续纠偏注记(2026-06,本系列第四篇覆写)
+
+本篇 Promotion #1 / #3 中"drop-fat-state 与 cadence-sweep 均为临时止血,wangshu#11/#9 落地后整体移除"的论断,在 v0.2.0-rc3 partial fix 下**不再成立**:
+- wangshu#9 真等价解(host-callable API 三选一),cadence-sweep 已**整体拆除**,改用 `MaybeCollectNow()`
+- wangshu#11 仅 partial:`Arena.Compact()` 解 transient peak 自愈、但 bump 不回退、sustained-fat live set 仍 latch;完整 copy-compact GC 是 maintainer follow-up 且**不会在 v0.2.0 系列里到来**
+- drop-fat-state **不能拆,只能换判据**:从 `GCCountKB`(reset 前活跃量代理)→ `ArenaCapKB`(post-Compact cap 真高水位)。判据迁移的副产品是"采样必须早于 sweep"的顺序耦合天然消失——本篇重点警告过的脆弱约束在新设计下已不存在
+- 本篇中"backing slab latch 不自愈"的笼统判据需细化为 (c1) transient peak 自愈 + (c2) sustained-fat 仍 latch 两子情形
+
+详见 reflection 第四篇 `wangshu-v020rc3-upgrade-and-workaround-refactor.md`。本篇主体内容作为历史记录保留,不动。
