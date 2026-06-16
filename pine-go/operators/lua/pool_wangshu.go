@@ -207,6 +207,12 @@ func (wp *wangshuPool) Return(eng Engine) {
 	if !ok || we == nil {
 		return
 	}
+	// Release the Call fn cache (#112 finding #1) on every path: the pin slot
+	// belongs to this borrow's Engine wrapper and would otherwise accumulate
+	// across borrows. Order matters slightly — done before MaybeCollectNow so
+	// the freed slot is available if the sweep re-uses the freelist.
+	we.releaseFnCache()
+
 	wp.mu.Lock()
 	closed := wp.closed
 	wp.mu.Unlock()
@@ -291,10 +297,30 @@ func (wp *wangshuPool) SetMetrics(borrow, ret, create metrics.Counter, active me
 // wangshuEngine adapts a *wangshu.State to backend.Engine. Single-borrow scoped.
 type wangshuEngine struct {
 	st *wangshu.State
+	// fn caches the Call function's resolved Value within a borrow scope (#112
+	// finding #1). The first Call for a given fnName resolves it via GetGlobal +
+	// IsFunction and caches the Value here; subsequent Calls with the same
+	// fnName reuse the cache. Cleared on Release in returnState so the pin slot
+	// returns to freePins for the next borrower.
+	fn wangshu.Value
+	// fnName matches the cached fn; when "" the cache is empty. LuaOp uses one
+	// fnName per Engine borrow (item mode runs N Calls with the same name), so
+	// a borrow-scope cache turns N globals lookups + N pin churn cycles into 1.
+	fnName string
 	// dst is the caller-owned results buffer reused across Call invocations so
 	// the zero-alloc CallInto path (wangshu v0.1.4, issue #8) stays alloc-free.
 	// Grown on demand to fit the largest nret seen; never shrinks.
 	dst []wangshu.Value
+}
+
+// releaseFnCache returns the cached fn pin slot to freePins. Called by the pool
+// on Return (before the state is handed back to warm/sync.Pool) so the next
+// borrower starts with an empty cache. No-op when no fn was cached.
+func (e *wangshuEngine) releaseFnCache() {
+	if e.fnName != "" {
+		e.fn.Release()
+		e.fnName = ""
+	}
 }
 
 // SetContext forwards ctx to wangshu's internal cancellation hook so deadline
@@ -346,7 +372,8 @@ func (e *wangshuEngine) SetGlobal(name string, value any) error {
 // Uses CallInto (wangshu v0.1.4, issue #8) with a reused, engine-owned dst
 // buffer so scalar returns (bool/number) cost zero allocations per call — the
 // boundary-dominated per-item path pineapple lives on. The function Value is
-// Release()'d so the pin slot doesn't accumulate one per Call.
+// resolved once per borrow and cached (#112 finding #1): item-mode N=1000
+// pays a single GetGlobal + pin slot allocation instead of 1000.
 //
 // Contract: CallInto's dst values alias the VM stack and must be consumed before
 // the next VM entry. We do exactly that — fromValue lifts each into a Go-side
@@ -354,19 +381,28 @@ func (e *wangshuEngine) SetGlobal(name string, value any) error {
 // caller (LuaOp) reads the []any before the next Call. Each dst[j] is Release()'d
 // after lift: a no-op for scalars, mandatory for pinned composites.
 func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
-	fn := e.st.GetGlobal(fnName)
-	if !fn.IsFunction() {
-		fn.Release()
-		return nil, fmt.Errorf("lua: function %q not found", fnName)
+	if e.fnName != fnName {
+		// fnName changed (or first call): drop any previous cache and resolve.
+		// LuaOp keeps fnName stable per borrow so this branch runs exactly once.
+		if e.fnName != "" {
+			e.fn.Release()
+			e.fnName = ""
+		}
+		v := e.st.GetGlobal(fnName)
+		if !v.IsFunction() {
+			v.Release()
+			return nil, fmt.Errorf("lua: function %q not found", fnName)
+		}
+		e.fn = v
+		e.fnName = fnName
 	}
-	defer fn.Release()
 
 	if cap(e.dst) < nret {
 		e.dst = make([]wangshu.Value, nret)
 	}
 	dst := e.dst[:nret]
 
-	n, err := e.st.CallInto(dst, fn)
+	n, err := e.st.CallInto(dst, e.fn)
 	if err != nil {
 		// err: dst untouched per wangshu CallInto contract; skip Release.
 		// (See wangshu.go:397-419 — call paths bail before writing dst on

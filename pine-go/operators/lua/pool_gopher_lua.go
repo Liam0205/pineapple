@@ -41,6 +41,13 @@ func (gopherLuaBackend) NewPool(script string) (Pool, error) {
 // gopherEngine on Return so the warm-set/sync.Pool machinery is unchanged.
 type gopherEngine struct {
 	L *glua.LState
+	// fn caches the Call function's resolved LValue within a borrow scope
+	// (#112 finding #1). gopher-lua has no pin table so there is no slot to
+	// reclaim on Return; the cache is implicitly cleared when this Engine
+	// wrapper goes out of scope at the next Borrow.
+	fn glua.LValue
+	// fnName matches the cached fn; "" when empty. Mirrors the wangshu side.
+	fnName string
 }
 
 func (e *gopherEngine) SetContext(ctx context.Context) { e.L.SetContext(ctx) }
@@ -56,11 +63,17 @@ func (e *gopherEngine) SetGlobal(name string, value any) error {
 }
 
 func (e *gopherEngine) Call(fnName string, nret int) ([]any, error) {
-	fn := e.L.GetGlobal(fnName)
-	if fn == glua.LNil {
-		return nil, fmt.Errorf("lua: function %q not found", fnName)
+	if e.fnName != fnName {
+		// fnName changed (or first call): resolve and cache. LuaOp keeps the
+		// name stable per borrow, so this branch runs exactly once.
+		fn := e.L.GetGlobal(fnName)
+		if fn == glua.LNil {
+			return nil, fmt.Errorf("lua: function %q not found", fnName)
+		}
+		e.fn = fn
+		e.fnName = fnName
 	}
-	if err := e.L.CallByParam(glua.P{Fn: fn, NRet: nret, Protect: true}); err != nil {
+	if err := e.L.CallByParam(glua.P{Fn: e.fn, NRet: nret, Protect: true}); err != nil {
 		return nil, err
 	}
 	out := make([]any, nret)
