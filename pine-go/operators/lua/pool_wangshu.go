@@ -505,13 +505,18 @@ func (e *wangshuEngine) makeArrayTable(arr []any) (wangshu.Value, error) {
 	if len(arr) == 0 {
 		return e.st.NewTable(), nil
 	}
-	// NewArrayTable (wangshu #10 direction 2, v0.2.0-rc3) builds the array
-	// segment in one shot — strictly O(N) — instead of NewTable + N×SetIndex,
-	// which routed through the LARGE freelist and degraded to O(N²) under
-	// repeated doubling under v0.1.4. Lift each element to a wangshu.Value
-	// first; the NewArrayTable call hands the values' GCRefs to the new
-	// table's array segment and PinRefs the new table itself, so each child's
-	// own pin slot becomes redundant and must be Released (no-op for scalars).
+	// Fast path: when every element shares one of the four primitive Go types
+	// (#115 finding A, wangshu v0.2.0-rc4), route to the matching typed bulk
+	// constructor. Drops the per-element toValue type-switch and the []Value
+	// intermediate materialization in favour of a single linear classifier
+	// walk plus one O(N) wangshu-side build. The cross-engine lua_script
+	// contract is preserved — scripts still see a normal Lua array table.
+	if v, ok := e.tryTypedArray(arr); ok {
+		return v, nil
+	}
+	// Fallback: heterogeneous, nil-present, or composite elements. Build via
+	// NewArrayTable (wangshu #10 direction 2, v0.2.0-rc3), which still beats
+	// NewTable + N×SetIndex because the array segment is sized once.
 	vals := make([]wangshu.Value, len(arr))
 	for i, elem := range arr {
 		ev, err := e.toValue(elem)
@@ -528,6 +533,63 @@ func (e *wangshuEngine) makeArrayTable(arr []any) (wangshu.Value, error) {
 		vals[i].Release()
 	}
 	return tv, nil
+}
+
+// tryTypedArray probes arr for type homogeneity against the four primitive
+// Go types wangshu's typed-array constructors accept. Returns (Value, true)
+// when every element matches; falls back to (Nil, false) on the first
+// heterogeneous element, nil, or composite. NewInt64ArrayTable can return an
+// error when a value exceeds float64 precision (|v| > 2^53); we treat that as
+// a silent fallback so the heterogeneous path's lossy int64→float64 conversion
+// (toValue's `wangshu.Number(float64(x))`) keeps the historical behaviour.
+func (e *wangshuEngine) tryTypedArray(arr []any) (wangshu.Value, bool) {
+	switch arr[0].(type) {
+	case float64:
+		out := make([]float64, len(arr))
+		for i, v := range arr {
+			f, ok := v.(float64)
+			if !ok {
+				return wangshu.Nil(), false
+			}
+			out[i] = f
+		}
+		return e.st.NewFloatArrayTable(out), true
+	case int64:
+		out := make([]int64, len(arr))
+		for i, v := range arr {
+			n, ok := v.(int64)
+			if !ok {
+				return wangshu.Nil(), false
+			}
+			out[i] = n
+		}
+		tv, err := e.st.NewInt64ArrayTable(out)
+		if err != nil {
+			return wangshu.Nil(), false
+		}
+		return tv, true
+	case bool:
+		out := make([]bool, len(arr))
+		for i, v := range arr {
+			b, ok := v.(bool)
+			if !ok {
+				return wangshu.Nil(), false
+			}
+			out[i] = b
+		}
+		return e.st.NewBoolArrayTable(out), true
+	case string:
+		out := make([]string, len(arr))
+		for i, v := range arr {
+			s, ok := v.(string)
+			if !ok {
+				return wangshu.Nil(), false
+			}
+			out[i] = s
+		}
+		return e.st.NewStringArrayTable(out), true
+	}
+	return wangshu.Nil(), false
 }
 
 func (e *wangshuEngine) makeMapTable(m map[string]any) (wangshu.Value, error) {
