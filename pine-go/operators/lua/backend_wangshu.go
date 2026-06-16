@@ -38,11 +38,38 @@ func (wangshuBackend) NewPool(script string) (Pool, error) {
 }
 
 // wangshuOptions builds the State Options used for every pool state.
+//
 // HideFileLoaders=true keeps script-level sandbox semantics in lockstep with
 // the gopher-lua backend: loadfile / dofile / loadstring / load resolve to nil
 // in globals, so calling them raises `attempt to call a nil value` instead of
 // returning the PUC 5.1.5 (nil, errmsg) tuple. AllowFileLoad stays false (any
 // runtime file read is out of scope for pineapple's sandbox model anyway).
+//
+// The explicit caps below (wangshu v0.2.0-rc3) backstop pineapple#105's
+// sustained-fat drop path: that path is a soft high-water threshold (drop the
+// state on the next Return), these are hard caps the VM itself enforces. They
+// also protect against pathological user-authored lua_script payloads — a
+// runaway recursion or accidental gigantic table allocation now fails the
+// script with a recoverable error instead of consuming process memory until
+// OOM. Tuned for pineapple's actual usage (transform/filter predicates, list
+// aggregations); raise per-pipeline if a legitimate workload trips them.
+//
+//   - InitialArenaBytes: 64 KiB — matches wangshu's default, set explicitly so
+//     the working-set assumption is documented at the call site.
+//   - MaxArenaBytes: 16 MiB — well above the 1024 KiB arenaDropThresholdKB and
+//     the ~1.5 MiB sustained-fat ceiling observed in production probes, but
+//     orders of magnitude below the 2 GiB default so a single state can't run
+//     away from us.
+//   - MaxCallDepth: 256 — pineapple's lua_script entry functions are simple
+//     transform/filter bodies; deep recursion is a smell, not a workload.
+//   - MaxCCalls: 64 — host↔Lua reentry doesn't happen in pineapple (Engine
+//     never re-enters from Go into a host callback), so a low cap is safe.
 func wangshuOptions() wangshu.Options {
-	return wangshu.Options{HideFileLoaders: true}
+	return wangshu.Options{
+		HideFileLoaders:   true,
+		InitialArenaBytes: 64 << 10,
+		MaxArenaBytes:     16 << 20,
+		MaxCallDepth:      256,
+		MaxCCalls:         64,
+	}
 }
