@@ -84,8 +84,8 @@ echo "pre-push: all lint checks passed."
 # (`git push origin :foo`) and multi-ref pushes (`git push --all`) working.
 zero="0000000000000000000000000000000000000000"
 refspecs=()
-have_update=0   # at least one non-delete ref → CI watch is meaningful
-needs_force=0   # at least one ref is a non-fast-forward update → force needed
+have_update=0          # at least one non-delete ref → CI watch is meaningful
+force_lease_args=()    # one --force-with-lease=ref:sha per non-fast-forward ref
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -z "${remote_ref:-}" ] && continue
@@ -98,9 +98,16 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # Non-fast-forward (remote has commits not contained in local) ⇒ a plain
     # push would be rejected, so the user must have used --force. Mirror that
     # with --force-with-lease so the inner push isn't rejected either.
+    #
+    # Bare `--force-with-lease` computes the lease from refs/remotes/origin/*
+    # (the local tracking ref), which can be stale if the developer hasn't
+    # fetched recently and silently mismatch the real remote. The remote_sha
+    # we got on stdin is git's *current* view of the actual remote sha (freshly
+    # negotiated as part of this push), so pin the lease to it explicitly per
+    # refspec — exact, no fetch-or-die requirement.
     if [ "$remote_sha" != "$zero" ] \
        && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
-      needs_force=1
+      force_lease_args+=("--force-with-lease=${remote_ref}:${remote_sha}")
     fi
   fi
 done
@@ -117,13 +124,13 @@ if [ "$have_update" -eq 0 ]; then
 fi
 
 remote_name="${1:-origin}"
-force_args=()
-if [ "$needs_force" -eq 1 ]; then
-  force_args=(--force-with-lease)
-fi
 
 echo "post-push: performing real push to '${remote_name}' (${refspecs[*]})..." >&2
-GIT_POSTPUSH=1 git push "${force_args[@]}" "${remote_name}" "${refspecs[@]}"
+# `${arr[@]+"${arr[@]}"}` is the parameter-expansion guard form: empty under
+# `set -u` on bash 3.2 (the default /bin/bash on macOS), equivalent to
+# `"${arr[@]}"` on bash >=4.4. A bare expansion of an empty array trips
+# "unbound variable" on bash 3.2 and aborts the hook on every non-force push.
+GIT_POSTPUSH=1 git push ${force_lease_args[@]+"${force_lease_args[@]}"} "${remote_name}" "${refspecs[@]}"
 push_rc=$?
 if [ "$push_rc" -ne 0 ]; then
   echo "post-push: inner push failed (rc=${push_rc}) — not watching CI." >&2
