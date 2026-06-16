@@ -534,3 +534,71 @@ func TestWangshuDropFatStateConcurrent(t *testing.T) {
 		t.Fatal("no drops recorded; concurrent test did not exercise the workaround")
 	}
 }
+
+// TestTryTypedArrayHomogeneousInt guards the #116 finding 1 follow-up: the
+// typed-array fast path must hit on []any built from Go-native `int` values
+// (common when callers don't go through the int64 promotion), not just
+// `int64`/`float64`/`bool`/`string`. Without the `case int:` arm, the slow
+// path silently took over and we lost the typed-array win documented in #115.
+//
+// We hit two angles: (a) tryTypedArray directly returns ok=true for an int
+// slice, proving the fast path is reachable; (b) end-to-end SetGlobal+Call
+// produces numeric output equal to the int64 path, proving the conversion
+// preserves cross-engine numeric parity (both arms feed
+// NewInt64ArrayTable, which internally promotes via float64).
+func TestTryTypedArrayHomogeneousInt(t *testing.T) {
+	wp, err := newWangshuPool(`function sumxs() local s=0; for i=1,#xs do s=s+xs[i] end; return s end`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wp.Close()
+
+	eng := wp.Borrow()
+	if eng == nil {
+		t.Fatal("unexpected nil borrow")
+	}
+	defer wp.Return(eng)
+	we := eng.(*wangshuEngine)
+
+	// (a) fast path reachable for []any{int}
+	intArr := []any{1, 2, 3, 4, 5}
+	v, ok := we.tryTypedArray(intArr)
+	if !ok {
+		t.Fatal("tryTypedArray missed the homogeneous int fast path")
+	}
+	v.Release()
+
+	// (b) numeric parity: int and int64 slices with the same values produce
+	// identical script-visible sums.
+	if err := we.SetGlobal("xs", []any{1, 2, 3, 4, 5}); err != nil {
+		t.Fatalf("SetGlobal int: %v", err)
+	}
+	gotInt, err := we.Call("sumxs", 1)
+	if err != nil {
+		t.Fatalf("Call int: %v", err)
+	}
+	if err := we.SetGlobal("xs", []any{int64(1), int64(2), int64(3), int64(4), int64(5)}); err != nil {
+		t.Fatalf("SetGlobal int64: %v", err)
+	}
+	gotInt64, err := we.Call("sumxs", 1)
+	if err != nil {
+		t.Fatalf("Call int64: %v", err)
+	}
+	if len(gotInt) != 1 || len(gotInt64) != 1 {
+		t.Fatalf("expected one return each, got %d and %d", len(gotInt), len(gotInt64))
+	}
+	if gotInt[0] != gotInt64[0] {
+		t.Fatalf("int arm sum=%v != int64 arm sum=%v", gotInt[0], gotInt64[0])
+	}
+	if want := float64(15); gotInt[0] != want {
+		t.Fatalf("sum=%v, want %v", gotInt[0], want)
+	}
+
+	// Heterogeneous mix (int+string) must NOT match the fast path: probe
+	// returns false so makeArrayTable falls back to the generic NewArrayTable
+	// route. This pins the "first element decides" classifier behaviour.
+	_, ok = we.tryTypedArray([]any{1, "two"})
+	if ok {
+		t.Fatal("tryTypedArray accepted heterogeneous int+string as a fast path")
+	}
+}
