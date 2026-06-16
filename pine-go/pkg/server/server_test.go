@@ -204,10 +204,12 @@ func TestReloadConfig_EngineAndResources(t *testing.T) {
 	snap := s.snapshot.Load()
 	if snap == nil || snap.engine == nil {
 		t.Fatal("engine should be loaded")
+		return // unreachable, staticcheck SA5011 terminator
 	}
 	rm := snap.resources
 	if rm == nil {
 		t.Fatal("resources should be loaded")
+		return // unreachable, staticcheck SA5011 terminator
 	}
 	val, ok := rmGetVal(rm, "my_res")
 	if !ok {
@@ -333,10 +335,12 @@ func TestReloadConfig_NoResources(t *testing.T) {
 	snap := s.snapshot.Load()
 	if snap == nil || snap.engine == nil {
 		t.Fatal("engine should be loaded")
+		return // unreachable, staticcheck SA5011 terminator
 	}
 	rm := snap.resources
 	if rm == nil {
 		t.Fatal("resources manager should exist even without resources")
+		return // unreachable, staticcheck SA5011 terminator
 	}
 	if len(rm.Names()) != 0 {
 		t.Errorf("expected no resources, got %v", rm.Names())
@@ -1402,6 +1406,7 @@ func TestSnapshotDrainDefersTeardown(t *testing.T) {
 	snap := s.acquireSnapshot() // simulate an in-flight request holding a ref
 	if snap == nil {
 		t.Fatal("expected a live snapshot")
+		return // unreachable, but staticcheck SA5011 needs an explicit terminator
 	}
 
 	// Retire by reloading: drops the baseline reference on the old snapshot.
