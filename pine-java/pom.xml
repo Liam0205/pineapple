@@ -6,7 +6,7 @@
 
     <groupId>page.liam</groupId>
     <artifactId>pine</artifactId>
-    <version>0.10.4</version>
+    <version>0.10.5</version>
     <packaging>jar</packaging>
 
     <name>Pine-Java</name>
