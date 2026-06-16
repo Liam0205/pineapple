@@ -30,6 +30,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
@@ -58,6 +59,15 @@ type LuaOp struct {
 	pool       Pool
 	funcName   string
 	isItemMode bool
+	// arrBuf pools the per-ItemInput-field []any buffer used by
+	// executeForCommon (#112 finding #3). Without it, the common-mode hot
+	// path allocated one make([]any, ItemCount()) per field per request,
+	// which at calibrated_itemlua scale (3000 items × ~5 fields × N LuaOps)
+	// dominated per-request alloc pressure. The pool stores *[]any so the
+	// underlying backing array survives across Put/Get cycles. Safe because
+	// Engine.SetGlobal's contract (see backend.go) forbids backends from
+	// retaining the caller's []any past return.
+	arrBuf sync.Pool
 }
 
 func (o *LuaOp) Init(params map[string]any) error {
@@ -178,9 +188,23 @@ func (o *LuaOp) executeForCommon(eng Engine, in *pine.OperatorInput, out *pine.O
 
 	// Set item fields as arrays (one element per item, in order). The backend
 	// is responsible for mapping []any to its native sequence container.
+	// The []any buffer is pooled across requests via o.arrBuf (#112 finding
+	// #3); SetGlobal's contract (backend.go) forbids backends from retaining
+	// the caller's slice past return, so reusing the same backing array for
+	// the next field — and for the next request — is safe.
 	n := in.ItemCount()
+	bufPtr, _ := o.arrBuf.Get().(*[]any)
+	if bufPtr == nil {
+		bufPtr = new([]any)
+	}
+	defer o.arrBuf.Put(bufPtr)
 	for _, field := range o.ItemInput {
-		arr := make([]any, n)
+		if cap(*bufPtr) < n {
+			*bufPtr = make([]any, n)
+		} else {
+			*bufPtr = (*bufPtr)[:n]
+		}
+		arr := *bufPtr
 		for i := 0; i < n; i++ {
 			arr[i] = in.Item(i, field)
 		}

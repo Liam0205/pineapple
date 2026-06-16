@@ -85,6 +85,17 @@ type Engine interface {
 	// (bool/float64/int64/int/string/[]any/map[string]any/nil); the backend
 	// converts to its native value representation. An error is returned
 	// when the backend cannot represent the value.
+	//
+	// Retention contract: backends MUST NOT retain composite values
+	// ([]any, map[string]any, or their reflect-walked equivalents) past
+	// SetGlobal's return — every element is lifted into the backend's own
+	// native value representation before SetGlobal returns. Callers may
+	// therefore reuse or pool the caller-side buffer for the next field /
+	// the next request, knowing the backend holds no references to it.
+	// LuaOp's executeForCommon relies on this to pool the per-ItemInput
+	// []any buffer (#112 finding #3); a backend that aliases the caller's
+	// slice into its global table would break that reuse and silently
+	// corrupt the second field's data.
 	SetGlobal(name string, value any) error
 
 	// Call invokes the top-level function named fnName with no arguments
