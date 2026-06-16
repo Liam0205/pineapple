@@ -314,6 +314,7 @@ func TestRunSkipTrue(t *testing.T) {
 	}
 	if branchTrace == nil {
 		t.Fatal("no trace for branch operator")
+		return // unreachable, but staticcheck SA5011 needs an explicit terminator
 	}
 	if !branchTrace.Skipped {
 		t.Error("branch trace should be marked skipped")
@@ -406,6 +407,7 @@ func TestRunSkipMultiple(t *testing.T) {
 	}
 	if branchTrace == nil {
 		t.Fatal("no trace for branch operator")
+		return // unreachable, but staticcheck SA5011 needs an explicit terminator
 	}
 	if !branchTrace.Skipped {
 		t.Error("branch trace should be marked skipped")
@@ -604,6 +606,7 @@ func TestRunSkipMultipleAllFalse(t *testing.T) {
 	}
 	if branchTrace == nil {
 		t.Fatal("no trace for branch operator")
+		return // unreachable, but staticcheck SA5011 needs an explicit terminator
 	}
 	if branchTrace.Skipped {
 		t.Error("branch trace should not be marked skipped")
