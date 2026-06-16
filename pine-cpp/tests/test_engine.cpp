@@ -13,7 +13,7 @@ using namespace pine;
 namespace {
 
 constexpr const char* kCopyConfig = R"({
-  "_PINEAPPLE_VERSION": "0.10.5",
+  "_PINEAPPLE_VERSION": "0.10.6",
   "pipeline_config": {
     "operators": {
       "copy": {
