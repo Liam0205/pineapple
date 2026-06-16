@@ -1,0 +1,50 @@
+{
+  "name": "BuildInput error: nullable item field missing in column-store mode",
+  "description": "When an item lacks a field declared in item_input (nullable mode), BuildInput must raise an ExecutionError regardless of storage_mode. Regression lock for issue #109: nightly diff-fuzz found a one-off Go-vs-C++ divergence under column storage that could not be reproduced locally (30k rounds, 0 fail). This fixture ensures the three runtimes agree on the error for this exact shape.",
+  "config": {
+    "storage_mode": "column",
+    "pipeline_config": {
+      "operators": {
+        "recall": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a", "item_name": "x"},
+            {"item_id": "b"},
+            {"item_id": "c", "item_name": "z"}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_name"]
+          }
+        },
+        "needs_name": {
+          "type_name": "reorder_sort",
+          "order": "asc",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["item_name"],
+            "item_output": []
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["recall", "needs_name"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id", "item_name"]
+    }
+  },
+  "request": {"common": {}, "items": []},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "required field \"item_name\" is missing on item[1]",
+    "wrapping_exact": "pine: execution error in operator \"needs_name\": required field \"item_name\" is missing on item[1]",
+    "wrapping_exact_engines": ["go", "java", "cpp"]
+  }
+}
