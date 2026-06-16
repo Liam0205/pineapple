@@ -366,21 +366,24 @@ func (e *wangshuEngine) SetGlobal(name string, value any) error {
 	return nil
 }
 
-// Call resolves the named global as a function and invokes it with no args
-// (data flows in via globals). nret return values are lifted to Go-side types.
+// CallInto resolves the named global as a function and invokes it with no
+// args (data flows in via globals), writing up to len(dst) return values into
+// the caller-owned dst.
 //
-// Uses CallInto (wangshu v0.1.4, issue #8) with a reused, engine-owned dst
-// buffer so scalar returns (bool/number) cost zero allocations per call — the
-// boundary-dominated per-item path pineapple lives on. The function Value is
-// resolved once per borrow and cached (#112 finding #1): item-mode N=1000
-// pays a single GetGlobal + pin slot allocation instead of 1000.
+// Uses CallInto (wangshu v0.1.4, issue #8) with a reused, engine-owned scratch
+// buffer (e.dst []wangshu.Value) so scalar returns cost zero allocations per
+// call — the boundary-dominated per-item path pineapple lives on. The function
+// Value is resolved once per borrow and cached (#112 finding #1): item-mode
+// N=1000 pays a single GetGlobal + pin slot allocation instead of 1000. The
+// dst []any avoids an additional per-call allocation (#112 finding #2).
 //
-// Contract: CallInto's dst values alias the VM stack and must be consumed before
-// the next VM entry. We do exactly that — fromValue lifts each into a Go-side
-// value (strings copy arena bytes, composites pin) before returning, and the
-// caller (LuaOp) reads the []any before the next Call. Each dst[j] is Release()'d
-// after lift: a no-op for scalars, mandatory for pinned composites.
-func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
+// Contract: the engine-internal scratch buffer's values alias the VM stack and
+// must be consumed before the next VM entry. We do exactly that — fromValue
+// lifts each into a Go-side value (strings copy arena bytes, composites pin)
+// before returning, and the caller (LuaOp) reads dst[j] before the next
+// CallInto. Each scratch entry is Release()'d after lift: a no-op for scalars,
+// mandatory for pinned composites.
+func (e *wangshuEngine) CallInto(fnName string, dst []any) (int, error) {
 	if e.fnName != fnName {
 		// fnName changed (or first call): drop any previous cache and resolve.
 		// LuaOp keeps fnName stable per borrow so this branch runs exactly once.
@@ -391,42 +394,53 @@ func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
 		v := e.st.GetGlobal(fnName)
 		if !v.IsFunction() {
 			v.Release()
-			return nil, fmt.Errorf("lua: function %q not found", fnName)
+			return 0, fmt.Errorf("lua: function %q not found", fnName)
 		}
 		e.fn = v
 		e.fnName = fnName
 	}
 
+	nret := len(dst)
 	if cap(e.dst) < nret {
 		e.dst = make([]wangshu.Value, nret)
 	}
-	dst := e.dst[:nret]
+	scratch := e.dst[:nret]
 
-	n, err := e.st.CallInto(dst, e.fn)
+	n, err := e.st.CallInto(scratch, e.fn)
 	if err != nil {
-		// err: dst untouched per wangshu CallInto contract; skip Release.
-		// (See wangshu.go:397-419 — call paths bail before writing dst on
+		// err: scratch untouched per wangshu CallInto contract; skip Release.
+		// (See wangshu.go:397-419 — call paths bail before writing on
 		// type-check / pin-resolve / VM panic, leaving the slice in its prior
 		// post-Release zero state. Releasing now would double-free.)
-		return nil, err
+		return 0, err
 	}
-	out := make([]any, nret)
 	for j := 0; j < nret; j++ {
 		if j >= n {
-			out[j] = nil
+			dst[j] = nil
 			continue
 		}
-		val, ferr := e.fromValue(dst[j])
+		val, ferr := e.fromValue(scratch[j])
 		if ferr != nil {
-			// Release remaining dst entries (own and tail) before returning,
+			// Release remaining scratch entries (own and tail) before returning,
 			// mirroring gopher-lua's `L.Pop(nret)` on the same error path.
 			for k := j; k < n; k++ {
-				dst[k].Release()
+				scratch[k].Release()
 			}
-			return nil, ferr
+			return 0, ferr
 		}
-		out[j] = val
-		dst[j].Release()
+		dst[j] = val
+		scratch[j].Release()
+	}
+	return n, nil
+}
+
+// Call is a thin wrapper around CallInto for the common-mode call site (one
+// call per request — no per-iteration alloc pressure to optimize). Allocates
+// the result slice fresh each time.
+func (e *wangshuEngine) Call(fnName string, nret int) ([]any, error) {
+	out := make([]any, nret)
+	if _, err := e.CallInto(fnName, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

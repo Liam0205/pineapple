@@ -141,6 +141,10 @@ func (o *LuaOp) executeForItem(eng Engine, in *pine.OperatorInput, out *pine.Ope
 
 	nret := len(o.ItemOutput)
 	n := in.ItemCount()
+	// Reused across all N items so the per-call []any allocation in Engine.Call
+	// is avoided (#112 finding #2). CallInto fills this in place each iteration;
+	// values are read into the DataFrame before the next CallInto, so reuse is safe.
+	results := make([]any, nret)
 
 	for i := 0; i < n; i++ {
 		// Set item globals for this item
@@ -150,8 +154,7 @@ func (o *LuaOp) executeForItem(eng Engine, in *pine.OperatorInput, out *pine.Ope
 			}
 		}
 
-		results, err := eng.Call(o.funcName, nret)
-		if err != nil {
+		if _, err := eng.CallInto(o.funcName, results); err != nil {
 			return fmt.Errorf("lua: item[%d]: %w", i, err)
 		}
 		for j := 0; j < nret; j++ {
