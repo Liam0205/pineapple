@@ -92,7 +92,23 @@ type Engine interface {
 	// to Go-side types. Runtime errors from the script are propagated as
 	// Go errors; the backend is responsible for keeping its internal stack
 	// balanced regardless of error outcome.
+	//
+	// Allocates the result slice fresh on each call; use CallInto on the hot
+	// per-item path to avoid this.
 	Call(fnName string, nret int) ([]any, error)
+
+	// CallInto is the per-item hot-path variant of Call: instead of allocating
+	// a fresh []any of length nret on every invocation, the caller provides a
+	// destination slice (typically reused across an N-item loop). The number
+	// of values actually written is returned. Excess slots (when the script
+	// returns fewer values than len(dst)) are zeroed with nil.
+	//
+	// Lifetime: dst entries hold caller-owned Go values after return (strings
+	// are copies, composites are independent Go maps/slices), so callers may
+	// retain them past the next Engine call. Backend-internal scratch buffers
+	// (e.g. wangshu's dst []wangshu.Value) are reused across CallInto calls
+	// and must NOT be aliased into dst.
+	CallInto(fnName string, dst []any) (int, error)
 }
 
 // backend is the active backend factory. Exactly one of the *_gopher_lua.go /

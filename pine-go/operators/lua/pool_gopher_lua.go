@@ -62,30 +62,41 @@ func (e *gopherEngine) SetGlobal(name string, value any) error {
 	return nil
 }
 
-func (e *gopherEngine) Call(fnName string, nret int) ([]any, error) {
+func (e *gopherEngine) CallInto(fnName string, dst []any) (int, error) {
 	if e.fnName != fnName {
 		// fnName changed (or first call): resolve and cache. LuaOp keeps the
 		// name stable per borrow, so this branch runs exactly once.
 		fn := e.L.GetGlobal(fnName)
 		if fn == glua.LNil {
-			return nil, fmt.Errorf("lua: function %q not found", fnName)
+			return 0, fmt.Errorf("lua: function %q not found", fnName)
 		}
 		e.fn = fn
 		e.fnName = fnName
 	}
+	nret := len(dst)
 	if err := e.L.CallByParam(glua.P{Fn: e.fn, NRet: nret, Protect: true}); err != nil {
-		return nil, err
+		return 0, err
 	}
-	out := make([]any, nret)
 	for j := 0; j < nret; j++ {
 		val, err := fromLua(e.L.Get(-(nret - j)))
 		if err != nil {
 			e.L.Pop(nret)
-			return nil, err
+			return 0, err
 		}
-		out[j] = val
+		dst[j] = val
 	}
 	e.L.Pop(nret)
+	return nret, nil
+}
+
+// Call is a thin wrapper around CallInto for the common-mode call site (one
+// call per request — no per-iteration alloc pressure to optimize). Allocates
+// the result slice fresh each time.
+func (e *gopherEngine) Call(fnName string, nret int) ([]any, error) {
+	out := make([]any, nret)
+	if _, err := e.CallInto(fnName, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
