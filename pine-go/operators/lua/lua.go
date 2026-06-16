@@ -197,7 +197,18 @@ func (o *LuaOp) executeForCommon(eng Engine, in *pine.OperatorInput, out *pine.O
 	if bufPtr == nil {
 		bufPtr = new([]any)
 	}
-	defer o.arrBuf.Put(bufPtr)
+	defer func() {
+		// Clear element references before returning the buffer so the backing
+		// array stops pinning the last request's item values into the pool —
+		// pool-bounded, so non-leaking, but item-typed payloads (strings,
+		// composites) get to be GC'd promptly instead of waiting for the next
+		// reuse to overwrite their slot.
+		arr := *bufPtr
+		for i := range arr {
+			arr[i] = nil
+		}
+		o.arrBuf.Put(bufPtr)
+	}()
 	for _, field := range o.ItemInput {
 		if cap(*bufPtr) < n {
 			*bufPtr = make([]any, n)
