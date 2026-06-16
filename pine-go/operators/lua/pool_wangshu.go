@@ -431,7 +431,7 @@ func (e *wangshuEngine) CallInto(fnName string, dst []any) (int, error) {
 		dst[j] = val
 		scratch[j].Release()
 	}
-	return n, nil
+	return nret, nil
 }
 
 // Call is a thin wrapper around CallInto for the common-mode call site (one

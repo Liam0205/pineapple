@@ -110,9 +110,12 @@ type Engine interface {
 
 	// CallInto is the per-item hot-path variant of Call: instead of allocating
 	// a fresh []any of length nret on every invocation, the caller provides a
-	// destination slice (typically reused across an N-item loop). The number
-	// of values actually written is returned. Excess slots (when the script
-	// returns fewer values than len(dst)) are zeroed with nil.
+	// destination slice (typically reused across an N-item loop). All
+	// len(dst) slots are always written before return — excess slots (when
+	// the script returns fewer values than len(dst)) are zeroed with nil.
+	// The returned int is len(dst), retained in the signature for symmetry
+	// with stdlib io.ReaderAt-style "n int, err error" conventions; callers
+	// rarely need to consume it.
 	//
 	// Lifetime: dst entries hold caller-owned Go values after return (strings
 	// are copies, composites are independent Go maps/slices), so callers may
