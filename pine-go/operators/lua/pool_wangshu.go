@@ -340,11 +340,16 @@ func (e *wangshuEngine) releaseFnCache() {
 // 量不同 name 的 slot 时应配套". A long-lived pool state would otherwise
 // accumulate one pin slot per (borrow, ItemInput field name) pair across QPS.
 // Repeated Release is safe (idempotent), so unconditional clear is OK.
+//
+// Dropping the map reference (rather than ranging+delete) lets the next
+// SetGlobal lazy-rebuild via the existing `if e.slots == nil` guard, so the
+// "clear the cache" intent stays explicit instead of relying on a structural
+// Release+delete pair.
 func (e *wangshuEngine) releaseSlots() {
-	for k, s := range e.slots {
-		(&s).Release()
-		delete(e.slots, k)
+	for _, s := range e.slots {
+		s.Release()
 	}
+	e.slots = nil
 }
 
 // SetContext forwards ctx to wangshu's internal cancellation hook so deadline
@@ -572,13 +577,15 @@ func (e *wangshuEngine) makeArrayTable(arr []any) (wangshu.Value, error) {
 	return tv, nil
 }
 
-// tryTypedArray probes arr for type homogeneity against the four primitive
-// Go types wangshu's typed-array constructors accept. Returns (Value, true)
-// when every element matches; falls back to (Nil, false) on the first
-// heterogeneous element, nil, or composite. NewInt64ArrayTable can return an
-// error when a value exceeds float64 precision (|v| > 2^53); we treat that as
-// a silent fallback so the heterogeneous path's lossy int64→float64 conversion
+// tryTypedArray probes arr for type homogeneity against the primitive Go
+// types wangshu's typed-array constructors accept. Returns (Value, true) when
+// every element matches; falls back to (Nil, false) on the first heterogeneous
+// element, nil, or composite. NewInt64ArrayTable can return an error when a
+// value exceeds float64 precision (|v| > 2^53); we treat that as a silent
+// fallback so the heterogeneous path's lossy int64→float64 conversion
 // (toValue's `wangshu.Number(float64(x))`) keeps the historical behaviour.
+// Both `int` and `int64` route through NewInt64ArrayTable since toValue
+// promotes both via float64; this preserves cross-engine numeric parity.
 func (e *wangshuEngine) tryTypedArray(arr []any) (wangshu.Value, bool) {
 	switch arr[0].(type) {
 	case float64:
@@ -599,6 +606,20 @@ func (e *wangshuEngine) tryTypedArray(arr []any) (wangshu.Value, bool) {
 				return wangshu.Nil(), false
 			}
 			out[i] = n
+		}
+		tv, err := e.st.NewInt64ArrayTable(out)
+		if err != nil {
+			return wangshu.Nil(), false
+		}
+		return tv, true
+	case int:
+		out := make([]int64, len(arr))
+		for i, v := range arr {
+			n, ok := v.(int)
+			if !ok {
+				return wangshu.Nil(), false
+			}
+			out[i] = int64(n)
 		}
 		tv, err := e.st.NewInt64ArrayTable(out)
 		if err != nil {
