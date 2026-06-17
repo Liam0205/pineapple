@@ -899,3 +899,144 @@ func TestRunContextCancellation(t *testing.T) {
 	// The key is: no panic, no hang.
 	_ = err
 }
+
+// inspectOutputOp asserts the OperatorOutput it receives from the scheduler
+// is clean (no leftover writes from a previous request). Used by
+// TestRun_OutputPool_NoStateLeakageAcrossRuns to lock the contract that
+// outputPool's Reset removes all per-request state before handing the
+// output to the next Execute.
+type inspectOutputOp struct {
+	t           *testing.T
+	writeField  string
+	writeValue  any
+	saw         []string // names of fields the output already contained on entry
+	sawAddedLen int
+}
+
+func (o *inspectOutputOp) Init(params map[string]any) error { return nil }
+func (o *inspectOutputOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
+	// On every Execute, the scheduler must hand us a freshly-Reset output.
+	// If outputPool leaks state across requests, GetCommonWrites would be
+	// non-empty here on the second-and-later calls.
+	for k := range out.GetCommonWrites() {
+		o.saw = append(o.saw, k)
+	}
+	if added := out.GetAddedItems(); len(added) > 0 {
+		o.sawAddedLen += len(added)
+	}
+	out.SetCommon(o.writeField, o.writeValue)
+	return nil
+}
+
+// TestRun_OutputPool_NoStateLeakageAcrossRuns drives the same Plan many
+// times. The outputPool will hand the same *OperatorOutput back across
+// requests (sync.Pool reuse is best-effort but extremely likely under
+// sequential single-goroutine execution), and the inspectOutputOp asserts
+// at the top of every Execute that the output looks freshly-constructed.
+// Any leak from Reset would surface as `sawXX > 0` on the second iteration.
+func TestRun_OutputPool_NoStateLeakageAcrossRuns(t *testing.T) {
+	op := &inspectOutputOp{
+		t:          t,
+		writeField: "x",
+		writeValue: 1.0,
+	}
+	cop := &CompiledOperator{
+		Name:     "op_a",
+		Instance: op,
+		Config: config.OperatorConfig{
+			TypeName:  "inspect",
+			Meta:      config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
+		},
+	}
+	plan := buildPlan(t, []string{"op_a"}, map[string]*CompiledOperator{
+		"op_a": cop,
+	})
+
+	const runs = 32
+	for i := 0; i < runs; i++ {
+		frame := dataframe.New(map[string]any{}, nil)
+		_, _, err := Run(context.Background(), plan, frame, nil, nil)
+		if err != nil {
+			t.Fatalf("Run #%d: %v", i, err)
+		}
+		if got := frame.Common("x"); got != 1.0 {
+			t.Fatalf("Run #%d: x = %v, want 1.0", i, got)
+		}
+	}
+
+	if len(op.saw) != 0 {
+		t.Errorf("inspectOutputOp observed leaked commonWrites across %d runs: %v",
+			runs, op.saw)
+	}
+	if op.sawAddedLen != 0 {
+		t.Errorf("inspectOutputOp observed leaked addedItems across %d runs: total len = %d",
+			runs, op.sawAddedLen)
+	}
+}
+
+// TestRun_OutputPool_NoLeakageWithAdditions extends the leakage assertion
+// to addedItems — a separate Reset code path (slice nil-out, not
+// delete-map). The recall op adds N items per request; if Reset failed to
+// nil out the slice slots, the second request would see them surface
+// either via GetAddedItems or as ghost items appended again to the frame.
+func TestRun_OutputPool_NoLeakageWithAdditions(t *testing.T) {
+	inspect := &inspectOutputOp{
+		t:          t,
+		writeField: "ok",
+		writeValue: true,
+	}
+	recall := &recallTestOp{
+		items: []map[string]any{
+			{"id": "a"}, {"id": "b"}, {"id": "c"},
+		},
+	}
+	recallCop := &CompiledOperator{
+		Name:     "recall",
+		Instance: recall,
+		Config: config.OperatorConfig{
+			TypeName:     "recall",
+			Recall:       true,
+			Meta:         config.Metadata{},
+			InputSpec:    &config.InputFieldSpec{},
+			OperatorType: "Recall",
+		},
+	}
+	inspectCop := &CompiledOperator{
+		Name:     "after",
+		Instance: inspect,
+		Config: config.OperatorConfig{
+			TypeName:  "inspect",
+			Meta:      config.Metadata{CommonOutput: []string{"ok"}},
+			InputSpec: &config.InputFieldSpec{},
+		},
+	}
+	plan := buildPlan(t, []string{"recall", "after"}, map[string]*CompiledOperator{
+		"recall": recallCop,
+		"after":  inspectCop,
+	})
+
+	const runs = 16
+	for i := 0; i < runs; i++ {
+		frame := dataframe.New(map[string]any{}, nil)
+		_, _, err := Run(context.Background(), plan, frame, nil, nil)
+		if err != nil {
+			t.Fatalf("Run #%d: %v", i, err)
+		}
+		// Each request adds exactly the 3 items recall emits — no ghosts
+		// from a previous request's pooled output.
+		if got := frame.ItemCount(); got != 3 {
+			t.Fatalf("Run #%d: ItemCount = %d, want 3 (ghost items from pooled state?)",
+				i, got)
+		}
+	}
+
+	// The inspect op runs after recall in the DAG. recall's added items are
+	// transferred into the frame, then recall's output is Reset+Put before
+	// inspect sees its own (separately pooled) output. inspect therefore
+	// expects its own output clean at entry — leak would show as nonzero.
+	if op := inspect; len(op.saw) != 0 || op.sawAddedLen != 0 {
+		t.Errorf("inspect saw leaked state across %d runs: commonWrites=%v sawAddedLen=%d",
+			runs, op.saw, op.sawAddedLen)
+	}
+}

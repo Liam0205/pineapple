@@ -1036,6 +1036,49 @@ func TestRowFrameConcurrentBuildInput(t *testing.T) {
 	wg.Wait()
 }
 
+// TestApplyOutput_AddedItemSurvivesOutputReset pins the lifetime contract
+// that scheduler's outputPool reclaim depends on: ApplyOutput on the
+// row path take-ownership transfers added-item maps into the frame
+// (`f.items = append(f.items, added)`), so a subsequent OperatorOutput.Reset
+// must not erase data the frame now holds. The contract is "Reset nils the
+// slice slot, never the map itself" — if a future refactor changes Reset
+// to clear(map) or wipe inner fields, this test breaks.
+func TestApplyOutput_AddedItemSurvivesOutputReset(t *testing.T) {
+	for _, tm := range testModes {
+		t.Run(tm.name, func(t *testing.T) {
+			f := newTestFrame(tm.mode, nil, nil)
+			out := types.NewOperatorOutput()
+			out.AddItem(map[string]any{"id": "new0", "score": 1.5})
+			out.AddItem(map[string]any{"id": "new1", "score": 2.5})
+
+			if err := ApplyOutput(f, out, "op", false); err != nil {
+				t.Fatal(err)
+			}
+
+			// Simulate the scheduler's defer: Reset and "return to pool".
+			// The frame already owns the added rows; Reset must not break
+			// them.
+			out.Reset()
+
+			if f.ItemCount() != 2 {
+				t.Fatalf("ItemCount = %d, want 2", f.ItemCount())
+			}
+			if got := f.Item(0, "id"); got != "new0" {
+				t.Errorf("item[0].id = %v, want new0", got)
+			}
+			if got := f.Item(0, "score"); got != 1.5 {
+				t.Errorf("item[0].score = %v, want 1.5", got)
+			}
+			if got := f.Item(1, "id"); got != "new1" {
+				t.Errorf("item[1].id = %v, want new1", got)
+			}
+			if got := f.Item(1, "score"); got != 2.5 {
+				t.Errorf("item[1].score = %v, want 2.5", got)
+			}
+		})
+	}
+}
+
 func FuzzApplyOutputStorageEquivalence(f *testing.F) {
 	f.Add([]byte{3, 1, 2, 3, 4, 5, 6, 7, 8})
 	f.Add([]byte{1, 0, 4, 1, 0, 2, 9, 2, 1})
