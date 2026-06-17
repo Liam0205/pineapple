@@ -173,6 +173,38 @@ func (out *OperatorOutput) SetWarning(err error) {
 	}
 }
 
+// Reset prepares an OperatorOutput for reuse by a sync.Pool. It must be called
+// only after ApplyOutput has consumed every write — the Frame copies field
+// values by value (item / common writes) and takes ownership of added-item map
+// references, so no aliasing of OperatorOutput's slices survives that point.
+//
+// Each slice element is nil'd before the slice header is truncated so the
+// backing array stops pinning the previous request's values (notably
+// ItemWrite.Value which can hold large Lua-side payloads or composite maps).
+// Maps are cleared in place via delete to retain bucket allocations across
+// borrows; itemOrder and warning are dropped wholesale.
+func (out *OperatorOutput) Reset() {
+	for i := range out.itemWrites {
+		out.itemWrites[i] = ItemWrite{}
+	}
+	out.itemWrites = out.itemWrites[:0]
+
+	for i := range out.addedItems {
+		out.addedItems[i] = nil
+	}
+	out.addedItems = out.addedItems[:0]
+
+	for k := range out.commonWrites {
+		delete(out.commonWrites, k)
+	}
+	for k := range out.removedItems {
+		delete(out.removedItems, k)
+	}
+
+	out.itemOrder = nil
+	out.warning = nil
+}
+
 // --- Accessors for engine-internal use ---
 
 func (in *OperatorInput) RawCommon() map[string]any  { return in.common }

@@ -28,6 +28,18 @@ type CompiledOperator struct {
 	TemplatedPlan []TemplatedParam
 }
 
+// outputPool reclaims *OperatorOutput across requests so the hot transform
+// path (SetItem appending to itemWrites) stops re-growing its backing slice
+// for every op Execute. Lifetime contract: ApplyOutput copies all writes into
+// the Frame (with addedItems being a take-ownership transfer of map
+// references), so it is safe to Reset+Put after ApplyOutput returns. Only the
+// non-data-parallel path participates — mergeOutputs already produces a fresh
+// merged result, and pooling its shards would entangle parallel.go lifetimes
+// for marginal benefit.
+var outputPool = sync.Pool{
+	New: func() any { return types.NewOperatorOutput() },
+}
+
 // Plan is the immutable execution plan compiled at NewEngine time.
 type Plan struct {
 	Graph     *dag.Graph
@@ -176,11 +188,18 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 			}
 			var output *types.OperatorOutput
 			var execErr error
+			// pooled signals whether output came from outputPool and must be
+			// reclaimed after ApplyOutput. data_parallel's merged result is
+			// freshly built in mergeOutputs and unconditionally garbage —
+			// pooling it would double-track lifetimes for one extra alloc
+			// per request, not worth the complexity.
+			var pooled bool
 
 			if cop.Config.DataParallel > 1 {
 				output, execErr = parallelExecute(ctx, cop, input)
 			} else {
-				output = types.NewOperatorOutput()
+				output = outputPool.Get().(*types.OperatorOutput)
+				pooled = true
 				func() {
 					defer func() {
 						if r := recover(); r != nil {
@@ -192,6 +211,18 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 						}
 					}()
 					execErr = cop.Instance.Execute(ctx, input, output)
+				}()
+			}
+			// Reclaim pooled outputs once every downstream consumer has had
+			// its read. ApplyOutput value-copies item/common writes into the
+			// frame and take-ownership transfers added-item map references,
+			// so the slice headers themselves are safe to truncate.
+			// snapshotOutput shallow-copies the top-level containers it cares
+			// about (debug path), so Reset cannot break trace contents.
+			if pooled {
+				defer func() {
+					output.Reset()
+					outputPool.Put(output)
 				}()
 			}
 
@@ -387,8 +418,17 @@ func snapshotInput(in *types.OperatorInput) map[string]any {
 func snapshotOutput(out *types.OperatorOutput) map[string]any {
 	snap := make(map[string]any)
 
+	// Defensively copy the top-level containers so a later Reset (via
+	// outputPool reclaim) cannot zero values the trace still holds. Inner
+	// map/slice contents are immutable from the engine's side post-Execute
+	// (frames only read writes; downstream ops never mutate prior op's
+	// output), so a shallow per-container copy is sufficient.
 	if cw := out.GetCommonWrites(); len(cw) > 0 {
-		snap["common_writes"] = cw
+		cwCopy := make(map[string]any, len(cw))
+		for k, v := range cw {
+			cwCopy[k] = v
+		}
+		snap["common_writes"] = cwCopy
 	}
 	if iw := out.GetItemWrites(); len(iw) > 0 {
 		iwMap := make(map[int]map[string]any)
@@ -401,7 +441,9 @@ func snapshotOutput(out *types.OperatorOutput) map[string]any {
 		snap["item_writes"] = iwMap
 	}
 	if ai := out.GetAddedItems(); len(ai) > 0 {
-		snap["added_items"] = ai
+		aiCopy := make([]map[string]any, len(ai))
+		copy(aiCopy, ai)
+		snap["added_items"] = aiCopy
 	}
 	if ri := out.GetRemovedItems(); len(ri) > 0 {
 		removed := make([]int, 0, len(ri))
