@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ["v*"]
     paths-ignore:
       - ".claude/**"
       - ".githooks/**"
@@ -29,6 +28,10 @@ on:
       - "CLAUDE.md"
       - "LICENSE"
       - "README.md"
+  # release.yml invokes this workflow on tag pushes as its CI gate. Direct
+  # tag push triggers were removed so the same SHA does not run CI twice
+  # (once on push:tags and once via workflow_call from release.yml).
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}

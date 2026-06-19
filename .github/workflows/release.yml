@@ -3,16 +3,26 @@ name: Release
 # Trigger directly on tag pushes, not via workflow_run after CI.
 # GitHub's workflow_run trigger does not reliably deliver tag-ref CI
 # completions to listening workflows (see issue #123 — head_branch comes
-# back as the default branch, so the `if` guard skips every run). Tag
-# pushes already run CI in parallel via the CI workflow's own
-# `on: push: tags: ["v*"]` config, so this workflow stays independent.
+# back as the default branch, so the `if` guard skips every run). Instead,
+# release.yml owns the CI gate by invoking ci.yml as a reusable workflow
+# (workflow_call). pypi-apple / java jobs run only if CI passes via
+# `needs: ci`. CI's direct tag push trigger was removed in tandem so the
+# same SHA does not run CI twice.
 on:
   push:
     tags:
       - "v*"
 
 jobs:
+  # Gate publish on full CI passing for the tag SHA. Calls ci.yml as a
+  # reusable workflow; secrets: inherit lets CI jobs access the same
+  # secret scope they would on a master push.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
   pypi-apple:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -42,6 +52,7 @@ jobs:
           skip-existing: true
 
   java:
+    needs: ci
     runs-on: ubuntu-latest
     defaults:
       run:
