@@ -1,0 +1,355 @@
+name: Weekly Sanitized Differential Fuzz
+
+# Runs the differential fuzz suite with pine-cpp built under sanitizers so
+# data races / UAFs / heap-overflows surface at the moment they occur, not
+# after a Release-mode divergence triggers a reactive 40x TSan replay (see
+# nightly-diff-fuzz.yml lines 152-209).
+#
+# Motivation: issues #109 / #124 showed two mirrored go-vs-cpp divergences
+# that could not be reproduced locally, only surfaced under CI runner
+# pressure. A reactive replay sees them only after the rare window already
+# opened; running the main fuzz with -fsanitize=thread / address makes the
+# first hit produce a full stack instead of `cpp_rc=1` with no diagnostic.
+#
+# Cost: ASan ~3x slower, TSan ~5-10x slower than Release. So this is a
+# weekly low-rounds sweep, not a nightly replacement. Nightly continues to
+# drive 10k Release rounds; weekly is the deep-diagnostic complement.
+
+on:
+  schedule:
+    - cron: "0 14 * * 0"  # Sunday 22:00 UTC+8
+  workflow_dispatch:
+    inputs:
+      asan-rounds:
+        description: "ASan fuzz rounds (cpp ASan main run)"
+        default: "1500"
+      tsan-rounds:
+        description: "TSan fuzz rounds (smaller — TSan is 5-10x slower)"
+        default: "500"
+      stability-runs:
+        description: "Stability check reruns per case"
+        default: "3"
+
+concurrency:
+  group: weekly-sanitized-fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
+# Same rationale as nightly-diff-fuzz.yml: issues:write so the "open issue
+# on divergence" steps can succeed; default token is read-only.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sanitized-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: pine-go/go.mod
+          cache-dependency-path: pine-go/go.sum
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Install C++ build deps
+        run: |
+          timeout 600 sudo apt-get update
+          timeout 600 sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++-13 libluajit-5.1-dev libcurl4-openssl-dev
+
+      - name: Build Go binary
+        run: go build -o pineapple-run ./cmd/pineapple-run/
+        working-directory: pine-go
+
+      - name: Build Java engine
+        run: mvn package -B -q -DskipTests
+        working-directory: pine-java
+
+      - name: Build C++ ASan binary
+        # Address+UB sanitizer build for the main fuzz pass. Catches
+        # heap-buffer-overflow / use-after-free / use-after-return / UB
+        # at the moment they happen, not after a Release divergence
+        # reactivates the rare path. jemalloc must be off (ASan replaces
+        # the allocator). -O1 keeps debug info readable in stacks without
+        # killing inliner-dependent hot paths the fuzz exercises.
+        run: |
+          cmake -S pine-cpp -B pine-cpp/build-asan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+            -DPINE_USE_JEMALLOC=OFF
+          cmake --build pine-cpp/build-asan --target pineapple-run -j2
+
+      - name: Build C++ TSan binary
+        # Thread sanitizer build for the smaller second pass. ASan and TSan
+        # are mutually exclusive (both rewrite allocator + instrumentation),
+        # so we run them as separate fuzz passes.
+        run: |
+          cmake -S pine-cpp -B pine-cpp/build-tsan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer -O1 -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
+            -DPINE_USE_JEMALLOC=OFF
+          cmake --build pine-cpp/build-tsan --target pineapple-run -j2
+
+      - name: Codegen schema parity gate
+        # nightly-diff-fuzz also runs this as a low-cost guard against
+        # silent three-way codegen drift between PR runs. _prebuild.sh
+        # builds pine-cpp/build/ Release binaries as a side effect; we
+        # don't use those (we want sanitized binaries above), but the
+        # schema diff itself is still worth running.
+        run: bash scripts/cross-validate.sh 1
+
+      - name: Run ASan differential fuzz
+        # Main fuzz pass: cpp uses ASan binary so heap UAF / overflow /
+        # UB surfaces directly. ASan replicates ~3x slower than Release,
+        # so 1500 rounds takes ~the same wall time as the 10k Release
+        # nightly. Output captured to a dedicated log so the TSan pass
+        # below doesn't clobber it.
+        timeout-minutes: 240
+        env:
+          ASAN_OPTIONS: "halt_on_error=0 detect_leaks=0 abort_on_error=0 print_stacktrace=1"
+          UBSAN_OPTIONS: "halt_on_error=0 print_stacktrace=1"
+        run: |
+          set -o pipefail
+          ROUNDS="${{ inputs.asan-rounds || '1500' }}"
+          rc=0
+          timeout 230m python3 scripts/differential-fuzz.py \
+            --rounds "$ROUNDS" \
+            --stability-runs ${{ inputs.stability-runs || '3' }} \
+            --go-bin pine-go/pineapple-run \
+            --cpp-bin pine-cpp/build-asan/pineapple-run \
+            --engines go,java,cpp \
+            --save-dir /tmp/diff-fuzz-asan \
+            | tee asan-fuzz-output.log || rc=$?
+          echo "$rc" > /tmp/asan-fuzz-exit-code
+          # halt_on_error=0 lets ASan keep dumping; do NOT exit non-zero
+          # on the first divergence so the TSan pass below also runs.
+          exit 0
+
+      - name: Run TSan differential fuzz
+        # Race-only pass. Smaller round count because TSan is 5-10x slower
+        # than Release. Distinct save dir so the two passes don't share
+        # case numbering (and so packaging can pick them apart).
+        timeout-minutes: 90
+        env:
+          # halt_on_error=0: keep going so one race doesn't kill the sweep.
+          # second_deadlock_stack=1: surface both sides of a lock-order race.
+          TSAN_OPTIONS: "halt_on_error=0 second_deadlock_stack=1"
+        run: |
+          set -o pipefail
+          ROUNDS="${{ inputs.tsan-rounds || '500' }}"
+          rc=0
+          timeout 85m python3 scripts/differential-fuzz.py \
+            --rounds "$ROUNDS" \
+            --stability-runs ${{ inputs.stability-runs || '3' }} \
+            --go-bin pine-go/pineapple-run \
+            --cpp-bin pine-cpp/build-tsan/pineapple-run \
+            --engines go,java,cpp \
+            --save-dir /tmp/diff-fuzz-tsan \
+            | tee tsan-fuzz-output.log || rc=$?
+          echo "$rc" > /tmp/tsan-fuzz-exit-code
+          exit 0
+
+      - name: Evaluate results
+        if: always()
+        id: evaluate
+        run: |
+          parse_count() {
+            local pattern=$1
+            local file=$2
+            local val
+            val=$(grep -oP "$pattern" "$file" 2>/dev/null | tail -1 || echo 0)
+            echo "${val:-0}"
+          }
+
+          ASAN_FAIL=$(parse_count 'FAIL: +\K[0-9]+' asan-fuzz-output.log)
+          ASAN_UNSTABLE=$(parse_count 'UNSTABLE: +\K[0-9]+' asan-fuzz-output.log)
+          TSAN_FAIL=$(parse_count 'FAIL: +\K[0-9]+' tsan-fuzz-output.log)
+          TSAN_UNSTABLE=$(parse_count 'UNSTABLE: +\K[0-9]+' tsan-fuzz-output.log)
+
+          ASAN_HAS_RESULTS=$(grep -c '^Results:' asan-fuzz-output.log 2>/dev/null || true)
+          TSAN_HAS_RESULTS=$(grep -c '^Results:' tsan-fuzz-output.log 2>/dev/null || true)
+          ASAN_HAS_RESULTS=${ASAN_HAS_RESULTS:-0}
+          TSAN_HAS_RESULTS=${TSAN_HAS_RESULTS:-0}
+
+          ASAN_EXIT=$(cat /tmp/asan-fuzz-exit-code 2>/dev/null || echo 1)
+          TSAN_EXIT=$(cat /tmp/tsan-fuzz-exit-code 2>/dev/null || echo 1)
+
+          TOTAL_FAIL=$((ASAN_FAIL + TSAN_FAIL))
+          TOTAL_UNSTABLE=$((ASAN_UNSTABLE + TSAN_UNSTABLE))
+
+          {
+            echo "### Weekly Sanitized Fuzz Results"
+            echo ""
+            echo "| Pass | rounds | FAIL | UNSTABLE | exit |"
+            echo "|---|---|---|---|---|"
+            echo "| ASan | ${{ inputs.asan-rounds || '1500' }} | $ASAN_FAIL | $ASAN_UNSTABLE | $ASAN_EXIT |"
+            echo "| TSan | ${{ inputs.tsan-rounds || '500' }} | $TSAN_FAIL | $TSAN_UNSTABLE | $TSAN_EXIT |"
+            echo ""
+            echo "#### ASan tail"
+            echo '```text'
+            tail -30 asan-fuzz-output.log 2>/dev/null || echo "(no asan fuzz output captured)"
+            echo '```'
+            echo ""
+            echo "#### TSan tail"
+            echo '```text'
+            tail -30 tsan-fuzz-output.log 2>/dev/null || echo "(no tsan fuzz output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$ASAN_HAS_RESULTS" -gt 0 || "$TSAN_HAS_RESULTS" -gt 0 ]]; then
+            if [[ "$TOTAL_FAIL" -gt 0 || "$TOTAL_UNSTABLE" -gt 0 ]]; then
+              echo "has_divergences=true" >> "$GITHUB_OUTPUT"
+              echo "asan_fail=$ASAN_FAIL" >> "$GITHUB_OUTPUT"
+              echo "asan_unstable=$ASAN_UNSTABLE" >> "$GITHUB_OUTPUT"
+              echo "tsan_fail=$TSAN_FAIL" >> "$GITHUB_OUTPUT"
+              echo "tsan_unstable=$TSAN_UNSTABLE" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_divergences=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "has_divergences=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Neither pass produced a results summary — infrastructure failure" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Package divergences
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
+        run: |
+          cd /tmp
+          tar czf /tmp/weekly-sanitized-divergences.tar.gz \
+            diff-fuzz-asan/divergence_* diff-fuzz-asan/unstable_* \
+            diff-fuzz-tsan/divergence_* diff-fuzz-tsan/unstable_* \
+            2>/dev/null || true
+
+      - name: Upload divergences
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: weekly-sanitized-divergences-${{ github.run_number }}
+          path: /tmp/weekly-sanitized-divergences.tar.gz
+          retention-days: 28
+
+      - name: Open issue on divergence
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ASAN_FAIL="${{ steps.evaluate.outputs.asan_fail || '0' }}"
+          ASAN_UNSTABLE="${{ steps.evaluate.outputs.asan_unstable || '0' }}"
+          TSAN_FAIL="${{ steps.evaluate.outputs.tsan_fail || '0' }}"
+          TSAN_UNSTABLE="${{ steps.evaluate.outputs.tsan_unstable || '0' }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ARTIFACT_URL="${RUN_URL}#artifacts"
+
+          gh issue create \
+            --title "Weekly sanitized-fuzz: ASan=${ASAN_FAIL}f/${ASAN_UNSTABLE}u TSan=${TSAN_FAIL}f/${TSAN_UNSTABLE}u ($(date -u +%Y-%m-%d))" \
+            --label "bug,fuzz,sanitized" \
+            --body "$(cat <<EOF
+          ## Weekly Sanitized Differential Fuzz Divergence
+
+          Sanitizer-instrumented fuzz pass surfaced divergence(s). Unlike
+          the nightly Release pass which only sees \`cpp_rc!=0\` on a
+          divergence, the sanitizer build attached to each case should
+          carry full UAF / heap-overflow / race stacks at the point of
+          first occurrence.
+
+          | | |
+          |---|---|
+          | **Run** | ${RUN_URL} |
+          | **Date** | $(date -u +%Y-%m-%d) |
+          | **ASan FAIL / UNSTABLE** | ${ASAN_FAIL} / ${ASAN_UNSTABLE} |
+          | **TSan FAIL / UNSTABLE** | ${TSAN_FAIL} / ${TSAN_UNSTABLE} |
+          | **Artifact** | [weekly-sanitized-divergences-${{ github.run_number }}](${ARTIFACT_URL}) |
+
+          ### Reproduce locally
+
+          1. Download and extract the artifact (note: contains two subtrees,
+             \`diff-fuzz-asan/\` and \`diff-fuzz-tsan/\`):
+             \`\`\`bash
+             tar xzf weekly-sanitized-divergences.tar.gz
+             cd diff-fuzz-{asan,tsan}/divergence_NNNNNN/  # pick a case
+             \`\`\`
+
+          2. Run each engine. The artifact case directory's \`cpp_output.json\`
+             was produced by the *sanitized* binary; for full re-run you can
+             use the same sanitizer build locally:
+             \`\`\`bash
+             # Build sanitized C++ binary (mirrors the workflow's recipe)
+             cmake -S pine-cpp -B pine-cpp/build-asan \\
+               -DCMAKE_BUILD_TYPE=Debug \\
+               -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -O1 -g" \\
+               -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \\
+               -DPINE_USE_JEMALLOC=OFF
+             cmake --build pine-cpp/build-asan --target pineapple-run -j
+
+             # Run cpp with ASan
+             ASAN_OPTIONS="halt_on_error=0 detect_leaks=0 print_stacktrace=1" \\
+               pine-cpp/build-asan/pineapple-run \\
+                 -config config.json -request request.json
+             \`\`\`
+
+          3. Per-case files mirror nightly:
+             - \`config.json\` / \`request.json\` — inputs
+             - \`info.txt\` — which engines diverged
+             - \`{go,java,cpp}_output.json\` — actual outputs
+             (sanitizer stack will appear in the cpp run's stderr, not in
+             the saved \`cpp_output.json\` — check the workflow log or
+             re-run locally per step 2.)
+
+          ### ASan tail
+          \`\`\`text
+          $(tail -30 asan-fuzz-output.log 2>/dev/null || echo "(no asan output)")
+          \`\`\`
+
+          ### TSan tail
+          \`\`\`text
+          $(tail -30 tsan-fuzz-output.log 2>/dev/null || echo "(no tsan output)")
+          \`\`\`
+
+          ### Relationship to #109
+          This workflow was introduced to surface the race / non-deterministic
+          path implicated by #109 / #124. If sanitizer stacks appear in this
+          report, link them on #109 — they are the first concrete diagnostic
+          beyond \`cpp_rc=1\` for the mirrored CI-only divergences.
+          EOF
+          )"
+
+      - name: Open issue on workflow failure
+        if: ${{ (failure() || cancelled()) && steps.evaluate.outputs.has_divergences != 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue create \
+            --title "Weekly sanitized-fuzz: workflow failed ($(date -u +%Y-%m-%d))" \
+            --label "bug,infra" \
+            --body "$(cat <<EOF
+          ## Weekly Sanitized Fuzz Workflow Failure
+
+          The weekly sanitized-fuzz workflow failed due to an infrastructure
+          error (build failure, dependency issue, or script crash). This is
+          NOT a sanitizer divergence — see the workflow logs for the actual
+          failure step.
+
+          | | |
+          |---|---|
+          | **Run** | ${RUN_URL} |
+          | **Date** | $(date -u +%Y-%m-%d) |
+
+          Check the [workflow logs](${RUN_URL}) for details.
+          EOF
+          )"
