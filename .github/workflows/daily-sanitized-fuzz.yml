@@ -410,10 +410,12 @@ jobs:
 
           ### Suggested triage
 
-          - If exit=124: the per-pass \`timeout\` (ASan 230m, TSan 85m)
-            tripped. Either bump the limit or cut rounds. TSan 500 rounds
-            at 5-10x Release speed may need budget verification on the
-            first few runs of this workflow.
+          - If exit=124: the per-pass \`timeout\` (ASan 125m, TSan 95m)
+            tripped. Either bump the limit or cut rounds. TSan 3500 rounds
+            at the smoke-run-measured ~1.4 s/round budgets to ~80m, with
+            ~15m head; ASan 5000 rounds budgets to ~120m with ~5m head.
+            If runs trip exit=124 routinely, that's a runner-noise signal
+            — bump the inner timeout first, only cut rounds if recurrent.
           - If exit≠124: script crash; check the workflow logs for the
             actual failure step.
 
