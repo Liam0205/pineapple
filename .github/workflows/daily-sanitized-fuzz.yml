@@ -1,4 +1,4 @@
-name: Weekly Sanitized Differential Fuzz
+name: Daily Sanitized Differential Fuzz
 
 # Runs the differential fuzz suite with pine-cpp built under sanitizers so
 # data races / UAFs / heap-overflows surface at the moment they occur, not
@@ -11,27 +11,33 @@ name: Weekly Sanitized Differential Fuzz
 # opened; running the main fuzz with -fsanitize=thread / address makes the
 # first hit produce a full stack instead of `cpp_rc=1` with no diagnostic.
 #
-# Cost: ASan ~3x slower, TSan ~5-10x slower than Release. So this is a
-# weekly low-rounds sweep, not a nightly replacement. Nightly continues to
-# drive 10k Release rounds; weekly is the deep-diagnostic complement.
+# Cost: ASan ~3x slower, TSan ~5-10x slower than Release. Smoke-run
+# measurements (#128 follow-up, 100 ASan + 50 TSan rounds in 9 minutes
+# end-to-end) show ~1.4 s/round across both sanitizers — the per-round
+# cost is dominated by go/java fuzz orchestration rather than cpp
+# instrumentation overhead. That makes a daily 4h budget feasible:
+# build (~5m) + ASan ~5000r (~120m) + TSan ~3500r (~80m) + buffers fits
+# inside ~205 minutes wall time. Nightly diff-fuzz keeps driving 10k
+# Release rounds for raw throughput / different seed coverage; this
+# workflow is the deep-diagnostic complement, NOT a replacement.
 
 on:
   schedule:
-    - cron: "0 14 * * 0"  # Sunday 22:00 UTC+8
+    - cron: "0 4 * * *"  # 12:00 UTC+8 daily
   workflow_dispatch:
     inputs:
       asan-rounds:
         description: "ASan fuzz rounds (cpp ASan main run)"
-        default: "1500"
+        default: "5000"
       tsan-rounds:
         description: "TSan fuzz rounds (smaller — TSan is 5-10x slower)"
-        default: "500"
+        default: "3500"
       stability-runs:
         description: "Stability check reruns per case"
         default: "3"
 
 concurrency:
-  group: weekly-sanitized-fuzz-${{ github.ref }}
+  group: daily-sanitized-fuzz-${{ github.ref }}
   cancel-in-progress: false
 
 # Same rationale as nightly-diff-fuzz.yml: issues:write so the "open issue
@@ -43,7 +49,12 @@ permissions:
 jobs:
   sanitized-fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    # 4h hard budget. Smoke-run measured ~1.4 s/round across both
+    # sanitizers; 5000+3500 rounds + builds + buffers projects to
+    # ~205 minutes. 240m leaves ~35 minutes of headroom for runner-side
+    # noise without leaving so much slack that incomplete passes (#109
+    # diagnostic) get masked by the global timeout.
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v6
 
@@ -114,18 +125,18 @@ jobs:
       - name: Run ASan differential fuzz
         # Main fuzz pass: cpp uses ASan binary so heap UAF / overflow /
         # UB surfaces directly. ASan replicates ~3x slower than Release,
-        # so 1500 rounds takes ~the same wall time as the 10k Release
-        # nightly. Output captured to a dedicated log so the TSan pass
-        # below doesn't clobber it.
-        timeout-minutes: 240
+        # but smoke-run measured ~1.4 s/round end-to-end (orchestration
+        # cost dominates). 5000 rounds projects to ~120 minutes; budget
+        # 130m step, 125m fuzz inner.
+        timeout-minutes: 130
         env:
           ASAN_OPTIONS: "halt_on_error=0 detect_leaks=0 abort_on_error=0 print_stacktrace=1"
           UBSAN_OPTIONS: "halt_on_error=0 print_stacktrace=1"
         run: |
           set -o pipefail
-          ROUNDS="${{ inputs.asan-rounds || '1500' }}"
+          ROUNDS="${{ inputs.asan-rounds || '5000' }}"
           rc=0
-          timeout 230m python3 scripts/differential-fuzz.py \
+          timeout 125m python3 scripts/differential-fuzz.py \
             --rounds "$ROUNDS" \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
             --go-bin pine-go/pineapple-run \
@@ -140,18 +151,20 @@ jobs:
 
       - name: Run TSan differential fuzz
         # Race-only pass. Smaller round count because TSan is 5-10x slower
-        # than Release. Distinct save dir so the two passes don't share
-        # case numbering (and so packaging can pick them apart).
-        timeout-minutes: 90
+        # than Release in raw cpp time; smoke-run still measured ~1.4 s/round
+        # end-to-end, so 3500 rounds projects to ~80 minutes; budget 100m
+        # step, 95m fuzz inner. Distinct save dir so the two passes don't
+        # share case numbering (and so packaging can pick them apart).
+        timeout-minutes: 100
         env:
           # halt_on_error=0: keep going so one race doesn't kill the sweep.
           # second_deadlock_stack=1: surface both sides of a lock-order race.
           TSAN_OPTIONS: "halt_on_error=0 second_deadlock_stack=1"
         run: |
           set -o pipefail
-          ROUNDS="${{ inputs.tsan-rounds || '500' }}"
+          ROUNDS="${{ inputs.tsan-rounds || '3500' }}"
           rc=0
-          timeout 85m python3 scripts/differential-fuzz.py \
+          timeout 95m python3 scripts/differential-fuzz.py \
             --rounds "$ROUNDS" \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
             --go-bin pine-go/pineapple-run \
@@ -199,12 +212,12 @@ jobs:
           tsan_status=$([[ "$TSAN_HAS_RESULTS" -gt 0 ]] && echo "complete" || echo "incomplete")
 
           {
-            echo "### Weekly Sanitized Fuzz Results"
+            echo "### Daily Sanitized Fuzz Results"
             echo ""
             echo "| Pass | rounds | status | FAIL | UNSTABLE | exit |"
             echo "|---|---|---|---|---|---|"
-            echo "| ASan | ${{ inputs.asan-rounds || '1500' }} | $asan_status | $ASAN_FAIL | $ASAN_UNSTABLE | $ASAN_EXIT |"
-            echo "| TSan | ${{ inputs.tsan-rounds || '500' }} | $tsan_status | $TSAN_FAIL | $TSAN_UNSTABLE | $TSAN_EXIT |"
+            echo "| ASan | ${{ inputs.asan-rounds || '5000' }} | $asan_status | $ASAN_FAIL | $ASAN_UNSTABLE | $ASAN_EXIT |"
+            echo "| TSan | ${{ inputs.tsan-rounds || '3500' }} | $tsan_status | $TSAN_FAIL | $TSAN_UNSTABLE | $TSAN_EXIT |"
             echo ""
             if [[ "$asan_status" == "incomplete" ]]; then
               echo "⚠️ **ASan pass did not produce a Results: summary** (exit=$ASAN_EXIT) — likely a timeout or script crash. ASan findings, if any, are lost."
@@ -254,7 +267,7 @@ jobs:
         if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
         run: |
           cd /tmp
-          tar czf /tmp/weekly-sanitized-divergences.tar.gz \
+          tar czf /tmp/daily-sanitized-divergences.tar.gz \
             diff-fuzz-asan/divergence_* diff-fuzz-asan/unstable_* \
             diff-fuzz-tsan/divergence_* diff-fuzz-tsan/unstable_* \
             2>/dev/null || true
@@ -263,8 +276,8 @@ jobs:
         if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: weekly-sanitized-divergences-${{ github.run_number }}
-          path: /tmp/weekly-sanitized-divergences.tar.gz
+          name: daily-sanitized-divergences-${{ github.run_number }}
+          path: /tmp/daily-sanitized-divergences.tar.gz
           retention-days: 28
 
       - name: Open issue on divergence
@@ -281,10 +294,10 @@ jobs:
           ARTIFACT_URL="${RUN_URL}#artifacts"
 
           gh issue create \
-            --title "Weekly sanitized-fuzz: ASan=${ASAN_FAIL}f/${ASAN_UNSTABLE}u TSan=${TSAN_FAIL}f/${TSAN_UNSTABLE}u ($(date -u +%Y-%m-%d))" \
+            --title "Daily sanitized-fuzz: ASan=${ASAN_FAIL}f/${ASAN_UNSTABLE}u TSan=${TSAN_FAIL}f/${TSAN_UNSTABLE}u ($(date -u +%Y-%m-%d))" \
             --label "bug,fuzz,sanitized" \
             --body "$(cat <<EOF
-          ## Weekly Sanitized Differential Fuzz Divergence
+          ## Daily Sanitized Differential Fuzz Divergence
 
           Sanitizer-instrumented fuzz pass surfaced divergence(s). Unlike
           the nightly Release pass which only sees \`cpp_rc!=0\` on a
@@ -298,14 +311,14 @@ jobs:
           | **Date** | $(date -u +%Y-%m-%d) |
           | **ASan FAIL / UNSTABLE** | ${ASAN_FAIL} / ${ASAN_UNSTABLE} |
           | **TSan FAIL / UNSTABLE** | ${TSAN_FAIL} / ${TSAN_UNSTABLE} |
-          | **Artifact** | [weekly-sanitized-divergences-${{ github.run_number }}](${ARTIFACT_URL}) |
+          | **Artifact** | [daily-sanitized-divergences-${{ github.run_number }}](${ARTIFACT_URL}) |
 
           ### Reproduce locally
 
           1. Download and extract the artifact (note: contains two subtrees,
              \`diff-fuzz-asan/\` and \`diff-fuzz-tsan/\`):
              \`\`\`bash
-             tar xzf weekly-sanitized-divergences.tar.gz
+             tar xzf daily-sanitized-divergences.tar.gz
              cd diff-fuzz-{asan,tsan}/divergence_NNNNNN/  # pick a case
              \`\`\`
 
@@ -373,10 +386,10 @@ jobs:
           TSAN_EXIT="${{ steps.evaluate.outputs.tsan_exit }}"
 
           gh issue create \
-            --title "Weekly sanitized-fuzz: pass incomplete (ASan=$ASAN_STATUS TSan=$TSAN_STATUS) ($(date -u +%Y-%m-%d))" \
+            --title "Daily sanitized-fuzz: pass incomplete (ASan=$ASAN_STATUS TSan=$TSAN_STATUS) ($(date -u +%Y-%m-%d))" \
             --label "bug,infra,fuzz" \
             --body "$(cat <<EOF
-          ## Weekly Sanitized Fuzz Pass Incomplete
+          ## Daily Sanitized Fuzz Pass Incomplete
 
           At least one fuzz pass did not produce a \`Results:\` summary
           line, which typically means the per-pass \`timeout\` killed the
@@ -417,12 +430,12 @@ jobs:
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           gh issue create \
-            --title "Weekly sanitized-fuzz: workflow failed ($(date -u +%Y-%m-%d))" \
+            --title "Daily sanitized-fuzz: workflow failed ($(date -u +%Y-%m-%d))" \
             --label "bug,infra" \
             --body "$(cat <<EOF
-          ## Weekly Sanitized Fuzz Workflow Failure
+          ## Daily Sanitized Fuzz Workflow Failure
 
-          The weekly sanitized-fuzz workflow failed due to an infrastructure
+          The daily sanitized-fuzz workflow failed due to an infrastructure
           error (build failure, dependency issue, or script crash). This is
           NOT a sanitizer divergence — see the workflow logs for the actual
           failure step.
