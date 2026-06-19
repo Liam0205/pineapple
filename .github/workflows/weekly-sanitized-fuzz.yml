@@ -190,14 +190,30 @@ jobs:
           TOTAL_FAIL=$((ASAN_FAIL + TSAN_FAIL))
           TOTAL_UNSTABLE=$((ASAN_UNSTABLE + TSAN_UNSTABLE))
 
+          # Per-pass status. "incomplete" = no Results: summary line, which
+          # happens when the per-pass `timeout` killed the fuzz process or
+          # the script crashed mid-run. Without this distinction a TSan
+          # timeout would silently report as TSAN_FAIL=0 / TSAN_UNSTABLE=0
+          # — exactly the diagnostic signal #109 needs us to preserve.
+          asan_status=$([[ "$ASAN_HAS_RESULTS" -gt 0 ]] && echo "complete" || echo "incomplete")
+          tsan_status=$([[ "$TSAN_HAS_RESULTS" -gt 0 ]] && echo "complete" || echo "incomplete")
+
           {
             echo "### Weekly Sanitized Fuzz Results"
             echo ""
-            echo "| Pass | rounds | FAIL | UNSTABLE | exit |"
-            echo "|---|---|---|---|---|"
-            echo "| ASan | ${{ inputs.asan-rounds || '1500' }} | $ASAN_FAIL | $ASAN_UNSTABLE | $ASAN_EXIT |"
-            echo "| TSan | ${{ inputs.tsan-rounds || '500' }} | $TSAN_FAIL | $TSAN_UNSTABLE | $TSAN_EXIT |"
+            echo "| Pass | rounds | status | FAIL | UNSTABLE | exit |"
+            echo "|---|---|---|---|---|---|"
+            echo "| ASan | ${{ inputs.asan-rounds || '1500' }} | $asan_status | $ASAN_FAIL | $ASAN_UNSTABLE | $ASAN_EXIT |"
+            echo "| TSan | ${{ inputs.tsan-rounds || '500' }} | $tsan_status | $TSAN_FAIL | $TSAN_UNSTABLE | $TSAN_EXIT |"
             echo ""
+            if [[ "$asan_status" == "incomplete" ]]; then
+              echo "⚠️ **ASan pass did not produce a Results: summary** (exit=$ASAN_EXIT) — likely a timeout or script crash. ASan findings, if any, are lost."
+              echo ""
+            fi
+            if [[ "$tsan_status" == "incomplete" ]]; then
+              echo "⚠️ **TSan pass did not produce a Results: summary** (exit=$TSAN_EXIT) — likely a timeout or script crash. TSan findings, if any, are lost; #109 race diagnosis is degraded for this run."
+              echo ""
+            fi
             echo "#### ASan tail"
             echo '```text'
             tail -30 asan-fuzz-output.log 2>/dev/null || echo "(no asan fuzz output captured)"
@@ -209,20 +225,30 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$ASAN_HAS_RESULTS" -gt 0 || "$TSAN_HAS_RESULTS" -gt 0 ]]; then
-            if [[ "$TOTAL_FAIL" -gt 0 || "$TOTAL_UNSTABLE" -gt 0 ]]; then
-              echo "has_divergences=true" >> "$GITHUB_OUTPUT"
-              echo "asan_fail=$ASAN_FAIL" >> "$GITHUB_OUTPUT"
-              echo "asan_unstable=$ASAN_UNSTABLE" >> "$GITHUB_OUTPUT"
-              echo "tsan_fail=$TSAN_FAIL" >> "$GITHUB_OUTPUT"
-              echo "tsan_unstable=$TSAN_UNSTABLE" >> "$GITHUB_OUTPUT"
-            else
-              echo "has_divergences=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "has_divergences=false" >> "$GITHUB_OUTPUT"
-            echo "⚠️ Neither pass produced a results summary — infrastructure failure" >> "$GITHUB_STEP_SUMMARY"
+          # Three orthogonal output signals so downstream steps can pick:
+          #   has_divergences  — at least one pass surfaced FAIL/UNSTABLE; gates issue-on-divergence
+          #   has_incomplete   — at least one pass failed to produce a Results: summary; gates issue-on-incomplete
+          # Both can be true (e.g. ASan found a divergence and TSan timed out).
+          has_divergences=false
+          if [[ "$TOTAL_FAIL" -gt 0 || "$TOTAL_UNSTABLE" -gt 0 ]]; then
+            has_divergences=true
           fi
+
+          has_incomplete=false
+          if [[ "$asan_status" == "incomplete" || "$tsan_status" == "incomplete" ]]; then
+            has_incomplete=true
+          fi
+
+          echo "has_divergences=$has_divergences" >> "$GITHUB_OUTPUT"
+          echo "has_incomplete=$has_incomplete" >> "$GITHUB_OUTPUT"
+          echo "asan_status=$asan_status" >> "$GITHUB_OUTPUT"
+          echo "tsan_status=$tsan_status" >> "$GITHUB_OUTPUT"
+          echo "asan_fail=$ASAN_FAIL" >> "$GITHUB_OUTPUT"
+          echo "asan_unstable=$ASAN_UNSTABLE" >> "$GITHUB_OUTPUT"
+          echo "tsan_fail=$TSAN_FAIL" >> "$GITHUB_OUTPUT"
+          echo "tsan_unstable=$TSAN_UNSTABLE" >> "$GITHUB_OUTPUT"
+          echo "asan_exit=$ASAN_EXIT" >> "$GITHUB_OUTPUT"
+          echo "tsan_exit=$TSAN_EXIT" >> "$GITHUB_OUTPUT"
 
       - name: Package divergences
         if: ${{ !cancelled() && steps.evaluate.outputs.has_divergences == 'true' }}
@@ -327,8 +353,64 @@ jobs:
           EOF
           )"
 
+      - name: Open issue on incomplete pass
+        # Fires when at least one pass did not produce a Results: summary
+        # (timeout 124 or script crash), regardless of whether the other
+        # pass found divergences. Without this, a TSan timeout would be
+        # silently swallowed because TSAN_FAIL=TSAN_UNSTABLE=0 from an
+        # empty log indistinguishably means "clean run" or "didn't run".
+        # That matters most for the TSan pass — its whole purpose is the
+        # #109 race signal.
+        if: ${{ !cancelled() && steps.evaluate.outputs.has_incomplete == 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ASAN_STATUS="${{ steps.evaluate.outputs.asan_status }}"
+          TSAN_STATUS="${{ steps.evaluate.outputs.tsan_status }}"
+          ASAN_EXIT="${{ steps.evaluate.outputs.asan_exit }}"
+          TSAN_EXIT="${{ steps.evaluate.outputs.tsan_exit }}"
+
+          gh issue create \
+            --title "Weekly sanitized-fuzz: pass incomplete (ASan=$ASAN_STATUS TSan=$TSAN_STATUS) ($(date -u +%Y-%m-%d))" \
+            --label "bug,infra,fuzz" \
+            --body "$(cat <<EOF
+          ## Weekly Sanitized Fuzz Pass Incomplete
+
+          At least one fuzz pass did not produce a \`Results:\` summary
+          line, which typically means the per-pass \`timeout\` killed the
+          fuzz process or the script crashed mid-run. Any sanitizer
+          findings from the incomplete pass were lost — the run cannot
+          claim coverage of that sanitizer's surface area.
+
+          This matters for #109: the TSan pass is the primary race
+          diagnostic; if it timed out, the run produced no race signal
+          regardless of what ASan reported.
+
+          | | |
+          |---|---|
+          | **Run** | ${RUN_URL} |
+          | **Date** | $(date -u +%Y-%m-%d) |
+          | **ASan status / exit** | $ASAN_STATUS / $ASAN_EXIT |
+          | **TSan status / exit** | $TSAN_STATUS / $TSAN_EXIT |
+
+          ### Suggested triage
+
+          - If exit=124: the per-pass \`timeout\` (ASan 230m, TSan 85m)
+            tripped. Either bump the limit or cut rounds. TSan 500 rounds
+            at 5-10x Release speed may need budget verification on the
+            first few runs of this workflow.
+          - If exit≠124: script crash; check the workflow logs for the
+            actual failure step.
+
+          Re-run via workflow_dispatch with smaller \`asan-rounds\` /
+          \`tsan-rounds\` to bisect the budget.
+          EOF
+          )"
+
       - name: Open issue on workflow failure
-        if: ${{ (failure() || cancelled()) && steps.evaluate.outputs.has_divergences != 'true' }}
+        if: ${{ (failure() || cancelled()) && steps.evaluate.outputs.has_divergences != 'true' && steps.evaluate.outputs.has_incomplete != 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
