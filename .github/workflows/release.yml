@@ -1,20 +1,21 @@
 name: Release
 
+# Trigger directly on tag pushes, not via workflow_run after CI.
+# GitHub's workflow_run trigger does not reliably deliver tag-ref CI
+# completions to listening workflows (see issue #123 — head_branch comes
+# back as the default branch, so the `if` guard skips every run). Tag
+# pushes already run CI in parallel via the CI workflow's own
+# `on: push: tags: ["v*"]` config, so this workflow stays independent.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  push:
+    tags:
+      - "v*"
 
 jobs:
   pypi-apple:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -41,17 +42,12 @@ jobs:
           skip-existing: true
 
   java:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: pine-java
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
