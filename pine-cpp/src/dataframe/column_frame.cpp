@@ -117,10 +117,17 @@ std::unique_ptr<Frame> ColumnFrame::make_window_view(std::size_t row_offset, std
 
 std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(const ColumnFrame& parent, std::size_t row_offset,
                                                            std::size_t row_count) {
-  // The CONTRACT in column_frame.hpp says parent is read-only during the
-  // view's lifetime. Read parent.items_ unlocked: the only writer that
-  // could race is apply_output, and parallel_execute (the sole caller)
-  // guarantees the parent frame is not being mutated for the duration.
+  // Parent and view share the same shared_mutex (mu_ is shared_ptr,
+  // copied below). Concurrent shard reads still parallelize via
+  // shared_lock; parent.apply_output blocks on unique_lock until shards
+  // release. This is required because view_items_ aliases
+  // parent.items_, and the v0.9.2 ready-queue scheduler may dispatch a
+  // no-field-conflict successor op concurrently with the predecessor's
+  // data_parallel shards (storage conflict, not field conflict).
+  // Pre-#103 the design comment claimed parent was read-only during the
+  // view's lifetime, but the scheduler refactor invalidated that
+  // assumption — the race TSan caught on #131's unstable_008189 is the
+  // direct evidence.
   const std::size_t parent_rows = parent.items_ ? parent.items_->row_count() : 0;
   if (row_offset + row_count > parent_rows) {
     throw Error("ColumnFrame::make_window_view: window (" + std::to_string(row_offset) + ", " +
@@ -135,6 +142,8 @@ std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(const ColumnFrame& pa
   v->view_offset_ = row_offset;
   v->view_count_ = row_count;
   v->resources_ = parent.resources_;
+  // Alias parent's mutex (see comment at top of function).
+  v->mu_ = parent.mu_;
   return v;
 }
 

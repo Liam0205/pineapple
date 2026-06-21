@@ -36,10 +36,16 @@ class ColumnFrame : public Frame {
   // virtual Frame::make_window_view on the parent — this static form
   // returns a ColumnFrame-typed unique_ptr for tests / legacy code.
   //
-  // CONTRACT: the caller must keep `parent` alive AND must not mutate
-  // `parent` while any window view exists. parallel_execute satisfies
-  // both: shards execute synchronously between cv-waits on the parent
-  // node, and the parent frame is read-only during the shard window.
+  // Concurrency contract (post-#103): parent and the returned view
+  // share the same shared_mutex (mu_ is a shared_ptr, copied on
+  // make_window_view). Concurrent shard reads parallelize via
+  // shared_lock. Cross-op apply_output on parent serializes against
+  // any live view's reads via unique_lock — required because
+  // view_items_ aliases parent.items_, so storage-level locking must
+  // span both. The pre-#103 comment claimed parent was read-only
+  // during the view's lifetime; the v0.9.2 ready-queue scheduler
+  // breaks that assumption (no-field-conflict ops can run in
+  // parallel), so the storage layer enforces it now.
   static std::unique_ptr<ColumnFrame> make_window_view(const ColumnFrame& parent, std::size_t row_offset,
                                                        std::size_t row_count);
 
