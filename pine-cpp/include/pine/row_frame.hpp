@@ -68,7 +68,11 @@ class RowFrame : public Frame {
   bool item_has_no_lock(std::size_t index, const std::string& field) const override;
 
  private:
-  mutable std::shared_mutex mu_;
+  // Held as shared_ptr so make_window_view can have parent and view share
+  // the same mutex instance (#103). Per-instance shared_mutex would create
+  // two distinct locks guarding the same storage, which is the race
+  // surface #109 / #131 hit in production.
+  mutable std::shared_ptr<std::shared_mutex> mu_;
   Variant::object_t common_;
   std::vector<Variant::object_t> items_;
   std::vector<std::string> warnings_;
