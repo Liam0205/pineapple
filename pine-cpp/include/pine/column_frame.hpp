@@ -88,7 +88,7 @@ class ColumnFrame : public Frame {
  private:
   void write_item_field_locked(std::size_t idx, const std::string& field, const Variant& value);
 
-  mutable std::shared_mutex mu_;
+  mutable std::shared_ptr<std::shared_mutex> mu_;
   Variant::object_t common_;
   std::unique_ptr<ColumnStore> items_;
   std::vector<std::string> warnings_;
