@@ -17,8 +17,9 @@ name: Daily Sanitized Differential Fuzz
 # (#132 / #133) tripped exit=124 on both passes — actual throughput in
 # long runs is closer to ~1.5 s/round (ASan) / ~1.6 s/round (TSan), and
 # sanitizer shadow memory pressure compounds over thousands of rounds.
-# Cut rounds 40 % to ~3000 ASan + ~2000 TSan, which budgets to ~75m + ~55m
-# and leaves ~20 % buffer inside the inner per-pass timeouts. Nightly
+# Cut rounds (ASan 5000→3000 / 40 %, TSan 3500→2000 / ~43 %) to
+# ~3000 ASan + ~2000 TSan, which budgets to ~75m + ~55m and leaves
+# ~15-20 % buffer inside the inner per-pass timeouts. Nightly
 # diff-fuzz keeps driving 10k Release rounds for raw throughput /
 # different seed coverage; this workflow is the deep-diagnostic
 # complement, NOT a replacement.
@@ -154,7 +155,7 @@ jobs:
       - name: Run TSan differential fuzz
         # Race-only pass. TSan production runs (#132 / #133) measured
         # ~1.6 s/round; 2000 rounds projects to ~55 minutes; budget 70m
-        # step, 65m fuzz inner — leaves ~20 % headroom. Distinct save
+        # step, 65m fuzz inner — leaves ~15 % headroom. Distinct save
         # dir so the two passes don't share case numbering (and so
         # packaging can pick them apart).
         timeout-minutes: 70
