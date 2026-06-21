@@ -33,11 +33,14 @@ std::string validate_value(const std::string& field, const Variant& value) {
 
 }  // namespace
 
-ColumnFrame::ColumnFrame() : items_(std::make_unique<TypedColumnStore>(0)) {
+ColumnFrame::ColumnFrame()
+    : mu_(std::make_shared<std::shared_mutex>()), items_(std::make_unique<TypedColumnStore>(0)) {
 }
 
 ColumnFrame::ColumnFrame(Variant::object_t common, std::vector<Variant::object_t> items)
-    : common_(std::move(common)), items_(std::make_unique<TypedColumnStore>(items.size())) {
+    : mu_(std::make_shared<std::shared_mutex>()),
+      common_(std::move(common)),
+      items_(std::make_unique<TypedColumnStore>(items.size())) {
   // Collect the union of fields across items, preserving first-seen order.
   std::vector<std::string> field_order;
   std::set<std::string> seen;
@@ -136,7 +139,7 @@ std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(const ColumnFrame& pa
 }
 
 Variant ColumnFrame::common(const std::string& field) const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   const auto& src = view_common_ ? *view_common_ : common_;
   auto it = src.find(field);
   if (it == src.end()) {
@@ -146,7 +149,7 @@ Variant ColumnFrame::common(const std::string& field) const {
 }
 
 bool ColumnFrame::has_common(const std::string& field) const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   const auto& src = view_common_ ? *view_common_ : common_;
   auto it = src.find(field);
   return it != src.end();
@@ -158,12 +161,12 @@ void ColumnFrame::set_common(const std::string& field, Variant value) {
         "ColumnFrame::set_common called on window view "
         "(parallel shard contract violation)");
   }
-  std::unique_lock<std::shared_mutex> lk(mu_);
+  std::unique_lock<std::shared_mutex> lk(*mu_);
   common_[field] = std::move(value);
 }
 
 std::vector<std::string> ColumnFrame::common_fields() const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   const auto& src = view_common_ ? *view_common_ : common_;
   std::vector<std::string> out;
   out.reserve(src.size());
@@ -174,12 +177,12 @@ std::vector<std::string> ColumnFrame::common_fields() const {
 }
 
 std::size_t ColumnFrame::item_count() const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   return view_items_ ? view_count_ : items_->row_count();
 }
 
 Variant ColumnFrame::item(std::size_t index, const std::string& field) const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   const ColumnStore* store = view_items_ ? view_items_ : items_.get();
   if (view_items_) {
     if (index >= view_count_) {
@@ -200,7 +203,7 @@ Variant ColumnFrame::item(std::size_t index, const std::string& field) const {
 }
 
 bool ColumnFrame::item_has(std::size_t index, const std::string& field) const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   const ColumnStore* store = view_items_ ? view_items_ : items_.get();
   if (view_items_) {
     if (index >= view_count_) {
@@ -218,7 +221,7 @@ bool ColumnFrame::item_has(std::size_t index, const std::string& field) const {
 }
 
 std::vector<std::string> ColumnFrame::item_fields() const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   const ColumnStore* store = view_items_ ? view_items_ : items_.get();
   return store->fields();
 }
@@ -229,12 +232,12 @@ void ColumnFrame::push_warning(std::string msg) {
         "ColumnFrame::push_warning called on window view "
         "(parallel shard contract violation)");
   }
-  std::unique_lock<std::shared_mutex> lk(mu_);
+  std::unique_lock<std::shared_mutex> lk(*mu_);
   warnings_.push_back(std::move(msg));
 }
 
 std::vector<std::string> ColumnFrame::take_warnings() {
-  std::unique_lock<std::shared_mutex> lk(mu_);
+  std::unique_lock<std::shared_mutex> lk(*mu_);
   return std::move(warnings_);
 }
 
@@ -294,7 +297,7 @@ void ColumnFrame::apply_output(OperatorOutput& out, const std::string& op_name, 
         "ColumnFrame::apply_output called on window view "
         "(parallel shard contract violation)");
   }
-  std::unique_lock<std::shared_mutex> lk(mu_);
+  std::unique_lock<std::shared_mutex> lk(*mu_);
 
   // 1. common writes
   for (const auto& [field, value] : out.common_writes()) {
@@ -394,7 +397,7 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
         "(window views are read-only shard projections, "
         "not response sources)");
   }
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   Result r;
   r.common.reserve(common_out.size());
   for (const auto& field : common_out) {
@@ -419,7 +422,7 @@ Result ColumnFrame::to_result(const std::vector<std::string>& common_out,
 }
 
 Variant::object_t ColumnFrame::item_object(std::size_t index) const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   Variant::object_t out;
   const ColumnStore* store = view_items_ ? view_items_ : items_.get();
   if (view_items_) {
@@ -440,7 +443,7 @@ Variant::object_t ColumnFrame::item_object(std::size_t index) const {
 }
 
 std::pair<std::string, int> ColumnFrame::validate_strict_items(const std::vector<std::string>& fields) const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   const ColumnStore* store = view_items_ ? view_items_ : items_.get();
   std::size_t offset = view_items_ ? view_offset_ : 0;
   std::size_t count = view_items_ ? view_count_ : store->row_count();
@@ -460,7 +463,7 @@ std::pair<std::string, int> ColumnFrame::validate_strict_items(const std::vector
 }
 
 void ColumnFrame::with_read_lock(const std::function<void()>& body) const {
-  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::shared_lock<std::shared_mutex> lk(*mu_);
   body();
 }
 
