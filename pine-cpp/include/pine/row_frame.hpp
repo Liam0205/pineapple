@@ -28,6 +28,20 @@ class RowFrame : public Frame {
   RowFrame();
   RowFrame(Variant::object_t common, std::vector<Variant::object_t> items);
 
+  // Non-copyable, non-movable. Pre-#103 this was implicit (the inline
+  // std::shared_mutex member was itself neither copyable nor movable);
+  // after the migration to shared_ptr<shared_mutex> the implicit
+  // protection was lost — every other member is copyable, so RowFrame
+  // would have become copy/move-constructible. A value copy would alias
+  // the mutex (shared_ptr copy) but deep-copy items_ storage, leaving
+  // two "independent" frames sharing one lock for unrelated data.
+  // ColumnFrame stays non-copyable via its unique_ptr<ColumnStore>; we
+  // pin RowFrame the same way explicitly to keep the symmetry.
+  RowFrame(const RowFrame&) = delete;
+  RowFrame& operator=(const RowFrame&) = delete;
+  RowFrame(RowFrame&&) = delete;
+  RowFrame& operator=(RowFrame&&) = delete;
+
   // ---- Frame interface ----
   Variant common(const std::string& field) const override;
   bool has_common(const std::string& field) const override;

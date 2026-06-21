@@ -31,6 +31,14 @@ class ColumnFrame : public Frame {
   ColumnFrame();
   ColumnFrame(Variant::object_t common, std::vector<Variant::object_t> items);
 
+  // Non-copyable, non-movable. unique_ptr<ColumnStore> already enforces
+  // this implicitly, but pin it explicitly to mirror RowFrame's
+  // post-#103 declaration and keep the contract self-describing.
+  ColumnFrame(const ColumnFrame&) = delete;
+  ColumnFrame& operator=(const ColumnFrame&) = delete;
+  ColumnFrame(ColumnFrame&&) = delete;
+  ColumnFrame& operator=(ColumnFrame&&) = delete;
+
   // Static convenience constructor kept for callers that already know
   // they want a ColumnFrame window view. parallel_execute uses the
   // virtual Frame::make_window_view on the parent — this static form
