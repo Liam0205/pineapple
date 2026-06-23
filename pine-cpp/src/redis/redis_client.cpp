@@ -42,6 +42,13 @@ struct timeval to_timeval(std::chrono::milliseconds ms) {
 // nonblocking-connect dance: switch the socket to nonblocking, fire
 // connect(), wait on the writable bit with select() bounded by the
 // deadline, then check SO_ERROR; restore blocking mode on success.
+//
+// **Contract on failure**: returns false. The caller MUST close `fd` —
+// this function does not. The socket may be left in non-blocking mode
+// (the only path that restores blocking is the success path), so do not
+// reuse `fd` for further I/O without re-establishing its mode. Today the
+// sole caller in this file closes `fd` immediately on false, which is
+// the only safe pattern.
 bool connect_with_timeout(int fd, const struct sockaddr* addr, socklen_t addrlen,
                           std::chrono::milliseconds deadline) {
   int flags = fcntl(fd, F_GETFL, 0);
@@ -126,13 +133,26 @@ Client::Client(const std::string& host, int port, const std::string& password, i
     return;
   }
 
-  if (!password.empty()) {
-    send_command({"AUTH", password});
-    expect_ok();
-  }
-  if (db != 0) {
-    send_command({"SELECT", std::to_string(db)});
-    expect_ok();
+  // AUTH / SELECT failures must not propagate as exceptions: the operator-
+  // contract (llmdoc/reference/operator-contract.md, Redis section) requires
+  // borrow-time errors to surface as connected()=false so transform_redis_*
+  // can degrade to a cache miss + warning under fail_on_error=false. Without
+  // this catch the std::runtime_error from expect_ok() would unwind through
+  // ConnectionPool::acquire and tear down the request — asymmetric with the
+  // dial-timeout / connect-failure paths above which already fall through to
+  // fd_ = -1 silently.
+  try {
+    if (!password.empty()) {
+      send_command({"AUTH", password});
+      expect_ok();
+    }
+    if (db != 0) {
+      send_command({"SELECT", std::to_string(db)});
+      expect_ok();
+    }
+  } catch (const std::exception&) {
+    close(fd_);
+    fd_ = -1;
   }
 }
 
@@ -167,7 +187,15 @@ void Client::send_command(const std::vector<std::string>& args) {
   const char* ptr = data.c_str();
   std::size_t remaining = data.size();
   while (remaining > 0) {
-    ssize_t n = write(fd_, ptr, remaining);
+    // MSG_NOSIGNAL: a Redis server that closes the connection mid-write
+    // (RST, transient broker restart, ...) would otherwise deliver SIGPIPE
+    // and abort the process. The cascade-safety contract for this resource
+    // is that Redis flakiness must never escalate beyond the operator
+    // (degrade to cache miss + warning); SIGPIPE'ing the whole process is
+    // the antithesis of that. We turn the failed write into a regular
+    // throw, which the Client ctor's AUTH/SELECT block catches and the
+    // operator-level fail_on_error=false branch surfaces as a warning.
+    ssize_t n = ::send(fd_, ptr, remaining, MSG_NOSIGNAL);
     if (n <= 0) {
       throw std::runtime_error("redis write failed");
     }
