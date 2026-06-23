@@ -394,7 +394,8 @@ public class AllOperators {
                 "Per-command write timeout in ms. pine-java note: Jedis exposes a single socket"
                         + " timeout, so the effective deadline on this engine is"
                         + " max(read_timeout_ms, write_timeout_ms); keep read_timeout_ms"
-                        + " >= write_timeout_ms to avoid surprise."));
+                        + " >= write_timeout_ms to avoid surprise. pine-go and pine-cpp honour"
+                        + " read/write independently."));
         p.put("pool_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_POOL_TIMEOUT_MS, "How long a borrower waits for a free pool connection in ms."));
         p.put("pool_size", codegenParam("int", false, 0L, "Maximum concurrent connections; 0 = pool default."));
         p.put("metrics_name", codegenParam("string", false, "", "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics."));
