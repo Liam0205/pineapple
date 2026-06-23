@@ -89,7 +89,7 @@ func (r *recordingProvider) NewCounter(opts metrics.MetricOpts) metrics.Counter 
 }
 
 func (r *recordingProvider) NewGauge(opts metrics.MetricOpts) metrics.Gauge {
-	r.metricRecorder.record(opts.Name)
+	r.record(opts.Name)
 	return metrics.Nop().NewGauge(opts)
 }
 
