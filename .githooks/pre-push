@@ -86,6 +86,11 @@ zero="0000000000000000000000000000000000000000"
 refspecs=()
 have_update=0          # at least one non-delete ref → CI watch is meaningful
 force_lease_args=()    # one --force-with-lease=ref:sha per non-fast-forward ref
+head_branch_pushed=0   # refspecs include the branch HEAD currently points at
+head_remote_ref=""     # candidate -u target (`refs/heads/<branch>`) on the remote
+
+# Which branch HEAD points at (empty when detached — no -u candidate then).
+head_ref="$(git symbolic-ref HEAD 2>/dev/null || true)"
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -z "${remote_ref:-}" ] && continue
@@ -109,6 +114,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
        && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
       force_lease_args+=("--force-with-lease=${remote_ref}:${remote_sha}")
     fi
+    # HEAD's branch is being pushed ⇒ candidate for auto -u relay below.
+    if [ -n "$head_ref" ] && [ "$local_ref" = "$head_ref" ]; then
+      head_branch_pushed=1
+      head_remote_ref="$remote_ref"
+    fi
   fi
 done
 
@@ -125,12 +135,28 @@ fi
 
 remote_name="${1:-origin}"
 
+# `-u` auto-relay (absorbed from ctex-kit#888 / wangshu#24): git does NOT pass
+# the outer command-line args to the hook, so the inner push doesn't know
+# whether the user typed `-u`. Detect: HEAD's branch is being pushed AND it has
+# no upstream right now ⇒ inject `--set-upstream` on the inner push. Already
+# tracking → untouched; detached HEAD → untouched; pushing only tags / other
+# branches → untouched. No side effects.
+set_upstream_args=()
+if [ "$head_branch_pushed" -eq 1 ] \
+   && ! git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+  set_upstream_args=(--set-upstream)
+  echo "post-push: auto --set-upstream ($(git rev-parse --abbrev-ref HEAD) → ${remote_name}/${head_remote_ref#refs/heads/})" >&2
+fi
+
 echo "post-push: performing real push to '${remote_name}' (${refspecs[*]})..." >&2
 # `${arr[@]+"${arr[@]}"}` is the parameter-expansion guard form: empty under
 # `set -u` on bash 3.2 (the default /bin/bash on macOS), equivalent to
 # `"${arr[@]}"` on bash >=4.4. A bare expansion of an empty array trips
 # "unbound variable" on bash 3.2 and aborts the hook on every non-force push.
-GIT_POSTPUSH=1 git push ${force_lease_args[@]+"${force_lease_args[@]}"} "${remote_name}" "${refspecs[@]}"
+GIT_POSTPUSH=1 git push \
+  ${set_upstream_args[@]+"${set_upstream_args[@]}"} \
+  ${force_lease_args[@]+"${force_lease_args[@]}"} \
+  "${remote_name}" "${refspecs[@]}"
 push_rc=$?
 if [ "$push_rc" -ne 0 ]; then
   echo "post-push: inner push failed (rc=${push_rc}) — not watching CI." >&2
