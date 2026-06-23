@@ -310,12 +310,20 @@ func redisCommandStatus(err error) string {
 	if errors.Is(err, redis.ErrPoolTimeout) {
 		return "pool_timeout"
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return "timeout"
 	}
 	if ne, ok := err.(net.Error); ok && ne.Timeout() {
 		return "timeout"
 	}
+	// context.Canceled is intentionally NOT classified as `timeout`. The
+	// `timeout` bucket is reserved for read/write_timeout_ms expirations
+	// (i.e. "Redis is slow") so a Grafana panel querying status="timeout"
+	// reflects upstream pressure on the Redis path. context.Canceled means
+	// the caller (HTTP handler / outer ctx) gave up — that's a request-
+	// lifecycle event, not a Redis health signal — so it lands in `error`.
+	// Pinned by metrics-observability.md's status taxonomy and verified by
+	// TestRedisCommandStatus/context_canceled.
 	return "error"
 }
 

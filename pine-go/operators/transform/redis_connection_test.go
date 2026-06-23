@@ -351,7 +351,7 @@ func TestRedisCommandStatus(t *testing.T) {
 		{"nil", nil, "ok"},
 		{"redis_nil_is_cache_miss", redis.Nil, "ok"},
 		{"deadline_exceeded", context.DeadlineExceeded, "timeout"},
-		{"context_canceled", context.Canceled, "timeout"},
+		{"context_canceled", context.Canceled, "error"},
 		{"net_timeout", &timeoutNetError{}, "timeout"},
 		{"pool_timeout", redis.ErrPoolTimeout, "pool_timeout"},
 		{"plain_error", errors.New("connection refused"), "error"},
