@@ -93,7 +93,7 @@ CI 的多个 job 直接调用这些 make target（如 `make go-cover` / `make cp
 仓库提供 `.githooks/` 作为统一的本地质量入口，开发者通过 `git config core.hooksPath .githooks` 启用。CI 环境（检测 `CI` / `GITHUB_ACTIONS`）短路所有 hook，不与流水线重复。
 
 - **`pre-commit`** — 仅对**本次 commit 已 staged** 的源文件运行 file-level 格式检查（`*.cpp/*.hpp/*.cc/*.h` 走 `clang-format --dry-run --Werror`、`*.go` 走 `gofmt -l`、`*.py` 走 `ruff check`），违规直接中止 commit 并提示精确修复命令。范围限定 staged 文件，避免历史污染拖慢单点提交。
-- **`pre-push`** — 两段式：先运行各子项目的工程级 linter（`golangci-lint` / `checkstyle` / `ruff` / `clang-format`），失败则中止 push；通过后自包装执行真实 push，并阻塞等待远端 PR 的 CI 结果，最终打印 ✓/✗ 报告。**外层 `git push` 的退出码因自包装语义不可信**，应以 hook 自身报告与 `scripts/check-pr-ci.sh` 输出为准。详细行为与环境变量配置见 `.githooks/README.md`。
+- **`pre-push`** — 两段式：先运行各子项目的工程级 linter（`golangci-lint` / `checkstyle` / `ruff` / `clang-format`），失败则中止 push；通过后自包装执行真实 push，并阻塞等待远端 PR 的 CI 结果，最终打印 ✓/✗ 报告。**外层 `git push` 的退出码因自包装语义不可信**，应以 hook 自身报告与 `scripts/check-pr-ci.sh` 输出为准。由于 git 不会把外层命令行参数透传给 hook，自包装的 inner push 无从得知用户是否输入 `-u`；hook 会在 refspec 扫描中检测「当前 HEAD 所在分支正被推送且尚无 upstream」，并向 inner push 注入 `--set-upstream`，使新分支首推即自动建立追踪（已追踪分支 / detached HEAD / 仅推 tag / 不含当前分支的推送均不受影响）。详细行为与环境变量配置见 `.githooks/README.md`。
 
 这两层 hook 与 CI 形成"commit 阶段拦格式 / push 阶段拦工程级 lint / CI 兜底"的纵深结构，避免 clang-format 等纯格式问题只能在 push 后被 cpp-lint 反弹。
 
