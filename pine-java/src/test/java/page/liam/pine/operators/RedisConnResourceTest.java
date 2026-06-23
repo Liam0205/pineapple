@@ -1,6 +1,8 @@
 package page.liam.pine.operators;
 
 import org.junit.jupiter.api.Test;
+import page.liam.pine.Codegen;
+import page.liam.pine.ResourceRegistry;
 import page.liam.pine.metrics.Counter;
 import page.liam.pine.metrics.Gauge;
 import page.liam.pine.metrics.Histogram;
@@ -85,5 +87,36 @@ public class RedisConnResourceTest {
         RedisConnResource r = new RedisConnResource(lazyPool(), "cache", new RecordingProvider());
         r.close();
         r.close(); // must not throw
+    }
+
+    /**
+     * The cascade-safety timeouts and pool_size knob must appear in the registered
+     * schema with the cross-engine-shared default values. Locked here as the
+     * regression test for the 2026-06-22 tipsy-recsys outage: the resource
+     * inherited Jedis defaults (single hard-coded 2s connect timeout, no socket
+     * timeout) and a brief Redis hiccup escalated into a 30-minute /execute
+     * outage. Mirrors pine-go's TestRedisOptionsFromParams_Defaults.
+     */
+    @Test
+    void schemaExposesCascadeSafetyParams() {
+        AllOperators.ensureRegistered();
+        Codegen.ResourceSchema schema = null;
+        for (Codegen.ResourceSchema s : ResourceRegistry.all()) {
+            if ("redis_connection".equals(s.name)) {
+                schema = s;
+                break;
+            }
+        }
+        assertNotNull(schema, "redis_connection schema should be registered");
+
+        assertEquals(2000L, ((Number) schema.params.get("dial_timeout_ms").defaultValue).longValue());
+        assertEquals(2000L, ((Number) schema.params.get("read_timeout_ms").defaultValue).longValue());
+        assertEquals(2000L, ((Number) schema.params.get("write_timeout_ms").defaultValue).longValue());
+        assertEquals(2000L, ((Number) schema.params.get("pool_timeout_ms").defaultValue).longValue());
+        assertEquals(0L, ((Number) schema.params.get("pool_size").defaultValue).longValue());
+
+        // Required-field guard remains intact.
+        assertTrue(schema.params.get("addr").required);
+        assertFalse(schema.params.get("read_timeout_ms").required);
     }
 }
