@@ -165,6 +165,33 @@ std::string camel_case(const std::string& s) {
   return pine::op_type_to_string(t);
 }
 
+// Return param names with required first (alphabetised), then optional
+// (alphabetised). Mirrors pine-go pkg/codegen/template.go's sortedParams +
+// pine-java's Codegen.sortedParams so the byte-level Python output stays
+// comparable across engines (cross-validate 01-codegen-schema.sh's 1c/1d
+// gates).
+std::vector<std::string> sorted_param_names(const std::map<std::string, pine::ParamSchema>& params) {
+  std::vector<std::string> required;
+  std::vector<std::string> optional;
+  for (const auto& [pname, pspec] : params) {
+    if (pspec.required) {
+      required.push_back(pname);
+    } else {
+      optional.push_back(pname);
+    }
+  }
+  // Already in alphabetical order because the caller is std::map; keep the
+  // explicit sort so callers passing other ordered/unordered maps in the
+  // future stay correct.
+  std::sort(required.begin(), required.end());
+  std::sort(optional.begin(), optional.end());
+  std::vector<std::string> out;
+  out.reserve(required.size() + optional.size());
+  out.insert(out.end(), required.begin(), required.end());
+  out.insert(out.end(), optional.begin(), optional.end());
+  return out;
+}
+
 std::vector<pine::OperatorEntry> all_operator_entries() {
   std::vector<pine::OperatorEntry> out;
   for (const auto& name : pine::registered_operator_names()) {
@@ -197,7 +224,8 @@ void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry
     out << "    _name = \"" << schema.name << "\"\n";
 
     out << "    _params_schema = {";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       out << "\n        \"" << pname << "\": {\"type\": \"" << pspec.type
           << "\", \"required\": " << (pspec.required ? "True" : "False");
       if (!pspec.default_value.is_null()) {
@@ -213,7 +241,8 @@ void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry
     out << "\n    def __call__(\n";
     out << "        self,\n";
     out << "        *,\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       std::string py_type = python_type(pspec.type);
       std::string py_default;
       if (pspec.required) {
@@ -237,13 +266,15 @@ void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry
     out << "    ) -> \"" << cls << "\":\n";
 
     out << "        _params = {\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       if (pspec.required || !pspec.default_value.is_null()) {
         out << "            \"" << pname << "\": " << pname << ",\n";
       }
     }
     out << "        }\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       if (!pspec.required && pspec.default_value.is_null()) {
         out << "        if " << pname << " is not None:\n";
         out << "            _params[\"" << pname << "\"] = " << pname << "\n";
@@ -338,7 +369,8 @@ void write_resources_py(std::ostream& out, const std::vector<pine::resource::Res
     out << "    _default_interval = " << schema.default_interval << "\n";
 
     out << "    _params_schema = {";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       out << "\n        \"" << pname << "\": {\"type\": \"" << pspec.type
           << "\", \"required\": " << (pspec.required ? "True" : "False");
       if (!pspec.default_value.is_null()) {
@@ -351,7 +383,8 @@ void write_resources_py(std::ostream& out, const std::vector<pine::resource::Res
     out << "\n    def __init__(\n";
     out << "        self,\n";
     out << "        *,\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       std::string py_type = python_type(pspec.type);
       std::string py_default;
       if (pspec.required) {
@@ -367,7 +400,7 @@ void write_resources_py(std::ostream& out, const std::vector<pine::resource::Res
     out << "    ):\n";
     out << "        super().__init__(\n";
     out << "            interval=interval,\n";
-    for (const auto& [pname, _] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
       out << "            " << pname << "=" << pname << ",\n";
     }
     out << "        )\n";

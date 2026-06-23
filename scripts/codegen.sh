@@ -41,7 +41,7 @@ case "$BACKEND" in
     cd "$REPO_ROOT/pine-java"
     mvn -B -q compile exec:java \
       -Dexec.mainClass="page.liam.pine.Codegen" \
-      -Dexec.args="--schema-from-registry -output $REPO_ROOT/apple_generated -doc-dir $REPO_ROOT/doc/operators $*"
+      -Dexec.args="--schema-from-registry -output $REPO_ROOT/apple_generated -doc-dir $REPO_ROOT/doc/operators -ops-dir $REPO_ROOT/pine-java/src/main/java/page/liam/pine/operators $*"
     ;;
   *)
     echo "Unknown backend: $BACKEND" >&2; usage ;;

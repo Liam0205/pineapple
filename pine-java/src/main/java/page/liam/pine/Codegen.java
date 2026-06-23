@@ -144,8 +144,7 @@ public class Codegen {
 
                 // _params_schema
                 w.print("    _params_schema = {");
-                List<String> paramNames = new ArrayList<>(schema.params.keySet());
-                Collections.sort(paramNames);
+                List<String> paramNames = sortedParams(schema.params);
                 for (String pName : paramNames) {
                     ParamSpec spec = schema.params.get(pName);
                     w.printf("%n        \"%s\": {\"type\": \"%s\", \"required\": %s",
@@ -297,6 +296,41 @@ public class Codegen {
         }
     }
 
+    /**
+     * Wrap a string in backticks, mirroring Go's DocData.BacktickWrap. Null
+     * or empty becomes "-" so the generated table aligns with pine-go's
+     * markdown byte-for-byte.
+     */
+    private static String backtickOrDash(String s) {
+        if (s == null || s.isEmpty()) {
+            return "-";
+        }
+        return "`" + s + "`";
+    }
+
+    /**
+     * Return param names with required first (alphabetised), then optional
+     * (alphabetised). Mirrors pine-go pkg/codegen/template.go's sortedParams
+     * so the byte-level Python output stays comparable across engines.
+     */
+    static List<String> sortedParams(Map<String, ParamSpec> params) {
+        List<String> required = new ArrayList<>();
+        List<String> optional = new ArrayList<>();
+        for (Map.Entry<String, ParamSpec> e : params.entrySet()) {
+            if (e.getValue().required) {
+                required.add(e.getKey());
+            } else {
+                optional.add(e.getKey());
+            }
+        }
+        Collections.sort(required);
+        Collections.sort(optional);
+        List<String> result = new ArrayList<>(required.size() + optional.size());
+        result.addAll(required);
+        result.addAll(optional);
+        return result;
+    }
+
     private static String toCamelCase(String s) {
         StringBuilder sb = new StringBuilder();
         boolean upper = true;
@@ -431,8 +465,7 @@ public class Codegen {
                 w.println("| Name | Type | Required | Default | Description |");
                 w.println("|------|------|----------|---------|-------------|");
 
-                List<String> paramNames = new ArrayList<>(schema.params.keySet());
-                Collections.sort(paramNames);
+                List<String> paramNames = sortedParams(schema.params);
                 for (String pName : paramNames) {
                     ParamSpec spec = schema.params.get(pName);
                     // Render the default the same way pine-go does: Python
@@ -446,16 +479,20 @@ public class Codegen {
                 }
 
                 MetadataDoc md = metadataDocs.get(schema.name);
-                if (md != null && (md.commonInput != null || md.commonOutput != null || md.itemInput != null || md.itemOutput != null)) {
+                if (md != null) {
                     w.println();
                     w.println("## Metadata Contract");
                     w.println();
                     w.println("| Field | Typical Usage |");
                     w.println("|-------|---------------|");
-                    if (md.commonInput != null)  w.println("| CommonInput | `" + md.commonInput + "` |");
-                    if (md.commonOutput != null) w.println("| CommonOutput | `" + md.commonOutput + "` |");
-                    if (md.itemInput != null)    w.println("| ItemInput | `" + md.itemInput + "` |");
-                    if (md.itemOutput != null)   w.println("| ItemOutput | `" + md.itemOutput + "` |");
+                    // Output all four fields unconditionally to match pine-go's
+                    // template (template.go BacktickWrap renders empty strings as
+                    // "-"). Suppressing absent fields drifted Java's markdown from
+                    // Go's whenever an operator only declared a subset.
+                    w.println("| CommonInput | " + backtickOrDash(md.commonInput) + " |");
+                    w.println("| CommonOutput | " + backtickOrDash(md.commonOutput) + " |");
+                    w.println("| ItemInput | " + backtickOrDash(md.itemInput) + " |");
+                    w.println("| ItemOutput | " + backtickOrDash(md.itemOutput) + " |");
                 }
 
                 w.println();
@@ -483,6 +520,7 @@ public class Codegen {
             w.println("# Operator Reference");
             w.println();
             w.println("> Auto-generated from Go operator source code. Do not edit manually.");
+            w.println();
             for (Map.Entry<String, List<String[]>> entry : typeOps.entrySet()) {
                 w.println();
                 w.printf("## %s%n%n", entry.getKey());
@@ -492,6 +530,7 @@ public class Codegen {
                     w.printf("| [%s](%s.md) | %s |%n", op[0], op[0], op[1]);
                 }
             }
+            w.println();
         }
     }
 
@@ -668,8 +707,7 @@ public class Codegen {
                 w.printf("    _default_interval = %d%n", schema.defaultInterval);
 
                 // _params_schema
-                List<String> paramNames = new ArrayList<>(schema.params.keySet());
-                Collections.sort(paramNames);
+                List<String> paramNames = sortedParams(schema.params);
                 w.print("    _params_schema = {");
                 for (String pName : paramNames) {
                     ParamSpec spec = schema.params.get(pName);

@@ -41,7 +41,7 @@ public class AllOperators {
                         "Copies field values between common and item dimensions.",
                         Map.of(
                                 "direction", ParamSpec.required("string",
-                                        "Copy direction: common_to_item, item_to_common, common_to_common, or item_to_item.")
+                                        "Copy direction: \"common_to_item\", \"item_to_common\", \"common_to_common\", or \"item_to_item\".")
                         )),
                 TransformCopy::new);
 
@@ -121,7 +121,7 @@ public class AllOperators {
                                 "key_prefix", ParamSpec.requiredTemplatable("string",
                                         "Key prefix prepended to the suffix built from common_input fields. Supports {{field}} interpolation."),
                                 "data_type", ParamSpec.optional("string", "string",
-                                        "Redis data type: set, string, or list."),
+                                        "Redis data type: \"set\", \"string\", or \"list\"."),
                                 "fail_on_error", ParamSpec.optional("bool", false,
                                         "Return fatal error on Redis infrastructure failure instead of treating as cache miss.")
                         )),
@@ -139,7 +139,7 @@ public class AllOperators {
                                 "key_prefix", ParamSpec.requiredTemplatable("string",
                                         "Key prefix prepended to the suffix built from common_input fields. Supports {{field}} interpolation."),
                                 "data_type", ParamSpec.optional("string", "string",
-                                        "Redis data type: set, string, or list."),
+                                        "Redis data type: \"set\", \"string\", or \"list\"."),
                                 "ttl", ParamSpec.optionalTemplatable("int", 0L,
                                         "TTL in seconds. 0 means no expiry. Supports {{field}} interpolation."),
                                 "fail_on_error", ParamSpec.optional("bool", false,
@@ -244,7 +244,7 @@ public class AllOperators {
                         "Deduplicates items by a key field, keeping the first occurrence.",
                         Map.of(
                                 "strategy", ParamSpec.optional("string", "first",
-                                        "Dedup strategy — first keeps first occurrence.")
+                                        "Dedup strategy — \"first\" keeps first occurrence.")
                         )),
                 MergeDedup::new);
 
@@ -256,7 +256,7 @@ public class AllOperators {
                         "Sorts items by a numeric field in ascending or descending order.",
                         Map.of(
                                 "order", ParamSpec.optional("string", "desc",
-                                        "Sort direction — asc or desc.")
+                                        "Sort direction — \"asc\" or \"desc\".")
                         )),
                 ReorderSort::new);
 
@@ -274,7 +274,7 @@ public class AllOperators {
                 new OperatorSchema(
                         "observe_log",
                         OperatorType.OBSERVE,
-                        "Reads declared input fields and writes them to standard log. Read-only operator.",
+                        "Reads declared input fields and writes them to Go standard log. This is a read-only operator: it produces no output fields and does not modify the DataFrame. It is exempt from dead-code detection.",
                         Map.of(
                                 "log_prefix", ParamSpec.optional("string", "",
                                         "Prefix prepended to each log line.")

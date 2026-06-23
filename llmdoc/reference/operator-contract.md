@@ -147,15 +147,22 @@ C++ 侧提供注册路径：
 
 ### Redis 算子契约（句柄型资源借用）
 
-`transform_redis_get` / `transform_redis_set` 不再内联 `redis_addr` / `redis_db` / `redis_password` 等连接参数，而是按 `resource_name` 借用一个内置的 `redis_connection` **句柄型资源**。连接参数（addr / password / db / interval / metrics_name）在统一 JSON 的 `resource_config` 中声明，其中 `interval: -1` 表示该句柄永不刷新。多个 Redis 算子引用同一 `resource_name` 时共享同一连接池；连接池由 ResourceManager 拥有，客户端按请求借用、`Execute` 返回时释放。
+`transform_redis_get` / `transform_redis_set` 不再内联 `redis_addr` / `redis_db` / `redis_password` 等连接参数，而是按 `resource_name` 借用一个内置的 `redis_connection` **句柄型资源**。连接参数（addr / password / db / interval / 超时与连接池 / metrics_name）在统一 JSON 的 `resource_config` 中声明，其中 `interval: -1` 表示该句柄永不刷新。多个 Redis 算子引用同一 `resource_name` 时共享同一连接池；连接池由 ResourceManager 拥有，客户端按请求借用、`Execute` 返回时释放。
 
 `redis_connection` 资源参数：
 
 - `addr` (string, required) — Redis 地址 `host:port`
-- `password` (string, optional) — 认证密码
+- `password` (string, optional, default `""`) — 认证密码
 - `db` (int, optional, default `0`) — 选择的 DB 编号
+- `dial_timeout_ms` (int, optional, default `2000`) — TCP dial 超时，毫秒
+- `read_timeout_ms` (int, optional, default `2000`) — 单次命令读超时，毫秒。**雪崩防护核心**：单次 Redis 调用超此值将以 `ctx.DeadlineExceeded` 失败，`fail_on_error=false`（默认）路径降级为 cache miss + warning，避免请求 goroutine 在 Redis 慢期堆积
+- `write_timeout_ms` (int, optional, default `2000`) — 单次命令写超时，毫秒。**pine-java 注**：Jedis 仅暴露单一 `socketTimeoutMillis`，本引擎下生效值为 `max(read_timeout_ms, write_timeout_ms)`；建议保持 `read_timeout_ms >= write_timeout_ms` 以避免意外。pine-go 与 pine-cpp 独立处理读/写两个方向
+- `pool_timeout_ms` (int, optional, default `2000`) — 等待空闲连接的超时，毫秒。**pine-cpp 注**：当前 C++ 池的 `acquire` 不阻塞（idle 队列空时直接构造新 client），故此参数在 pine-cpp 下为 no-op；schema 保留以便跨引擎配置块对称
+- `pool_size` (int, optional, default `0`) — 连接池上限。`0` 走引擎默认（pine-go: `10*GOMAXPROCS`；pine-java: commons-pool2 默认 `8`；pine-cpp: 仅作 idle 队列每 host 上限 `16`）。**pine-cpp 语义注**：C++ 池没有总连接数硬上限，仅控制 per-host idle 队列大小；如部署依赖 `pool_size` 做并发控制，pine-cpp 在故障期可能无界构造新 client，需结合上层并发控制
 - `interval` (int) — 句柄刷新间隔；`-1` 表示永不刷新
 - `metrics_name` (string, optional, default `""`) — 资源级指标的 `name` 标签值。**非空时**资源发出 4 个指标（`pine_redis_pool_total_conns` / `pine_redis_pool_idle_conns` / `pine_redis_ping_duration_seconds` / `pine_redis_up`）并启动 15s PING 探针线程（`Start()` 时立即跑一次）；**为空（默认）时**不发任何指标、不启探针。指标经 fan-out（Tee）同时进入注入的 Provider 和 `/stats.resources`，详见 `metrics-observability.md` 的"资源级指标 fan-out 路由"。
+
+**Cascade-safety 背景**：`{dial,read,write,pool}_timeout_ms` + `pool_size` 五参数自 0.10.10 暴露，由 2026-06-22 tipsy-recsys 故障驱动。该故障中 Redis PING p99 短期飙至 ~970ms，pre-fix 资源沿用 client 默认值（go-redis v9: read/write 3s, dial 5s, PoolSize 20）使每个 /execute 请求阻塞 in-flight、heap_inuse 单 pod 飙至 3.87 GiB、运行时 OOM。生产部署应显式配置（典型：`read_timeout_ms=500, write_timeout_ms=500, dial_timeout_ms=1000, pool_timeout_ms=1000, pool_size=50`）以缩短雪崩窗口。
 
 参数契约：
 
