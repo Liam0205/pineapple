@@ -24,7 +24,7 @@ import java.util.Map;
  *     CommonOutput: [<target_fields...>]
  *   direction="item_to_common":
  *     ItemInput:    [<source_field>]
- *     CommonOutput: [<target_field>]
+ *     CommonOutput: [<target_field>]   (collects all item values into a list)
  */
 public class TransformCopy extends AbstractOperator implements page.liam.pine.ConcurrentSafe {
     private String direction;

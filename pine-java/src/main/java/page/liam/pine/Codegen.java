@@ -479,21 +479,22 @@ public class Codegen {
                 }
 
                 MetadataDoc md = metadataDocs.get(schema.name);
-                if (md != null) {
-                    w.println();
-                    w.println("## Metadata Contract");
-                    w.println();
-                    w.println("| Field | Typical Usage |");
-                    w.println("|-------|---------------|");
-                    // Output all four fields unconditionally to match pine-go's
-                    // template (template.go BacktickWrap renders empty strings as
-                    // "-"). Suppressing absent fields drifted Java's markdown from
-                    // Go's whenever an operator only declared a subset.
-                    w.println("| CommonInput | " + backtickOrDash(md.commonInput) + " |");
-                    w.println("| CommonOutput | " + backtickOrDash(md.commonOutput) + " |");
-                    w.println("| ItemInput | " + backtickOrDash(md.itemInput) + " |");
-                    w.println("| ItemOutput | " + backtickOrDash(md.itemOutput) + " |");
+                if (md == null) {
+                    md = new MetadataDoc();
                 }
+                w.println();
+                w.println("## Metadata Contract");
+                w.println();
+                w.println("| Field | Typical Usage |");
+                w.println("|-------|---------------|");
+                // Always emit all four rows, mirroring pine-go's template (which
+                // unconditionally renders the section). BacktickWrap reduces
+                // empty fields to "-", so operators without a Metadata contract
+                // (e.g. transform_bench_cpu) still produce the same shape Go does.
+                w.println("| CommonInput | " + backtickOrDash(md.commonInput) + " |");
+                w.println("| CommonOutput | " + backtickOrDash(md.commonOutput) + " |");
+                w.println("| ItemInput | " + backtickOrDash(md.itemInput) + " |");
+                w.println("| ItemOutput | " + backtickOrDash(md.itemOutput) + " |");
 
                 w.println();
                 w.println("## DSL Usage");

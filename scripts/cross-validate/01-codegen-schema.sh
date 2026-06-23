@@ -151,5 +151,29 @@ else
   echo "    (C++ codegen binary not found — skipping C++ Python output parity)"
 fi
 
+# 1e. Codegen Markdown output Go vs Java byte-level parity.
+# Reads each backend's generated doc/operators/ tree and diff -r them.
+# Drift here used to silently sneak through (the 2026-06-22 review of
+# .code-review/from-24975c2/... surfaced three rendering bugs that the
+# Python-only checks above did not catch). pine-cpp has no markdown emit
+# path today; once it does, add a Go-vs-cpp arm here too.
+echo "    Comparing generated Markdown docs (operator reference)..."
+rm -rf "$WORK_DIR/docs-go" "$WORK_DIR/docs-java"
+mkdir -p "$WORK_DIR/docs-go" "$WORK_DIR/docs-java"
+"$WORK_DIR/pineapple-codegen" \
+  -output "$WORK_DIR/python-go-for-docs" \
+  -doc-dir "$WORK_DIR/docs-go" \
+  -operators-dir "$REPO_ROOT/pine-go/operators" >/dev/null 2>&1
+java_run page.liam.pine.Codegen --schema-from-registry \
+  -output "$WORK_DIR/python-java-for-docs" \
+  -doc-dir "$WORK_DIR/docs-java" \
+  -ops-dir "$REPO_ROOT/pine-java/src/main/java/page/liam/pine/operators" >/dev/null 2>&1
+if diff -r "$WORK_DIR/docs-go" "$WORK_DIR/docs-java" >/dev/null 2>&1; then
+  pass "codegen Markdown output parity Go vs Java (byte-level match)"
+else
+  fail "codegen Markdown output divergence (Go vs Java)"
+  diff -r "$WORK_DIR/docs-go" "$WORK_DIR/docs-java" >&2 || true
+fi
+
 # Return to caller if sourced, exit if run directly
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit $_CV_FAIL || true

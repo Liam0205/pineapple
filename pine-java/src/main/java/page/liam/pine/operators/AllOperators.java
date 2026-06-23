@@ -143,7 +143,7 @@ public class AllOperators {
                                 "ttl", ParamSpec.optionalTemplatable("int", 0L,
                                         "TTL in seconds. 0 means no expiry. Supports {{field}} interpolation."),
                                 "fail_on_error", ParamSpec.optional("bool", false,
-                                        "Return fatal error on Redis failure instead of logging to stderr.")
+                                        "Return fatal error on Redis infrastructure failure instead of logging and continuing.")
                         )),
                 TransformRedisSet::new);
 
