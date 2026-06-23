@@ -141,8 +141,10 @@ class RecordingProvider : public metrics::Provider {
   std::vector<std::unique_ptr<NopHistogram>> histograms_;
 };
 
-const std::vector<std::string> kRedisMetrics = {"pine_redis_pool_total_conns", "pine_redis_pool_idle_conns",
-                                                "pine_redis_ping_duration_seconds", "pine_redis_up"};
+const std::vector<std::string> kRedisMetrics = {
+    "pine_redis_pool_total_conns",         "pine_redis_pool_idle_conns",
+    "pine_redis_ping_duration_seconds",    "pine_redis_up",
+    "pine_redis_command_duration_seconds", "pine_redis_command_total"};
 
 }  // namespace
 

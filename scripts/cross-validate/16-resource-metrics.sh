@@ -146,7 +146,7 @@ print(json.dumps(res, sort_keys=True) if res is not None else '__MISSING__')
 import json
 r = json.loads('''$GO_RES''')
 names = sorted(r.keys())
-want = ['pine_redis_ping_duration_seconds','pine_redis_pool_idle_conns','pine_redis_pool_total_conns','pine_redis_up']
+want = ['pine_redis_command_duration_seconds','pine_redis_command_total','pine_redis_ping_duration_seconds','pine_redis_pool_idle_conns','pine_redis_pool_total_conns','pine_redis_up']
 if names != want:
     print(f'metric names {names} != {want}')
 elif 'cache' not in r['pine_redis_up']:
@@ -162,7 +162,7 @@ else:
 ")
       if [[ "$go_correct" == "ok" ]]; then
         rm_pass=$((rm_pass + 1))
-        echo "    [1] Go: 4 resource metrics present, up=1, ping count>=1"
+        echo "    [1] Go: 6 resource metrics present, up=1, ping count>=1"
       else
         fail "resource metrics: Go correctness: $go_correct"
       fi
@@ -173,8 +173,15 @@ else:
 import json
 go = json.loads('''$GO_RES''')
 ja = json.loads('''$JAVA_RES''')
+# pine_redis_command_* cells reflect ad-hoc runtime calls (probes,
+# operator commands, server handshake) that legitimately differ across
+# engines: pine-go's redis hook sees go-redis's HELLO/CLIENT initial
+# handshake plus PING probes; pine-java/pine-cpp record only operator
+# calls. The metric *names* must match (asserted in [1] above) but the
+# label sets are not byte-comparable. Strip them for the shape diff.
 def keyset(r):
-    return {m: sorted(v.keys()) for m, v in r.items()}
+    return {m: sorted(v.keys()) for m, v in r.items()
+            if m not in ('pine_redis_command_duration_seconds', 'pine_redis_command_total')}
 if keyset(go) != keyset(ja):
     print(f'shape go={keyset(go)} java={keyset(ja)}')
 elif go['pine_redis_up'] != ja['pine_redis_up']:
@@ -198,8 +205,12 @@ else:
 import json
 go = json.loads('''$GO_RES''')
 cpp = json.loads('''$CPP_RES''')
+# Strip the per-command metrics for the same reason as the Go-vs-Java
+# arm: their cells reflect engine-specific probe + handshake activity,
+# not a parity contract.
 def keyset(r):
-    return {m: sorted(v.keys()) for m, v in r.items()}
+    return {m: sorted(v.keys()) for m, v in r.items()
+            if m not in ('pine_redis_command_duration_seconds', 'pine_redis_command_total')}
 if keyset(go) != keyset(cpp):
     print(f'shape go={keyset(go)} cpp={keyset(cpp)}')
 elif go['pine_redis_up'] != cpp['pine_redis_up']:
@@ -241,9 +252,13 @@ else:
       $cpp_srv_ready && CPP_RES2=$(scrape_resources $CPP_PORT)
       under_load=$(python3 -c "
 import json
+# Strip per-command metrics: their cells legitimately grow under load
+# (each operator call adds a new (command, status) tuple) — that growth
+# is the whole point of the metric, so it's not a 'shape drift'.
 def shape(s):
     r = json.loads(s)
-    return {m: sorted(v.keys()) for m, v in r.items()}
+    return {m: sorted(v.keys()) for m, v in r.items()
+            if m not in ('pine_redis_command_duration_seconds', 'pine_redis_command_total')}
 def up(s):
     return json.loads(s).get('pine_redis_up', {}).get('cache')
 go1 = shape('''$GO_RES'''); go2 = shape('''$GO_RES2''')
@@ -271,7 +286,8 @@ else:
 import json
 def shape(s):
     r = json.loads(s)
-    return {m: sorted(v.keys()) for m, v in r.items()}
+    return {m: sorted(v.keys()) for m, v in r.items()
+            if m not in ('pine_redis_command_duration_seconds', 'pine_redis_command_total')}
 def up(s):
     return json.loads(s).get('pine_redis_up', {}).get('cache')
 c1 = shape('''$CPP_RES'''); c2 = shape('''$CPP_RES2''')

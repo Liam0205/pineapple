@@ -37,7 +37,10 @@ package transform
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,12 +149,19 @@ type RedisConnResource struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	once   sync.Once
+
+	// Per-command observability handles. Bound to the resource's metrics
+	// name; ObserveCommand applies the (command, status) labels per call.
+	// nil when metrics_name is empty (no observability requested).
+	metricsName string
+	cmdDuration metrics.Histogram
+	cmdTotal    metrics.Counter
 }
 
 // newRedisConnResource builds the wrapper. When metricsName is empty (or the
 // provider is nil) no metrics are emitted and no probe goroutine is started.
 func newRedisConnResource(client *redis.Client, metricsName string, mp metrics.Provider) *RedisConnResource {
-	r := &RedisConnResource{client: client}
+	r := &RedisConnResource{client: client, metricsName: metricsName}
 	if metricsName == "" || mp == nil {
 		return r
 	}
@@ -169,6 +179,26 @@ func newRedisConnResource(client *redis.Client, metricsName string, mp metrics.P
 	up := mp.NewGauge(metrics.MetricOpts{
 		Name: "pine_redis_up", Help: "Whether the last Redis PING probe succeeded (1) or failed (0).", LabelNames: []string{"name"},
 	}).With(metricsName)
+	// Per-command observability. The hook below wraps every Redis call (Get,
+	// Set, ZRANGEBYSCORE, ...) and records latency + outcome with no operator-
+	// side instrumentation required. Without this, the only signal during a
+	// Redis incident was the PING probe latency (sampled every 15s) and the
+	// pool gauges — neither distinguishes a slow server from pool exhaustion
+	// or surfaces per-command timeout rate. The 2026-06-22 recsys outage
+	// (.code-review/from-24975c2/...) trained for this gap.
+	r.cmdDuration = mp.NewHistogram(metrics.HistogramOpts{
+		MetricOpts: metrics.MetricOpts{
+			Name:       "pine_redis_command_duration_seconds",
+			Help:       "Redis command latency in seconds, labelled by command name and outcome.",
+			LabelNames: []string{"name", "command", "status"},
+		},
+	})
+	r.cmdTotal = mp.NewCounter(metrics.MetricOpts{
+		Name:       "pine_redis_command_total",
+		Help:       "Cumulative count of Redis command invocations, labelled by command name and outcome.",
+		LabelNames: []string{"name", "command", "status"},
+	})
+	client.AddHook(&redisCommandMetricsHook{resource: r})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
@@ -180,6 +210,114 @@ func newRedisConnResource(client *redis.Client, metricsName string, mp metrics.P
 // Client returns the borrowed Redis client. Valid only while the borrow handle
 // is held.
 func (r *RedisConnResource) Client() *redis.Client { return r.client }
+
+// redisCommandMetricsHook implements redis.Hook for the resource: ProcessHook
+// wraps every command issued against the pool, records latency, and tags the
+// counter/histogram with a status label derived from the returned error.
+//
+// We bypass DialHook because dial timing is already covered by the PING probe
+// (and a hot-path dial only happens on pool growth, not on every request); and
+// ProcessPipelineHook is left as a passthrough because pine has no current
+// pipeline-using operators — when the first one lands it can either accept
+// pipeline as a single sample or split per-command, but for now passthrough
+// keeps the metric semantics unambiguous (one Inc per Cmder).
+type redisCommandMetricsHook struct {
+	resource *RedisConnResource
+}
+
+func (h *redisCommandMetricsHook) DialHook(next redis.DialHook) redis.DialHook {
+	return next
+}
+
+func (h *redisCommandMetricsHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		// Filter out connection-lifecycle and probe commands so the metric
+		// reflects business traffic only:
+		//
+		//   * HELLO / CLIENT — go-redis v9 issues these on every new pool
+		//     connection (RESP3 negotiation + CLIENT SETINFO). Operator code
+		//     never calls them; recording them mixes pool-churn noise into
+		//     the per-command rate.
+		//   * PING — the resource's own 15s probe loop. PING already has a
+		//     dedicated metric (pine_redis_ping_duration_seconds); double-
+		//     counting it here would mislead any "redis call rate" panel.
+		//
+		// pine-java and pine-cpp don't have this filter because their
+		// instrumentation is at the operator-level facade (runCommand /
+		// run_command), so they never see lifecycle / probe traffic in the
+		// first place. Filtering Go here keeps the three engines emitting
+		// the same cells under the same load (cross-validate section 16
+		// asserts cell parity).
+		if isProtocolOrProbeCommand(cmd.Name()) {
+			return next(ctx, cmd)
+		}
+		start := time.Now()
+		err := next(ctx, cmd)
+		h.resource.recordCommand(cmd.Name(), time.Since(start), err)
+		return err
+	}
+}
+
+// isProtocolOrProbeCommand reports whether a Redis command should be elided
+// from the per-command metric because it's connection-lifecycle (HELLO,
+// CLIENT) or probe traffic (PING). Case-insensitive — go-redis emits the
+// names lower-cased but the canonical Redis docs use upper-case, and we
+// want the filter to be robust to either.
+func isProtocolOrProbeCommand(name string) bool {
+	switch strings.ToUpper(name) {
+	case "HELLO", "CLIENT", "PING", "AUTH", "SELECT":
+		return true
+	}
+	return false
+}
+
+func (h *redisCommandMetricsHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+// recordCommand writes the per-command observability tuple. Public-method
+// callers don't exist today (operators get observability through the hook
+// above); the helper is split out so tests can drive it directly without
+// spinning up a real client.
+func (r *RedisConnResource) recordCommand(command string, d time.Duration, err error) {
+	if r.cmdTotal == nil {
+		return
+	}
+	status := redisCommandStatus(err)
+	// Normalise command tokens to upper-case (go-redis reports them lower-cased
+	// — "get", "set", "zrangebyscore"). Upper-case matches the Redis docs and
+	// keeps the metric labels comparable across engines, where Java/cpp emit
+	// the command verb verbatim from the operator's call site.
+	r.cmdDuration.With(r.metricsName, strings.ToUpper(command), status).Observe(metrics.DurationSeconds(d))
+	r.cmdTotal.With(r.metricsName, strings.ToUpper(command), status).Inc()
+}
+
+// redisCommandStatus classifies a Redis client error into the status label
+// values surfaced on the per-command metrics. Status taxonomy:
+//   - ok           — call returned, including redis.Nil (cache miss is not an error)
+//   - timeout      — context.DeadlineExceeded or any net.Error.Timeout()
+//   - pool_timeout — go-redis's internal pool wait deadline (redis.ErrPoolTimeout)
+//   - error        — anything else (connection reset, AUTH, protocol errors)
+//
+// The split between timeout / pool_timeout / error is what lets the dashboard
+// distinguish "Redis server is slow" from "we're saturating our pool" from
+// "Redis is up but rejecting commands"; the original incident grafana panel
+// could only see the PING probe + pool gauges and conflated all three.
+func redisCommandStatus(err error) string {
+	if err == nil || err == redis.Nil {
+		return "ok"
+	}
+	if errors.Is(err, redis.ErrPoolTimeout) {
+		return "pool_timeout"
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "timeout"
+	}
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		return "timeout"
+	}
+	return "error"
+}
 
 // probeLoop samples pool stats and PING latency until the context is cancelled.
 // It runs one probe immediately so metrics are populated before the first tick.

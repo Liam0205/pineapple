@@ -12,7 +12,11 @@ import page.liam.pine.metrics.NopProvider;
 import page.liam.pine.metrics.Provider;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.jedis.exceptions.JedisDataException;
+import redis.clients.jedis.exceptions.JedisException;
 
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -166,5 +170,44 @@ public class RedisConnResourceTest {
         assertNotNull(desc);
         assertTrue(desc.contains("max(read_timeout_ms, write_timeout_ms)"),
                 "write_timeout_ms description must mention max() behaviour, got: " + desc);
+    }
+
+    /**
+     * Pin the (Throwable -> status label) taxonomy used by
+     * {@link RedisConnResource#redisCommandStatus(Throwable)}. The Grafana
+     * panels built on top of {@code pine_redis_command_total} need to
+     * distinguish "Redis is slow" (timeout) from "we ran out of pool"
+     * (pool_timeout) from "Redis rejected the call" (error); merging
+     * any two of these into a single bucket would re-introduce the
+     * classification gap that the 2026-06-22 outage exposed.
+     */
+    @Test
+    void commandStatusClassification() {
+        // Success path — no exception.
+        assertEquals("ok", RedisConnResource.redisCommandStatus(null));
+
+        // Pool exhaustion: commons-pool2 wraps the failure as a JedisException
+        // with the "Could not get a resource" message; we must recognise both
+        // common message variants Jedis surfaces.
+        assertEquals("pool_timeout", RedisConnResource.redisCommandStatus(
+                new JedisException("Could not get a resource from the pool")));
+
+        // Socket-level read timeout: Jedis surfaces it as a
+        // JedisConnectionException whose cause is SocketTimeoutException.
+        // The classifier must walk the cause chain.
+        assertEquals("timeout", RedisConnResource.redisCommandStatus(
+                new JedisConnectionException("read timed out", new SocketTimeoutException("Read timed out"))));
+
+        // Connection-level error (host down, connection reset): no cause is a
+        // SocketTimeoutException, so it lands in `error`.
+        assertEquals("error", RedisConnResource.redisCommandStatus(
+                new JedisConnectionException("Connection refused")));
+
+        // Data error (e.g. WRONGTYPE): JedisDataException → "error".
+        assertEquals("error", RedisConnResource.redisCommandStatus(
+                new JedisDataException("WRONGTYPE Operation against a key holding the wrong kind of value")));
+
+        // Unknown runtime exception falls through to "error".
+        assertEquals("error", RedisConnResource.redisCommandStatus(new RuntimeException("boom")));
     }
 }

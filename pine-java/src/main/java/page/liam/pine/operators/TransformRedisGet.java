@@ -51,8 +51,8 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         String resultField = commonOutput().get(0);
         String cacheHitField = commonOutput().get(1);
 
-        JedisPool pool = borrowPool(resourceProvider, resourceName);
-        if (pool == null) {
+        RedisConnResource resource = borrowResource(resourceProvider, resourceName);
+        if (resource == null) {
             output.setCommon(cacheHitField, false);
             return;
         }
@@ -74,10 +74,10 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         }
         String key = prefix + buildKeySuffix(input, commonInput());
 
-        try (Jedis jedis = pool.getResource()) {
+        try {
             switch (dataType) {
                 case "set": {
-                    Set<String> members = jedis.smembers(key);
+                    Set<String> members = resource.runCommand("SMEMBERS", jedis -> jedis.smembers(key));
                     if (members != null && !members.isEmpty()) {
                         output.setCommon(resultField, new ArrayList<>(members));
                         output.setCommon(cacheHitField, true);
@@ -87,7 +87,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
                     break;
                 }
                 case "list": {
-                    List<String> vals = jedis.lrange(key, 0, -1);
+                    List<String> vals = resource.runCommand("LRANGE", jedis -> jedis.lrange(key, 0, -1));
                     if (vals != null && !vals.isEmpty()) {
                         output.setCommon(resultField, vals);
                         output.setCommon(cacheHitField, true);
@@ -97,7 +97,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
                     break;
                 }
                 case "string": {
-                    String val = jedis.get(key);
+                    String val = resource.runCommand("GET", jedis -> jedis.get(key));
                     if (val != null && !val.isEmpty()) {
                         output.setCommon(resultField, val);
                         output.setCommon(cacheHitField, true);
@@ -139,7 +139,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
      * value is not a RedisConnResource — in which case the caller degrades (a get
      * treats it as a cache miss; a set becomes a no-op), mirroring Go's borrowRedis.
      */
-    static JedisPool borrowPool(ResourceProvider provider, String resourceName) {
+    static RedisConnResource borrowResource(ResourceProvider provider, String resourceName) {
         if (provider == null) {
             return null;
         }
@@ -148,7 +148,17 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
             return null;
         }
         Object v = r.value();
-        return (v instanceof RedisConnResource) ? ((RedisConnResource) v).pool() : null;
+        return (v instanceof RedisConnResource) ? (RedisConnResource) v : null;
+    }
+
+    /**
+     * Backwards-compatible wrapper that just returns the JedisPool. New
+     * code should prefer {@link #borrowResource(ResourceProvider, String)}
+     * so it can route commands through {@code runCommand} for observability.
+     */
+    static JedisPool borrowPool(ResourceProvider provider, String resourceName) {
+        RedisConnResource res = borrowResource(provider, resourceName);
+        return res == null ? null : res.pool();
     }
 
     static String buildKeySuffix(OperatorInput input, List<String> fields) {

@@ -63,10 +63,14 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
     }
     std::string key = prefix + operators::build_key_suffix(input, common_input_);
 
-    auto client = conn->acquire();
-    redis::Client* cli = client.get();
-
+    // cmd is used in both setWarning text and as the per-command metric
+    // label. Go's setWarning uses PascalCase ("Get" / "SMembers" /
+    // "LRange") for the warning string but the metric needs the canonical
+    // upper-case Redis verb ("GET" / "SMEMBERS" / "LRANGE") so the label
+    // matches across pine-go (where go-redis surfaces the verb) and
+    // pine-java. We carry both forms.
     const char* cmd = (data_type_ == "set") ? "SMembers" : (data_type_ == "list") ? "LRange" : "Get";
+    const char* metric_cmd = (data_type_ == "set") ? "SMEMBERS" : (data_type_ == "list") ? "LRANGE" : "GET";
     auto on_failure = [&](const std::string& msg) {
       out.set_warning("transform_redis_get: " + std::string(cmd) + "(" + key + "): " + msg);
       if (fail_on_error_) {
@@ -75,14 +79,10 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
       out.set_common(cache_hit_field_, Variant(false));
     };
 
-    if (!cli || !cli->connected()) {
-      on_failure("connection failed");
-      return;
-    }
-
     try {
       if (data_type_ == "string") {
-        auto val = cli->get(key);
+        auto val = conn->run_command<std::optional<std::string>>(
+            metric_cmd, [&](redis::Client& cli) { return cli.get(key); });
         if (val && !val->empty()) {
           out.set_common(result_field_, Variant(*val));
           out.set_common(cache_hit_field_, Variant(true));
@@ -90,7 +90,8 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
           out.set_common(cache_hit_field_, Variant(false));
         }
       } else if (data_type_ == "set") {
-        auto members = cli->smembers(key);
+        auto members = conn->run_command<std::vector<std::string>>(
+            metric_cmd, [&](redis::Client& cli) { return cli.smembers(key); });
         if (!members.empty()) {
           Variant::array_t arr;
           for (auto& m : members) {
@@ -102,7 +103,8 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
           out.set_common(cache_hit_field_, Variant(false));
         }
       } else if (data_type_ == "list") {
-        auto vals = cli->lrange(key, 0, -1);
+        auto vals = conn->run_command<std::vector<std::string>>(
+            metric_cmd, [&](redis::Client& cli) { return cli.lrange(key, 0, -1); });
         if (!vals.empty()) {
           Variant::array_t arr;
           for (auto& v : vals) {
