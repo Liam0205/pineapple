@@ -3,7 +3,6 @@ package page.liam.pine.operators;
 import page.liam.pine.*;
 import page.liam.pine.GoFormat;
 import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
 
 import java.util.*;
 
@@ -134,7 +133,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     }
 
     /**
-     * Borrows a {@link JedisPool} from a redis_connection resource by name.
+     * Borrows a {@link RedisConnResource} from the resource provider by name.
      * Returns null when no provider is injected, the resource is missing, or its
      * value is not a RedisConnResource — in which case the caller degrades (a get
      * treats it as a cache miss; a set becomes a no-op), mirroring Go's borrowRedis.
@@ -149,16 +148,6 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         }
         Object v = r.value();
         return (v instanceof RedisConnResource) ? (RedisConnResource) v : null;
-    }
-
-    /**
-     * Backwards-compatible wrapper that just returns the JedisPool. New
-     * code should prefer {@link #borrowResource(ResourceProvider, String)}
-     * so it can route commands through {@code runCommand} for observability.
-     */
-    static JedisPool borrowPool(ResourceProvider provider, String resourceName) {
-        RedisConnResource res = borrowResource(provider, resourceName);
-        return res == null ? null : res.pool();
     }
 
     static String buildKeySuffix(OperatorInput input, List<String> fields) {

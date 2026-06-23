@@ -285,7 +285,11 @@ class RedisConnResource {
       // mark the synthetic call as "error" so the dashboard still sees
       // the attempt + the failure.
       record_command(command, std::chrono::nanoseconds::zero(), command_status_error);
-      throw std::runtime_error("redis: connection failed");
+      // Bare "connection failed" message — no "redis: " prefix — so the
+      // operator-level on_failure(e.what()) renders as
+      // "transform_redis_get: Get(<key>): connection failed", matching
+      // the wording the cpp redis ops produced before run_command landed.
+      throw std::runtime_error("connection failed");
     }
     if (cmd_total_ == nullptr) {
       // Fast path — pass through without timing.
