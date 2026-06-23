@@ -1,8 +1,10 @@
 #include "redis/redis_client.hpp"
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -28,9 +30,66 @@ std::string encode_command(const std::vector<std::string>& args) {
   return out;
 }
 
+// Convert milliseconds to a struct timeval. Caller owns the returned object.
+struct timeval to_timeval(std::chrono::milliseconds ms) {
+  struct timeval tv{};
+  tv.tv_sec = static_cast<time_t>(ms.count() / 1000);
+  tv.tv_usec = static_cast<suseconds_t>((ms.count() % 1000) * 1000);
+  return tv;
+}
+
+// Connect with a deadline. Returns true on success. Performs the standard
+// nonblocking-connect dance: switch the socket to nonblocking, fire
+// connect(), wait on the writable bit with select() bounded by the
+// deadline, then check SO_ERROR; restore blocking mode on success.
+bool connect_with_timeout(int fd, const struct sockaddr* addr, socklen_t addrlen,
+                          std::chrono::milliseconds deadline) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0) {
+    return false;
+  }
+  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    return false;
+  }
+
+  int rc = ::connect(fd, addr, addrlen);
+  if (rc == 0) {
+    // Immediate success — restore blocking and we're done.
+    fcntl(fd, F_SETFL, flags);
+    return true;
+  }
+  if (errno != EINPROGRESS) {
+    return false;
+  }
+
+  fd_set wfds;
+  FD_ZERO(&wfds);
+  FD_SET(fd, &wfds);
+  struct timeval tv = to_timeval(deadline);
+  rc = select(fd + 1, nullptr, &wfds, nullptr, &tv);
+  if (rc <= 0) {
+    // 0 = timeout, -1 = error. Either way we did not connect.
+    return false;
+  }
+
+  int sockerr = 0;
+  socklen_t errlen = sizeof(sockerr);
+  if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) < 0 || sockerr != 0) {
+    return false;
+  }
+
+  fcntl(fd, F_SETFL, flags);
+  return true;
+}
+
 }  // namespace
 
-Client::Client(const std::string& host, int port, const std::string& password, int db) {
+Client::Client(const std::string& host, int port, const std::string& password, int db)
+    : Client(host, port, password, db, ClientOptions{}) {
+}
+
+Client::Client(const std::string& host, int port, const std::string& password, int db,
+               const ClientOptions& opts) {
   struct addrinfo hints{}, *result = nullptr;
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
@@ -47,12 +106,15 @@ Client::Client(const std::string& host, int port, const std::string& password, i
       continue;
     }
 
-    struct timeval tv{};
-    tv.tv_sec = 2;
-    setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    // Apply read/write socket timeouts up front so the AUTH/SELECT round
+    // trips below also honour the deadline. dial_timeout is enforced via
+    // connect_with_timeout's select() bound and is independent of these.
+    struct timeval rcv_tv = to_timeval(opts.read_timeout);
+    struct timeval snd_tv = to_timeval(opts.write_timeout);
+    setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
+    setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
 
-    if (connect(fd_, rp->ai_addr, rp->ai_addrlen) == 0) {
+    if (connect_with_timeout(fd_, rp->ai_addr, rp->ai_addrlen, opts.dial_timeout)) {
       break;
     }
     close(fd_);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
@@ -7,9 +8,21 @@
 namespace pine {
 namespace redis {
 
+// ClientOptions bundles the cascade-safety knobs the Go / Java equivalents
+// expose on the redis_connection resource. Defaults match pine-go and
+// pine-java (2 s across the board) so a healthy steady-state is not
+// disturbed; production deployments tighten read/write toward 500 ms when
+// they have measured their server's healthy P99.
+struct ClientOptions {
+  std::chrono::milliseconds dial_timeout{2000};
+  std::chrono::milliseconds read_timeout{2000};
+  std::chrono::milliseconds write_timeout{2000};
+};
+
 class Client {
  public:
   Client(const std::string& host, int port, const std::string& password = "", int db = 0);
+  Client(const std::string& host, int port, const std::string& password, int db, const ClientOptions& opts);
   ~Client();
 
   Client(const Client&) = delete;

@@ -1,6 +1,7 @@
 #include "pine/operator.hpp"
 #include "pine/operator_input.hpp"
 #include "pine/pine.hpp"
+#include "pine/resource.hpp"
 
 #include <doctest/doctest.h>
 
@@ -185,4 +186,35 @@ TEST_CASE("redis_set is a no-op when no resource provider is injected") {
 
   // Null borrow → silent no-op; must not throw and must not connect.
   CHECK_NOTHROW(engine.execute(req));
+}
+
+// Locks the cross-engine-shared cascade-safety defaults on the registered
+// schema. Mirrors pine-go's TestRedisOptionsFromParams_Defaults and pine-java's
+// schemaExposesCascadeSafetyParams. Regression test for the 2026-06-22
+// tipsy-recsys outage.
+TEST_CASE("redis_connection schema exposes cascade-safety defaults") {
+  resource::ResourceSchema schema;
+  bool found = false;
+  for (auto& s : resource::all_resource_schemas()) {
+    if (s.name == "redis_connection") {
+      schema = s;
+      found = true;
+      break;
+    }
+  }
+  REQUIRE(found);
+
+  REQUIRE(schema.params.count("dial_timeout_ms") == 1);
+  CHECK(schema.params.at("dial_timeout_ms").default_value.as_number() == 2000.0);
+  REQUIRE(schema.params.count("read_timeout_ms") == 1);
+  CHECK(schema.params.at("read_timeout_ms").default_value.as_number() == 2000.0);
+  REQUIRE(schema.params.count("write_timeout_ms") == 1);
+  CHECK(schema.params.at("write_timeout_ms").default_value.as_number() == 2000.0);
+  REQUIRE(schema.params.count("pool_timeout_ms") == 1);
+  CHECK(schema.params.at("pool_timeout_ms").default_value.as_number() == 2000.0);
+  REQUIRE(schema.params.count("pool_size") == 1);
+  CHECK(schema.params.at("pool_size").default_value.as_number() == 0.0);
+
+  CHECK(schema.params.at("addr").required == true);
+  CHECK(schema.params.at("read_timeout_ms").required == false);
 }

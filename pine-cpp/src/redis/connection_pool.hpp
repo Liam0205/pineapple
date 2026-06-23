@@ -47,7 +47,9 @@ class ConnectionPool {
   ConnectionPool& operator=(const ConnectionPool&) = delete;
 
   // Borrow a connection. May construct a new client if none is idle.
-  std::unique_ptr<Client> acquire(const std::string& host, int port, const std::string& password, int db);
+  // Newly-constructed clients honour `opts` (read/write/dial timeouts).
+  std::unique_ptr<Client> acquire(const std::string& host, int port, const std::string& password, int db,
+                                  const ClientOptions& opts = ClientOptions{});
 
   // Return a connection to the idle queue. The caller must not reuse
   // the pointer afterward. If the connection is in a broken state
@@ -142,12 +144,20 @@ class ConnectionPool {
   // Convenience: acquire + bundle into a ScopedClient that releases on
   // scope exit. Returns an empty ScopedClient if the underlying acquire
   // returned null (connection failure).
-  ScopedClient acquire_scoped(const std::string& host, int port, const std::string& password, int db) {
-    auto c = acquire(host, port, password, db);
+  ScopedClient acquire_scoped(const std::string& host, int port, const std::string& password, int db,
+                              const ClientOptions& opts = ClientOptions{}) {
+    auto c = acquire(host, port, password, db, opts);
     if (!c) {
       return ScopedClient{};
     }
     return ScopedClient{this, host, port, password, db, std::move(c)};
+  }
+
+  // Override the per-key idle-queue cap from the default kMaxIdlePerKey.
+  // 0 (the default) keeps the legacy cap. Used by RedisConnResource to
+  // surface the redis_connection resource's pool_size knob.
+  void set_max_idle_per_key(std::size_t cap) {
+    max_idle_per_key_ = cap == 0 ? kMaxIdlePerKey : cap;
   }
 
  private:
@@ -159,6 +169,7 @@ class ConnectionPool {
   mutable std::mutex mu_;
   std::map<Key, std::vector<IdleEntry>> idle_;
   std::atomic<std::size_t> in_use_{0};
+  std::size_t max_idle_per_key_ = kMaxIdlePerKey;
 };
 
 // RedisConnResource is the handle stored by the `redis_connection` resource
@@ -178,10 +189,14 @@ class RedisConnResource {
 
   // Constructs the resource. When metrics_name is empty (or mp is null) no
   // metrics are created and no probe thread is started, mirroring pine-go's
-  // newRedisConnResource gate.
+  // newRedisConnResource gate. `opts` carries the cascade-safety timeouts
+  // exposed by the redis_connection resource schema; `pool_size` (when > 0)
+  // overrides the per-key idle-queue cap.
   RedisConnResource(std::string host, int port, std::string password, int db,
-                    const std::string& metrics_name = "", metrics::Provider* mp = nullptr)
-      : host_(std::move(host)), port_(port), password_(std::move(password)), db_(db) {
+                    const std::string& metrics_name = "", metrics::Provider* mp = nullptr,
+                    const ClientOptions& opts = ClientOptions{}, std::size_t pool_size = 0)
+      : host_(std::move(host)), port_(port), password_(std::move(password)), db_(db), opts_(opts) {
+    pool_.set_max_idle_per_key(pool_size);
     if (metrics_name.empty() || mp == nullptr) {
       return;
     }
@@ -219,7 +234,7 @@ class RedisConnResource {
   }
 
   ConnectionPool::ScopedClient acquire() {
-    return pool_.acquire_scoped(host_, port_, password_, db_);
+    return pool_.acquire_scoped(host_, port_, password_, db_, opts_);
   }
 
   const std::string& host() const {
@@ -237,7 +252,7 @@ class RedisConnResource {
       const auto start = std::chrono::steady_clock::now();
       bool ok = false;
       try {
-        auto c = pool_.acquire_scoped(host_, port_, password_, db_);
+        auto c = pool_.acquire_scoped(host_, port_, password_, db_, opts_);
         ok = c && c->ping();
       } catch (...) {
         ok = false;
@@ -261,6 +276,7 @@ class RedisConnResource {
   int port_ = 0;
   std::string password_;
   int db_ = 0;
+  ClientOptions opts_;
   ConnectionPool pool_;
 
   // Metrics handles are owned by the Provider; nullptr when metrics disabled.
