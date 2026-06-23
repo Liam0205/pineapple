@@ -99,7 +99,12 @@ public class Codegen {
         for (page.liam.pine.OperatorSchema es : engineSchemas) {
             OperatorSchema cs = new OperatorSchema();
             cs.name = es.name;
-            cs.type = es.type.name().toLowerCase();
+            // Render the OperatorType as PascalCase ("Transform", "Recall", …)
+            // to match pine-go's Codegen output. The enum's name() yields all
+            // upper-case ("TRANSFORM"), and a verbatim toLowerCase() drifted
+            // away from Go's `**Type**: Transform` doc heading. Doc parity is
+            // the cross-engine contract (see codegen-doc-parity test below).
+            cs.type = pascalCaseEnum(es.type.name());
             cs.description = es.description;
             Map<String, ParamSpec> params = new LinkedHashMap<>();
             for (Map.Entry<String, page.liam.pine.ParamSpec> entry : es.params.entrySet()) {
@@ -327,7 +332,7 @@ public class Codegen {
         return "None";
     }
 
-    private static String toPythonLiteral(Object v) {
+    static String toPythonLiteral(Object v) {
         if (v == null) return "None";
         if (v instanceof String) return "\"" + escapeString((String) v) + "\"";
         if (v instanceof Boolean) return (Boolean) v ? "True" : "False";
@@ -337,6 +342,27 @@ public class Codegen {
             return GoFormat.formatG(d);
         }
         return "\"" + escapeString(v.toString()) + "\"";
+    }
+
+    /**
+     * Render an OperatorType enum name as PascalCase. The enum stores names
+     * upper-snake-case ("TRANSFORM", "MERGE_DEDUP_UNION") but the cross-engine
+     * doc contract (matching pine-go's `**Type**: Transform` heading) wants
+     * PascalCase. Splits on underscores so future multi-word types render
+     * cleanly. Package-private so the codegen-parity unit test can pin the
+     * mapping directly.
+     */
+    static String pascalCaseEnum(String name) {
+        if (name == null || name.isEmpty()) return name;
+        StringBuilder sb = new StringBuilder(name.length());
+        for (String part : name.split("_")) {
+            if (part.isEmpty()) continue;
+            sb.append(Character.toUpperCase(part.charAt(0)));
+            if (part.length() > 1) {
+                sb.append(part.substring(1).toLowerCase());
+            }
+        }
+        return sb.toString();
     }
 
     private static String escapeString(String s) {
@@ -409,7 +435,11 @@ public class Codegen {
                 Collections.sort(paramNames);
                 for (String pName : paramNames) {
                     ParamSpec spec = schema.params.get(pName);
-                    String defVal = spec.defaultValue != null ? "`" + spec.defaultValue + "`" : "-";
+                    // Render the default the same way pine-go does: Python
+                    // literal form (so "x" comes through quoted, True/False
+                    // capitalised). Bare toString() drifted ('"string"' vs
+                    // 'string', 'False' vs 'false') and broke doc-byte parity.
+                    String defVal = spec.defaultValue != null ? "`" + toPythonLiteral(spec.defaultValue) + "`" : "-";
                     String pdesc = spec.description != null ? spec.description : "";
                     w.printf("| %s | %s | %s | %s | %s |%n",
                             pName, spec.type, spec.required ? "Yes" : "No", defVal, pdesc);
