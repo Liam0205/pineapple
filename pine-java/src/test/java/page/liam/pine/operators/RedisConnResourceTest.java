@@ -119,4 +119,52 @@ public class RedisConnResourceTest {
         assertTrue(schema.params.get("addr").required);
         assertFalse(schema.params.get("read_timeout_ms").required);
     }
+
+    /**
+     * Pin the Jedis-specific mapping: pine-java's single socketTimeoutMillis is
+     * driven by max(read, write). The 2026-06-22 review (.code-review/from-
+     * 24975c2/...) flagged that a later switch to min would silently turn long-
+     * running reads (LRANGE / ZRANGEBYSCORE) into write failures, defeating the
+     * cascade-safety story for those commands. Lock the policy and the schema
+     * description so the two stay in sync.
+     */
+    @Test
+    void writeTimeoutMapsToMaxOfReadAndWriteOnJedis() {
+        // Symmetric configuration: both directions get the same wall.
+        assertEquals(500, AllOperators.effectiveSocketTimeoutMs(500, 500));
+
+        // Asymmetric — write higher than read. Documents the real choice:
+        // the larger value wins so reads that legitimately wait on the server
+        // (LRANGE etc.) aren't capped at the write deadline.
+        assertEquals(2000, AllOperators.effectiveSocketTimeoutMs(500, 2000));
+        assertEquals(2000, AllOperators.effectiveSocketTimeoutMs(2000, 500));
+
+        // Defaults from the schema (2000 / 2000) yield 2000 verbatim.
+        assertEquals(2000, AllOperators.effectiveSocketTimeoutMs(2000, 2000));
+    }
+
+    /**
+     * The schema description for write_timeout_ms must surface the Java-
+     * specific max() behaviour so users configuring asymmetric timeouts on
+     * Apple's Python DSL learn the engine difference at config time, not
+     * after a production incident. Locks the language so a future drift on
+     * the description (and thus the codegen-emitted docstring) catches the
+     * drift on the policy at the same time.
+     */
+    @Test
+    void writeTimeoutSchemaDescriptionMentionsMaxBehaviour() {
+        AllOperators.ensureRegistered();
+        Codegen.ResourceSchema schema = null;
+        for (Codegen.ResourceSchema s : ResourceRegistry.all()) {
+            if ("redis_connection".equals(s.name)) {
+                schema = s;
+                break;
+            }
+        }
+        assertNotNull(schema);
+        String desc = schema.params.get("write_timeout_ms").description;
+        assertNotNull(desc);
+        assertTrue(desc.contains("max(read_timeout_ms, write_timeout_ms)"),
+                "write_timeout_ms description must mention max() behaviour, got: " + desc);
+    }
 }

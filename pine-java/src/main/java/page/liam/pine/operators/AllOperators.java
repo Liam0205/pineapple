@@ -359,8 +359,11 @@ public class AllOperators {
                 // the schema for cross-engine parity but mapped to the larger of
                 // the two: a strict write_timeout below the read deadline would
                 // silently turn round-trips that wait on the server (LRANGE,
-                // ZRANGEBYSCORE) into write failures.
-                int socketTimeoutMs = Math.max(readTimeoutMs, writeTimeoutMs);
+                // ZRANGEBYSCORE) into write failures. The chosen direction is
+                // documented on write_timeout_ms's schema description so users
+                // configuring `read=500, write=2000` see the same 2000ms read
+                // wall they get on Go and don't get a surprise.
+                int socketTimeoutMs = effectiveSocketTimeoutMs(readTimeoutMs, writeTimeoutMs);
                 DefaultJedisClientConfig.Builder cfgBuilder = DefaultJedisClientConfig.builder()
                         .connectionTimeoutMillis(dialTimeoutMs)
                         .socketTimeoutMillis(socketTimeoutMs)
@@ -387,7 +390,11 @@ public class AllOperators {
         p.put("db", codegenParam("int", false, 0L, "Redis DB number."));
         p.put("dial_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_DIAL_TIMEOUT_MS, "TCP dial timeout in ms."));
         p.put("read_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_READ_TIMEOUT_MS, "Per-command read timeout in ms; primary cascade-safety knob."));
-        p.put("write_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_WRITE_TIMEOUT_MS, "Per-command write timeout in ms."));
+        p.put("write_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_WRITE_TIMEOUT_MS,
+                "Per-command write timeout in ms. pine-java note: Jedis exposes a single socket"
+                        + " timeout, so the effective deadline on this engine is"
+                        + " max(read_timeout_ms, write_timeout_ms); keep read_timeout_ms"
+                        + " >= write_timeout_ms to avoid surprise."));
         p.put("pool_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_POOL_TIMEOUT_MS, "How long a borrower waits for a free pool connection in ms."));
         p.put("pool_size", codegenParam("int", false, 0L, "Maximum concurrent connections; 0 = pool default."));
         p.put("metrics_name", codegenParam("string", false, "", "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics."));
@@ -407,6 +414,22 @@ public class AllOperators {
             return ((Number) v).intValue();
         }
         return fallback;
+    }
+
+    /**
+     * Compute the Jedis socket timeout from the schema-supplied read/write
+     * timeouts. Jedis has a single socket timeout for both directions, so we
+     * pick the larger of the two — see the call site comment for the rationale
+     * (LRANGE/ZRANGEBYSCORE wait on the server, taking the smaller of the two
+     * would mis-classify long reads as write failures).
+     *
+     * <p>Package-private so the regression test can pin this contract directly:
+     * if a future refactor switches the policy (e.g. to {@code min}), the
+     * {@code write_timeout_ms} schema description becomes wrong and operators
+     * configuring asymmetric timeouts get a silent surprise.
+     */
+    static int effectiveSocketTimeoutMs(int readTimeoutMs, int writeTimeoutMs) {
+        return Math.max(readTimeoutMs, writeTimeoutMs);
     }
 
     private static Codegen.ParamSpec codegenParam(String type, boolean required, Object defaultValue, String description) {

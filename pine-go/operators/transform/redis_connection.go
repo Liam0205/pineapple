@@ -20,7 +20,9 @@
 //     Redis is contained at this resource boundary instead of cascading into
 //     the request goroutine pool.
 //   - write_timeout_ms (int, optional, default=2000): Per-command write
-//     timeout in ms. Same intent as read_timeout_ms.
+//     timeout in ms. pine-java honours this as max(read_timeout_ms,
+//     write_timeout_ms) due to Jedis's single socket timeout; pine-go and
+//     pine-cpp honour read/write independently.
 //   - pool_timeout_ms (int, optional, default=2000): How long a goroutine
 //     waits for a free connection from the pool when all connections are in
 //     use. Bounds the upstream-induced pile-up when Redis stops returning.
@@ -73,7 +75,7 @@ func init() {
 			"db":               {Type: "int", Required: false, Default: 0, Description: "Redis DB number."},
 			"dial_timeout_ms":  {Type: "int", Required: false, Default: defaultRedisDialTimeoutMs, Description: "TCP dial timeout in ms."},
 			"read_timeout_ms":  {Type: "int", Required: false, Default: defaultRedisReadTimeoutMs, Description: "Per-command read timeout in ms; primary cascade-safety knob."},
-			"write_timeout_ms": {Type: "int", Required: false, Default: defaultRedisWriteTimeoutMs, Description: "Per-command write timeout in ms."},
+			"write_timeout_ms": {Type: "int", Required: false, Default: defaultRedisWriteTimeoutMs, Description: "Per-command write timeout in ms. pine-java note: Jedis exposes a single socket timeout, so the effective deadline on this engine is max(read_timeout_ms, write_timeout_ms); keep read_timeout_ms >= write_timeout_ms to avoid surprise. pine-go and pine-cpp honour read/write independently."},
 			"pool_timeout_ms":  {Type: "int", Required: false, Default: defaultRedisPoolTimeoutMs, Description: "How long a goroutine waits for a free pool connection in ms."},
 			"pool_size":        {Type: "int", Required: false, Default: 0, Description: "Maximum concurrent connections; 0 = client default (10*GOMAXPROCS)."},
 			"metrics_name":     {Type: "string", Required: false, Default: "", Description: "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics."},

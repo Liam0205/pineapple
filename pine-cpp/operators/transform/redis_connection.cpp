@@ -17,7 +17,9 @@
 //     in ms; primary cascade-safety knob (see pine-go for the full incident
 //     background).
 //   - write_timeout_ms (int, optional, default=2000): Per-command write
-//     timeout in ms.
+//     timeout in ms. pine-java honours this as max(read_timeout_ms,
+//     write_timeout_ms) due to Jedis's single socket timeout; pine-go and
+//     pine-cpp honour read/write independently.
 //   - pool_timeout_ms (int, optional, default=2000): Accepted for cross-engine
 //     parity. The C++ pool's acquire never blocks on a borrow (acquire
 //     constructs a fresh client when no idle handle is available), so this
@@ -65,8 +67,12 @@ const bool _redis_connection_schema_init = [] {
   schema.params["read_timeout_ms"] =
       ParamSchema{"int", false, Variant(static_cast<double>(kDefaultReadTimeoutMs)),
                   "Per-command read timeout in ms; primary cascade-safety knob."};
-  schema.params["write_timeout_ms"] = ParamSchema{
-      "int", false, Variant(static_cast<double>(kDefaultWriteTimeoutMs)), "Per-command write timeout in ms."};
+  schema.params["write_timeout_ms"] =
+      ParamSchema{"int", false, Variant(static_cast<double>(kDefaultWriteTimeoutMs)),
+                  "Per-command write timeout in ms. pine-java note: Jedis exposes a single socket timeout, "
+                  "so the effective deadline on this engine is max(read_timeout_ms, write_timeout_ms); keep "
+                  "read_timeout_ms >= write_timeout_ms to avoid surprise. pine-go and pine-cpp honour "
+                  "read/write independently."};
   schema.params["pool_timeout_ms"] =
       ParamSchema{"int", false, Variant(static_cast<double>(kDefaultPoolTimeoutMs)),
                   "How long a borrower waits for a free pool connection in ms; "
