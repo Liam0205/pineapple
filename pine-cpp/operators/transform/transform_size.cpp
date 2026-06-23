@@ -24,6 +24,10 @@ static const OperatorSchema k_transform_size_schema{
     .type = OpType::Transform,
     .description = "Outputs the current item count to a common field.",
     .params = {},
+    .metadata = {.common_input = "[]",
+                 .common_output = "[<target_field>]",
+                 .item_input = "[]",
+                 .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformSizeOp, k_transform_size_schema)
 

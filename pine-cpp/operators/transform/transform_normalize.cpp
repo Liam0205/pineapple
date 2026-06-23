@@ -76,6 +76,10 @@ static const OperatorSchema k_transform_normalize_schema{
               .default_value = Variant("min_max"),
               .description = "Normalization method."}},
         },
+    .metadata = {.common_input = "[]",
+                 .common_output = "[]",
+                 .item_input = "[<field>]",
+                 .item_output = "[<output_field>]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformNormalizeOp, k_transform_normalize_schema)
 

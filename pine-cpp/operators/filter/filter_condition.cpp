@@ -43,6 +43,7 @@ static const OperatorSchema k_filter_condition_schema{
               .default_value = Variant(nullptr),
               .description = "Items where field == value are removed."}},
         },
+    .metadata = {.common_input = "[]", .common_output = "[]", .item_input = "[<field>]", .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(FilterConditionOp, k_filter_condition_schema)
 

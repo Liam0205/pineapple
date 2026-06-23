@@ -92,6 +92,10 @@ static const OperatorSchema k_transform_copy_schema{
               .description = "Copy direction: \"common_to_item\", \"item_to_common\", \"common_to_common\", "
                              "or \"item_to_item\"."}},
         },
+    .metadata = {.common_input = "[<source_fields...>]",
+                 .common_output = "[<target_field>]   (collects all item values into a list)",
+                 .item_input = "[<source_field>]",
+                 .item_output = "[<target_fields...>]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformCopyOp, k_transform_copy_schema)
 

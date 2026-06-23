@@ -42,6 +42,10 @@ static const OperatorSchema k_merge_dedup_schema{
               .default_value = Variant("first"),
               .description = "Dedup strategy \xe2\x80\x94 \"first\" keeps first occurrence."}},
         },
+    .metadata = {.common_input = "[]",
+                 .common_output = "[]",
+                 .item_input = "[item_id, _source]",
+                 .item_output = "[item_id]"},
 };
 PINE_REGISTER_OPERATOR_T(MergeDedupOp, k_merge_dedup_schema)
 

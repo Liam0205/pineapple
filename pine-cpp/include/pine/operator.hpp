@@ -79,11 +79,26 @@ class Closer {
 // pre-projected OperatorInput snapshot with defaults applied.
 
 // --- OperatorSchema ---
+
+// MetadataDoc holds the typical CommonInput / CommonOutput / ItemInput /
+// ItemOutput contract for an operator, surfaced in the generated markdown's
+// "Metadata Contract" section. Empty fields render as "-". Cross-engine
+// codegen contract: pine-go parses these from source comments, pine-java
+// from javadoc; pine-cpp has no source parser, so operator authors set them
+// inline alongside the rest of the schema.
+struct MetadataDoc {
+  std::string common_input;
+  std::string common_output;
+  std::string item_input;
+  std::string item_output;
+};
+
 struct OperatorSchema {
   std::string name;
   OpType type;
   std::string description;
   std::map<std::string, ParamSchema> params;
+  MetadataDoc metadata;  // Optional; empty fields render as "-" in generated markdown.
 };
 
 using OperatorFactory = std::function<std::unique_ptr<Operator>()>;

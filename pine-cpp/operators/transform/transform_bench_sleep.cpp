@@ -41,6 +41,7 @@ static const OperatorSchema k_transform_bench_sleep_schema{
               .default_value = Variant(5.0),
               .description = "Milliseconds to sleep per operator invocation."}},
         },
+    .metadata = {.common_input = "", .common_output = "", .item_input = "", .item_output = ""},
 };
 PINE_REGISTER_OPERATOR_T(TransformBenchSleepOp, k_transform_bench_sleep_schema)
 

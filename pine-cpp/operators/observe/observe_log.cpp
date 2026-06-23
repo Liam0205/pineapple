@@ -72,6 +72,10 @@ static const OperatorSchema k_observe_log_schema{
               .default_value = Variant(""),
               .description = "Prefix prepended to each log line."}},
         },
+    .metadata = {.common_input = "[<fields to observe>]",
+                 .common_output = "[]",
+                 .item_input = "[<fields to observe>]",
+                 .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(ObserveLogOp, k_observe_log_schema)
 

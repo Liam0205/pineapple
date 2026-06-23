@@ -200,6 +200,10 @@ static const OperatorSchema k_transform_redis_set_schema{
               .description =
                   "Return fatal error on Redis infrastructure failure instead of logging and continuing."}},
         },
+    .metadata = {.common_input = "[<key_suffix_fields...>, <value_field>]",
+                 .common_output = "[]",
+                 .item_input = "[]",
+                 .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformRedisSetOp, k_transform_redis_set_schema)
 

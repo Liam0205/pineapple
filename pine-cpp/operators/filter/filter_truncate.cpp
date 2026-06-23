@@ -69,6 +69,7 @@ static const OperatorSchema k_filter_truncate_schema{
               .description = "Number of items to keep. Supports {{field}} interpolation.",
               .templatable = true}},
         },
+    .metadata = {.common_input = "[]", .common_output = "[]", .item_input = "[]", .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(FilterTruncateOp, k_filter_truncate_schema)
 

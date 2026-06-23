@@ -151,14 +151,15 @@ else
   echo "    (C++ codegen binary not found — skipping C++ Python output parity)"
 fi
 
-# 1e. Codegen Markdown output Go vs Java byte-level parity.
-# Reads each backend's generated doc/operators/ tree and diff -r them.
-# Drift here used to silently sneak through (the 2026-06-22 review of
-# .code-review/from-24975c2/... surfaced three rendering bugs that the
-# Python-only checks above did not catch). pine-cpp has no markdown emit
-# path today; once it does, add a Go-vs-cpp arm here too.
+# 1e. Codegen Markdown output Go vs Java vs C++ byte-level parity.
+# Reads each backend's generated doc/operators/ tree and diff -r them
+# pairwise. Drift here used to silently sneak through (the 2026-06-22
+# review of .code-review/from-24975c2/... surfaced three rendering bugs
+# that the Python-only checks above did not catch). pine-cpp learned a
+# markdown emit path in the same change; the gate now covers all three
+# engines symmetrically.
 echo "    Comparing generated Markdown docs (operator reference)..."
-rm -rf "$WORK_DIR/docs-go" "$WORK_DIR/docs-java"
+rm -rf "$WORK_DIR/docs-go" "$WORK_DIR/docs-java" "$WORK_DIR/docs-cpp"
 mkdir -p "$WORK_DIR/docs-go" "$WORK_DIR/docs-java"
 "$WORK_DIR/pineapple-codegen" \
   -output "$WORK_DIR/python-go-for-docs" \
@@ -173,6 +174,20 @@ if diff -r "$WORK_DIR/docs-go" "$WORK_DIR/docs-java" >/dev/null 2>&1; then
 else
   fail "codegen Markdown output divergence (Go vs Java)"
   diff -r "$WORK_DIR/docs-go" "$WORK_DIR/docs-java" >&2 || true
+fi
+
+if [[ -n "${CPP_CODEGEN:-}" ]]; then
+  mkdir -p "$WORK_DIR/docs-cpp"
+  if ! "$CPP_CODEGEN" -doc-dir "$WORK_DIR/docs-cpp" >/dev/null 2>&1; then
+    fail "C++ codegen failed to produce Markdown output"
+  elif diff -r "$WORK_DIR/docs-go" "$WORK_DIR/docs-cpp" >/dev/null 2>&1; then
+    pass "codegen Markdown output parity Go vs C++ (byte-level match)"
+  else
+    fail "codegen Markdown output divergence (Go vs C++)"
+    diff -r "$WORK_DIR/docs-go" "$WORK_DIR/docs-cpp" >&2 || true
+  fi
+else
+  echo "    (C++ codegen binary not found — skipping C++ Markdown output parity)"
 fi
 
 # Return to caller if sourced, exit if run directly

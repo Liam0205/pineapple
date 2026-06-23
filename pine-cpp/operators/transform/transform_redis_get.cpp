@@ -166,6 +166,10 @@ static const OperatorSchema k_transform_redis_get_schema{
               .description =
                   "Return fatal error on Redis infrastructure failure instead of treating as cache miss."}},
         },
+    .metadata = {.common_input = "[<key_suffix_fields...>]",
+                 .common_output = "[<result_field>, <cache_hit_field>]",
+                 .item_input = "[]",
+                 .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformRedisGetOp, k_transform_redis_get_schema)
 

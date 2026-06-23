@@ -65,6 +65,7 @@ static const OperatorSchema k_transform_bench_cpu_schema{
               .default_value = Variant(100.0),
               .description = "Number of fib(32) computations per item."}},
         },
+    .metadata = {.common_input = "", .common_output = "", .item_input = "", .item_output = ""},
 };
 PINE_REGISTER_OPERATOR_T(TransformBenchCpuOp, k_transform_bench_cpu_schema)
 

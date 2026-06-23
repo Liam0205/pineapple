@@ -29,6 +29,10 @@ static const OperatorSchema k_transform_dispatch_schema{
     .type = OpType::Transform,
     .description = "Copies a common-side field value to every item as an item-side field.",
     .params = {},
+    .metadata = {.common_input = "[<common_field>]",
+                 .common_output = "[]",
+                 .item_input = "[]",
+                 .item_output = "[<item_field>]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformDispatchOp, k_transform_dispatch_schema)
 

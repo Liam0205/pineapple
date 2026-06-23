@@ -135,6 +135,10 @@ static const OperatorSchema k_transform_by_lua_schema{
               .default_value = Variant(nullptr),
               .description = "Lua source code defining the function to call."}},
         },
+    .metadata = {.common_input = "[<common fields read as scalar globals>]",
+                 .common_output = "[<return values from function_for_common>]",
+                 .item_input = "[<item fields — scalars in item mode, lists in common mode>]",
+                 .item_output = "[<return values from function_for_item>]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformByLuaOp, k_transform_by_lua_schema)
 

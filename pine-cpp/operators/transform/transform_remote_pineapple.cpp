@@ -332,6 +332,10 @@ static const OperatorSchema k_transform_by_remote_pineapple_schema{
               .default_value = Variant(nullptr),
               .description = "Downstream item response field names, positionally mapped to item_output."}},
         },
+    .metadata = {.common_input = "[<local_common_fields...>]",
+                 .common_output = "[<local_common_output_fields...>]",
+                 .item_input = "[<local_item_fields...>]",
+                 .item_output = "[<local_item_output_fields...>]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformByRemotePineappleOp, k_transform_by_remote_pineapple_schema)
 

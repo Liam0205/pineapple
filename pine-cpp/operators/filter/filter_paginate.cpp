@@ -53,6 +53,10 @@ static const OperatorSchema k_filter_paginate_schema{
     .type = OpType::Filter,
     .description = "Keeps only items in the [page*size, page*size+size) range, removes the rest.",
     .params = {},
+    .metadata = {.common_input = "[<page_field>, <size_field>]",
+                 .common_output = "[]",
+                 .item_input = "[]",
+                 .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(FilterPaginateOp, k_filter_paginate_schema)
 
