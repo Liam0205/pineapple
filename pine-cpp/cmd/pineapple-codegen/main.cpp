@@ -165,6 +165,33 @@ std::string camel_case(const std::string& s) {
   return pine::op_type_to_string(t);
 }
 
+// Return param names with required first (alphabetised), then optional
+// (alphabetised). Mirrors pine-go pkg/codegen/template.go's sortedParams +
+// pine-java's Codegen.sortedParams so the byte-level Python output stays
+// comparable across engines (cross-validate 01-codegen-schema.sh's 1c/1d
+// gates).
+std::vector<std::string> sorted_param_names(const std::map<std::string, pine::ParamSchema>& params) {
+  std::vector<std::string> required;
+  std::vector<std::string> optional;
+  for (const auto& [pname, pspec] : params) {
+    if (pspec.required) {
+      required.push_back(pname);
+    } else {
+      optional.push_back(pname);
+    }
+  }
+  // Already in alphabetical order because the caller is std::map; keep the
+  // explicit sort so callers passing other ordered/unordered maps in the
+  // future stay correct.
+  std::sort(required.begin(), required.end());
+  std::sort(optional.begin(), optional.end());
+  std::vector<std::string> out;
+  out.reserve(required.size() + optional.size());
+  out.insert(out.end(), required.begin(), required.end());
+  out.insert(out.end(), optional.begin(), optional.end());
+  return out;
+}
+
 std::vector<pine::OperatorEntry> all_operator_entries() {
   std::vector<pine::OperatorEntry> out;
   for (const auto& name : pine::registered_operator_names()) {
@@ -197,7 +224,8 @@ void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry
     out << "    _name = \"" << schema.name << "\"\n";
 
     out << "    _params_schema = {";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       out << "\n        \"" << pname << "\": {\"type\": \"" << pspec.type
           << "\", \"required\": " << (pspec.required ? "True" : "False");
       if (!pspec.default_value.is_null()) {
@@ -213,7 +241,8 @@ void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry
     out << "\n    def __call__(\n";
     out << "        self,\n";
     out << "        *,\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       std::string py_type = python_type(pspec.type);
       std::string py_default;
       if (pspec.required) {
@@ -237,13 +266,15 @@ void write_operators_py(std::ostream& out, const std::vector<pine::OperatorEntry
     out << "    ) -> \"" << cls << "\":\n";
 
     out << "        _params = {\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       if (pspec.required || !pspec.default_value.is_null()) {
         out << "            \"" << pname << "\": " << pname << ",\n";
       }
     }
     out << "        }\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       if (!pspec.required && pspec.default_value.is_null()) {
         out << "        if " << pname << " is not None:\n";
         out << "            _params[\"" << pname << "\"] = " << pname << "\n";
@@ -338,7 +369,8 @@ void write_resources_py(std::ostream& out, const std::vector<pine::resource::Res
     out << "    _default_interval = " << schema.default_interval << "\n";
 
     out << "    _params_schema = {";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       out << "\n        \"" << pname << "\": {\"type\": \"" << pspec.type
           << "\", \"required\": " << (pspec.required ? "True" : "False");
       if (!pspec.default_value.is_null()) {
@@ -351,7 +383,8 @@ void write_resources_py(std::ostream& out, const std::vector<pine::resource::Res
     out << "\n    def __init__(\n";
     out << "        self,\n";
     out << "        *,\n";
-    for (const auto& [pname, pspec] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
+      const auto& pspec = schema.params.at(pname);
       std::string py_type = python_type(pspec.type);
       std::string py_default;
       if (pspec.required) {
@@ -367,7 +400,7 @@ void write_resources_py(std::ostream& out, const std::vector<pine::resource::Res
     out << "    ):\n";
     out << "        super().__init__(\n";
     out << "            interval=interval,\n";
-    for (const auto& [pname, _] : schema.params) {
+    for (const auto& pname : sorted_param_names(schema.params)) {
       out << "            " << pname << "=" << pname << ",\n";
     }
     out << "        )\n";
@@ -387,6 +420,104 @@ void write_resources_init_py(std::ostream& out, const std::vector<pine::resource
   out << "]\n";
 }
 
+// --- Markdown documentation emit (mirrors pine-go's pkg/codegen template
+//     and pine-java's Codegen.generateDocs). The output is gated on
+//     byte-equal parity with pine-go's docs by cross-validate
+//     section 1e. ---
+
+std::string backtick_or_dash(const std::string& s) {
+  if (s.empty()) {
+    return "-";
+  }
+  return "`" + s + "`";
+}
+
+// Capitalised display name for the OperatorType, matching pine-go's
+// `string(schema.Type)` which is just the constant string ("Recall",
+// "Transform", ...) and pine-java's pascalCaseEnum.
+std::string op_type_pascal(pine::OpType t) {
+  switch (t) {
+    case pine::OpType::Recall:
+      return "Recall";
+    case pine::OpType::Transform:
+      return "Transform";
+    case pine::OpType::Filter:
+      return "Filter";
+    case pine::OpType::Merge:
+      return "Merge";
+    case pine::OpType::Reorder:
+      return "Reorder";
+    case pine::OpType::Observe:
+      return "Observe";
+  }
+  return "Other";
+}
+
+void write_operator_doc_md(std::ostream& out, const pine::OperatorEntry& entry) {
+  const auto& schema = entry.schema;
+  out << "# " << schema.name << "\n\n";
+  out << "**Type**: " << op_type_pascal(schema.type) << "\n\n";
+  out << schema.description << "\n\n";
+  out << "## Parameters\n\n";
+  out << "| Name | Type | Required | Default | Description |\n";
+  out << "|------|------|----------|---------|-------------|\n";
+  for (const auto& pname : sorted_param_names(schema.params)) {
+    const auto& pspec = schema.params.at(pname);
+    std::string default_cell;
+    if (pspec.default_value.is_null()) {
+      default_cell = "-";
+    } else {
+      default_cell = "`" + python_literal(pspec.default_value) + "`";
+    }
+    out << "| " << pname << " | " << pspec.type << " | " << (pspec.required ? "Yes" : "No") << " | "
+        << default_cell << " | " << pspec.description << " |\n";
+  }
+  out << "\n";
+  out << "## Metadata Contract\n\n";
+  out << "| Field | Typical Usage |\n";
+  out << "|-------|---------------|\n";
+  out << "| CommonInput | " << backtick_or_dash(schema.metadata.common_input) << " |\n";
+  out << "| CommonOutput | " << backtick_or_dash(schema.metadata.common_output) << " |\n";
+  out << "| ItemInput | " << backtick_or_dash(schema.metadata.item_input) << " |\n";
+  out << "| ItemOutput | " << backtick_or_dash(schema.metadata.item_output) << " |\n";
+  out << "\n";
+  out << "## DSL Usage\n\n";
+  out << "```python\n";
+  out << "flow." << schema.name << "(\n";
+  for (const auto& pname : sorted_param_names(schema.params)) {
+    out << "    " << pname << "=...,\n";
+  }
+  out << "    common_input=[...],\n";
+  out << "    item_input=[...],\n";
+  out << "    item_output=[...],\n";
+  out << ")\n";
+  out << "```\n";
+}
+
+void write_doc_index_md(std::ostream& out, const std::vector<pine::OperatorEntry>& entries) {
+  // Group by capitalised OpType, alphabetised within each group, with
+  // category sections in the order pine-go's range over Categories
+  // produces (sorted ascending by name).
+  std::map<std::string, std::vector<const pine::OperatorEntry*>> by_type;
+  for (const auto& e : entries) {
+    by_type[op_type_pascal(e.schema.type)].push_back(&e);
+  }
+  out << "# Operator Reference\n\n";
+  out << "> Auto-generated from Go operator source code. Do not edit manually.\n\n";
+  for (const auto& [type_name, ops] : by_type) {
+    out << "\n## " << type_name << "\n\n";
+    out << "| Operator | Description |\n";
+    out << "|----------|-------------|\n";
+    // ops already in name order because all_operator_entries sorts by
+    // schema.name and the by_type insertion preserved that.
+    for (const auto* e : ops) {
+      out << "| [" << e->schema.name << "](" << e->schema.name << ".md) | " << e->schema.description
+          << " |\n";
+    }
+  }
+  out << "\n";
+}
+
 bool write_file(const std::string& path, const std::string& contents) {
   std::ofstream f(path);
   if (!f) {
@@ -402,6 +533,7 @@ bool write_file(const std::string& path, const std::string& contents) {
 int main(int argc, char* argv[]) {
   std::string schema_path;
   std::string output_dir;
+  std::string doc_dir;
 
   for (int i = 1; i < argc; ++i) {
     const char* a = argv[i];
@@ -409,11 +541,13 @@ int main(int argc, char* argv[]) {
       schema_path = argv[++i];
     } else if ((std::strcmp(a, "-output") == 0 || std::strcmp(a, "--output") == 0) && i + 1 < argc) {
       output_dir = argv[++i];
+    } else if ((std::strcmp(a, "-doc-dir") == 0 || std::strcmp(a, "--doc-dir") == 0) && i + 1 < argc) {
+      doc_dir = argv[++i];
     }
   }
 
-  if (schema_path.empty() && output_dir.empty()) {
-    std::cerr << "Usage: pineapple-codegen [-schema-json <path>] [-output <dir>]\n";
+  if (schema_path.empty() && output_dir.empty() && doc_dir.empty()) {
+    std::cerr << "Usage: pineapple-codegen [-schema-json <path>] [-output <dir>] [-doc-dir <dir>]\n";
     return 1;
   }
 
@@ -471,6 +605,29 @@ int main(int argc, char* argv[]) {
         if (!write_file(join("resources_init.py"), oss.str())) {
           return 1;
         }
+      }
+    }
+  }
+
+  if (!doc_dir.empty()) {
+    const auto entries = all_operator_entries();
+    if (entries.empty()) {
+      std::cerr << "Error: no operators registered\n";
+      return 1;
+    }
+    auto doc_join = [&](const std::string& name) { return doc_dir + "/" + name; };
+    for (const auto& entry : entries) {
+      std::ostringstream oss;
+      write_operator_doc_md(oss, entry);
+      if (!write_file(doc_join(entry.schema.name + ".md"), oss.str())) {
+        return 1;
+      }
+    }
+    {
+      std::ostringstream oss;
+      write_doc_index_md(oss, entries);
+      if (!write_file(doc_join("README.md"), oss.str())) {
+        return 1;
       }
     }
   }

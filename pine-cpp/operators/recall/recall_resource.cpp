@@ -61,6 +61,10 @@ static const OperatorSchema k_recall_resource_schema{
               .default_value = Variant(nullptr),
               .description = "Name of the resource to read."}},
         },
+    .metadata = {.common_input = "",
+                 .common_output = "",
+                 .item_input = "",
+                 .item_output = "[<fields present in the resource items>]"},
 };
 PINE_REGISTER_OPERATOR_T(RecallResourceOp, k_recall_resource_schema)
 

@@ -4,7 +4,8 @@ namespace pine {
 namespace redis {
 
 std::unique_ptr<Client> ConnectionPool::acquire(const std::string& host, int port,
-                                                const std::string& password, int db) {
+                                                const std::string& password, int db,
+                                                const ClientOptions& opts) {
   Key key{host, port, password, db};
   const auto now = std::chrono::steady_clock::now();
   {
@@ -27,7 +28,7 @@ std::unique_ptr<Client> ConnectionPool::acquire(const std::string& host, int por
     }
   }
   in_use_.fetch_add(1, std::memory_order_relaxed);
-  return std::make_unique<Client>(host, port, password, db);
+  return std::make_unique<Client>(host, port, password, db, opts);
 }
 
 void ConnectionPool::release(const std::string& host, int port, const std::string& password, int db,
@@ -43,7 +44,7 @@ void ConnectionPool::release(const std::string& host, int port, const std::strin
   // Bound the idle queue: a workload spike can push many handles into
   // the pool; without the cap they sit there indefinitely, eating fd
   // budget for a key that may never see traffic again.
-  if (bucket.size() >= kMaxIdlePerKey) {
+  if (bucket.size() >= max_idle_per_key_) {
     return;  // c destructs here
   }
   bucket.push_back({std::move(c), std::chrono::steady_clock::now()});

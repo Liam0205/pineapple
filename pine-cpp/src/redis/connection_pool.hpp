@@ -47,7 +47,9 @@ class ConnectionPool {
   ConnectionPool& operator=(const ConnectionPool&) = delete;
 
   // Borrow a connection. May construct a new client if none is idle.
-  std::unique_ptr<Client> acquire(const std::string& host, int port, const std::string& password, int db);
+  // Newly-constructed clients honour `opts` (read/write/dial timeouts).
+  std::unique_ptr<Client> acquire(const std::string& host, int port, const std::string& password, int db,
+                                  const ClientOptions& opts = ClientOptions{});
 
   // Return a connection to the idle queue. The caller must not reuse
   // the pointer afterward. If the connection is in a broken state
@@ -142,12 +144,20 @@ class ConnectionPool {
   // Convenience: acquire + bundle into a ScopedClient that releases on
   // scope exit. Returns an empty ScopedClient if the underlying acquire
   // returned null (connection failure).
-  ScopedClient acquire_scoped(const std::string& host, int port, const std::string& password, int db) {
-    auto c = acquire(host, port, password, db);
+  ScopedClient acquire_scoped(const std::string& host, int port, const std::string& password, int db,
+                              const ClientOptions& opts = ClientOptions{}) {
+    auto c = acquire(host, port, password, db, opts);
     if (!c) {
       return ScopedClient{};
     }
     return ScopedClient{this, host, port, password, db, std::move(c)};
+  }
+
+  // Override the per-key idle-queue cap from the default kMaxIdlePerKey.
+  // 0 (the default) keeps the legacy cap. Used by RedisConnResource to
+  // surface the redis_connection resource's pool_size knob.
+  void set_max_idle_per_key(std::size_t cap) {
+    max_idle_per_key_ = cap == 0 ? kMaxIdlePerKey : cap;
   }
 
  private:
@@ -159,6 +169,7 @@ class ConnectionPool {
   mutable std::mutex mu_;
   std::map<Key, std::vector<IdleEntry>> idle_;
   std::atomic<std::size_t> in_use_{0};
+  std::size_t max_idle_per_key_ = kMaxIdlePerKey;
 };
 
 // RedisConnResource is the handle stored by the `redis_connection` resource
@@ -178,13 +189,18 @@ class RedisConnResource {
 
   // Constructs the resource. When metrics_name is empty (or mp is null) no
   // metrics are created and no probe thread is started, mirroring pine-go's
-  // newRedisConnResource gate.
+  // newRedisConnResource gate. `opts` carries the cascade-safety timeouts
+  // exposed by the redis_connection resource schema; `pool_size` (when > 0)
+  // overrides the per-key idle-queue cap.
   RedisConnResource(std::string host, int port, std::string password, int db,
-                    const std::string& metrics_name = "", metrics::Provider* mp = nullptr)
-      : host_(std::move(host)), port_(port), password_(std::move(password)), db_(db) {
+                    const std::string& metrics_name = "", metrics::Provider* mp = nullptr,
+                    const ClientOptions& opts = ClientOptions{}, std::size_t pool_size = 0)
+      : host_(std::move(host)), port_(port), password_(std::move(password)), db_(db), opts_(opts) {
+    pool_.set_max_idle_per_key(pool_size);
     if (metrics_name.empty() || mp == nullptr) {
       return;
     }
+    metrics_name_ = metrics_name;
     const std::vector<std::string> labels{metrics_name};
     total_conns_ = mp->new_gauge({"pine_redis_pool_total_conns",
                                   "Total Redis connections in the pool (idle + in-use).",
@@ -199,6 +215,20 @@ class RedisConnResource {
     up_ = mp->new_gauge(
                 {"pine_redis_up", "Whether the last Redis PING probe succeeded (1) or failed (0).", {"name"}})
               ->with(labels);
+    // Per-command metrics. The 2026-06-22 incident's only signal was the
+    // PING probe (sampled every 15s) and pool gauges; neither could
+    // distinguish "Redis is slow" from "we ran out of pool" from "Redis
+    // returned an error". Held unbound; run_command applies the
+    // (name, command, status) tuple per call.
+    metrics::HistogramOpts cmd_hopts;
+    cmd_hopts.opts = {"pine_redis_command_duration_seconds",
+                      "Redis command latency in seconds, labelled by command name and outcome.",
+                      {"name", "command", "status"}};
+    cmd_duration_ = mp->new_histogram(cmd_hopts);
+    cmd_total_ = mp->new_counter(
+        {"pine_redis_command_total",
+         "Cumulative count of Redis command invocations, labelled by command name and outcome.",
+         {"name", "command", "status"}});
     probe_thread_ = std::thread([this] { probe_loop(); });
   }
 
@@ -219,7 +249,67 @@ class RedisConnResource {
   }
 
   ConnectionPool::ScopedClient acquire() {
-    return pool_.acquire_scoped(host_, port_, password_, db_);
+    return pool_.acquire_scoped(host_, port_, password_, db_, opts_);
+  }
+
+  // Run a Redis command through the borrowed client and record latency +
+  // outcome on the resource's per-command metrics. Operators wrap each
+  // Redis call in this helper instead of calling Client methods directly:
+  //
+  //   auto val = conn->run_command<std::optional<std::string>>(
+  //       "GET",
+  //       [&](redis::Client& cli) { return cli.get(key); });
+  //
+  // Mirrors pine-go's redis.Hook-driven instrumentation (which automates
+  // this for every command) and pine-java's RedisConnResource.runCommand
+  // facade. Exceptions propagate after observation, so the operator-level
+  // try/catch + setWarning + fail_on_error continues to work unchanged.
+  //
+  // No-op fast path: when metrics_name is empty (cmd_total_ is null) the
+  // helper degrades to a thin acquire + invoke without recording, so a
+  // deployment that opts out of resource metrics pays nothing here.
+  //
+  // T must match the lambda's return type. For lambdas that already
+  // perform a redis-side write and return nothing, declare T as a small
+  // sentinel (e.g. `int` returning 0); cpp doesn't allow `void` as a
+  // template return type without a separate overload, and the perf cost
+  // of the int slot is negligible.
+  template <typename T, typename Fn>
+  T run_command(const std::string& command, Fn fn) {
+    auto scoped = pool_.acquire_scoped(host_, port_, password_, db_, opts_);
+    Client* cli = scoped.get();
+    if (!cli || !cli->connected()) {
+      // Mirror Go: a failed dial is its own kind of error class. We don't
+      // try to differentiate dial failure from later command failure here
+      // because the dial path was already accounted for via PING probe;
+      // mark the synthetic call as "error" so the dashboard still sees
+      // the attempt + the failure.
+      record_command(command, std::chrono::nanoseconds::zero(), command_status_error);
+      // Bare "connection failed" message — no "redis: " prefix — so the
+      // operator-level on_failure(e.what()) renders as
+      // "transform_redis_get: Get(<key>): connection failed", matching
+      // the wording the cpp redis ops produced before run_command landed.
+      throw std::runtime_error("connection failed");
+    }
+    if (cmd_total_ == nullptr) {
+      // Fast path — pass through without timing.
+      return fn(*cli);
+    }
+    auto start = std::chrono::steady_clock::now();
+    try {
+      T result = fn(*cli);
+      record_command(command, std::chrono::steady_clock::now() - start, command_status_ok);
+      return result;
+    } catch (...) {
+      // The cpp client throws std::runtime_error for every failure mode
+      // (read failed, write failed, protocol). We don't have type info
+      // beyond that to split timeout vs. error, so all exceptions land
+      // under "error" — pine-go's classifier sees more nuance because
+      // go-redis surfaces context.DeadlineExceeded directly. Future work:
+      // make Client throw distinct types so cpp can match Go's taxonomy.
+      record_command(command, std::chrono::steady_clock::now() - start, command_status_error);
+      throw;
+    }
   }
 
   const std::string& host() const {
@@ -237,7 +327,7 @@ class RedisConnResource {
       const auto start = std::chrono::steady_clock::now();
       bool ok = false;
       try {
-        auto c = pool_.acquire_scoped(host_, port_, password_, db_);
+        auto c = pool_.acquire_scoped(host_, port_, password_, db_, opts_);
         ok = c && c->ping();
       } catch (...) {
         ok = false;
@@ -257,17 +347,41 @@ class RedisConnResource {
     }
   }
 
+  // Status label values for the per-command metrics. Keep in sync with
+  // pine-go's redisCommandStatus return values and pine-java's
+  // RedisConnResource.redisCommandStatus, so a Grafana panel
+  // querying e.g. `pine_redis_command_total{status="timeout"}` renders
+  // identically across engines.
+  static constexpr const char* command_status_ok = "ok";
+  static constexpr const char* command_status_error = "error";
+  // (timeout / pool_timeout aren't currently emitted by cpp because the
+  // Client throws a single std::runtime_error type for every failure mode;
+  // see run_command's catch-block comment for the follow-up.)
+
+  void record_command(const std::string& command, std::chrono::nanoseconds elapsed, const char* status) {
+    if (cmd_total_ == nullptr) {
+      return;
+    }
+    const std::vector<std::string> labels{metrics_name_, command, status};
+    cmd_duration_->with(labels)->observe(metrics::duration_seconds(elapsed));
+    cmd_total_->with(labels)->inc();
+  }
+
   std::string host_;
   int port_ = 0;
   std::string password_;
   int db_ = 0;
+  ClientOptions opts_;
   ConnectionPool pool_;
 
   // Metrics handles are owned by the Provider; nullptr when metrics disabled.
+  std::string metrics_name_;
   metrics::Gauge* total_conns_ = nullptr;
   metrics::Gauge* idle_conns_ = nullptr;
   metrics::Histogram* ping_duration_ = nullptr;
   metrics::Gauge* up_ = nullptr;
+  metrics::Histogram* cmd_duration_ = nullptr;
+  metrics::Counter* cmd_total_ = nullptr;
 
   std::thread probe_thread_;
   std::mutex stop_mu_;

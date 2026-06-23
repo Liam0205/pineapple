@@ -413,17 +413,17 @@ class TransformByLuaOp(BaseOp):
     """Operator: transform_by_lua"""
     _name = "transform_by_lua"
     _params_schema = {
+        "lua_script": {"type": "string", "required": True},
         "function_for_common": {"type": "string", "required": False, "default": ""},
         "function_for_item": {"type": "string", "required": False, "default": ""},
-        "lua_script": {"type": "string", "required": True},
     }
 
     def __call__(
         self,
         *,
+        lua_script: str = ...,
         function_for_common: str = "",
         function_for_item: str = "",
-        lua_script: str = ...,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -435,9 +435,9 @@ class TransformByLuaOp(BaseOp):
         name: str | None = None,
     ) -> "TransformByLuaOp":
         _params = {
+            "lua_script": lua_script,
             "function_for_common": function_for_common,
             "function_for_item": function_for_item,
-            "lua_script": lua_script,
         }
         return self._apply(
             params=_params,
@@ -456,32 +456,32 @@ class TransformByRemotePineappleOp(BaseOp):
     """Operator: transform_by_remote_pineapple"""
     _name = "transform_by_remote_pineapple"
     _params_schema = {
+        "host": {"type": "string", "required": True},
+        "port": {"type": "int64", "required": True},
         "allow_private": {"type": "bool", "required": False, "default": False},
         "common_request": {"type": "any", "required": False},
         "common_response": {"type": "any", "required": False},
         "endpoint": {"type": "string", "required": False, "default": "/execute"},
         "fail_on_error": {"type": "bool", "required": False, "default": True},
-        "host": {"type": "string", "required": True},
         "item_request": {"type": "any", "required": False},
         "item_response": {"type": "any", "required": False},
         "max_response_size": {"type": "int64", "required": False, "default": 10485760},
-        "port": {"type": "int64", "required": True},
         "timeout": {"type": "float64", "required": False, "default": 5},
     }
 
     def __call__(
         self,
         *,
+        host: str = ...,
+        port: int = ...,
         allow_private: bool = False,
         common_request: Any = None,
         common_response: Any = None,
         endpoint: str = "/execute",
         fail_on_error: bool = True,
-        host: str = ...,
         item_request: Any = None,
         item_response: Any = None,
         max_response_size: int = 10485760,
-        port: int = ...,
         timeout: float = 5,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
@@ -494,12 +494,12 @@ class TransformByRemotePineappleOp(BaseOp):
         name: str | None = None,
     ) -> "TransformByRemotePineappleOp":
         _params = {
+            "host": host,
+            "port": port,
             "allow_private": allow_private,
             "endpoint": endpoint,
             "fail_on_error": fail_on_error,
-            "host": host,
             "max_response_size": max_response_size,
-            "port": port,
             "timeout": timeout,
         }
         if common_request is not None:
@@ -635,19 +635,19 @@ class TransformRedisGetOp(BaseOp):
     """Operator: transform_redis_get"""
     _name = "transform_redis_get"
     _params_schema = {
-        "data_type": {"type": "string", "required": False, "default": "string"},
-        "fail_on_error": {"type": "bool", "required": False, "default": False},
         "key_prefix": {"type": "string", "required": True, "templatable": True},
         "resource_name": {"type": "string", "required": True},
+        "data_type": {"type": "string", "required": False, "default": "string"},
+        "fail_on_error": {"type": "bool", "required": False, "default": False},
     }
 
     def __call__(
         self,
         *,
-        data_type: str = "string",
-        fail_on_error: bool = False,
         key_prefix: str = ...,
         resource_name: str = ...,
+        data_type: str = "string",
+        fail_on_error: bool = False,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -659,10 +659,10 @@ class TransformRedisGetOp(BaseOp):
         name: str | None = None,
     ) -> "TransformRedisGetOp":
         _params = {
-            "data_type": data_type,
-            "fail_on_error": fail_on_error,
             "key_prefix": key_prefix,
             "resource_name": resource_name,
+            "data_type": data_type,
+            "fail_on_error": fail_on_error,
         }
         return self._apply(
             params=_params,
@@ -681,20 +681,20 @@ class TransformRedisSetOp(BaseOp):
     """Operator: transform_redis_set"""
     _name = "transform_redis_set"
     _params_schema = {
-        "data_type": {"type": "string", "required": False, "default": "string"},
-        "fail_on_error": {"type": "bool", "required": False, "default": False},
         "key_prefix": {"type": "string", "required": True, "templatable": True},
         "resource_name": {"type": "string", "required": True},
+        "data_type": {"type": "string", "required": False, "default": "string"},
+        "fail_on_error": {"type": "bool", "required": False, "default": False},
         "ttl": {"type": "int", "required": False, "default": 0, "templatable": True},
     }
 
     def __call__(
         self,
         *,
-        data_type: str = "string",
-        fail_on_error: bool = False,
         key_prefix: str = ...,
         resource_name: str = ...,
+        data_type: str = "string",
+        fail_on_error: bool = False,
         ttl: int = 0,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
@@ -707,10 +707,10 @@ class TransformRedisSetOp(BaseOp):
         name: str | None = None,
     ) -> "TransformRedisSetOp":
         _params = {
-            "data_type": data_type,
-            "fail_on_error": fail_on_error,
             "key_prefix": key_prefix,
             "resource_name": resource_name,
+            "data_type": data_type,
+            "fail_on_error": fail_on_error,
             "ttl": ttl,
         }
         return self._apply(
@@ -730,19 +730,19 @@ class TransformResourceLookupOp(BaseOp):
     """Operator: transform_resource_lookup"""
     _name = "transform_resource_lookup"
     _params_schema = {
-        "default_value": {"type": "any", "required": False},
         "lookup_key": {"type": "string", "required": True},
         "output_field": {"type": "string", "required": True},
         "resource_name": {"type": "string", "required": True},
+        "default_value": {"type": "any", "required": False},
     }
 
     def __call__(
         self,
         *,
-        default_value: Any = None,
         lookup_key: str = ...,
         output_field: str = ...,
         resource_name: str = ...,
+        default_value: Any = None,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,

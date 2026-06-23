@@ -8,10 +8,10 @@ Generic Redis read operator. Reads a value by key and outputs the result and a c
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| data_type | string | No | `"string"` | Redis data type: "set", "string", or "list". |
-| fail_on_error | bool | No | `False` | Return fatal error on Redis infrastructure failure instead of treating as cache miss. |
 | key_prefix | string | Yes | - | Key prefix prepended to the suffix built from common_input fields. Supports {{field}} interpolation. |
 | resource_name | string | Yes | - | Name of a redis_connection resource to borrow the client from. |
+| data_type | string | No | `"string"` | Redis data type: "set", "string", or "list". |
+| fail_on_error | bool | No | `False` | Return fatal error on Redis infrastructure failure instead of treating as cache miss. |
 
 ## Metadata Contract
 
@@ -26,10 +26,10 @@ Generic Redis read operator. Reads a value by key and outputs the result and a c
 
 ```python
 flow.transform_redis_get(
-    data_type=...,
-    fail_on_error=...,
     key_prefix=...,
     resource_name=...,
+    data_type=...,
+    fail_on_error=...,
     common_input=[...],
     item_input=[...],
     item_output=[...],

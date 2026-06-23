@@ -113,6 +113,10 @@ static const OperatorSchema k_transform_resource_lookup_schema{
               .default_value = Variant(nullptr),
               .description = "Name of the resource to read."}},
         },
+    .metadata = {.common_input = "",
+                 .common_output = "",
+                 .item_input = "[<lookup_key>]",
+                 .item_output = "[<output_field>]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformResourceLookupOp, k_transform_resource_lookup_schema)
 

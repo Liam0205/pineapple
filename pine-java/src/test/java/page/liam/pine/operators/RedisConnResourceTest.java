@@ -1,6 +1,8 @@
 package page.liam.pine.operators;
 
 import org.junit.jupiter.api.Test;
+import page.liam.pine.Codegen;
+import page.liam.pine.ResourceRegistry;
 import page.liam.pine.metrics.Counter;
 import page.liam.pine.metrics.Gauge;
 import page.liam.pine.metrics.Histogram;
@@ -10,7 +12,11 @@ import page.liam.pine.metrics.NopProvider;
 import page.liam.pine.metrics.Provider;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.jedis.exceptions.JedisDataException;
+import redis.clients.jedis.exceptions.JedisException;
 
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -85,5 +91,123 @@ public class RedisConnResourceTest {
         RedisConnResource r = new RedisConnResource(lazyPool(), "cache", new RecordingProvider());
         r.close();
         r.close(); // must not throw
+    }
+
+    /**
+     * The cascade-safety timeouts and pool_size knob must appear in the registered
+     * schema with the cross-engine-shared default values. Locked here as the
+     * regression test for the 2026-06-22 tipsy-recsys outage: the resource
+     * inherited Jedis defaults (single hard-coded 2s connect timeout, no socket
+     * timeout) and a brief Redis hiccup escalated into a 30-minute /execute
+     * outage. Mirrors pine-go's TestRedisOptionsFromParams_Defaults.
+     */
+    @Test
+    void schemaExposesCascadeSafetyParams() {
+        AllOperators.ensureRegistered();
+        Codegen.ResourceSchema schema = null;
+        for (Codegen.ResourceSchema s : ResourceRegistry.all()) {
+            if ("redis_connection".equals(s.name)) {
+                schema = s;
+                break;
+            }
+        }
+        assertNotNull(schema, "redis_connection schema should be registered");
+
+        assertEquals(2000L, ((Number) schema.params.get("dial_timeout_ms").defaultValue).longValue());
+        assertEquals(2000L, ((Number) schema.params.get("read_timeout_ms").defaultValue).longValue());
+        assertEquals(2000L, ((Number) schema.params.get("write_timeout_ms").defaultValue).longValue());
+        assertEquals(2000L, ((Number) schema.params.get("pool_timeout_ms").defaultValue).longValue());
+        assertEquals(0L, ((Number) schema.params.get("pool_size").defaultValue).longValue());
+
+        // Required-field guard remains intact.
+        assertTrue(schema.params.get("addr").required);
+        assertFalse(schema.params.get("read_timeout_ms").required);
+    }
+
+    /**
+     * Pin the Jedis-specific mapping: pine-java's single socketTimeoutMillis is
+     * driven by max(read, write). The 2026-06-22 review (.code-review/from-
+     * 24975c2/...) flagged that a later switch to min would silently turn long-
+     * running reads (LRANGE / ZRANGEBYSCORE) into write failures, defeating the
+     * cascade-safety story for those commands. Lock the policy and the schema
+     * description so the two stay in sync.
+     */
+    @Test
+    void writeTimeoutMapsToMaxOfReadAndWriteOnJedis() {
+        // Symmetric configuration: both directions get the same wall.
+        assertEquals(500, AllOperators.effectiveSocketTimeoutMs(500, 500));
+
+        // Asymmetric — write higher than read. Documents the real choice:
+        // the larger value wins so reads that legitimately wait on the server
+        // (LRANGE etc.) aren't capped at the write deadline.
+        assertEquals(2000, AllOperators.effectiveSocketTimeoutMs(500, 2000));
+        assertEquals(2000, AllOperators.effectiveSocketTimeoutMs(2000, 500));
+
+        // Defaults from the schema (2000 / 2000) yield 2000 verbatim.
+        assertEquals(2000, AllOperators.effectiveSocketTimeoutMs(2000, 2000));
+    }
+
+    /**
+     * The schema description for write_timeout_ms must surface the Java-
+     * specific max() behaviour so users configuring asymmetric timeouts on
+     * Apple's Python DSL learn the engine difference at config time, not
+     * after a production incident. Locks the language so a future drift on
+     * the description (and thus the codegen-emitted docstring) catches the
+     * drift on the policy at the same time.
+     */
+    @Test
+    void writeTimeoutSchemaDescriptionMentionsMaxBehaviour() {
+        AllOperators.ensureRegistered();
+        Codegen.ResourceSchema schema = null;
+        for (Codegen.ResourceSchema s : ResourceRegistry.all()) {
+            if ("redis_connection".equals(s.name)) {
+                schema = s;
+                break;
+            }
+        }
+        assertNotNull(schema);
+        String desc = schema.params.get("write_timeout_ms").description;
+        assertNotNull(desc);
+        assertTrue(desc.contains("max(read_timeout_ms, write_timeout_ms)"),
+                "write_timeout_ms description must mention max() behaviour, got: " + desc);
+    }
+
+    /**
+     * Pin the (Throwable -> status label) taxonomy used by
+     * {@link RedisConnResource#redisCommandStatus(Throwable)}. The Grafana
+     * panels built on top of {@code pine_redis_command_total} need to
+     * distinguish "Redis is slow" (timeout) from "we ran out of pool"
+     * (pool_timeout) from "Redis rejected the call" (error); merging
+     * any two of these into a single bucket would re-introduce the
+     * classification gap that the 2026-06-22 outage exposed.
+     */
+    @Test
+    void commandStatusClassification() {
+        // Success path — no exception.
+        assertEquals("ok", RedisConnResource.redisCommandStatus(null));
+
+        // Pool exhaustion: commons-pool2 wraps the failure as a JedisException
+        // with the "Could not get a resource" message; we must recognise both
+        // common message variants Jedis surfaces.
+        assertEquals("pool_timeout", RedisConnResource.redisCommandStatus(
+                new JedisException("Could not get a resource from the pool")));
+
+        // Socket-level read timeout: Jedis surfaces it as a
+        // JedisConnectionException whose cause is SocketTimeoutException.
+        // The classifier must walk the cause chain.
+        assertEquals("timeout", RedisConnResource.redisCommandStatus(
+                new JedisConnectionException("read timed out", new SocketTimeoutException("Read timed out"))));
+
+        // Connection-level error (host down, connection reset): no cause is a
+        // SocketTimeoutException, so it lands in `error`.
+        assertEquals("error", RedisConnResource.redisCommandStatus(
+                new JedisConnectionException("Connection refused")));
+
+        // Data error (e.g. WRONGTYPE): JedisDataException → "error".
+        assertEquals("error", RedisConnResource.redisCommandStatus(
+                new JedisDataException("WRONGTYPE Operation against a key holding the wrong kind of value")));
+
+        // Unknown runtime exception falls through to "error".
+        assertEquals("error", RedisConnResource.redisCommandStatus(new RuntimeException("boom")));
     }
 }

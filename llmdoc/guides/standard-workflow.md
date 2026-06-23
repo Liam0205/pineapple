@@ -99,3 +99,13 @@
 - **先对齐后实施**：计划经用户确认后再写代码
 - **逐步验证**：每步改完跑测试，不要攒到最后一起验证
 - **文档跟随代码**：design_doc、README、llmdoc 都要同步更新
+
+## Review-driven scope expansion 接受
+
+Review feedback 不是简单"修缺陷"——它常带新的 scope 增长信号，把 PR 推向更高价值终点。被 review 反馈推动 scope 增长是正反馈，而非"偏离原计划"。原则：
+
+- 不要默认走折中方案（"先做一半，剩下做 follow-up"）。"打折"应是最后选项，不是第一选项
+- review 反馈点的工作量评估应严格——不要因为"看起来工作量大"就推荐折中跳过；估错工作量推动错误方向
+- 反向验证：当用户矫正"不要后退、不要打折扣"时，先 honor，复盘错估的根因（是真的工作量大、还是方向反了）
+
+历史教训：0.10.10 redis cascade-safety 任务中，per-command metrics 是 review 第一轮后追加的（非原计划），最终拉高 PR 价值；同期 pine-cpp markdown emit 第一轮我推荐"折中跳过 metadata 节作为 follow-up" 被用户否决，最终全做完只比折中多约 1.5 小时。详见 `memory/reflections/redis-cascade-safety-and-observability.md`。

@@ -2,7 +2,7 @@
   "name": "reorder_topn_boost byte-identical reorder output across runtimes (H8)",
   "requires": ["bench"],
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.9",
+    "_PINEAPPLE_VERSION": "0.10.10",
     "pipeline_config": {
       "operators": {
         "boost": {

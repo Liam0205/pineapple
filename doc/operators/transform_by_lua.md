@@ -8,9 +8,9 @@ Executes a Lua script for per-item or per-common computation.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
+| lua_script | string | Yes | - | Lua source code defining the function to call. |
 | function_for_common | string | No | `""` | Function name to call once for all items. |
 | function_for_item | string | No | `""` | Function name to call per item. |
-| lua_script | string | Yes | - | Lua source code defining the function to call. |
 
 ## Metadata Contract
 
@@ -25,9 +25,9 @@ Executes a Lua script for per-item or per-common computation.
 
 ```python
 flow.transform_by_lua(
+    lua_script=...,
     function_for_common=...,
     function_for_item=...,
-    lua_script=...,
     common_input=[...],
     item_input=[...],
     item_output=[...],

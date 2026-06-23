@@ -41,6 +41,10 @@ static const OperatorSchema k_recall_static_schema{
               .default_value = Variant(nullptr),
               .description = "JSON array of item maps to emit as candidates."}},
         },
+    .metadata = {.common_input = "[]",
+                 .common_output = "[]",
+                 .item_input = "[]",
+                 .item_output = "[item_id, ...]"},
 };
 PINE_REGISTER_OPERATOR_T(RecallStaticOp, k_recall_static_schema)
 

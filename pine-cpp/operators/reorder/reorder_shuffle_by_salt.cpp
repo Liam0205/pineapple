@@ -92,6 +92,10 @@ static const OperatorSchema k_reorder_shuffle_by_salt_schema{
     .type = OpType::Reorder,
     .description = "Deterministic hash-based shuffle using a caller-provided salt.",
     .params = {},
+    .metadata = {.common_input = "[<salt_fields...>]",
+                 .common_output = "[]",
+                 .item_input = "[<item_key_field>]",
+                 .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(ReorderShuffleBySaltOp, k_reorder_shuffle_by_salt_schema)
 

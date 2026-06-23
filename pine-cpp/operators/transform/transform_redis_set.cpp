@@ -98,19 +98,16 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
       out.set_warning("transform_redis_set: write key " + key + ": " + msg);
     };
 
-    auto client = conn->acquire();
-    redis::Client* cli = client.get();
-    if (!cli || !cli->connected()) {
-      write_failed("connection failed");
-      return;
-    }
-
     try {
       if (data_type_ == "string") {
         if (!value.is_string()) {
           return;
         }
-        cli->set(key, value.as_string(), ttl);
+        const std::string& sv = value.as_string();
+        conn->run_command<int>("SET", [&](redis::Client& cli) {
+          cli.set(key, sv, ttl);
+          return 0;
+        });
       } else if (data_type_ == "set") {
         auto members = operators::json_to_string_slice(value);
         if (members.empty()) {
@@ -125,7 +122,14 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
         if (ttl > 0) {
           commands.push_back({"EXPIRE", key, std::to_string(ttl)});
         }
-        cli->write_multiexec(commands);
+        // The MULTI/EXEC pipeline is recorded under SADD — the dominant verb;
+        // DEL+EXPIRE that ride along aren't separately tracked because they
+        // were not exercised at incident time and granularity beyond the
+        // dominant op would over-fragment the labels.
+        conn->run_command<int>("SADD", [&](redis::Client& cli) {
+          cli.write_multiexec(commands);
+          return 0;
+        });
       } else if (data_type_ == "list") {
         auto members = operators::json_to_string_slice(value);
         if (members.empty()) {
@@ -140,7 +144,10 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
         if (ttl > 0) {
           commands.push_back({"EXPIRE", key, std::to_string(ttl)});
         }
-        cli->write_multiexec(commands);
+        conn->run_command<int>("RPUSH", [&](redis::Client& cli) {
+          cli.write_multiexec(commands);
+          return 0;
+        });
       } else {
         throw ExecutionError("transform_redis_set: unsupported data_type \"" + data_type_ + "\"");
       }
@@ -200,6 +207,10 @@ static const OperatorSchema k_transform_redis_set_schema{
               .description =
                   "Return fatal error on Redis infrastructure failure instead of logging and continuing."}},
         },
+    .metadata = {.common_input = "[<key_suffix_fields...>, <value_field>]",
+                 .common_output = "[]",
+                 .item_input = "[]",
+                 .item_output = "[]"},
 };
 PINE_REGISTER_OPERATOR_T(TransformRedisSetOp, k_transform_redis_set_schema)
 

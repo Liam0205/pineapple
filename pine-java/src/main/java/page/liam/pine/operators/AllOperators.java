@@ -7,10 +7,15 @@ import page.liam.pine.ParamSpec;
 import page.liam.pine.Registry;
 import page.liam.pine.ResourceManager;
 import page.liam.pine.ResourceRegistry;
+import redis.clients.jedis.DefaultJedisClientConfig;
+import redis.clients.jedis.HostAndPort;
+import redis.clients.jedis.JedisClientConfig;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
+import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 public class AllOperators {
@@ -36,7 +41,7 @@ public class AllOperators {
                         "Copies field values between common and item dimensions.",
                         Map.of(
                                 "direction", ParamSpec.required("string",
-                                        "Copy direction: common_to_item, item_to_common, common_to_common, or item_to_item.")
+                                        "Copy direction: \"common_to_item\", \"item_to_common\", \"common_to_common\", or \"item_to_item\".")
                         )),
                 TransformCopy::new);
 
@@ -116,7 +121,7 @@ public class AllOperators {
                                 "key_prefix", ParamSpec.requiredTemplatable("string",
                                         "Key prefix prepended to the suffix built from common_input fields. Supports {{field}} interpolation."),
                                 "data_type", ParamSpec.optional("string", "string",
-                                        "Redis data type: set, string, or list."),
+                                        "Redis data type: \"set\", \"string\", or \"list\"."),
                                 "fail_on_error", ParamSpec.optional("bool", false,
                                         "Return fatal error on Redis infrastructure failure instead of treating as cache miss.")
                         )),
@@ -134,11 +139,11 @@ public class AllOperators {
                                 "key_prefix", ParamSpec.requiredTemplatable("string",
                                         "Key prefix prepended to the suffix built from common_input fields. Supports {{field}} interpolation."),
                                 "data_type", ParamSpec.optional("string", "string",
-                                        "Redis data type: set, string, or list."),
+                                        "Redis data type: \"set\", \"string\", or \"list\"."),
                                 "ttl", ParamSpec.optionalTemplatable("int", 0L,
                                         "TTL in seconds. 0 means no expiry. Supports {{field}} interpolation."),
                                 "fail_on_error", ParamSpec.optional("bool", false,
-                                        "Return fatal error on Redis failure instead of logging to stderr.")
+                                        "Return fatal error on Redis infrastructure failure instead of logging and continuing.")
                         )),
                 TransformRedisSet::new);
 
@@ -239,7 +244,7 @@ public class AllOperators {
                         "Deduplicates items by a key field, keeping the first occurrence.",
                         Map.of(
                                 "strategy", ParamSpec.optional("string", "first",
-                                        "Dedup strategy — first keeps first occurrence.")
+                                        "Dedup strategy — \"first\" keeps first occurrence.")
                         )),
                 MergeDedup::new);
 
@@ -251,7 +256,7 @@ public class AllOperators {
                         "Sorts items by a numeric field in ascending or descending order.",
                         Map.of(
                                 "order", ParamSpec.optional("string", "desc",
-                                        "Sort direction — asc or desc.")
+                                        "Sort direction — \"asc\" or \"desc\".")
                         )),
                 ReorderSort::new);
 
@@ -269,7 +274,7 @@ public class AllOperators {
                 new OperatorSchema(
                         "observe_log",
                         OperatorType.OBSERVE,
-                        "Reads declared input fields and writes them to standard log. Read-only operator.",
+                        "Reads declared input fields and writes them to Go standard log. This is a read-only operator: it produces no output fields and does not modify the DataFrame. It is exempt from dead-code detection.",
                         Map.of(
                                 "log_prefix", ParamSpec.optional("string", "",
                                         "Prefix prepended to each log line.")
@@ -313,6 +318,12 @@ public class AllOperators {
      * operators/transform/redis_connection.go. DefaultInterval is -1 (never
      * refresh): a connection pool has no meaningful refresh and is held until the
      * ResourceManager retires, at which point stop() closes the pool.
+     *
+     * <p>Cascade-safety timeouts (dial/read/write/pool_timeout) and pool_size are
+     * exposed mirroring pine-go. See pine-go/operators/transform/redis_connection.go
+     * for the full incident background; in short, a 2026-06-22 tipsy-recsys outage
+     * showed that inheriting client defaults silently allowed a brief Redis hiccup
+     * to escalate into a multi-minute /execute outage.
      */
     private static void registerRedisConnectionResource() {
         ResourceManager.registerFactory("redis_connection", (params, metrics) -> {
@@ -325,18 +336,46 @@ public class AllOperators {
             String password = pwObj instanceof String ? (String) pwObj : "";
             Object dbObj = params.get("db");
             int db = dbObj instanceof Number ? ((Number) dbObj).intValue() : 0;
+            int dialTimeoutMs = intParamOrDefault(params, "dial_timeout_ms", DEFAULT_REDIS_DIAL_TIMEOUT_MS);
+            int readTimeoutMs = intParamOrDefault(params, "read_timeout_ms", DEFAULT_REDIS_READ_TIMEOUT_MS);
+            int writeTimeoutMs = intParamOrDefault(params, "write_timeout_ms", DEFAULT_REDIS_WRITE_TIMEOUT_MS);
+            int poolTimeoutMs = intParamOrDefault(params, "pool_timeout_ms", DEFAULT_REDIS_POOL_TIMEOUT_MS);
+            int poolSize = intParamOrDefault(params, "pool_size", 0);
             Object mnObj = params.get("metrics_name");
             String metricsName = mnObj instanceof String ? (String) mnObj : "";
             return () -> {
                 String host = addr.contains(":") ? addr.substring(0, addr.indexOf(':')) : addr;
                 int port = addr.contains(":") ? Integer.parseInt(addr.substring(addr.indexOf(':') + 1)) : 6379;
-                JedisPoolConfig cfg = new JedisPoolConfig();
+                JedisPoolConfig poolCfg = new JedisPoolConfig();
+                if (poolSize > 0) {
+                    poolCfg.setMaxTotal(poolSize);
+                    if (poolCfg.getMaxIdle() < poolSize) {
+                        poolCfg.setMaxIdle(poolSize);
+                    }
+                }
+                poolCfg.setMaxWait(Duration.ofMillis(poolTimeoutMs));
+                // Jedis exposes connect timeout and a single socket timeout for
+                // both read and write directions. write_timeout is accepted by
+                // the schema for cross-engine parity but mapped to the larger of
+                // the two: a strict write_timeout below the read deadline would
+                // silently turn round-trips that wait on the server (LRANGE,
+                // ZRANGEBYSCORE) into write failures. The chosen direction is
+                // documented on write_timeout_ms's schema description so users
+                // configuring `read=500, write=2000` see the same 2000ms read
+                // wall they get on Go and don't get a surprise.
+                int socketTimeoutMs = effectiveSocketTimeoutMs(readTimeoutMs, writeTimeoutMs);
+                DefaultJedisClientConfig.Builder cfgBuilder = DefaultJedisClientConfig.builder()
+                        .connectionTimeoutMillis(dialTimeoutMs)
+                        .socketTimeoutMillis(socketTimeoutMs)
+                        .database(db);
+                if (!password.isEmpty()) {
+                    cfgBuilder.password(password);
+                }
+                JedisClientConfig clientCfg = cfgBuilder.build();
                 // JedisPool construction is lazy (no connect here), so a never-refresh
                 // pool can be created at start even when Redis is unavailable; the
                 // failure surfaces at borrow time and degrades per fail_on_error.
-                JedisPool pool = password.isEmpty()
-                        ? new JedisPool(cfg, host, port, 2000, null, db)
-                        : new JedisPool(cfg, host, port, 2000, password, db);
+                JedisPool pool = new JedisPool(poolCfg, new HostAndPort(host, port), clientCfg);
                 return new RedisConnResource(pool, metricsName, metrics);
             };
         });
@@ -345,13 +384,53 @@ public class AllOperators {
         schema.name = "redis_connection";
         schema.description = "Shared Redis connection pool borrowed by Redis operators via resource_name.";
         schema.defaultInterval = -1;
-        schema.params = Map.of(
-                "addr", codegenParam("string", true, null, "Redis server address (host:port)."),
-                "password", codegenParam("string", false, "", "Redis password."),
-                "db", codegenParam("int", false, 0L, "Redis DB number."),
-                "metrics_name", codegenParam("string", false, "", "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics.")
-        );
+        Map<String, Codegen.ParamSpec> p = new HashMap<>();
+        p.put("addr", codegenParam("string", true, null, "Redis server address (host:port)."));
+        p.put("password", codegenParam("string", false, "", "Redis password."));
+        p.put("db", codegenParam("int", false, 0L, "Redis DB number."));
+        p.put("dial_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_DIAL_TIMEOUT_MS, "TCP dial timeout in ms."));
+        p.put("read_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_READ_TIMEOUT_MS, "Per-command read timeout in ms; primary cascade-safety knob."));
+        p.put("write_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_WRITE_TIMEOUT_MS,
+                "Per-command write timeout in ms. pine-java note: Jedis exposes a single socket"
+                        + " timeout, so the effective deadline on this engine is"
+                        + " max(read_timeout_ms, write_timeout_ms); keep read_timeout_ms"
+                        + " >= write_timeout_ms to avoid surprise. pine-go and pine-cpp honour"
+                        + " read/write independently."));
+        p.put("pool_timeout_ms", codegenParam("int", false, (long) DEFAULT_REDIS_POOL_TIMEOUT_MS, "How long a borrower waits for a free pool connection in ms."));
+        p.put("pool_size", codegenParam("int", false, 0L, "Maximum concurrent connections; 0 = pool default."));
+        p.put("metrics_name", codegenParam("string", false, "", "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics."));
+        schema.params = Collections.unmodifiableMap(p);
         ResourceRegistry.register(schema);
+    }
+
+    /** Default cascade-safety timeouts. Mirror pine-go's defaultRedis*TimeoutMs. */
+    private static final int DEFAULT_REDIS_DIAL_TIMEOUT_MS = 2000;
+    private static final int DEFAULT_REDIS_READ_TIMEOUT_MS = 2000;
+    private static final int DEFAULT_REDIS_WRITE_TIMEOUT_MS = 2000;
+    private static final int DEFAULT_REDIS_POOL_TIMEOUT_MS = 2000;
+
+    private static int intParamOrDefault(Map<String, Object> params, String key, int fallback) {
+        Object v = params.get(key);
+        if (v instanceof Number) {
+            return ((Number) v).intValue();
+        }
+        return fallback;
+    }
+
+    /**
+     * Compute the Jedis socket timeout from the schema-supplied read/write
+     * timeouts. Jedis has a single socket timeout for both directions, so we
+     * pick the larger of the two — see the call site comment for the rationale
+     * (LRANGE/ZRANGEBYSCORE wait on the server, taking the smaller of the two
+     * would mis-classify long reads as write failures).
+     *
+     * <p>Package-private so the regression test can pin this contract directly:
+     * if a future refactor switches the policy (e.g. to {@code min}), the
+     * {@code write_timeout_ms} schema description becomes wrong and operators
+     * configuring asymmetric timeouts get a silent surprise.
+     */
+    static int effectiveSocketTimeoutMs(int readTimeoutMs, int writeTimeoutMs) {
+        return Math.max(readTimeoutMs, writeTimeoutMs);
     }
 
     private static Codegen.ParamSpec codegenParam(String type, boolean required, Object defaultValue, String description) {

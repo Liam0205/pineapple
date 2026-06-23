@@ -2,7 +2,6 @@ package page.liam.pine.operators;
 
 import page.liam.pine.*;
 import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Pipeline;
 
 import java.util.*;
@@ -71,8 +70,8 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
-        JedisPool pool = TransformRedisGet.borrowPool(resourceProvider, resourceName);
-        if (pool == null) return;
+        RedisConnResource resource = TransformRedisGet.borrowResource(resourceProvider, resourceName);
+        if (resource == null) return;
 
         int n = commonInput().size();
         if (n < 2) {
@@ -102,7 +101,12 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
         String key = prefix + TransformRedisGet.buildKeySuffix(input, commonInput().subList(0, n - 1));
         Object value = input.common(commonInput().get(n - 1));
 
-        try (Jedis jedis = pool.getResource()) {
+        // Each branch records under the dominant Redis verb of the pipeline:
+        // SADD / RPUSH / SET. The DEL+EXPIRE that ride along are not
+        // separately tracked — granularity beyond the dominant op was not
+        // exercised at incident time and would over-fragment the labels.
+        final int finalTtl = ttl;
+        try {
             switch (dataType) {
                 case "set": {
                     List<String> members = toStringList(value);
@@ -110,11 +114,14 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                         if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
                         return;
                     }
-                    Pipeline pipe = jedis.pipelined();
-                    pipe.del(key);
-                    pipe.sadd(key, members.toArray(new String[0]));
-                    if (ttl > 0) pipe.expire(key, ttl);
-                    pipe.sync();
+                    resource.runCommand("SADD", jedis -> {
+                        Pipeline pipe = jedis.pipelined();
+                        pipe.del(key);
+                        pipe.sadd(key, members.toArray(new String[0]));
+                        if (finalTtl > 0) pipe.expire(key, finalTtl);
+                        pipe.sync();
+                        return null;
+                    });
                     break;
                 }
                 case "list": {
@@ -123,11 +130,14 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                         if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
                         return;
                     }
-                    Pipeline pipe = jedis.pipelined();
-                    pipe.del(key);
-                    pipe.rpush(key, members.toArray(new String[0]));
-                    if (ttl > 0) pipe.expire(key, ttl);
-                    pipe.sync();
+                    resource.runCommand("RPUSH", jedis -> {
+                        Pipeline pipe = jedis.pipelined();
+                        pipe.del(key);
+                        pipe.rpush(key, members.toArray(new String[0]));
+                        if (finalTtl > 0) pipe.expire(key, finalTtl);
+                        pipe.sync();
+                        return null;
+                    });
                     break;
                 }
                 case "string": {
@@ -135,11 +145,15 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                         System.err.printf("transform_redis_set: value for key %s is not string%n", key);
                         return;
                     }
-                    if (ttl > 0) {
-                        jedis.setex(key, ttl, (String) value);
-                    } else {
-                        jedis.set(key, (String) value);
-                    }
+                    final String stringValue = (String) value;
+                    resource.runCommand("SET", jedis -> {
+                        if (finalTtl > 0) {
+                            jedis.setex(key, finalTtl, stringValue);
+                        } else {
+                            jedis.set(key, stringValue);
+                        }
+                        return null;
+                    });
                     break;
                 }
                 default:

@@ -74,27 +74,42 @@ func pythonLiteral(v any) string {
 	}
 }
 
-// sortedParams returns param names in sorted order for deterministic output.
+// sortedParams returns param names in deterministic order with required
+// fields first (alphabetised within each tier). Required-first matches how
+// users mentally model resource / operator config blocks: the must-supply
+// keys lead, optional knobs follow. Tiers are alphabetised so a renamed or
+// added param lands deterministically.
 func sortedParams(params map[string]types.ParamSpec) []string {
-	names := make([]string, 0, len(params))
-	for k := range params {
-		names = append(names, k)
-	}
-	sortStringsSlice(names)
-	return names
-}
-
-// alwaysParams returns sorted names of params that are always included in
-// the params dict: required params, or optional params that have a Default.
-func alwaysParams(params map[string]types.ParamSpec) []string {
-	var names []string
+	required := make([]string, 0, len(params))
+	optional := make([]string, 0, len(params))
 	for k, spec := range params {
-		if spec.Required || spec.Default != nil {
-			names = append(names, k)
+		if spec.Required {
+			required = append(required, k)
+		} else {
+			optional = append(optional, k)
 		}
 	}
-	sortStringsSlice(names)
-	return names
+	sortStringsSlice(required)
+	sortStringsSlice(optional)
+	return append(required, optional...)
+}
+
+// alwaysParams returns names of params that are always included in
+// the params dict: required params, or optional params that have a Default.
+// Required-first within each tier (alphabetised), matching sortedParams.
+func alwaysParams(params map[string]types.ParamSpec) []string {
+	required := make([]string, 0, len(params))
+	optional := make([]string, 0, len(params))
+	for k, spec := range params {
+		if spec.Required {
+			required = append(required, k)
+		} else if spec.Default != nil {
+			optional = append(optional, k)
+		}
+	}
+	sortStringsSlice(required)
+	sortStringsSlice(optional)
+	return append(required, optional...)
 }
 
 // conditionalParams returns sorted names of optional params with no Default.
