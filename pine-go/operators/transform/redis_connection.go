@@ -10,6 +10,24 @@
 //   - addr (string, required): Redis server address (host:port).
 //   - password (string, optional, default=""): Redis password.
 //   - db (int, optional, default=0): Redis DB number.
+//   - dial_timeout_ms (int, optional, default=2000): TCP dial timeout in ms.
+//   - read_timeout_ms (int, optional, default=2000): Per-command read timeout
+//     in ms. This is the dominant cascade-safety knob: any single Redis call
+//     that exceeds this deadline returns ctx.DeadlineExceeded so callers don't
+//     hold the borrowed client (or upstream goroutine) indefinitely while the
+//     server is slow. Most operators (redis_get/set/zrangebyscore) default
+//     fail_on_error=false and degrade to a cache miss + warning, so a slow
+//     Redis is contained at this resource boundary instead of cascading into
+//     the request goroutine pool.
+//   - write_timeout_ms (int, optional, default=2000): Per-command write
+//     timeout in ms. Same intent as read_timeout_ms.
+//   - pool_timeout_ms (int, optional, default=2000): How long a goroutine
+//     waits for a free connection from the pool when all connections are in
+//     use. Bounds the upstream-induced pile-up when Redis stops returning.
+//   - pool_size (int, optional, default=0): Maximum concurrent connections
+//     in the pool. 0 leaves the redis client default in place
+//     (10*GOMAXPROCS for go-redis v9), which has been the de-facto behaviour;
+//     set explicitly to lift the cap for high-concurrency deployments.
 //   - metrics_name (string, optional, default=""): When set, the pool emits its
 //     own metrics (pool gauges + PING-probe latency) labelled name=<metrics_name>.
 //     Empty disables resource-level metrics.
@@ -31,40 +49,90 @@ import (
 // pings the server. Fixed across runtimes so metric cadence is comparable.
 const redisProbeInterval = 15 * time.Second
 
+// Default cascade-safety timeouts. 2s is below go-redis v9's defaults
+// (read/write 3s, dial 5s) but high enough not to break healthy operations:
+// a tipsy-recsys 2026-06-22 incident showed Redis PING p99 latency spiking
+// to ~970ms and dragging /execute through 10s timeouts because the resource
+// inherited the v9 defaults verbatim. Production deployments should configure
+// tighter values (e.g. 500ms read/write) when their workload allows.
+const (
+	defaultRedisDialTimeoutMs  = 2000
+	defaultRedisReadTimeoutMs  = 2000
+	defaultRedisWriteTimeoutMs = 2000
+	defaultRedisPoolTimeoutMs  = 2000
+)
+
 func init() {
 	pine.RegisterResource(pine.ResourceSchema{
 		Name:            "redis_connection",
 		Description:     "Shared Redis connection pool borrowed by Redis operators via resource_name.",
 		DefaultInterval: -1, // never refresh: a connection pool has no meaningful refresh.
 		Params: map[string]pine.ParamSpec{
-			"addr":         {Type: "string", Required: true, Description: "Redis server address (host:port)."},
-			"password":     {Type: "string", Required: false, Default: "", Description: "Redis password."},
-			"db":           {Type: "int", Required: false, Default: 0, Description: "Redis DB number."},
-			"metrics_name": {Type: "string", Required: false, Default: "", Description: "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics."},
+			"addr":             {Type: "string", Required: true, Description: "Redis server address (host:port)."},
+			"password":         {Type: "string", Required: false, Default: "", Description: "Redis password."},
+			"db":               {Type: "int", Required: false, Default: 0, Description: "Redis DB number."},
+			"dial_timeout_ms":  {Type: "int", Required: false, Default: defaultRedisDialTimeoutMs, Description: "TCP dial timeout in ms."},
+			"read_timeout_ms":  {Type: "int", Required: false, Default: defaultRedisReadTimeoutMs, Description: "Per-command read timeout in ms; primary cascade-safety knob."},
+			"write_timeout_ms": {Type: "int", Required: false, Default: defaultRedisWriteTimeoutMs, Description: "Per-command write timeout in ms."},
+			"pool_timeout_ms":  {Type: "int", Required: false, Default: defaultRedisPoolTimeoutMs, Description: "How long a goroutine waits for a free pool connection in ms."},
+			"pool_size":        {Type: "int", Required: false, Default: 0, Description: "Maximum concurrent connections; 0 = client default (10*GOMAXPROCS)."},
+			"metrics_name":     {Type: "string", Required: false, Default: "", Description: "When set, the pool emits its own metrics labelled name=<metrics_name>. Empty disables resource-level metrics."},
 		},
 	}, func(params map[string]any, mp metrics.Provider) (resource.Fetcher, error) {
-		addr, _ := params["addr"].(string)
-		if addr == "" {
-			return nil, fmt.Errorf("redis_connection: addr is required")
+		opts, metricsName, err := redisOptionsFromParams(params)
+		if err != nil {
+			return nil, err
 		}
-		password, _ := params["password"].(string)
-		db := 0
-		if v, ok := params["db"]; ok {
-			db = int(toInt64Param(v))
-		}
-		metricsName, _ := params["metrics_name"].(string)
 		return func(ctx context.Context) (any, error) {
-			client := redis.NewClient(&redis.Options{
-				Addr:     addr,
-				Password: password,
-				DB:       db,
-			})
+			client := redis.NewClient(opts)
 			// The wrapper implements io.Closer; the ResourceManager closes it
 			// on retirement once the last borrow is released, which stops the
 			// probe and closes the underlying client.
 			return newRedisConnResource(client, metricsName, mp), nil
 		}, nil
 	})
+}
+
+// redisOptionsFromParams translates the registered ParamSpec map into a
+// *redis.Options + metrics_name pair. Split out from the schema closure so
+// tests can verify that user params (especially the cascade-safety timeouts)
+// are wired through to the client without spinning up miniredis.
+func redisOptionsFromParams(params map[string]any) (*redis.Options, string, error) {
+	addr, _ := params["addr"].(string)
+	if addr == "" {
+		return nil, "", fmt.Errorf("redis_connection: addr is required")
+	}
+	password, _ := params["password"].(string)
+	db := 0
+	if v, ok := params["db"]; ok {
+		db = int(toInt64Param(v))
+	}
+	dialTimeout := time.Duration(intParamOrDefault(params, "dial_timeout_ms", defaultRedisDialTimeoutMs)) * time.Millisecond
+	readTimeout := time.Duration(intParamOrDefault(params, "read_timeout_ms", defaultRedisReadTimeoutMs)) * time.Millisecond
+	writeTimeout := time.Duration(intParamOrDefault(params, "write_timeout_ms", defaultRedisWriteTimeoutMs)) * time.Millisecond
+	poolTimeout := time.Duration(intParamOrDefault(params, "pool_timeout_ms", defaultRedisPoolTimeoutMs)) * time.Millisecond
+	poolSize := int(intParamOrDefault(params, "pool_size", 0))
+	metricsName, _ := params["metrics_name"].(string)
+	return &redis.Options{
+		Addr:         addr,
+		Password:     password,
+		DB:           db,
+		DialTimeout:  dialTimeout,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		PoolTimeout:  poolTimeout,
+		PoolSize:     poolSize,
+	}, metricsName, nil
+}
+
+// intParamOrDefault reads an int-like param with a fallback when the key is
+// absent. Callers normally set Default in ParamSpec; this helper keeps the
+// factory body readable when several optional ints share the same shape.
+func intParamOrDefault(params map[string]any, key string, fallback int64) int64 {
+	if v, ok := params[key]; ok {
+		return toInt64Param(v)
+	}
+	return fallback
 }
 
 // RedisConnResource wraps a *redis.Client borrowed by Redis operators via
