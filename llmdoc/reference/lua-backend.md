@@ -86,6 +86,8 @@ issue #8 反馈闭环：边界双拷贝（state.go:557 + wangshu.go:371，每调
 
 内存上界 = `minIdle + 当前 in-flight 实例数`，与 GC 周期 / 进程 uptime 无关。
 
+> 注：双层 warm/sync.Pool 是 pine-go 专属——pine-java 用无上限 `ConcurrentLinkedQueue<Globals>`、pine-cpp 用无上限 `vector<LuaVM*>` 强引用。三引擎"pool 上限 / GC 回收语义"不对等是**接受的设计选择**（issue #91），指标层 5 元组对等 + 端到端 calibrated 持平 + 生产无 OOM 痛点；详见 `llmdoc/architecture/dag-engine.md` 「接受的跨引擎设计差异」节。
+
 ### Baseline 重置契约（借后必须）
 
 借后必须执行 baseline 重置，把脚本运行期写入的全局变量复位回 pre-warm 时的快照——script-level 全局漏到下次借用属契约违反：
