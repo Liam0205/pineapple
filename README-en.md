@@ -157,7 +157,27 @@ pineapple/
 
 ## Development
 
+### Top-level Make Targets
+
+Cross-language fmt / lint / test / bench / codegen / version management is unified behind the top-level `Makefile` (with `pine-go/Makefile` for Go-specific work). CI and local dev share the same command sequence.
+
+| Make target | Purpose |
+|---|---|
+| `make fmt` | Format all four languages (gofmt / google-java-format / clang-format / ruff) |
+| `make lint` | Lint all four languages (incl. checkstyle `failOnViolation=true`, `-Werror`) |
+| `make test` | Full test suite across runtimes |
+| `make bench` | Default `pine_bench` tag |
+| `make bench-cross-runtime` | Cross-engine fixture-driven benchmark (cgroup-isolated) |
+| `make bench-lua-backends` | wangshu vs gopher-lua, same-host serial + benchstat |
+| `make differential-fuzz` | Tri-engine differential fuzz |
+| `make cross-validate` | Tri-engine consistency verification |
+| `make codegen` | Generate `apple_generated/` + `doc/operators/` from pine-go Registry |
+| `make codegen-check` | CI: codegen + `git diff --exit-code` to enforce artifact freshness |
+| `make check-pr-ci` | Watch CI status of the current branch's PR (pre-push hook calls this) |
+
 ### Scripts
+
+`scripts/` holds the actual implementations behind the Make targets and can be invoked standalone:
 
 | Script | Purpose |
 |--------|---------|
@@ -168,6 +188,7 @@ pineapple/
 | `scripts/go-bench.sh` | Go benchmarks |
 | `scripts/java-bench.sh` | Java benchmarks |
 | `scripts/bench-cross-runtime.sh` | Cross-engine HTTP server benchmark (fixture-driven, cgroup-isolated) |
+| `scripts/bench-lua-backends.sh` | wangshu vs gopher-lua backend comparison (benchstat delta) |
 | `scripts/go-fuzz.sh` | Go fuzz testing |
 | `scripts/java-fuzz.sh` | Java fuzz testing |
 | `scripts/differential-fuzz.sh` | Tri-engine differential fuzzing (random pipelines, output diff) |
@@ -178,16 +199,25 @@ pineapple/
 | `scripts/render-dag.sh` | DAG visualization (`--backend go\|java`) |
 | `scripts/apple-compile.sh` | Compile Apple DSL to JSON |
 | `scripts/run-pipeline.sh` | One-shot pipeline execution |
-| `scripts/bump-version.sh` | Synchronize version across all components |
+| `scripts/bump-version.sh` | Synchronize version across all components (incl. pine-cpp `kVersion`) |
+| `scripts/check-pr-ci.sh` | Watch CI status of the current branch's PR (pre-push hook invokes this) |
+
+### Local Git Hooks
+
+`.githooks/` ships with the repository; activate via `git config core.hooksPath .githooks` once after clone:
+
+- **`pre-commit`** — staged-only format gate (gofmt / clang-format / ruff); does not touch unstaged work
+- **`pre-push`** — project-level lint (four-language fail-on-violation) + self-wrapped post-push CI watcher (auto-runs `check-pr-ci.sh` after the actual push) + auto `--set-upstream` relay (first-push of a new branch does not need a manual `-u`)
 
 ### CI Pipeline
 
 CI runs automatically on every push/PR:
 
-- **Lint** — Go (golangci-lint), Java (checkstyle, failOnViolation=true), Python (ruff), C++ (-Werror)
+- **Lint** — Go (golangci-lint), Java (checkstyle, failOnViolation=true), Python (ruff), C++ (clang-format -Werror)
 - **Test** — Full Go/Java/Apple/C++ test suites with coverage
 - **Sanitizer** — C++ ASan/UBSan smoke + ThreadSanitizer stress
 - **Fuzz** — Go/Java fuzz + tri-engine differential fuzzing
+- **Daily sanitized fuzz** — Daily (12:00 UTC+8) ASan/TSan differential fuzz, 3000+2000 rounds, dedicated to race / memory-bug deep diagnostics (independent of the per-push fast lane)
 - **Benchmark** — Go/Java performance benchmarks
 - **Cross-validation** — Tri-engine schema/DAG/execution/error/server/metrics parity
 - **Codegen check** — Ensures generated code is in sync with source
@@ -347,6 +377,7 @@ Highlights:
 | Operator development | [`doc/guide_operator-en.md`](doc/guide_operator-en.md) — Go operator development guide |
 | Third-party extensions | [`design_doc/12_distribution-en.md`](design_doc/12_distribution-en.md) — Add custom operators without modifying source |
 | API reference | [`doc/api-en.md`](doc/api-en.md) — HTTP endpoint documentation |
+| LLM retrieval docs | [`llmdoc/`](llmdoc/) — Stable knowledge map for AI collaboration (architecture / decisions / reflections / index) |
 
 ## License
 
