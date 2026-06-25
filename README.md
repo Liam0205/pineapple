@@ -172,7 +172,27 @@ pineapple/
 - **Cross-validate**：全 section 接入，三引擎一致性验证
 
 
+### 开发任务入口（Makefile）
+
+跨四语言的 fmt / lint / test / bench / codegen / 版本管理统一通过顶层 `Makefile` + `pine-go/Makefile` 暴露，CI 与本地共用同一命令序列。常用 verb：
+
+| Make 目标 | 用途 |
+|---|---|
+| `make fmt` | 四语言格式化（gofmt / google-java-format / clang-format / ruff） |
+| `make lint` | 四语言 lint（含 checkstyle `failOnViolation=true`、`-Werror`） |
+| `make test` | 全引擎测试 |
+| `make bench` | 默认 `pine_bench` tag |
+| `make bench-cross-runtime` | 跨引擎 fixture 驱动 benchmark（cgroup 隔离） |
+| `make bench-lua-backends` | wangshu vs gopher-lua 同机串行连跑 + benchstat |
+| `make differential-fuzz` | 三引擎差分 fuzz |
+| `make cross-validate` | 跨引擎一致性验证 |
+| `make codegen` | 从 pine-go Registry 生成 `apple_generated/` + `doc/operators/` |
+| `make codegen-check` | CI 用：codegen 后 `git diff --exit-code`，确保产物新鲜 |
+| `make check-pr-ci` | watch 当前分支 PR 的 CI 状态（pre-push hook 也会自动调用） |
+
 ### 常用脚本
+
+`scripts/` 下的脚本是 Make 目标的具体实现，可单独调用：
 
 | 脚本 | 用途 |
 |------|------|
@@ -183,6 +203,7 @@ pineapple/
 | `scripts/go-bench.sh` | Go 性能基准 |
 | `scripts/java-bench.sh` | Java 性能基准 |
 | `scripts/bench-cross-runtime.sh` | 跨引擎 HTTP server benchmark（fixture 驱动，cgroup 资源隔离） |
+| `scripts/bench-lua-backends.sh` | wangshu vs gopher-lua 后端对比（benchstat delta） |
 | `scripts/go-fuzz.sh` | Go fuzz 测试 |
 | `scripts/java-fuzz.sh` | Java fuzz 测试 |
 | `scripts/differential-fuzz.sh` | 三引擎差异模糊测试（随机生成 pipeline 比对输出） |
@@ -193,16 +214,25 @@ pineapple/
 | `scripts/render-dag.sh` | DAG 可视化（`--backend go\|java`） |
 | `scripts/apple-compile.sh` | Apple DSL 编译为 JSON |
 | `scripts/run-pipeline.sh` | 单次执行 pipeline |
-| `scripts/bump-version.sh` | 版本号同步更新 |
+| `scripts/bump-version.sh` | 版本号同步更新（含 pine-cpp `kVersion`） |
+| `scripts/check-pr-ci.sh` | watch 当前分支 PR 的 CI 状态（pre-push hook 自动调用） |
+
+### 本地 Git Hooks
+
+仓库内置 `.githooks/` 用 `git config core.hooksPath .githooks` 挂载即生效（首次 clone 后建议配一次）：
+
+- **`pre-commit`** — staged-only 格式 gate（gofmt / clang-format / ruff），不动未 staged 改动
+- **`pre-push`** — 工程级 lint（四语言 fail-on-violation）+ 自包装 CI watch（push 完成后自动起 `check-pr-ci.sh` 等终态）+ 自动 `--set-upstream` 接力（首次 push 新分支无需手动 `-u`）
 
 ### CI 流水线
 
 CI 在每次 push/PR 时自动运行：
 
-- **Lint** — Go (golangci-lint)、Java (checkstyle, failOnViolation=true)、Python (ruff)、C++ (-Werror)
+- **Lint** — Go (golangci-lint)、Java (checkstyle, failOnViolation=true)、Python (ruff)、C++ (clang-format -Werror)
 - **Test** — Go/Java/Apple/C++ 全量测试 + 覆盖率
 - **Sanitizer** — C++ ASan/UBSan 冒烟 + ThreadSanitizer 高并发压测
 - **Fuzz** — Go/Java fuzz + 三引擎差异模糊测试
+- **Daily sanitized fuzz** — 每日（北京时间 12:00）跑 ASan/TSan 加持的差分 fuzz 3000+2000 轮，专门面向 race / memory bug 的 deep-diagnostic（独立于每次 push 的 fast 路径）
 - **Benchmark** — Go/Java 性能基准
 - **Cross-validation** — 三引擎 schema/DAG/执行/错误/server/metrics 一致性
 - **Codegen check** — 确保生成代码与源码同步
@@ -363,6 +393,7 @@ def normalize_json(text):
 | 算子开发 | [`doc/guide_operator.md`](doc/guide_operator.md) — Go 算子开发指南 |
 | 第三方扩展 | [`design_doc/12_distribution.md`](design_doc/12_distribution.md) — 不修改源码添加自定义算子 |
 | API 参考 | [`doc/api.md`](doc/api.md) — HTTP 接口说明 |
+| LLM 检索文档 | [`llmdoc/`](llmdoc/) — 面向 AI 协作的稳定知识地图（架构 / 决策 / 反思 / 索引） |
 
 ## License
 
