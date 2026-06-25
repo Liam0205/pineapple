@@ -38,12 +38,13 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **隐式构图** — 算子声明输入/输出字段，引擎自动推导 DAG 依赖并执行传递性归约
 - **无锁并行** — DAG 中无依赖的算子自动并行执行
 - **编译期校验** — 死代码、字段缺失、写后未读等问题在部署前拦截
-- **Lua 嵌入** — 内置 Lua 算子支持轻量自定义计算。端到端开销约 1.2-2x;隔离算子级开销随运行时与计算复杂度变化（C++/LuaJIT 约 3-5x、Java 约 2-9x、Go 约 6-17x），计算密集型热路径建议写原生算子
+- **Lua 嵌入** — 内置 Lua 算子支持轻量自定义计算。pine-go 默认 [wangshu](https://github.com/Liam0205/wangshu)（纯 Go Lua 5.1 VM，NaN-boxing + arena GC），可通过 `-tags=lua_gopher` 切回 gopher-lua；pine-java 用 LuaJC（字节码编译），pine-cpp 用 LuaJIT。端到端开销约 1.2-2x；隔离算子级开销随运行时与计算复杂度变化（C++/LuaJIT 约 3-5x、Java 约 2-9x、Go 约 6-17x），计算密集型热路径建议写原生算子
 - **配置热加载** — 服务运行时自动无停机重载引擎配置
-- **动态资源** — 后台定时刷新的内存资源管理器，无锁读
-- **白盒可观测** — 算子级 trace、`/stats` 端点、可插拔 Prometheus 接口
+- **动态资源** — 双通道资源管理：**数据型**（如静态 dict / 实时 feature store，snapshot 导出后无锁读）+ **句柄型**（如 `redis_connection`，borrow 借用 + RAII 拆除）；后台定时刷新
+- **Redis cascade-safety** — `redis_connection` 资源暴露 `{dial,read,write,pool}_timeout_ms` + `pool_size` 五参数，per-command 指标 `pine_redis_command_*`（4-state status：ok / timeout / pool_timeout / error），fail-on-error 静默降级契约
+- **白盒可观测** — 算子级 trace；`/stats` 组合响应含 `/stats.http`（请求级 4-state 指标）+ `/stats.resources`（资源池连接池/探针/per-command 4 状态分类）；可插拔 Prometheus 接口
 - **行存/列存可切换** — DataFrame 支持两种存储模式
-- **三引擎一致性** — Go/Java/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息一致
+- **三引擎一致性** — Go/Java/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息字节级一致（19 section cross-validate + 三引擎差分 fuzz + 每日 ASan/TSan sanitized fuzz）
 - **Pine-C++ 标杆运行时** — 完整第三运行时，内置算子与 Go/Java 完全对等、HTTP server（热加载/graceful shutdown）、ColumnFrame/RowFrame 双物理实现、OperatorInput lazy 投影、LuaJIT 集成、metrics/resource 对等
 
 ## Quick Start

@@ -38,12 +38,13 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Implicit graph construction** — Operators declare input/output fields; engine infers DAG dependencies with transitive reduction
 - **Lock-free parallelism** — Independent operators in the DAG execute in parallel automatically
 - **Compile-time validation** — Dead code, missing fields, write-after-write detected before deployment
-- **Embedded Lua** — Built-in Lua operators for lightweight custom computation. End-to-end overhead ~1.2-2x; isolated operator-level overhead varies by runtime and compute complexity (C++/LuaJIT ~3-5x, Java ~2-9x, Go ~6-17x) — write native operators for compute-heavy hot paths
+- **Embedded Lua** — Built-in Lua operators for lightweight custom computation. pine-go defaults to [wangshu](https://github.com/Liam0205/wangshu) (pure-Go Lua 5.1 VM, NaN-boxing + arena GC); switch back to gopher-lua via `-tags=lua_gopher`. pine-java uses LuaJC (bytecode compilation), pine-cpp uses LuaJIT. End-to-end overhead ~1.2-2x; isolated operator-level overhead varies by runtime and compute complexity (C++/LuaJIT ~3-5x, Java ~2-9x, Go ~6-17x) — write native operators for compute-heavy hot paths
 - **Hot config reload** — Service automatically reloads engine config without downtime
-- **Dynamic resources** — Background-refreshed in-memory resource manager with lock-free reads
-- **White-box observability** — Operator-level traces, `/stats` endpoint, pluggable Prometheus interface
+- **Dynamic resources** — Two-channel resource manager: **data-typed** (e.g. static dict / real-time feature store, snapshot-exported lock-free reads) + **handle-typed** (e.g. `redis_connection`, borrow lease + RAII teardown); background-refreshed
+- **Redis cascade-safety** — The `redis_connection` resource exposes 5 cascade params (`{dial,read,write,pool}_timeout_ms` + `pool_size`); per-command metrics `pine_redis_command_*` with 4-state status (ok / timeout / pool_timeout / error), fail-on-error silent-degradation contract
+- **White-box observability** — Operator-level traces; the `/stats` composite response includes `/stats.http` (request-level 4-state metrics) + `/stats.resources` (resource pool / probe / per-command 4-state categories); pluggable Prometheus interface
 - **Row/Column storage** — DataFrame supports both storage modes
-- **Tri-engine consistency** — Go/Java/C++ engines verified via CI cross-validation for schema, DAG, execution, error, server, and metrics parity
+- **Tri-engine consistency** — Go/Java/C++ engines verified byte-exactly via CI cross-validation (19 sections + tri-engine differential fuzz + daily ASan/TSan sanitized fuzz)
 - **Pine-C++ benchmark runtime** — Complete third runtime with operator parity, HTTP server (hot reload / graceful shutdown), ColumnFrame/RowFrame dual physical layouts, lazy OperatorInput projection, LuaJIT integration, metrics/resource parity
 
 ## Quick Start
