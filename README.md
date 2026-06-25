@@ -349,39 +349,45 @@ def normalize_json(text):
 
 ## Benchmark
 
-跨引擎性能对比（HTTP server 模式，`scripts/bench-cross-runtime.sh`，10000 请求 × 16 并发，server 以 2C/4G cgroup 隔离）。`realistic_calibrated` 为按真实流量校准的生产 proxy fixture，其余为合成压测。
+跨引擎性能对比（HTTP server 模式，`scripts/bench-cross-runtime.sh`，10000 请求 × 16 并发，server 以 2C/4G cgroup 隔离，2026-06-25 / v0.10.9 复测）。`realistic_*_calibrated*` 系列为按真实流量校准的生产 proxy fixture，其余为合成压测。
 
 ### 吞吐量 (QPS)
 
 | Fixture | Go | Java | C++ |
 |---|---|---|---|
-| small_010 (10 items) | 37078 | 5825 | 20794 |
-| small_050 (50 items) | 26976 | 5201 | 17244 |
-| small_100 (100 items) | 19585 | 4748 | 13904 |
-| medium_0100 (100 items) | 12025 | 3681 | 8578 |
-| medium_0500 (500 items) | 2921 | 2034 | 2938 |
-| medium_1000 (1000 items) | 1446 | 1360 | 1647 |
-| large_0100 (100 items) | 6395 | 2855 | 4855 |
-| large_0500 (500 items) | 1439 | 1439 | 1671 |
-| large_1000 (1000 items) | 728 | 917 | 902 |
-| large_5000 (5000 items) | 142 | 212 | 174 |
-| **realistic_calibrated (生产校准)** | **120** | **124** | **221** |
+| small_010 (10 items) | 36298 | 6318 | 20756 |
+| small_050 (50 items) | 27270 | 5336 | 17227 |
+| small_100 (100 items) | 19658 | 4607 | 13812 |
+| medium_0100 (100 items) | 12514 | 3589 | 8542 |
+| medium_0500 (500 items) | 3026 | 1965 | 2941 |
+| medium_1000 (1000 items) | 1513 | 1295 | 1656 |
+| large_0100 (100 items) | 7243 | 3064 | 5120 |
+| large_0500 (500 items) | 1684 | 1508 | 1773 |
+| large_1000 (1000 items) | 825 | 966 | 951 |
+| large_5000 (5000 items) | 155 | 213 | 175 |
+| realistic_for_you | 483 | 303 | 349 |
+| realistic_for_you_latency | 250 | 141 | 212 |
+| **realistic_for_you_calibrated (生产校准)** | **121** | **127** | **237** |
+| **realistic_for_you_calibrated_2c4g** | **121** | **124** | **224** |
+| **realistic_for_you_calibrated_itemlua** | **127** | **126** | **233** |
 
 ### P50 延迟 (ms)
 
 | Fixture | Go | Java | C++ |
 |---|---|---|---|
-| small_010 | 0.3 | 2.0 | 0.6 |
-| medium_0500 | 5.0 | 6.3 | 5.2 |
-| large_1000 | 20.5 | 14.8 | 16.1 |
-| large_5000 | 102.2 | 67.9 | 83.9 |
-| **realistic_calibrated** | **123.6** | **121.9** | **65.0** |
+| small_010 | 0.4 | 1.5 | 0.6 |
+| medium_0500 | 4.9 | 6.8 | 5.3 |
+| large_1000 | 18.2 | 14.3 | 15.3 |
+| large_5000 | 94.3 | 68.6 | 83.4 |
+| **realistic_for_you_calibrated** | **122.3** | **117.7** | **60.8** |
+| **realistic_for_you_calibrated_itemlua** | **117.1** | **119.5** | **61.5** |
 
 要点：
 
-- **生产校准场景下 C++ 领先约 1.8x**（QPS 221 vs 120/124；P50 65ms vs ~122ms），这是"标杆运行时"定位的体现
-- 合成 small/medium 场景 Go 吞吐最高（轻量请求路径开销最低）；大行数场景（large_1000+）Java 的 JIT 热循环优化使其反超
-- 各引擎数字会随版本演进，复现方式：`scripts/bench-cross-runtime.sh --requests 10000 --concurrency 16`，报告落在 `bench-results/`
+- **生产校准场景下 C++ 领先约 1.9x**（calibrated QPS 237 vs 121/127；P50 60ms vs 117/122ms），这是"标杆运行时"定位的体现
+- 合成 small/medium 场景 Go 吞吐最高（轻量请求路径开销最低）；大行数场景（large_1000+）Java 的 JIT 热循环优化反超
+- itemlua（3000 调用/请求的 boundary-dominated 形状）与 calibrated 在三引擎都统计持平，符合"per-item 边界主导 + 端到端稀释"的校准事实（详见 `llmdoc/memory/decisions/perf-evolution-roadmap.md`）
+- 各引擎数字会随版本演进，复现方式：`make bench-cross-runtime` 或 `scripts/bench-cross-runtime.sh --requests 10000 --concurrency 16`，报告落在 `bench-results/`
 
 ## 文档
 
