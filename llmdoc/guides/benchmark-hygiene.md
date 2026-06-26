@@ -29,6 +29,16 @@
 - fresh build 之间存在 **±5-7% 的二进制布局噪声**（函数地址/对齐漂移），小于该幅度的 QPS 差异不可下结论
 - 落在噪声带内的差异需 `perf stat` 微架构指标交叉验证：instructions / IPC / L1-icache-miss / branch-miss / context-switches。两个 build 微架构指标持平，即可判定"统计无差异"
 
+## stddev 来源校准
+
+- calibrated fixtures 的 stddev 33–36 ms **不是噪声来源，是负载的固有抖动**——切 GC / 调 JVM flag / 改 JIT 后端都不会收紧
+- 三大主导源（按贡献排序）：
+  1. **DAG 多 op 并发调度抖动**：calibrated_itemlua 38-op DAG 内 ready-queue 调度顺序非确定，单请求耗时浮动 ~20 ms
+  2. **LuaJ JIT warmup 在前 N 个请求的非均匀分布**：luajc 编译触发点漂移，前段请求耗时尾部偏长
+  3. **HTTP keepalive / server 调度抖动**：网络栈与 server 端 work-stealing 微秒级浮动放大到毫秒
+- **GC pause 不在主要源中**：pine-java G1 实测 max STW pause **12.82 ms** 远低于 calibrated stddev 35 ms，整体 STW budget 远小于 stddev × bench 窗口。详见 `llmdoc/memory/decisions/pine-java-gc-choice.md` "ZGC 实测数据" 段的 GC log 实测
+- **推论**：诊断 stddev 之前先采 GC log 验明出处。试图通过 GC tuning 收紧 stddev 是错误方向（除非 GC log 数据反证 STW 主导）；"stddev 高 → 怀疑 GC → 切 GC" 这条错误链路已被 2026-06-26 ZGC A 实验证伪一次，不要复制
+
 ## Fixture 代表性
 
 - `fixtures/benchmarks/realistic_for_you_calibrated*` 是生产 proxy（按真实流量 calibrate，N≈10 行），是**性能决策的唯一裁判**
