@@ -52,7 +52,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 ### 环境要求
 
 - Go 1.26+（Pine-Go）
-- Java 21+（Pine-Java）
+- Java 25+（Pine-Java）
 - Python 3.11+（Apple DSL）
 - CMake 3.20+ / C++23 编译器 / LuaJIT（Pine-C++，可选）
 
