@@ -172,8 +172,16 @@ start_server() {
   # Set BENCH_VERBOSE=1 to capture server logs for debugging startup failures
   [[ "${BENCH_VERBOSE:-}" == "1" ]] && sink="$WORK_DIR/${runtime}.log"
   local -a cmd=()
+  # JAVA_BENCH_OPTS lets the caller inject JVM flags (e.g. `-XX:+UseZGC
+  # -XX:+ZGenerational`) for the java leg without touching the script.
+  # Word-split via $JAVA_BENCH_OPTS expansion; empty default = no flags.
+  local -a java_opts=()
+  if [[ -n "${JAVA_BENCH_OPTS:-}" ]]; then
+    # shellcheck disable=SC2206  # intentional word-splitting for env-supplied flags
+    java_opts=(${JAVA_BENCH_OPTS})
+  fi
   case "$runtime" in
-    java) cmd=(java -cp "$JAVA_CP" -Dpine.bench=true -Dpine.config="$config" -Dpine.port="$port"
+    java) cmd=(java "${java_opts[@]}" -cp "$JAVA_CP" -Dpine.bench=true -Dpine.config="$config" -Dpine.port="$port"
               page.liam.pine.PineServer) ;;
     go)   cmd=("$WORK_DIR/server-go" -config "$config" -addr ":$port") ;;
     cpp)  if [[ -n "${CPP_LD_PRELOAD:-}" ]]; then
