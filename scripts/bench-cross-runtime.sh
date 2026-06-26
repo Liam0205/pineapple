@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 #   - hey: go install github.com/rakyll/hey@latest
-#   - Go, Java 21, cmake + build-essential + libluajit
+#   - Go, Java 25, cmake + build-essential + libluajit
 #
 # Usage:
 #   ./scripts/bench-cross-runtime.sh [--skip go] [--modes "row,column"]
@@ -172,9 +172,10 @@ start_server() {
   # Set BENCH_VERBOSE=1 to capture server logs for debugging startup failures
   [[ "${BENCH_VERBOSE:-}" == "1" ]] && sink="$WORK_DIR/${runtime}.log"
   local -a cmd=()
-  # JAVA_BENCH_OPTS lets the caller inject JVM flags (e.g. `-XX:+UseZGC
-  # -XX:+ZGenerational`) for the java leg without touching the script.
-  # Word-split via $JAVA_BENCH_OPTS expansion; empty default = no flags.
+  # JAVA_BENCH_OPTS lets the caller inject JVM flags (e.g. `-XX:+UseZGC`
+  # for generational ZGC, default since JDK 24) for the java leg without
+  # touching the script. Word-split via $JAVA_BENCH_OPTS expansion; empty
+  # default = no flags.
   local -a java_opts=()
   if [[ -n "${JAVA_BENCH_OPTS:-}" ]]; then
     # shellcheck disable=SC2206  # intentional word-splitting for env-supplied flags
