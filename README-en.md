@@ -52,7 +52,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 ### Prerequisites
 
 - Go 1.26+ (Pine-Go)
-- Java 21+ (Pine-Java)
+- Java 25+ (Pine-Java)
 - Python 3.11+ (Apple DSL)
 
 ### 1. Write a Pipeline
