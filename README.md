@@ -232,7 +232,7 @@ CI 在每次 push/PR 时自动运行：
 - **Test** — Go/Java/Apple/C++ 全量测试 + 覆盖率
 - **Sanitizer** — C++ ASan/UBSan 冒烟 + ThreadSanitizer 高并发压测
 - **Fuzz** — Go/Java fuzz + 三引擎差异模糊测试
-- **Daily sanitized fuzz** — 每日（北京时间 12:00）跑 ASan/TSan 加持的差分 fuzz 3000+2000 轮，专门面向 race / memory bug 的 deep-diagnostic（独立于每次 push 的 fast 路径）
+- **Daily sanitized fuzz** — 每日（北京时间 12:00）跑 ASan/TSan 加持的差分 fuzz 3000+2000 轮（带 wall-clock 时间预算，慢 runner 日自动降轮数保完整信号），专门面向 race / memory bug 的 deep-diagnostic（独立于每次 push 的 fast 路径）
 - **Benchmark** — Go/Java 性能基准
 - **Cross-validation** — 三引擎 schema/DAG/执行/错误/server/metrics 一致性
 - **Codegen check** — 确保生成代码与源码同步

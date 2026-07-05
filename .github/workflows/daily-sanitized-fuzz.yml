@@ -14,15 +14,24 @@ name: Daily Sanitized Differential Fuzz
 # Cost: ASan ~3x slower, TSan ~5-10x slower than Release. Initial
 # smoke-run measurements (#128, 100/50 rounds) projected ~1.4 s/round and
 # 5000+3500 fitting in ~205m. The 2026-06-20 / 06-21 production runs
-# (#132 / #133) tripped exit=124 on both passes — actual throughput in
-# long runs is closer to ~1.5 s/round (ASan) / ~1.6 s/round (TSan), and
-# sanitizer shadow memory pressure compounds over thousands of rounds.
-# Cut rounds (ASan 5000→3000 / 40 %, TSan 3500→2000 / ~43 %) to
-# ~3000 ASan + ~2000 TSan, which budgets to ~75m + ~55m and leaves
-# ~15-20 % buffer inside the inner per-pass timeouts. Nightly
-# diff-fuzz keeps driving 10k Release rounds for raw throughput /
-# different seed coverage; this workflow is the deep-diagnostic
-# complement, NOT a replacement.
+# (#132 / #133) tripped exit=124 on both passes — throughput was cut to
+# 3000 ASan + 2000 TSan (570b4312). Production runs 06-24..07-04
+# (#142 / #144 / #146-152) then showed worst-case throughput is really
+# ~2.0 s/round (ASan) / ~1.9 s/round (TSan) on slow runner days — 55 %
+# above the fast-day ~1.3 s/round — so ASan tripped its 90m timeout on
+# 8 of 10 days with 5-11 % of rounds left, losing the whole pass each
+# time. Two-layer fix:
+#   1. --time-budget-seconds makes the fuzz script stop launching new
+#      rounds when the budget is exhausted and emit its normal Results:
+#      summary — a slow runner now degrades to fewer completed rounds
+#      instead of losing the pass to a timeout kill.
+#   2. Budgets re-derived from worst measured throughput: ASan 3000
+#      rounds × 2.03 s = ~102m → budget 105m; TSan 2000 × 1.92 s = ~64m
+#      → budget 75m. The outer `timeout` stays as a last-resort kill
+#      ~5m above each budget (hang protection, not pacing).
+# Nightly diff-fuzz keeps driving 10k Release rounds for raw
+# throughput / different seed coverage; this workflow is the
+# deep-diagnostic complement, NOT a replacement.
 
 on:
   schedule:
@@ -52,12 +61,10 @@ permissions:
 jobs:
   sanitized-fuzz:
     runs-on: ubuntu-latest
-    # 3h hard budget. Production runs (#132, #133) ran ~1.5-1.6 s/round
-    # under sanitizer pressure; 3000 ASan + 2000 TSan + builds + buffers
-    # projects to ~140 minutes. 180m leaves ~40 minutes of headroom for
-    # runner-side noise without leaving so much slack that incomplete
-    # passes (#109 diagnostic) get masked by the global timeout.
-    timeout-minutes: 180
+    # Hard budget: setup/builds ~7m + ASan step ≤115m + TSan step ≤85m +
+    # evaluate/packaging ~5m ≈ 212m worst. 215m covers that path; anything
+    # beyond it means multiple layers of protection already failed.
+    timeout-minutes: 215
     steps:
       - uses: actions/checkout@v6
 
@@ -127,11 +134,14 @@ jobs:
 
       - name: Run ASan differential fuzz
         # Main fuzz pass: cpp uses ASan binary so heap UAF / overflow /
-        # UB surfaces directly. ASan replicates ~3x slower than Release;
-        # production runs (#132 / #133) measured ~1.5 s/round under
-        # sanitizer pressure. 3000 rounds projects to ~75 minutes;
-        # budget 95m step, 90m fuzz inner — leaves ~20 % headroom.
-        timeout-minutes: 95
+        # UB surfaces directly. Worst measured throughput (06-24..07-04,
+        # #142 et al.) is ~2.03 s/round → 3000 rounds ≈ 102m. The script's
+        # own --time-budget-seconds (105m) is the pacing mechanism: on a
+        # slow runner it stops launching rounds and still emits Results:,
+        # so partial coverage stays a valid signal. The outer `timeout`
+        # (110m) and step timeout (115m) are hang protection only — if
+        # they fire, the run is genuinely wedged, not just slow.
+        timeout-minutes: 115
         env:
           ASAN_OPTIONS: "halt_on_error=0 detect_leaks=0 abort_on_error=0 print_stacktrace=1"
           UBSAN_OPTIONS: "halt_on_error=0 print_stacktrace=1"
@@ -139,9 +149,10 @@ jobs:
           set -o pipefail
           ROUNDS="${{ inputs.asan-rounds || '3000' }}"
           rc=0
-          timeout 90m python3 scripts/differential-fuzz.py \
+          timeout 110m python3 scripts/differential-fuzz.py \
             --rounds "$ROUNDS" \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
+            --time-budget-seconds 6300 \
             --go-bin pine-go/pineapple-run \
             --cpp-bin pine-cpp/build-asan/pineapple-run \
             --engines go,java,cpp \
@@ -153,12 +164,14 @@ jobs:
           exit 0
 
       - name: Run TSan differential fuzz
-        # Race-only pass. TSan production runs (#132 / #133) measured
-        # ~1.6 s/round; 2000 rounds projects to ~55 minutes; budget 70m
-        # step, 65m fuzz inner — leaves ~15 % headroom. Distinct save
+        # Race-only pass. Worst measured throughput (07-03) is ~1.92
+        # s/round → 2000 rounds ≈ 64m, which had shaved the old 65m inner
+        # timeout to a <1m margin. Same two-layer scheme as ASan:
+        # --time-budget-seconds (75m) paces, outer `timeout` (80m) and
+        # step timeout (85m) only catch genuine hangs. Distinct save
         # dir so the two passes don't share case numbering (and so
         # packaging can pick them apart).
-        timeout-minutes: 70
+        timeout-minutes: 85
         env:
           # halt_on_error=0: keep going so one race doesn't kill the sweep.
           # second_deadlock_stack=1: surface both sides of a lock-order race.
@@ -167,9 +180,10 @@ jobs:
           set -o pipefail
           ROUNDS="${{ inputs.tsan-rounds || '2000' }}"
           rc=0
-          timeout 65m python3 scripts/differential-fuzz.py \
+          timeout 80m python3 scripts/differential-fuzz.py \
             --rounds "$ROUNDS" \
             --stability-runs ${{ inputs.stability-runs || '3' }} \
+            --time-budget-seconds 4500 \
             --go-bin pine-go/pineapple-run \
             --cpp-bin pine-cpp/build-tsan/pineapple-run \
             --engines go,java,cpp \
@@ -203,13 +217,27 @@ jobs:
           ASAN_EXIT=$(cat /tmp/asan-fuzz-exit-code 2>/dev/null || echo 1)
           TSAN_EXIT=$(cat /tmp/tsan-fuzz-exit-code 2>/dev/null || echo 1)
 
+          # Actual rounds from the Results: line. A budget-stopped pass
+          # reports "Results: N/M rounds (time budget), seed=..."; a full
+          # pass reports "Results: M rounds, seed=...". Show what really
+          # ran so partial coverage is visible in the summary table.
+          parse_rounds() {
+            local file=$1 planned=$2 val
+            val=$(grep -oP '^Results: \K[0-9/]+(?= rounds)' "$file" 2>/dev/null | tail -1 || true)
+            echo "${val:-$planned}"
+          }
+          ASAN_ROUNDS=$(parse_rounds asan-fuzz-output.log "${{ inputs.asan-rounds || '3000' }}")
+          TSAN_ROUNDS=$(parse_rounds tsan-fuzz-output.log "${{ inputs.tsan-rounds || '2000' }}")
+
           TOTAL_FAIL=$((ASAN_FAIL + TSAN_FAIL))
           TOTAL_UNSTABLE=$((ASAN_UNSTABLE + TSAN_UNSTABLE))
 
-          # Per-pass status. "incomplete" = no Results: summary line, which
-          # happens when the per-pass `timeout` killed the fuzz process or
+          # Per-pass status. "incomplete" = no Results: summary line. With
+          # the in-script time budget, a slow runner stops early and still
+          # prints Results: (rounds shows N/M) — so "incomplete" now only
+          # means the outer `timeout` killed a genuinely wedged process or
           # the script crashed mid-run. Without this distinction a TSan
-          # timeout would silently report as TSAN_FAIL=0 / TSAN_UNSTABLE=0
+          # kill would silently report as TSAN_FAIL=0 / TSAN_UNSTABLE=0
           # — exactly the diagnostic signal #109 needs us to preserve.
           asan_status=$([[ "$ASAN_HAS_RESULTS" -gt 0 ]] && echo "complete" || echo "incomplete")
           tsan_status=$([[ "$TSAN_HAS_RESULTS" -gt 0 ]] && echo "complete" || echo "incomplete")
@@ -219,15 +247,15 @@ jobs:
             echo ""
             echo "| Pass | rounds | status | FAIL | UNSTABLE | exit |"
             echo "|---|---|---|---|---|---|"
-            echo "| ASan | ${{ inputs.asan-rounds || '3000' }} | $asan_status | $ASAN_FAIL | $ASAN_UNSTABLE | $ASAN_EXIT |"
-            echo "| TSan | ${{ inputs.tsan-rounds || '2000' }} | $tsan_status | $TSAN_FAIL | $TSAN_UNSTABLE | $TSAN_EXIT |"
+            echo "| ASan | $ASAN_ROUNDS | $asan_status | $ASAN_FAIL | $ASAN_UNSTABLE | $ASAN_EXIT |"
+            echo "| TSan | $TSAN_ROUNDS | $tsan_status | $TSAN_FAIL | $TSAN_UNSTABLE | $TSAN_EXIT |"
             echo ""
             if [[ "$asan_status" == "incomplete" ]]; then
-              echo "⚠️ **ASan pass did not produce a Results: summary** (exit=$ASAN_EXIT) — likely a timeout or script crash. ASan findings, if any, are lost."
+              echo "⚠️ **ASan pass did not produce a Results: summary** (exit=$ASAN_EXIT) — the outer timeout killed a wedged process, or the script crashed. ASan findings, if any, are lost."
               echo ""
             fi
             if [[ "$tsan_status" == "incomplete" ]]; then
-              echo "⚠️ **TSan pass did not produce a Results: summary** (exit=$TSAN_EXIT) — likely a timeout or script crash. TSan findings, if any, are lost; #109 race diagnosis is degraded for this run."
+              echo "⚠️ **TSan pass did not produce a Results: summary** (exit=$TSAN_EXIT) — the outer timeout killed a wedged process, or the script crashed. TSan findings, if any, are lost; #109 race diagnosis is degraded for this run."
               echo ""
             fi
             echo "#### ASan tail"
@@ -370,13 +398,15 @@ jobs:
           )"
 
       - name: Open issue on incomplete pass
-        # Fires when at least one pass did not produce a Results: summary
-        # (timeout 124 or script crash), regardless of whether the other
-        # pass found divergences. Without this, a TSan timeout would be
-        # silently swallowed because TSAN_FAIL=TSAN_UNSTABLE=0 from an
-        # empty log indistinguishably means "clean run" or "didn't run".
-        # That matters most for the TSan pass — its whole purpose is the
-        # #109 race signal.
+        # Fires when at least one pass did not produce a Results: summary,
+        # regardless of whether the other pass found divergences. With the
+        # in-script time budget, slow runners degrade to partial coverage
+        # WITH a Results: line — so this now only fires on a genuinely
+        # wedged process (outer timeout kill) or a script crash. Without
+        # this, such a kill would be silently swallowed because
+        # TSAN_FAIL=TSAN_UNSTABLE=0 from an empty log indistinguishably
+        # means "clean run" or "didn't run". That matters most for the
+        # TSan pass — its whole purpose is the #109 race signal.
         if: ${{ !cancelled() && steps.evaluate.outputs.has_incomplete == 'true' }}
         continue-on-error: true
         env:
@@ -395,13 +425,15 @@ jobs:
           ## Daily Sanitized Fuzz Pass Incomplete
 
           At least one fuzz pass did not produce a \`Results:\` summary
-          line, which typically means the per-pass \`timeout\` killed the
-          fuzz process or the script crashed mid-run. Any sanitizer
-          findings from the incomplete pass were lost — the run cannot
-          claim coverage of that sanitizer's surface area.
+          line. The fuzz script paces itself with --time-budget-seconds
+          and emits a Results: summary even when it stops early on a slow
+          runner — so a missing summary means the outer \`timeout\` killed
+          a genuinely wedged process, or the script crashed mid-run. Any
+          sanitizer findings from the incomplete pass were lost — the run
+          cannot claim coverage of that sanitizer's surface area.
 
           This matters for #109: the TSan pass is the primary race
-          diagnostic; if it timed out, the run produced no race signal
+          diagnostic; if it was killed, the run produced no race signal
           regardless of what ASan reported.
 
           | | |
@@ -413,18 +445,22 @@ jobs:
 
           ### Suggested triage
 
-          - If exit=124: the per-pass \`timeout\` (ASan 90m, TSan 65m)
-            tripped. Either bump the limit or cut rounds. TSan 2000 rounds
-            at the production-measured ~1.6 s/round budgets to ~55m, with
-            ~10m head; ASan 3000 rounds at ~1.5 s/round budgets to ~75m
-            with ~15m head. If runs trip exit=124 routinely, that's a
-            runner-noise signal — bump the inner timeout first, only cut
-            rounds if recurrent.
-          - If exit≠124: script crash; check the workflow logs for the
-            actual failure step.
+          Since the --time-budget-seconds mechanism (ASan 105m / TSan
+          75m), a slow runner no longer produces an incomplete pass — the
+          script stops early and still emits Results:. An incomplete pass
+          now means one of:
+
+          - exit=124: the outer \`timeout\` (ASan 110m, TSan 80m) killed a
+            genuinely wedged process — a single round hung (engine
+            deadlock / subprocess leak), or the script itself stalled
+            after the budget check. Look at the last progress line in the
+            step log to find the wedged round, then reproduce with its
+            seed.
+          - exit≠124: script crash; check the workflow logs for the
+            actual failure step / traceback.
 
           Re-run via workflow_dispatch with smaller \`asan-rounds\` /
-          \`tsan-rounds\` to bisect the budget.
+          \`tsan-rounds\` to bisect.
           EOF
           )"
 
