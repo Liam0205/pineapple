@@ -24,6 +24,13 @@ Randomization dimensions:
 
 Usage:
     python3 scripts/differential-fuzz.py [--rounds N] [--seed S] [--engines go,java,cpp]
+        [--time-budget-seconds T]
+
+`--time-budget-seconds` bounds wall-clock time: once exhausted the loop stops
+launching new rounds and emits the normal `Results:` summary for the rounds
+that did run. CI wraps each pass in an outer `timeout` as a last-resort kill;
+the budget should sit below it so a slow runner degrades to partial coverage
+instead of losing the whole pass (#142/#144/#146-152).
 """
 from __future__ import annotations
 
@@ -1304,6 +1311,14 @@ def main():
     )
     parser.add_argument("--shrink", action="store_true",
                         help="Minimize diverging pipelines by removing operators")
+    parser.add_argument(
+        "--time-budget-seconds", type=float, default=0,
+        help="Stop launching new rounds once this much wall-clock time has"
+             " elapsed, then emit the normal Results: summary for the rounds"
+             " that did run (0=disabled). Lets a slow runner degrade to fewer"
+             " completed rounds instead of losing the whole pass to an outer"
+             " timeout kill (issues #142/#144/#146-152).",
+    )
     args = parser.parse_args()
 
     seed = args.seed if args.seed is not None else random.randint(0, 2**32 - 1)
@@ -1388,7 +1403,26 @@ def main():
         config_file = os.path.join(tmpdir, "config.json")
         request_file = os.path.join(tmpdir, "request.json")
 
+        # Rounds actually launched. Stays == args.rounds unless the time
+        # budget stops the loop early, in which case the summary reports
+        # partial-but-valid coverage instead of the outer `timeout` killing
+        # the process and losing the whole pass (#142/#144/#146-152).
+        rounds_attempted = args.rounds
+
         for i in range(args.rounds):
+            if (
+                args.time_budget_seconds > 0
+                and time.time() - start_time >= args.time_budget_seconds
+            ):
+                rounds_attempted = i
+                sys.stderr.write("\n")
+                print(
+                    f"  Time budget exhausted after {i}/{args.rounds} rounds"
+                    f" ({time.time() - start_time:.0f}s >="
+                    f" {args.time_budget_seconds:.0f}s);"
+                    f" stopping early with partial coverage."
+                )
+                break
             try:
                 # ~20% error-path pipelines
                 is_error_path = rng.random() < 0.2
@@ -1630,7 +1664,14 @@ def main():
         sys.stderr.write("\n")
 
     print(f"\n{'='*60}")
-    print(f"Results: {args.rounds} rounds, seed={seed}")
+    # Consumers (nightly-diff-fuzz.yml / daily-sanitized-fuzz.yml) key on the
+    # `^Results:` prefix to distinguish "completed with a summary" from
+    # "killed mid-run"; keep that prefix stable. A budget-stopped run is
+    # annotated as attempted/planned so the partial coverage is explicit.
+    if rounds_attempted < args.rounds:
+        print(f"Results: {rounds_attempted}/{args.rounds} rounds (time budget), seed={seed}")
+    else:
+        print(f"Results: {args.rounds} rounds, seed={seed}")
     print(f"  Engines: {[e.name for e in engines]}")
     print(f"  PASS:  {passed}")
     print(f"  FAIL:  {failed}")
