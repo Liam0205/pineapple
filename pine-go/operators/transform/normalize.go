@@ -59,16 +59,24 @@ func (o *NormalizeOp) Execute(_ context.Context, in *pine.OperatorInput, out *pi
 	field := o.ItemInput[0]
 	outputField := o.ItemOutput[0]
 
-	// Collect values (batched column access: one lock + one lookup
-	// instead of per-element Item calls)
-	raw := in.ItemColumn(field)
-	vals := make([]float64, n)
-	for i, rv := range raw {
-		v, err := toFloat64(rv)
-		if err != nil {
-			return fmt.Errorf("transform_normalize: item[%d].%s: %w", i, field, err)
+	// Collect values. Typed fast path first: when the frame stores the
+	// field as a fully-present float64 column, we get the raw array
+	// zero-copy and skip per-element boxing + type assertions entirely.
+	var vals []float64
+	if raw, ok := in.ItemColumnFloat64(field); ok {
+		vals = raw
+	} else {
+		// Batched boxed access: one lock + one lookup instead of
+		// per-element Item calls.
+		boxed := in.ItemColumn(field)
+		vals = make([]float64, n)
+		for i, rv := range boxed {
+			v, err := toFloat64(rv)
+			if err != nil {
+				return fmt.Errorf("transform_normalize: item[%d].%s: %w", i, field, err)
+			}
+			vals[i] = v
 		}
-		vals[i] = v
 	}
 
 	// Find min/max

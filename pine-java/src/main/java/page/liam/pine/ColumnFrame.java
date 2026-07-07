@@ -4,44 +4,33 @@ import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+/**
+ * Request-local column-store DataFrame backed by typed columns (see
+ * Column.java — double/String/boolean flat storage + validity bitmap,
+ * JsonColumn as the heterogeneous fallback), mirroring pine-cpp's Column
+ * hierarchy and pine-go's typed ColumnFrame.
+ */
 public class ColumnFrame implements Frame {
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
-    private Map<String, Object> common;
-    private Map<String, Object[]> columns;
-    private Map<String, BitSet> presenceByField = new LinkedHashMap<>();
+    private final Map<String, Object> common;
+    private final Map<String, Column> columns;
     private int rowCount;
 
     public ColumnFrame(Map<String, Object> common, List<Map<String, Object>> items) {
         this.common = new LinkedHashMap<>(common != null ? common : Collections.emptyMap());
-        this.rowCount = items != null ? items.size() : 0;
+        List<Map<String, Object>> rows = items != null ? items : Collections.emptyList();
+        this.rowCount = rows.size();
         this.columns = new LinkedHashMap<>();
 
-        if (items != null && !items.isEmpty()) {
+        if (!rows.isEmpty()) {
             Set<String> allFields = new LinkedHashSet<>();
-            for (Map<String, Object> item : items) {
+            for (Map<String, Object> item : rows) {
                 allFields.addAll(item.keySet());
             }
-            Map<String, BitSet> presenceMap = new LinkedHashMap<>();
-
             for (String field : allFields) {
-                Object[] col = new Object[rowCount];
-                BitSet bits = new BitSet(rowCount);
-                for (int i = 0; i < rowCount; i++) {
-                    Map<String, Object> row = items.get(i);
-                    if (row.containsKey(field)) {
-                        col[i] = row.get(field);
-                        bits.set(i);
-                    }
-                }
-                columns.put(field, col);
-                presenceMap.put(field, bits);
+                columns.put(field, Column.build(rows, field));
             }
-            rebuildPresenceArray(presenceMap);
         }
-    }
-
-    private void rebuildPresenceArray(Map<String, BitSet> pm) {
-        this.presenceByField = pm;
     }
 
     @Override
@@ -69,21 +58,19 @@ public class ColumnFrame implements Frame {
         rwLock.readLock().lock();
         try {
             if (index < 0 || index >= rowCount) return null;
-            Object[] col = columns.get(field);
+            Column col = columns.get(field);
             if (col == null) return null;
-            BitSet bits = presenceByField.get(field);
-            if (bits == null || !bits.get(index)) return null;
-            return col[index];
+            return col.get(index);
         } finally {
             rwLock.readLock().unlock();
         }
     }
 
     /**
-     * Zero-copy batch read: the live column array is returned directly when
-     * the window spans the whole frame (absent slots are null by
-     * construction, matching item()'s null-on-absent semantics). See
-     * Frame.itemColumnView for the read-only/escape contract.
+     * Batch read: the [offset, offset+count) window under a single lock
+     * acquisition. JsonColumn windows may be zero-copy views of the live
+     * backing array; typed columns box a copy. See Frame.itemColumnView
+     * for the read-only/escape contract.
      */
     @Override
     public Object[] itemColumnView(String field, int offset, int count) {
@@ -92,15 +79,36 @@ public class ColumnFrame implements Frame {
             if (offset < 0 || count < 0 || offset + count > rowCount) {
                 return null;
             }
-            Object[] col = columns.get(field);
+            Column col = columns.get(field);
             if (col == null) {
                 // Absent column: every slot reads as null, same as item().
                 return new Object[count];
             }
-            if (offset == 0 && count == rowCount && col.length == rowCount) {
-                return col;
+            return col.view(offset, count);
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Typed batch read: raw double[] window when the field is stored as a
+     * double column AND every slot in the window is present (no null
+     * anywhere, so item-defaults can never fire and element i is exactly
+     * what item(offset+i) would box). Null = caller falls back to
+     * itemColumnView / item. Same read-only/escape contract.
+     */
+    @Override
+    public double[] itemColumnDoubleView(String field, int offset, int count) {
+        rwLock.readLock().lock();
+        try {
+            if (offset < 0 || count < 0 || offset + count > rowCount) {
+                return null;
             }
-            return Arrays.copyOfRange(col, offset, offset + count);
+            Column col = columns.get(field);
+            if (!(col instanceof Column.DoubleColumn)) {
+                return null;
+            }
+            return ((Column.DoubleColumn) col).rawWindow(offset, count);
         } finally {
             rwLock.readLock().unlock();
         }
@@ -140,35 +148,28 @@ public class ColumnFrame implements Frame {
             }
 
             // Validate strict item fields upfront (fail fast).
-            // Column resolution is hoisted out of the per-item loop
-            // (previously a map lookup per item x field). Iteration stays
-            // item-major so the first-error priority is byte-identical
-            // across storage modes and runtimes.
-            Object[][] strictCols = new Object[spec.strictItem.size()][];
-            BitSet[] strictBits = new BitSet[spec.strictItem.size()];
+            // Column resolution is hoisted out of the per-item loop;
+            // iteration stays item-major so the first-error priority is
+            // byte-identical across storage modes and runtimes.
+            Column[] strictCols = new Column[spec.strictItem.size()];
             for (int k = 0; k < spec.strictItem.size(); k++) {
                 strictCols[k] = columns.get(spec.strictItem.get(k));
-                strictBits[k] = presenceByField.get(spec.strictItem.get(k));
             }
-            Object[][] nullableCols = new Object[spec.nullableItem.size()][];
-            BitSet[] nullableBits = new BitSet[spec.nullableItem.size()];
+            Column[] nullableCols = new Column[spec.nullableItem.size()];
             for (int k = 0; k < spec.nullableItem.size(); k++) {
                 nullableCols[k] = columns.get(spec.nullableItem.get(k));
-                nullableBits[k] = presenceByField.get(spec.nullableItem.get(k));
             }
             for (int i = 0; i < rowCount; i++) {
                 for (int k = 0; k < spec.strictItem.size(); k++) {
-                    Object[] col = strictCols[k];
-                    BitSet bits = strictBits[k];
-                    if (col == null || bits == null || !bits.get(i) || col[i] == null) {
+                    Column col = strictCols[k];
+                    if (col == null || col.isNull(i)) {
                         throw new PineErrors.OperatorException(
                                 "required field \"" + spec.strictItem.get(k) + "\" is nil on item[" + i + "]");
                     }
                 }
                 for (int k = 0; k < spec.nullableItem.size(); k++) {
-                    Object[] col = nullableCols[k];
-                    BitSet bits = nullableBits[k];
-                    if (col == null || bits == null || !bits.get(i)) {
+                    Column col = nullableCols[k];
+                    if (col == null || !col.present(i)) {
                         throw new PineErrors.OperatorException(
                                 "required field \"" + spec.nullableItem.get(k) + "\" is missing on item[" + i + "]");
                     }
@@ -208,8 +209,7 @@ public class ColumnFrame implements Frame {
             // same field set for consecutive indices, so this turns the
             // per-write map lookups into one pair per field run.
             String lastField = null;
-            Object[] lastCol = null;
-            BitSet lastBits = null;
+            Column lastCol = null;
             for (Map.Entry<Integer, Map<String, Object>> entry : out.getItemWrites().entrySet()) {
                 int idx = entry.getKey();
                 if (idx < 0 || idx >= rowCount) {
@@ -223,17 +223,22 @@ public class ColumnFrame implements Frame {
                         throw new PineErrors.ExecutionError(opName, "item[" + idx + "] write: " + v);
                     }
                     if (!field.equals(lastField) || lastCol == null) {
-                        Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
-                        if (col.length < rowCount) {
-                            col = Arrays.copyOf(col, rowCount);
+                        Column col = columns.get(field);
+                        if (col == null) {
+                            col = Column.forValue(value, rowCount);
                             columns.put(field, col);
                         }
                         lastField = field;
                         lastCol = col;
-                        lastBits = presenceByField.computeIfAbsent(field, k -> new BitSet(rowCount));
                     }
-                    lastCol[idx] = value;
-                    lastBits.set(idx);
+                    if (!lastCol.set(idx, value)) {
+                        // Type mismatch or present-null into a typed column:
+                        // promote to JsonColumn and retry (cannot fail there).
+                        Column promoted = lastCol.toJson();
+                        columns.put(field, promoted);
+                        lastCol = promoted;
+                        lastCol.set(idx, value);
+                    }
                 }
             }
 
@@ -245,19 +250,15 @@ public class ColumnFrame implements Frame {
                         throw new IndexOutOfBoundsException("RemoveItem index " + idx + " out of range [0, " + rowCount + ")");
                     }
                 }
-                boolean[] bitmap = new boolean[rowCount];
+                boolean[] drop = new boolean[rowCount];
                 for (int idx : removed) {
-                    bitmap[idx] = true;
+                    drop[idx] = true;
                 }
-                int newCount = rowCount - removed.size();
-                int[] mapping = new int[newCount];
-                int j = 0;
-                for (int i = 0; i < rowCount; i++) {
-                    if (!bitmap[i]) {
-                        mapping[j++] = i;
-                    }
+                int kept = rowCount - removed.size();
+                for (Column col : columns.values()) {
+                    col.removeByBitmap(drop, kept);
                 }
-                compactColumns(mapping, newCount);
+                rowCount = kept;
             }
 
             // 4. Reorder
@@ -265,11 +266,7 @@ public class ColumnFrame implements Frame {
             if (order != null) {
                 if (order.size() != rowCount) {
                     // SetItemOrder errors use ExecutionError uniformly across
-                    // the four runtimes (pine-cpp / pine-python use the same
-                    // class; pine-go wraps via the engine layer). The earlier
-                    // IllegalArgumentException / IndexOutOfBoundsException
-                    // diverged with no upside — runtime error parity treats
-                    // exception types as part of the contract.
+                    // runtimes — exception types are part of the parity contract.
                     throw new PineErrors.ExecutionError(opName,
                         "SetItemOrder length " + order.size() + " does not match item count " + rowCount);
                 }
@@ -290,21 +287,22 @@ public class ColumnFrame implements Frame {
                     seen[origIdx] = true;
                     mapping[i] = origIdx;
                 }
-                reorderColumnsInPlace(mapping);
+                // In-place cycle-following permutation; the visited scratch
+                // is allocated once and shared across all columns.
+                boolean[] visited = new boolean[rowCount];
+                for (Column col : columns.values()) {
+                    col.reorder(mapping, visited);
+                }
             }
 
-            // 5. Additions
+            // 5. Additions (column-major batch append)
             List<Map<String, Object>> added = out.getAddedItems();
             if (!added.isEmpty()) {
-                int oldCount = rowCount;
-                rowCount = oldCount + added.size();
-                for (Map.Entry<String, Object[]> entry : columns.entrySet()) {
-                    if (entry.getValue().length < rowCount) {
-                        columns.put(entry.getKey(), Arrays.copyOf(entry.getValue(), rowCount));
-                    }
-                }
-                for (int i = 0; i < added.size(); i++) {
-                    Map<String, Object> row = added.get(i);
+                int newCap = rowCount + added.size();
+
+                // Pass 1: validate + inject _source + ensure columns exist.
+                List<Map<String, Object>> rows = new ArrayList<>(added.size());
+                for (Map<String, Object> row : added) {
                     if (recall) {
                         row = new LinkedHashMap<>(row);
                         row.put("_source", opName);
@@ -314,110 +312,40 @@ public class ColumnFrame implements Frame {
                         if (v != null) {
                             throw new PineErrors.ExecutionError(opName, "added item write: " + v);
                         }
-                        String field = fe.getKey();
-                        Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
-                        if (col.length < rowCount) {
-                            col = Arrays.copyOf(col, rowCount);
-                            columns.put(field, col);
+                        if (!columns.containsKey(fe.getKey())) {
+                            Column col = Column.forValue(fe.getValue(), rowCount);
+                            col.grow(newCap);
+                            columns.put(fe.getKey(), col);
                         }
-                        col[oldCount + i] = fe.getValue();
-                        presenceByField.computeIfAbsent(field, k -> new BitSet(rowCount)).set(oldCount + i);
+                    }
+                    rows.add(row);
+                }
+
+                // Pass 2: column-major batch append — iterate the columns
+                // map once instead of once per added item.
+                for (Map.Entry<String, Column> entry : columns.entrySet()) {
+                    String field = entry.getKey();
+                    Column col = entry.getValue();
+                    col.grow(newCap);
+                    for (Map<String, Object> row : rows) {
+                        if (!row.containsKey(field)) {
+                            col.appendAbsent();
+                            continue;
+                        }
+                        Object value = row.get(field);
+                        if (!col.append(value)) {
+                            Column promoted = col.toJson();
+                            promoted.append(value);
+                            entry.setValue(promoted);
+                            col = promoted;
+                        }
                     }
                 }
+                rowCount = newCap;
             }
         } finally {
             rwLock.writeLock().unlock();
         }
-    }
-
-    private void compactColumns(int[] mapping, int newCount) {
-        for (Map.Entry<String, Object[]> entry : columns.entrySet()) {
-            Object[] oldCol = entry.getValue();
-            Object[] newCol = new Object[newCount];
-            for (int i = 0; i < newCount; i++) {
-                newCol[i] = mapping[i] < oldCol.length ? oldCol[mapping[i]] : null;
-            }
-            entry.setValue(newCol);
-        }
-        for (Map.Entry<String, BitSet> entry : presenceByField.entrySet()) {
-            BitSet oldBits = entry.getValue();
-            BitSet newBits = new BitSet(newCount);
-            for (int i = 0; i < newCount; i++) {
-                if (oldBits.get(mapping[i])) {
-                    newBits.set(i);
-                }
-            }
-            entry.setValue(newBits);
-        }
-        rowCount = newCount;
-    }
-
-    // In-place permutation via cycle following. `order` MUST be a valid
-    // length-rowCount permutation of [0, rowCount) — the apply_output reorder
-    // branch validates this before invoking. Each cycle is walked once,
-    // performing ≤ N moves per column with no per-column allocation.
-    // Replaces the prior compactColumns-based path which allocated a fresh
-    // Object[] / BitSet per column. The cycle structure depends only on
-    // `order`, so `visited` is allocated once and reset per column.
-    private void reorderColumnsInPlace(int[] order) {
-        int n = order.length;
-        if (n == 0) {
-            return;
-        }
-        boolean[] visited = new boolean[n];
-        for (Map.Entry<String, Object[]> entry : columns.entrySet()) {
-            Object[] col = entry.getValue();
-            Arrays.fill(visited, false);
-            for (int i = 0; i < n; i++) {
-                if (visited[i]) {
-                    continue;
-                }
-                if (order[i] == i) {
-                    visited[i] = true;
-                    continue;
-                }
-                Object tmp = col[i];
-                int j = i;
-                while (true) {
-                    int src = order[j];
-                    if (src == i) {
-                        col[j] = tmp;
-                        visited[j] = true;
-                        break;
-                    }
-                    col[j] = col[src];
-                    visited[j] = true;
-                    j = src;
-                }
-            }
-        }
-        for (Map.Entry<String, BitSet> entry : presenceByField.entrySet()) {
-            BitSet bits = entry.getValue();
-            Arrays.fill(visited, false);
-            for (int i = 0; i < n; i++) {
-                if (visited[i]) {
-                    continue;
-                }
-                if (order[i] == i) {
-                    visited[i] = true;
-                    continue;
-                }
-                boolean tmp = bits.get(i);
-                int j = i;
-                while (true) {
-                    int src = order[j];
-                    if (src == i) {
-                        bits.set(j, tmp);
-                        visited[j] = true;
-                        break;
-                    }
-                    bits.set(j, bits.get(src));
-                    visited[j] = true;
-                    j = src;
-                }
-            }
-        }
-        // rowCount unchanged (permutation has length rowCount).
     }
 
     @Override
@@ -442,15 +370,20 @@ public class ColumnFrame implements Frame {
         try {
             List<Map<String, Object>> result = new ArrayList<>(rowCount);
             for (int i = 0; i < rowCount; i++) {
-                Map<String, Object> row = new LinkedHashMap<>(itemOut.size(), 1.0f);
-                for (String field : itemOut) {
-                    BitSet bits = presenceByField.get(field);
-                    Object[] col = columns.get(field);
-                    if (col != null && bits != null && bits.get(i)) {
-                        row.put(field, col[i]);
+                result.add(new LinkedHashMap<>(itemOut.size(), 1.0f));
+            }
+            // Column-major projection: resolve each output column once,
+            // then fill down the rows.
+            for (String field : itemOut) {
+                Column col = columns.get(field);
+                if (col == null) {
+                    continue;
+                }
+                for (int i = 0; i < rowCount; i++) {
+                    if (col.present(i)) {
+                        result.get(i).put(field, col.get(i));
                     }
                 }
-                result.add(row);
             }
             return result;
         } finally {
