@@ -201,10 +201,19 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         int nret = itemOutput().size();
         int n = input.itemCount();
 
+        // Hoist per-field columns out of the item loop: one lock + one
+        // lookup per field instead of per item x field. The per-item VM
+        // boundary (globals.set + invoke) is inherent to item-mode.
+        List<String> fields = itemInput();
+        Object[][] cols = new Object[fields.size()][];
+        for (int k = 0; k < fields.size(); k++) {
+            cols[k] = input.itemColumn(fields.get(k));
+        }
+
         for (int i = 0; i < n; i++) {
             if (token.isCancelled()) break;
-            for (String field : itemInput()) {
-                globals.set(field, toLua(input.item(i, field)));
+            for (int k = 0; k < fields.size(); k++) {
+                globals.set(fields.get(k), toLua(cols[k][i]));
             }
             Varargs results;
             try {
@@ -229,8 +238,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         int n = input.itemCount();
         for (String field : itemInput()) {
             LuaTable tbl = new LuaTable();
+            Object[] col = input.itemColumn(field);
             for (int i = 0; i < n; i++) {
-                tbl.set(i + 1, toLua(input.item(i, field)));
+                tbl.set(i + 1, toLua(col[i]));
             }
             globals.set(field, tbl);
         }

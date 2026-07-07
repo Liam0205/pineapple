@@ -57,6 +57,28 @@ public class DataFrame implements Frame {
         }
     }
 
+    /**
+     * Batch read: gathers the field from each row map under a single lock
+     * acquisition. Cannot be zero-copy (values live in per-item maps) but
+     * still collapses the per-element lock tax of an item() loop.
+     */
+    @Override
+    public Object[] itemColumnView(String field, int offset, int count) {
+        rwLock.readLock().lock();
+        try {
+            if (offset < 0 || count < 0 || offset + count > items.size()) {
+                return null;
+            }
+            Object[] col = new Object[count];
+            for (int i = 0; i < count; i++) {
+                col[i] = items.get(offset + i).get(field);
+            }
+            return col;
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
     public OperatorInput buildInput(String opName, InputFieldSpec spec) throws PineErrors.OperatorException {
         rwLock.readLock().lock();
         try {

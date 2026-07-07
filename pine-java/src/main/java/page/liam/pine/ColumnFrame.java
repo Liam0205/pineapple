@@ -79,6 +79,33 @@ public class ColumnFrame implements Frame {
         }
     }
 
+    /**
+     * Zero-copy batch read: the live column array is returned directly when
+     * the window spans the whole frame (absent slots are null by
+     * construction, matching item()'s null-on-absent semantics). See
+     * Frame.itemColumnView for the read-only/escape contract.
+     */
+    @Override
+    public Object[] itemColumnView(String field, int offset, int count) {
+        rwLock.readLock().lock();
+        try {
+            if (offset < 0 || count < 0 || offset + count > rowCount) {
+                return null;
+            }
+            Object[] col = columns.get(field);
+            if (col == null) {
+                // Absent column: every slot reads as null, same as item().
+                return new Object[count];
+            }
+            if (offset == 0 && count == rowCount && col.length == rowCount) {
+                return col;
+            }
+            return Arrays.copyOfRange(col, offset, offset + count);
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
     @Override
     public OperatorInput buildInput(String opName, InputFieldSpec spec) throws PineErrors.OperatorException {
         rwLock.readLock().lock();
@@ -112,22 +139,38 @@ public class ColumnFrame implements Frame {
                 cs.put(field, common.get(field));
             }
 
-            // Validate strict item fields upfront (fail fast)
+            // Validate strict item fields upfront (fail fast).
+            // Column resolution is hoisted out of the per-item loop
+            // (previously a map lookup per item x field). Iteration stays
+            // item-major so the first-error priority is byte-identical
+            // across storage modes and runtimes.
+            Object[][] strictCols = new Object[spec.strictItem.size()][];
+            BitSet[] strictBits = new BitSet[spec.strictItem.size()];
+            for (int k = 0; k < spec.strictItem.size(); k++) {
+                strictCols[k] = columns.get(spec.strictItem.get(k));
+                strictBits[k] = presenceByField.get(spec.strictItem.get(k));
+            }
+            Object[][] nullableCols = new Object[spec.nullableItem.size()][];
+            BitSet[] nullableBits = new BitSet[spec.nullableItem.size()];
+            for (int k = 0; k < spec.nullableItem.size(); k++) {
+                nullableCols[k] = columns.get(spec.nullableItem.get(k));
+                nullableBits[k] = presenceByField.get(spec.nullableItem.get(k));
+            }
             for (int i = 0; i < rowCount; i++) {
-                for (String field : spec.strictItem) {
-                    Object[] col = columns.get(field);
-                    BitSet bits = presenceByField.get(field);
+                for (int k = 0; k < spec.strictItem.size(); k++) {
+                    Object[] col = strictCols[k];
+                    BitSet bits = strictBits[k];
                     if (col == null || bits == null || !bits.get(i) || col[i] == null) {
                         throw new PineErrors.OperatorException(
-                                "required field \"" + field + "\" is nil on item[" + i + "]");
+                                "required field \"" + spec.strictItem.get(k) + "\" is nil on item[" + i + "]");
                     }
                 }
-                for (String field : spec.nullableItem) {
-                    Object[] col = columns.get(field);
-                    BitSet bits = presenceByField.get(field);
+                for (int k = 0; k < spec.nullableItem.size(); k++) {
+                    Object[] col = nullableCols[k];
+                    BitSet bits = nullableBits[k];
                     if (col == null || bits == null || !bits.get(i)) {
                         throw new PineErrors.OperatorException(
-                                "required field \"" + field + "\" is missing on item[" + i + "]");
+                                "required field \"" + spec.nullableItem.get(k) + "\" is missing on item[" + i + "]");
                     }
                 }
             }
@@ -161,6 +204,12 @@ public class ColumnFrame implements Frame {
             }
 
             // 2. Item field writes
+            // Cache the last-resolved column: operators typically write the
+            // same field set for consecutive indices, so this turns the
+            // per-write map lookups into one pair per field run.
+            String lastField = null;
+            Object[] lastCol = null;
+            BitSet lastBits = null;
             for (Map.Entry<Integer, Map<String, Object>> entry : out.getItemWrites().entrySet()) {
                 int idx = entry.getKey();
                 if (idx < 0 || idx >= rowCount) {
@@ -173,13 +222,18 @@ public class ColumnFrame implements Frame {
                     if (v != null) {
                         throw new PineErrors.ExecutionError(opName, "item[" + idx + "] write: " + v);
                     }
-                    Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
-                    if (col.length < rowCount) {
-                        col = Arrays.copyOf(col, rowCount);
-                        columns.put(field, col);
+                    if (!field.equals(lastField) || lastCol == null) {
+                        Object[] col = columns.computeIfAbsent(field, k -> new Object[rowCount]);
+                        if (col.length < rowCount) {
+                            col = Arrays.copyOf(col, rowCount);
+                            columns.put(field, col);
+                        }
+                        lastField = field;
+                        lastCol = col;
+                        lastBits = presenceByField.computeIfAbsent(field, k -> new BitSet(rowCount));
                     }
-                    col[idx] = value;
-                    presenceByField.computeIfAbsent(field, k -> new BitSet(rowCount)).set(idx);
+                    lastCol[idx] = value;
+                    lastBits.set(idx);
                 }
             }
 

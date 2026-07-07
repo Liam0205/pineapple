@@ -66,6 +66,55 @@ public class OperatorInput {
     }
 
     /**
+     * Returns all values of the given item field for this input's window as
+     * an array indexed by item position. Element i is identical to
+     * item(i, field), including item-default substitution for null slots.
+     *
+     * <p>The returned array is READ-ONLY and valid only for the duration of
+     * the current execute call: when backed by a ColumnFrame without
+     * defaults for this field it may be a zero-copy view of the frame's
+     * column. Operators must not mutate it or retain it past execute.
+     *
+     * <p>Compared to an item() loop this collapses the per-element lock +
+     * map lookup to once per column, which is where column storage's
+     * contiguous layout actually pays off.
+     */
+    public Object[] itemColumn(String field) {
+        // Materialized mode: gather from row maps.
+        if (items != null) {
+            Object[] col = new Object[items.size()];
+            for (int i = 0; i < col.length; i++) {
+                col[i] = items.get(i).get(field);
+            }
+            return col;
+        }
+
+        Object defaultVal = itemDefaults != null ? itemDefaults.get(field) : null;
+
+        Object[] view = frame.itemColumnView(field, offset, count);
+        if (view != null) {
+            if (defaultVal == null) {
+                return view;
+            }
+            // Defaults force a copy: null slots substitute the default
+            // value, matching item()'s per-element semantics.
+            Object[] col = new Object[view.length];
+            for (int i = 0; i < view.length; i++) {
+                col[i] = view[i] != null ? view[i] : defaultVal;
+            }
+            return col;
+        }
+
+        // Fallback: per-element gather through the Frame interface.
+        Object[] col = new Object[count];
+        for (int i = 0; i < count; i++) {
+            Object v = frame.item(offset + i, field);
+            col[i] = v != null ? v : defaultVal;
+        }
+        return col;
+    }
+
+    /**
      * Returns the resolved + coerced templated param value for {@code name}
      * (issue #74), or {@code null} if the param was not templated or no
      * templated params were resolved for this request. The map is shared
