@@ -855,6 +855,32 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
             if io:
                 sf_entry["item_output"] = sorted(io)
 
+    # Targeted dimension: defaulted-field + present-nil co-occurrence.
+    # item_defaults only fire on slots that are nil; random item generation
+    # rarely lines the two up, leaving the Defaulted substitution path
+    # (incl. OperatorInput.ItemColumn's defaults-copy branch) under-
+    # exercised. Punch present-nil holes into source items for fields some
+    # operator declares item_defaults on. Present-nil (key kept) rather
+    # than deletion: missing keys would error in Nullable-mode readers,
+    # while present-nil passes through and triggers substitution exactly
+    # where a default is declared.
+    defaulted_fields: set[str] = set()
+    for op_cfg in operators.values():
+        defaulted_fields.update((op_cfg.get("item_defaults") or {}).keys())
+    defaulted_fields.discard("_fuzz_distinctive_score")  # keep the sort key
+    if defaulted_fields:
+        source_item_lists = [
+            op_cfg["items"] for op_cfg in operators.values()
+            if op_cfg.get("type_name") == "recall_static" and op_cfg.get("items")
+        ]
+        if request_items:
+            source_item_lists.append(request_items)
+        for items_list in source_item_lists:
+            for item in items_list:
+                for f in defaulted_fields:
+                    if f in item and rng.random() < 0.4:
+                        item[f] = None
+
     # Randomly inject storage_mode
     # 50/50 storage_mode split. The prior 75% row / 25% column bias
     # was inherited from when pine-cpp lacked a RowFrame
@@ -1379,7 +1405,7 @@ def main():
              "row": 0, "pass_row": 0, "pass_column": 0, "fail_row": 0, "fail_column": 0,
              # New dimensions
              "request_items": 0, "resources": 0, "debug": 0, "return_trace": 0,
-             "sources": 0, "defaults": 0, "sparse_items": 0,
+             "sources": 0, "defaults": 0, "defaults_nil": 0, "sparse_items": 0,
              "merge_dedup": 0, "shuffle_by_salt": 0, "paginate": 0,
              "resource_lookup": 0, "recall_resource": 0,
              "templated": 0}
@@ -1489,6 +1515,23 @@ def main():
                         for op in ops.values()
                     ):
                         stats["defaults"] += 1
+                    # Defaulted-field + present-nil co-occurrence: an op
+                    # declares item_defaults on a field AND some source item
+                    # carries an explicit nil for it — the rounds that
+                    # actually exercise the Defaulted substitution path.
+                    _def_fields = set()
+                    for op in ops.values():
+                        _def_fields.update((op.get("item_defaults") or {}).keys())
+                    if _def_fields:
+                        _src_items = list(items)
+                        for op in ops.values():
+                            if op.get("type_name") == "recall_static":
+                                _src_items.extend(op.get("items") or [])
+                        if any(
+                            it.get(f, "missing") is None
+                            for it in _src_items for f in _def_fields
+                        ):
+                            stats["defaults_nil"] += 1
                     if any(
                         op.get("$metadata", {}).get("common_input_template")
                         for op in ops.values()
@@ -1703,6 +1746,7 @@ def main():
     print(
         f"            sources={stats['sources']}"
         f" defaults={stats['defaults']}"
+        f" defaults_nil={stats['defaults_nil']}"
     )
     print(
         f"            merge_dedup={stats['merge_dedup']}"
