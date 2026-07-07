@@ -19,6 +19,7 @@
 - 独立收益：原生算子去装箱 + cache 友好，不依赖任何 VM 野心。
 - 配合收益：扁平列可零拷贝映射进未来 VM 的 linear memory / arena；若外部 VM 项目成立，arena 内存布局 ABI 需与其协同设计。
 - 适用判据沿用列存复盘的场景分析（`llmdoc/memory/reflections/column-store-dataframe.md`：大量 item、少结构变更的负载占优；removals / reorder 天然劣势）。
+- **接口税数据点（2026-07-07，列存 vs 行存持平调查）**：逐元素 `OperatorInput.Item(i, field)`（RLock + map 查列 + 边界检查）是列存优势不可见的**第一性原因**——ColumnFrame 逐元素访问 7,210ns vs 理想列扫描 262ns（27x），而 typed `[]float64` 扫描（257ns）与 `[]any` 理想列扫描几乎无差。推论：**typed columns 必须配合批量列访问 API（一次锁 + 一次 lookup 拿整列）才能兑现，单独做 typed columns 仍被逐元素接口税吃掉**；批量 API 属跨引擎 API 面变更（pine-java / pine-cpp ColumnFrame 同构）。另有 ColumnFrame 三处行主序热路径的列主序化原型（未提交）使 transform-heavy e2e 列存快 ~30%。详见 `llmdoc/memory/reflections/column-vs-row-parity-investigation.md`。
 
 ## 第二步：算子 API 负载形状迁移——common-mode 列内核
 

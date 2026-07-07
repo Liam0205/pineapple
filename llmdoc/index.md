@@ -48,7 +48,7 @@
 - `llmdoc/memory/reflections/resource-config-hot-reload.md` — 资源配置热加载复盘，记录原子替换 Manager 策略、跨包测试 helper 导出教训、所有权区分简化。
 - `llmdoc/memory/reflections/dag-viz-transitive-reduction-and-layout.md` — DAG 可视化传递性归约与纵向布局复盘，记录渲染层归约策略（已被执行图归约取代）。
 - `llmdoc/memory/reflections/execution-graph-transitive-reduction.md` — 执行图传递性归约复盘，记录归约从渲染层下沉到 Build() 阶段的决策、测试直接边断言的教训。
-- `llmdoc/memory/reflections/column-store-dataframe.md` — 列存 DataFrame 实现复盘，记录 Frame 接口抽象、`[]any` 设计选择、benchmark 数据与适用场景分析。
+- `llmdoc/memory/reflections/column-store-dataframe.md` — 列存 DataFrame 实现复盘，记录 Frame 接口抽象、`[]any` 设计选择、benchmark 数据与适用场景分析（其"持平"结论已被 `column-vs-row-parity-investigation.md` 深化解释）。
 - `llmdoc/memory/reflections/apple-dsl-storage-mode.md` — Apple DSL storage_mode 支持复盘，记录根级配置扩展模式与文档同步教训。
 - `llmdoc/memory/reflections/control-op-explicit-naming.md` — 控制算子显式命名复盘，记录从 `transform_by_lua_HASH` 到 `if_1`/`else_N` 的改进动机与实现。
 - `llmdoc/memory/reflections/fine-grained-frame-concurrency.md` — Frame 并发自治复盘，记录调度器全局锁下沉到 Frame 内部、双锁→单锁回退决策、cache line 膨胀教训。
@@ -109,8 +109,9 @@
 - `llmdoc/memory/reflections/redis-cascade-safety-and-observability.md` — Redis cascade-safety 五参数（`{dial,read,write,pool}_timeout_ms` + `pool_size`）三引擎对齐 + pine-cpp Client 失败收敛与 SIGPIPE 守卫 + codegen markdown 跨引擎 byte-equal + per-command Redis 指标（`pine_redis_command_*` 4-state status）的 PR 复盘（13 commits / 3 轮 review），记录 codegen 单向对齐方向（Go 是 source of truth）、failed-path 静默降级审计契约、单元测试不能替代 byte-equal gate、review-driven scope expansion 接受、cpp 错误类型分层 known follow-up 五条教训。
 - `llmdoc/memory/reflections/jdk25-upgrade-and-zgc-investigation.md` — 2026-06-26 评估 pine-java 升 JDK 25 + 切 ZGC 的 A/B/C 路径复盘，记录"性能假设要测不要猜"与 deployment-shape vs GC-shape 匹配检查的教训，含 G1/ZGC GC log 实测数据点（G1 max STW 12.82ms 证伪 stddev=GC 假设、ZGC 2C cgroup 下 concurrent 6.7% CPU 偷窃致 −5~7% QPS）。
 - `llmdoc/memory/reflections/sanitized-fuzz-time-budget-graceful-stop.md` — daily-sanitized-fuzz.yml ASan pass 连续 8/10 天被内层 timeout 杀死复盘，记录 all-or-nothing 全损结构缺陷（不管差多少轮，超时即全部作废）、预算标定须用观测窗口内 worst 实测而非快日均值标定（快慢日方差达 55%）、长时任务 timeout 应分内层 pacing（`--time-budget-seconds` 优雅降级、保留 `Results:` 部分覆盖信号）/ 外层纯 hang-protection 两层、"若 X 再现则走 Y"式观察窗口决策树若无 owner 跟进执行则形同虚设四条教训。
+- `llmdoc/memory/reflections/column-vs-row-parity-investigation.md` — 列存 vs 行存性能持平调查复盘（2026-07-07，pine-go，调查 + 未提交原型验证），记录三层根因（逐元素 `Item()` 接口税 27x 第一性、ColumnFrame 三处行主序热路径、负载形状由列存劣势操作构成）、原型 A/B 数据（BuildInput 列存 53μs→3.9μs、transform-heavy e2e 列存 +30%）、解法分层（列主序修复→批量列访问 API 前提闸门→typed columns 须配合批量 API）与 row/column 使用判据。
 
 ## memory/decisions/
 
-- `llmdoc/memory/decisions/perf-evolution-roadmap.md` — 引擎侧性能演进路线决策：两个校准事实（per-item VM 边界主导、VM 层加速被端到端稀释，含 itemlua 第二证据点）、三步路线（typed-ColumnFrame/arena → common-mode 列内核负载迁移（含 2026-06-13 wangshu Arena 列轨 ABI 边界量化数据点，-22%~-46% 但端到端稀释+破 parity，不立即落地）→ 第三步 VM 适配层可插拔已于 2026-06-13 触发，wangshu 翻默认）、明确不做项（VM 直摸 Go heap、简单脚本负载上的 VM 优化）、翻默认三条 AND 闸门（calibrated 不劣化 + 受影响场景显著胜出 + 双 tag 全绿）、按切换范围分档的语义闸门。
+- `llmdoc/memory/decisions/perf-evolution-roadmap.md` — 引擎侧性能演进路线决策：两个校准事实（per-item VM 边界主导、VM 层加速被端到端稀释，含 itemlua 第二证据点）、三步路线（typed-ColumnFrame/arena（含 2026-07-07 逐元素 `Item()` 接口税 27x 数据点：typed columns 须配合批量列访问 API 才能兑现）→ common-mode 列内核负载迁移（含 2026-06-13 wangshu Arena 列轨 ABI 边界量化数据点，-22%~-46% 但端到端稀释+破 parity，不立即落地）→ 第三步 VM 适配层可插拔已于 2026-06-13 触发，wangshu 翻默认）、明确不做项（VM 直摸 Go heap、简单脚本负载上的 VM 优化）、翻默认三条 AND 闸门（calibrated 不劣化 + 受影响场景显著胜出 + 双 tag 全绿）、按切换范围分档的语义闸门。
 - `llmdoc/memory/decisions/pine-java-gc-choice.md` — pine-java GC 选型决策：4G 堆 / 2C cgroup / throughput-bound 形态下保持 JDK 21+ 默认 G1，不切 ZGC/Shenandoah/Parallel；含 2026-06-26 ZGC A 实验 QPS 表与 G1/ZGC GC log 实测、根因（G1 已无长 pause 痛点 + ZGC 小核 cgroup 下 concurrent CPU 偷窃倒贴 + stddev 主导源与 GC 无关）、重启触发条件（堆 ≥16G / 核 ≥8C / P99 ≤10ms / G1 STW max >50ms 任一）、与 perf-evolution-roadmap 互补的层次关系。
