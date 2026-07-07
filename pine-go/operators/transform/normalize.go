@@ -59,10 +59,12 @@ func (o *NormalizeOp) Execute(_ context.Context, in *pine.OperatorInput, out *pi
 	field := o.ItemInput[0]
 	outputField := o.ItemOutput[0]
 
-	// Collect values
+	// Collect values (batched column access: one lock + one lookup
+	// instead of per-element Item calls)
+	raw := in.ItemColumn(field)
 	vals := make([]float64, n)
-	for i := 0; i < n; i++ {
-		v, err := toFloat64(in.Item(i, field))
+	for i, rv := range raw {
+		v, err := toFloat64(rv)
 		if err != nil {
 			return fmt.Errorf("transform_normalize: item[%d].%s: %w", i, field, err)
 		}

@@ -8,6 +8,25 @@ type FrameReader interface {
 	ItemCount() int
 }
 
+// ColumnReader is an optional upgrade interface for FrameReader
+// implementations that can serve a whole column in one call. ColumnFrame
+// implements it to expose a zero-copy view; frames that do not implement
+// it fall back to per-element gathering in ItemColumn.
+//
+// The returned slice is a read-only view valid for the current operator
+// Execute only. Safety of escaping the frame lock relies on the DAG
+// scheduler: writers of this field and row-set mutating operators
+// (removals / reorder / additions — including ColumnFrame's in-place
+// reorder) are hazard-ordered relative to the reader, so no concurrent
+// operator can touch the returned backing array.
+type ColumnReader interface {
+	// ItemColumnView returns the [offset, offset+count) window of the
+	// field's column. ok=false means the frame cannot serve a contiguous
+	// view for this field (e.g. the column does not exist) and the caller
+	// should fall back to per-element access.
+	ItemColumnView(field string, offset, count int) (col []any, ok bool)
+}
+
 // OperatorInput provides read-only access to DataFrame data for one operator invocation.
 // It operates in two modes:
 //   - Lazy mode (frame != nil): reads from Frame on demand, avoiding O(N×M) materialization
@@ -84,6 +103,65 @@ func (in *OperatorInput) Item(index int, field string) any {
 		}
 	}
 	return v
+}
+
+// ItemColumn returns all values of the given item field for this input's
+// window as a slice indexed by item position. Element i is identical to
+// Item(i, field), including item-default substitution for nil slots.
+//
+// The returned slice is READ-ONLY and valid only for the duration of the
+// current Execute call: when backed by a ColumnFrame without defaults for
+// this field it is a zero-copy view of the frame's column. Operators must
+// not mutate it or retain it past Execute.
+//
+// Compared to an Item() loop this collapses the per-element lock + map
+// lookup to once per column, which is where column storage's contiguous
+// layout actually pays off.
+func (in *OperatorInput) ItemColumn(field string) []any {
+	// Materialized mode: gather from row maps.
+	if in.items != nil {
+		col := make([]any, len(in.items))
+		for i, item := range in.items {
+			col[i] = item[field]
+		}
+		return col
+	}
+
+	var defaultVal any
+	var hasDefault bool
+	if in.itemDefaults != nil {
+		defaultVal, hasDefault = in.itemDefaults[field]
+	}
+
+	if cr, ok := in.frame.(ColumnReader); ok {
+		if view, ok := cr.ItemColumnView(field, in.offset, in.count); ok {
+			if !hasDefault {
+				return view
+			}
+			// Defaults force a copy: nil slots substitute the default
+			// value, matching Item()'s per-element semantics.
+			col := make([]any, len(view))
+			for i, v := range view {
+				if v == nil {
+					col[i] = defaultVal
+				} else {
+					col[i] = v
+				}
+			}
+			return col
+		}
+	}
+
+	// Fallback: per-element gather through the FrameReader interface.
+	col := make([]any, in.count)
+	for i := 0; i < in.count; i++ {
+		v := in.frame.Item(in.offset+i, field)
+		if v == nil && hasDefault {
+			v = defaultVal
+		}
+		col[i] = v
+	}
+	return col
 }
 
 // CommonKeys returns the list of common field names available in this input.

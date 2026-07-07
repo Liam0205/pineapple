@@ -54,8 +54,9 @@ func (o *ConditionOp) Init(params map[string]any) error {
 
 func (o *ConditionOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	field := o.ItemInput[0]
-	for i := 0; i < in.ItemCount(); i++ {
-		if fmt.Sprintf("%v", in.Item(i, field)) == fmt.Sprintf("%v", o.value) {
+	want := fmt.Sprintf("%v", o.value)
+	for i, v := range in.ItemColumn(field) {
+		if fmt.Sprintf("%v", v) == want {
 			out.RemoveItem(i)
 		}
 	}

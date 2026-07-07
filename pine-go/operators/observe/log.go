@@ -64,13 +64,15 @@ func (o *LogOp) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.Opera
 
 	// Capture item fields
 	if len(o.ItemInput) > 0 && in.ItemCount() > 0 {
-		items := make([]map[string]any, in.ItemCount())
-		for i := 0; i < in.ItemCount(); i++ {
-			row := make(map[string]any, len(o.ItemInput))
-			for _, k := range o.ItemInput {
-				row[k] = in.Item(i, k)
+		n := in.ItemCount()
+		items := make([]map[string]any, n)
+		for i := range items {
+			items[i] = make(map[string]any, len(o.ItemInput))
+		}
+		for _, k := range o.ItemInput {
+			for i, v := range in.ItemColumn(k) {
+				items[i][k] = v
 			}
-			items[i] = row
 		}
 		snapshot["items"] = items
 	}

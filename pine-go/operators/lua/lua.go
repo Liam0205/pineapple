@@ -156,10 +156,18 @@ func (o *LuaOp) executeForItem(eng Engine, in *pine.OperatorInput, out *pine.Ope
 	// values are read into the DataFrame before the next CallInto, so reuse is safe.
 	results := make([]any, nret)
 
+	// Hoist per-field columns out of the item loop: one lock + one lookup
+	// per field instead of per item × field. The per-item VM boundary
+	// (SetGlobal + CallInto) is inherent to item-mode and unchanged.
+	cols := make([][]any, len(o.ItemInput))
+	for k, field := range o.ItemInput {
+		cols[k] = in.ItemColumn(field)
+	}
+
 	for i := 0; i < n; i++ {
 		// Set item globals for this item
-		for _, field := range o.ItemInput {
-			if err := eng.SetGlobal(field, in.Item(i, field)); err != nil {
+		for k, field := range o.ItemInput {
+			if err := eng.SetGlobal(field, cols[k][i]); err != nil {
 				return fmt.Errorf("lua: item[%d].%s: %w", i, field, err)
 			}
 		}
@@ -216,9 +224,7 @@ func (o *LuaOp) executeForCommon(eng Engine, in *pine.OperatorInput, out *pine.O
 			*bufPtr = (*bufPtr)[:n]
 		}
 		arr := *bufPtr
-		for i := 0; i < n; i++ {
-			arr[i] = in.Item(i, field)
-		}
+		copy(arr, in.ItemColumn(field))
 		if err := eng.SetGlobal(field, arr); err != nil {
 			return fmt.Errorf("lua: items[].%s: %w", field, err)
 		}
