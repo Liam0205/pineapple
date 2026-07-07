@@ -56,8 +56,7 @@ func (o *DedupOp) Init(params map[string]any) error {
 func (o *DedupOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.OperatorOutput) error {
 	dedupBy := o.ItemInput[0]
 	seen := make(map[string]struct{})
-	for i := 0; i < in.ItemCount(); i++ {
-		raw := in.Item(i, dedupBy)
+	for i, raw := range in.ItemColumn(dedupBy) {
 		key := dedupKey(raw)
 		if _, dup := seen[key]; dup {
 			out.RemoveItem(i)

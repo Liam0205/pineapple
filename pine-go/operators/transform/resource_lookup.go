@@ -78,8 +78,7 @@ func (o *ResourceLookupOp) Execute(ctx context.Context, in *pine.OperatorInput, 
 		return fmt.Errorf("transform_resource_lookup: resource %q is %T, want map[string]any", o.resourceName, raw)
 	}
 
-	for i := 0; i < in.ItemCount(); i++ {
-		raw := in.Item(i, o.lookupKey)
+	for i, raw := range in.ItemColumn(o.lookupKey) {
 		if raw == nil {
 			if o.hasDefault {
 				out.SetItem(i, o.outputField, o.defaultValue)

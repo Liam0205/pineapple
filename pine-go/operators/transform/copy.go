@@ -80,11 +80,10 @@ func (o *CopyOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Op
 		}
 
 	case "item_to_item":
-		n := in.ItemCount()
 		for i, src := range o.ItemInput {
 			dst := o.ItemOutput[i]
-			for j := 0; j < n; j++ {
-				out.SetItem(j, dst, in.Item(j, src))
+			for j, v := range in.ItemColumn(src) {
+				out.SetItem(j, dst, v)
 			}
 		}
 
@@ -93,9 +92,7 @@ func (o *CopyOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Op
 		n := in.ItemCount()
 		for i, src := range o.ItemInput {
 			vals := make([]any, n)
-			for j := 0; j < n; j++ {
-				vals[j] = in.Item(j, src)
-			}
+			copy(vals, in.ItemColumn(src))
 			out.SetCommon(o.CommonOutput[i], vals)
 		}
 	}

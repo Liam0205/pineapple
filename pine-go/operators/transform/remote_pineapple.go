@@ -171,14 +171,17 @@ func (o *RemotePineappleOp) Execute(ctx context.Context, in *pine.OperatorInput,
 	}
 
 	reqItems := make([]map[string]any, in.ItemCount())
-	for j := 0; j < in.ItemCount(); j++ {
-		item := make(map[string]any, len(o.ItemInput))
-		for i, localField := range o.ItemInput {
-			if i < len(itemReqFields) {
-				item[itemReqFields[i]] = in.Item(j, localField)
-			}
+	for j := range reqItems {
+		reqItems[j] = make(map[string]any, len(o.ItemInput))
+	}
+	for i, localField := range o.ItemInput {
+		if i >= len(itemReqFields) {
+			continue
 		}
-		reqItems[j] = item
+		remoteField := itemReqFields[i]
+		for j, v := range in.ItemColumn(localField) {
+			reqItems[j][remoteField] = v
+		}
 	}
 
 	reqBody := remoteRequest{Common: reqCommon, Items: reqItems}

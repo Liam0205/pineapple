@@ -79,6 +79,26 @@ func (f *ColumnFrame) Item(index int, field string) any {
 	return col[index]
 }
 
+// ItemColumnView implements types.ColumnReader: it returns a zero-copy
+// window of the field's column under a single lock acquisition. Escaping
+// the lock is safe because the DAG scheduler hazard-orders writers of this
+// field and row-set mutating operators (including the in-place reorder in
+// ApplyOutput) relative to the reader — see types.ColumnReader.
+func (f *ColumnFrame) ItemColumnView(field string, offset, count int) ([]any, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if offset < 0 || count < 0 || offset+count > f.rowCount {
+		return nil, false
+	}
+	col, ok := f.columns[field]
+	if !ok {
+		// Absent column: every slot reads as nil, same as Item(). Serve a
+		// nil-filled slice so callers keep the batch path.
+		return make([]any, count), true
+	}
+	return col[offset : offset+count : offset+count], true
+}
+
 func (f *ColumnFrame) BuildInput(
 	opName string,
 	spec *config.InputFieldSpec,
@@ -115,17 +135,29 @@ func (f *ColumnFrame) BuildInput(
 		cs[field] = v
 	}
 
-	// Validate strict item fields upfront (fail fast)
+	// Validate strict item fields upfront (fail fast).
+	// Column resolution is hoisted out of the per-item loop (previously a
+	// map lookup per item × field). Iteration stays item-major so the
+	// first-error priority is byte-identical across storage modes and
+	// runtimes (see llmdoc/memory/reflections/review-driven-build-input-error-ordering.md).
+	strictCols := make([][]any, len(spec.StrictItem))
+	strictPresent := make([][]bool, len(spec.StrictItem))
+	for k, field := range spec.StrictItem {
+		strictCols[k] = f.columns[field] // nil if absent
+		strictPresent[k] = f.present[field]
+	}
+	nullablePresent := make([][]bool, len(spec.NullableItem))
+	for k, field := range spec.NullableItem {
+		nullablePresent[k] = f.present[field] // nil if absent
+	}
 	for i := 0; i < f.rowCount; i++ {
-		for _, field := range spec.StrictItem {
-			col, colExists := f.columns[field]
-			if !colExists || !f.present[field][i] || col[i] == nil {
+		for k, field := range spec.StrictItem {
+			if strictCols[k] == nil || !strictPresent[k][i] || strictCols[k][i] == nil {
 				return nil, fmt.Errorf("required field %q is nil on item[%d]", field, i)
 			}
 		}
-		for _, field := range spec.NullableItem {
-			_, colExists := f.columns[field]
-			if !colExists || !f.present[field][i] {
+		for k, field := range spec.NullableItem {
+			if nullablePresent[k] == nil || !nullablePresent[k][i] {
 				return nil, fmt.Errorf("required field %q is missing on item[%d]", field, i)
 			}
 		}
@@ -164,6 +196,12 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 	}
 
 	// 2. Item field writes
+	// Cache the last-resolved column: operators typically write
+	// field-major (the same field for consecutive indices), so this turns
+	// 2 map lookups per write into 2 per field run.
+	var lastField string
+	var lastCol []any
+	var lastPresent []bool
 	for _, w := range out.GetItemWrites() {
 		if w.Index < 0 || w.Index >= f.rowCount {
 			return fmt.Errorf("SetItem index %d out of range [0, %d)", w.Index, f.rowCount)
@@ -171,14 +209,19 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		if err := validateValue(w.Field, w.Value); err != nil {
 			return fmt.Errorf("item[%d] write: %w", w.Index, err)
 		}
-		col, ok := f.columns[w.Field]
-		if !ok {
-			col = make([]any, f.rowCount)
-			f.columns[w.Field] = col
-			f.present[w.Field] = make([]bool, f.rowCount)
+		if w.Field != lastField || lastCol == nil {
+			col, ok := f.columns[w.Field]
+			if !ok {
+				col = make([]any, f.rowCount)
+				f.columns[w.Field] = col
+				f.present[w.Field] = make([]bool, f.rowCount)
+			}
+			lastField = w.Field
+			lastCol = col
+			lastPresent = f.present[w.Field]
 		}
-		col[w.Index] = w.Value
-		f.present[w.Field][w.Index] = true
+		lastCol[w.Index] = w.Value
+		lastPresent[w.Index] = true
 	}
 
 	// 3. Removals
@@ -271,16 +314,8 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 	// 5. Additions (zero-copy: take ownership of the caller's map)
 	if addedItems := out.GetAddedItems(); len(addedItems) > 0 {
 		newCap := f.rowCount + len(addedItems)
-		for field, col := range f.columns {
-			if cap(col) < newCap {
-				grown := make([]any, f.rowCount, newCap)
-				copy(grown, col)
-				f.columns[field] = grown
-				grownP := make([]bool, f.rowCount, newCap)
-				copy(grownP, f.present[field])
-				f.present[field] = grownP
-			}
-		}
+
+		// Pass 1: validate + ensure every incoming field has a column.
 		for _, added := range addedItems {
 			if recall {
 				added["_source"] = opName
@@ -294,13 +329,30 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 					f.present[k] = make([]bool, f.rowCount, newCap)
 				}
 			}
-			for field, col := range f.columns {
-				value, ok := added[field]
-				f.columns[field] = append(col, value)
-				f.present[field] = append(f.present[field], ok)
-			}
-			f.rowCount++
 		}
+
+		// Pass 2: column-major batch append — iterate the columns map once
+		// instead of once per added item (the previous item-major loop paid
+		// O(added × cols) map iterations).
+		for field, col := range f.columns {
+			presentCol := f.present[field]
+			if cap(col) < newCap {
+				grown := make([]any, f.rowCount, newCap)
+				copy(grown, col)
+				col = grown
+				grownP := make([]bool, f.rowCount, newCap)
+				copy(grownP, presentCol)
+				presentCol = grownP
+			}
+			for _, added := range addedItems {
+				v, ok := added[field]
+				col = append(col, v)
+				presentCol = append(presentCol, ok)
+			}
+			f.columns[field] = col
+			f.present[field] = presentCol
+		}
+		f.rowCount = newCap
 	}
 
 	return nil

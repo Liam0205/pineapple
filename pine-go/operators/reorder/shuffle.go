@@ -74,8 +74,8 @@ func (o *ShuffleBySaltOp) Execute(_ context.Context, in *pine.OperatorInput, out
 		id  uint64
 	}
 	items := make([]ranked, n)
-	for i := 0; i < n; i++ {
-		itemVal := anyToString(in.Item(i, itemField))
+	for i, rv := range in.ItemColumn(itemField) {
+		itemVal := anyToString(rv)
 		key := saltPrefix + itemVal
 		items[i] = ranked{idx: i, r: hashToUnitInterval(key), id: parseUint64(itemVal)}
 	}

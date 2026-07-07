@@ -65,14 +65,15 @@ func (o *SortOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Op
 
 	field := o.ItemInput[0]
 
-	// Collect values and indices
+	// Collect values and indices (batched column access)
 	type entry struct {
 		idx int
 		val float64
 	}
+	raw := in.ItemColumn(field)
 	entries := make([]entry, n)
-	for i := 0; i < n; i++ {
-		v, err := sortToFloat64(in.Item(i, field))
+	for i, rv := range raw {
+		v, err := sortToFloat64(rv)
 		if err != nil {
 			return fmt.Errorf("reorder_sort: item[%d].%s: %w", i, field, err)
 		}

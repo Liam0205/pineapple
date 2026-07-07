@@ -64,6 +64,23 @@ func (f *RowFrame) Item(index int, field string) any {
 	return f.items[index][field]
 }
 
+// ItemColumnView implements types.ColumnReader by gathering the field from
+// each row map under a single lock acquisition. Unlike ColumnFrame this
+// cannot be zero-copy (values live scattered in per-item maps), but it
+// still collapses the per-element lock tax of an Item() loop to one lock.
+func (f *RowFrame) ItemColumnView(field string, offset, count int) ([]any, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if offset < 0 || count < 0 || offset+count > len(f.items) {
+		return nil, false
+	}
+	col := make([]any, count)
+	for i := 0; i < count; i++ {
+		col[i] = f.items[offset+i][field]
+	}
+	return col, true
+}
+
 func (f *RowFrame) BuildInput(
 	opName string,
 	spec *config.InputFieldSpec,
