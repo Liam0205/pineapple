@@ -82,3 +82,12 @@
 - **OperatorInput 持 spec 裸指针是隐性生命周期契约**：pine-cpp `test_remote_pineapple.cpp` 的 helper 把栈上 `InputFieldSpec` 传给 `build_operator_input` 后返回 OperatorInput，spec 悬垂——生产端 Engine 的 `input_specs_` map 拥有 spec 生命周期所以无恙，但测试侧无人守护。该潜伏 bug 被 `item_column` 新增的字段名比较触发为可复现 SIGSEGV，ASan 一次定位。教训：给持裸指针/引用的构造路径写测试 helper 时，必须复刻生产环境的所有权关系，而非最短代码。
 - **验证覆盖要量化不要感觉**："fuzz 跑过列存代码了吗"这个问题的正确回答方式是 `go build -cover` + `GOCOVERDIR` 实测函数级覆盖，而不是从生成器代码推断。实测发现主路径覆盖良好（ItemColumnView 75-87%）但 defaults-copy 分支 0 命中，遂补定向维度。
 - **flaky divergence 先排环境再怀疑代码**：机器 load 30+ 时 fuzz 出现 go-vs-java divergence（java rc=1），同 config 单独重跑 30 次全过、master 基线同样无法复现，判定为高负载下 JVM 子进程环境问题。与 benchmark-hygiene 的"跑前查 load"纪律同源——fuzz 也是负载敏感的。
+
+## 第二阶段实现记录（2026-07-07，typed columns，issue #156 / PR #162）
+
+解法分层第 3 条（typed columns）随后在 pine-go / pine-java 实现（pine-cpp 本就是样板）：float64/string/bool 扁平列 + validity bitmap + json 兜底，构造期推断 + 运行时提升对齐 pine-cpp；零拷贝 typed 快路径 `ItemColumnFloat64`/`itemColumnDouble`（仅"typed 列且窗口全 present"命中）。transform-heavy 1000 列存较行存 -35%（0.89ms vs 1.37ms，bytes -51%），Removals 微基准 88KB/21 allocs → 1KB/1 alloc。cross-validate 3/4/5 全绿 + 120 轮 fuzz 零 divergence。
+
+### 补充教训
+
+- **跨引擎"对齐样板"不等于逐行照抄**：pine-cpp 折叠所有数值进 DoubleColumn 的前提是它的 Variant 数值只有 double；Go/Java 装箱保留 int vs float 且下游契约（`%T` 消息、dedup key）观察它。对等性定义在可观测输出上——各引擎用各自语言里最诚实的内部表示达成同一外部行为，这类分歧应在代码注释与 PR 里显式论证归档，而非硬抄。
+- **翻译残留死代码是移植型 PR 的高发缺陷**：Java ReorderSort 从 Go entry struct 翻译时留下从未被读取的 `List<int[]>` 填充循环（每次排序 n 次无用分配），与 PR 自身的减分配目标矛盾，被 review bot 抓出。移植后应回读一遍"翻译产物里有没有源语言习惯的残留"。
