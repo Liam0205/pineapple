@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -159,9 +160,14 @@ pine::ColumnFrame build_frame() {
 }
 
 // Build an OperatorInput from a frame using the standard remote config metadata.
+// OperatorInput stores a raw pointer to the spec (in production the Engine's
+// input_specs_ map owns specs for the engine's lifetime), so the spec must
+// outlive the returned input — a plain stack local here would dangle. Keep
+// them alive in a function-static store instead.
 pine::OperatorInput build_input_from_frame(pine::ColumnFrame& frame, const pine::OperatorConfig& cfg) {
-  auto spec = pine::compute_input_field_spec(cfg);
-  return pine::build_operator_input(frame, cfg.name, spec);
+  static std::vector<std::unique_ptr<pine::InputFieldSpec>> specs;
+  specs.push_back(std::make_unique<pine::InputFieldSpec>(pine::compute_input_field_spec(cfg)));
+  return pine::build_operator_input(frame, cfg.name, *specs.back());
 }
 
 }  // namespace

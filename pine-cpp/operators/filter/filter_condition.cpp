@@ -17,9 +17,11 @@ class FilterConditionOp : public Operator, public ConsumesRowSet, public Mutates
     field_ = cfg.metadata.item_input.at(0);
   }
   void execute(const OperatorInput& input, OperatorOutput& out) override {
-    for (std::size_t i = 0; i < input.item_count(); ++i) {
-      Variant fv = input.item(i, field_);
-      if (operators::sprint_value(fv) == target_) {
+    // Batched column access: one lock + one lookup instead of per-element
+    // item() calls.
+    std::vector<Variant> col = input.item_column(field_);
+    for (std::size_t i = 0; i < col.size(); ++i) {
+      if (operators::sprint_value(col[i]) == target_) {
         out.remove_item(static_cast<int>(i));
       }
     }

@@ -52,6 +52,7 @@ class RowFrame : public Frame {
   Variant item(std::size_t index, const std::string& field) const override;
   bool item_has(std::size_t index, const std::string& field) const override;
   std::vector<std::string> item_fields() const override;
+  std::vector<Variant> item_column(const std::string& field) const override;
 
   void set_resources(const std::map<std::string, Variant>* res) override {
     resources_ = res;

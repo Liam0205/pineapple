@@ -133,6 +133,24 @@ std::vector<std::string> RowFrame::item_fields() const {
   return out;
 }
 
+std::vector<Variant> RowFrame::item_column(const std::string& field) const {
+  std::shared_lock<std::shared_mutex> lk(*mu_);
+  const auto& src = view_items_ ? *view_items_ : items_;
+  const std::size_t offset = view_items_ ? view_offset_ : 0;
+  const std::size_t n = view_items_ ? view_count_ : src.size();
+  std::vector<Variant> out(n);
+  // Gather under a single lock acquisition: cannot avoid the per-row map
+  // lookup (values live in per-item maps) but collapses the per-element
+  // lock tax of an item() loop.
+  for (std::size_t i = 0; i < n; ++i) {
+    auto it = src[offset + i].find(field);
+    if (it != src[offset + i].end()) {
+      out[i] = it->second;
+    }
+  }
+  return out;
+}
+
 void RowFrame::push_warning(std::string msg) {
   if (is_window_view()) {
     throw Error(

@@ -235,6 +235,28 @@ std::vector<std::string> ColumnFrame::item_fields() const {
   return store->fields();
 }
 
+std::vector<Variant> ColumnFrame::item_column(const std::string& field) const {
+  std::shared_lock<std::shared_mutex> lk(*mu_);
+  const ColumnStore* store = view_items_ ? view_items_ : items_.get();
+  const std::size_t offset = view_items_ ? view_offset_ : 0;
+  const std::size_t n = view_items_ ? view_count_ : store->row_count();
+  std::vector<Variant> out(n);
+  const Column* col = store->column(field);
+  if (!col) {
+    // Absent column: every slot reads as null, same as item().
+    return out;
+  }
+  // One lock + one column lookup for the whole scan (vs per element in an
+  // item() loop); the inner loop walks the contiguous typed column.
+  for (std::size_t i = 0; i < n; ++i) {
+    const std::size_t idx = offset + i;
+    if (!col->is_null(idx)) {
+      out[i] = col->get(idx);
+    }
+  }
+  return out;
+}
+
 void ColumnFrame::push_warning(std::string msg) {
   if (is_window_view()) {
     throw Error(

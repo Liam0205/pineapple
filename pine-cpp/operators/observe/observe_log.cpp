@@ -28,14 +28,20 @@ class ObserveLogOp : public Operator {
       snapshot["common"] = Variant(std::move(common));
     }
     if (!item_input_.empty() && input.item_count() > 0) {
-      Variant::array_t items;
-      items.reserve(input.item_count());
-      for (std::size_t i = 0; i < input.item_count(); ++i) {
-        Variant::object_t row;
-        for (const auto& k : item_input_) {
-          row[k] = input.item(i, k);
+      const std::size_t n = input.item_count();
+      // Batched column access: one lock + one lookup per field instead of
+      // per item x field.
+      std::vector<Variant::object_t> rows(n);
+      for (const auto& k : item_input_) {
+        std::vector<Variant> col = input.item_column(k);
+        for (std::size_t i = 0; i < n; ++i) {
+          rows[i][k] = col[i];
         }
-        items.push_back(Variant(std::move(row)));
+      }
+      Variant::array_t items;
+      items.reserve(n);
+      for (std::size_t i = 0; i < n; ++i) {
+        items.push_back(Variant(std::move(rows[i])));
       }
       snapshot["items"] = Variant(std::move(items));
     }

@@ -40,6 +40,23 @@ Variant OperatorInput::item(std::size_t index, const std::string& field) const {
   return Variant(nullptr);
 }
 
+std::vector<Variant> OperatorInput::item_column(const std::string& field) const {
+  std::vector<Variant> col = frame_->item_column(field);
+  // Defaults substitution mirrors item(): nil slots take the field's
+  // item-default when one is declared.
+  for (const auto& df : spec_->defaulted_item) {
+    if (df.name == field) {
+      for (auto& v : col) {
+        if (v.is_null()) {
+          v = df.default_value;
+        }
+      }
+      break;
+    }
+  }
+  return col;
+}
+
 std::vector<std::string> OperatorInput::common_keys() const {
   std::vector<std::string> keys;
   for (const auto& f : spec_->strict_common) {

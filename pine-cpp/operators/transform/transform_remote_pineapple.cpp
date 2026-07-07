@@ -134,17 +134,23 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
       req_common.emplace(common_req_fields[i], input.common(common_input_[i]));
     }
 
-    Variant::array_t req_items;
-    req_items.reserve(input.item_count());
-    for (std::size_t j = 0; j < input.item_count(); ++j) {
-      Variant::object_t item;
-      for (std::size_t i = 0; i < item_input_.size(); ++i) {
-        if (i >= item_req_fields.size()) {
-          break;
-        }
-        item.emplace(item_req_fields[i], input.item(j, item_input_[i]));
+    const std::size_t n_items = input.item_count();
+    std::vector<Variant::object_t> item_rows(n_items);
+    // Batched column access: one lock + one lookup per field instead of
+    // per item x field.
+    for (std::size_t i = 0; i < item_input_.size(); ++i) {
+      if (i >= item_req_fields.size()) {
+        break;
       }
-      req_items.emplace_back(std::move(item));
+      std::vector<Variant> col = input.item_column(item_input_[i]);
+      for (std::size_t j = 0; j < n_items; ++j) {
+        item_rows[j].emplace(item_req_fields[i], std::move(col[j]));
+      }
+    }
+    Variant::array_t req_items;
+    req_items.reserve(n_items);
+    for (std::size_t j = 0; j < n_items; ++j) {
+      req_items.emplace_back(std::move(item_rows[j]));
     }
 
     Variant::object_t req_body_obj;

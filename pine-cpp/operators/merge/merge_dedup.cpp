@@ -16,9 +16,11 @@ class MergeDedupOp : public Operator, public ConsumesRowSet, public MutatesRowSe
     const std::size_t n = input.item_count();
     std::unordered_set<std::string> seen;
     seen.reserve(n);
+    // Batched column access: one lock + one lookup instead of per-element
+    // item() calls.
+    std::vector<Variant> col = input.item_column(field_);
     for (std::size_t i = 0; i < n; ++i) {
-      Variant fv = input.item(i, field_);
-      auto [_it, inserted] = seen.emplace(operators::dedup_key(fv));
+      auto [_it, inserted] = seen.emplace(operators::dedup_key(col[i]));
       if (!inserted) {
         out.remove_item(static_cast<int>(i));
       }

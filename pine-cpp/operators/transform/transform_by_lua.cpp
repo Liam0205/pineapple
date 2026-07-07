@@ -71,9 +71,17 @@ class TransformByLuaOp : public Operator,
       for (const auto& field : common_input_) {
         vm.set_global(field, input.common(field));
       }
+      // Hoist per-field columns out of the item loop: one lock + one
+      // lookup per field instead of per item x field. The per-item VM
+      // boundary (set_global + call_function) is inherent to item-mode.
+      std::vector<std::vector<Variant>> cols;
+      cols.reserve(item_input_.size());
+      for (const auto& field : item_input_) {
+        cols.push_back(input.item_column(field));
+      }
       for (std::size_t i = 0; i < input.item_count(); ++i) {
-        for (const auto& field : item_input_) {
-          vm.set_global(field, input.item(i, field));
+        for (std::size_t k = 0; k < item_input_.size(); ++k) {
+          vm.set_global(item_input_[k], cols[k][i]);
         }
         auto results = vm.call_function(func_for_item_, nret, op_name_);
         for (int j = 0; j < nret; ++j) {
@@ -87,11 +95,9 @@ class TransformByLuaOp : public Operator,
         vm.set_global(field, input.common(field));
       }
       for (const auto& field : item_input_) {
-        Variant::array_t column;
-        column.reserve(input.item_count());
-        for (std::size_t i = 0; i < input.item_count(); ++i) {
-          column.push_back(input.item(i, field));
-        }
+        // Batched column access: one lock + one lookup per field.
+        std::vector<Variant> col = input.item_column(field);
+        Variant::array_t column(std::make_move_iterator(col.begin()), std::make_move_iterator(col.end()));
         vm.set_global_table(field, column);
       }
       auto results = vm.call_function(func_for_common_, nret, op_name_);
