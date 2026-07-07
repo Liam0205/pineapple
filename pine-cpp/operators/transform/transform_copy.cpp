@@ -50,18 +50,17 @@ class TransformCopyOp : public Operator, public ConcurrentSafe {
       for (std::size_t i = 0; i < inputs.size(); ++i) {
         const auto& src = inputs[i];
         const auto& dst = item_output_.at(i);
-        for (std::size_t j = 0; j < input.item_count(); ++j) {
-          out.set_item(static_cast<int>(j), dst, input.item(j, src));
+        std::vector<Variant> col = input.item_column(src);
+        for (std::size_t j = 0; j < col.size(); ++j) {
+          out.set_item(static_cast<int>(j), dst, col[j]);
         }
       }
     } else if (direction_ == "item_to_common") {
       const auto inputs = active_inputs(item_input_);
       for (std::size_t i = 0; i < inputs.size(); ++i) {
         const auto& src = inputs[i];
-        Variant::array_t vals;
-        for (std::size_t j = 0; j < input.item_count(); ++j) {
-          vals.push_back(input.item(j, src));
-        }
+        std::vector<Variant> col = input.item_column(src);
+        Variant::array_t vals(std::make_move_iterator(col.begin()), std::make_move_iterator(col.end()));
         out.set_common(common_output_.at(i), Variant(vals));
       }
     } else {

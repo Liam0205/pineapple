@@ -50,8 +50,11 @@ class TransformResourceLookupOp : public Operator, public ConcurrentSafe {
     }
     const auto& table = resource.as_object();
 
-    for (std::size_t i = 0; i < input.item_count(); ++i) {
-      Variant field_val = input.item(i, lookup_key_);
+    // Batched column access: one lock + one lookup instead of per-element
+    // item() calls.
+    std::vector<Variant> col = input.item_column(lookup_key_);
+    for (std::size_t i = 0; i < col.size(); ++i) {
+      const Variant& field_val = col[i];
       if (field_val.is_null()) {
         if (has_default_) {
           out.set_item(static_cast<int>(i), output_field_, default_value_);

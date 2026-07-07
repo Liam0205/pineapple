@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdlib>
+#include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <new>

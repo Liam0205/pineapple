@@ -38,6 +38,13 @@ class OperatorInput {
   // Substitutes defaults for nil values.
   Variant item(std::size_t index, const std::string& field) const;
 
+  // item_column returns all values of `field` as a vector indexed by item
+  // position — element i is identical to item(i, field), including
+  // item-default substitution for nil slots. Collapses the per-element
+  // lock + column lookup of an item() loop to once per column (the
+  // access shape where column storage's contiguous layout pays off).
+  std::vector<Variant> item_column(const std::string& field) const;
+
   // common_keys returns all common field names present in the spec.
   std::vector<std::string> common_keys() const;
 

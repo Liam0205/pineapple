@@ -53,8 +53,11 @@ class ReorderShuffleBySaltOp : public Operator, public ConsumesRowSet, public Mu
     };
     std::vector<Ranked> ranked;
     ranked.reserve(input.item_count());
-    for (std::size_t i = 0; i < input.item_count(); ++i) {
-      std::string item_val = operators::any_to_string(input.item(i, item_field_));
+    // Batched column access: one lock + one lookup instead of per-element
+    // item() calls.
+    std::vector<Variant> col = input.item_column(item_field_);
+    for (std::size_t i = 0; i < col.size(); ++i) {
+      std::string item_val = operators::any_to_string(col[i]);
       uint64_t h = fnv64a(salt + item_val);
       double r = static_cast<double>(h) / (static_cast<double>(UINT64_MAX) + 1.0);
       ranked.push_back({i, r, parse_uint64(item_val)});

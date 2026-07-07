@@ -34,11 +34,14 @@ class TransformNormalizeOp : public Operator {
     }
     const std::string& field_ = item_input_[0];
     const std::string& out_field_ = item_output_[0];
+    // Batched column access: one lock + one lookup instead of per-element
+    // item() calls.
+    std::vector<Variant> raw = input.item_column(field_);
     std::vector<double> vals;
     vals.reserve(input.item_count());
-    for (std::size_t i = 0; i < input.item_count(); ++i) {
+    for (std::size_t i = 0; i < raw.size(); ++i) {
       try {
-        Variant v = input.item(i, field_);
+        const Variant& v = raw[i];
         if (v.is_null()) {
           throw operators::OperatorError("required field \"" + field_ + "\" is nil on item[" +
                                          std::to_string(i) + "]");

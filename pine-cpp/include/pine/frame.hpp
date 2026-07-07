@@ -44,6 +44,17 @@ class Frame {
   virtual bool item_has(std::size_t index, const std::string& field) const = 0;
   virtual std::vector<std::string> item_fields() const = 0;
 
+  // Batch read: all values of `field` for this frame's rows (window views
+  // translate to their [offset, offset+count) span), gathered under a
+  // single lock acquisition. Element i is identical to item(i, field)
+  // (null Variant for absent / present-null slots). Collapses the
+  // per-element lock + column lookup of an item() loop to once per
+  // column — the access shape where column storage's contiguous layout
+  // actually pays off. Values are copied out (Variant is a value type;
+  // typed columns have no contiguous Variant array to view), so unlike
+  // pine-go there is no aliasing escape hatch to reason about.
+  virtual std::vector<Variant> item_column(const std::string& field) const = 0;
+
   // ---- resources (read-only injected map) ----
   virtual void set_resources(const std::map<std::string, Variant>* res) = 0;
   virtual const std::map<std::string, Variant>* resources() const = 0;
