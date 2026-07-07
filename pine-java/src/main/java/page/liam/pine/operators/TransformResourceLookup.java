@@ -52,8 +52,9 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
         }
         Map<String, Object> table = (Map<String, Object>) raw;
 
-        for (int i = 0; i < input.itemCount(); i++) {
-            Object keyRaw = input.item(i, lookupKey);
+        Object[] col = input.itemColumn(lookupKey);
+        for (int i = 0; i < col.length; i++) {
+            Object keyRaw = col[i];
             if (keyRaw == null) {
                 if (hasDefault) {
                     output.setItem(i, outputField, defaultValue);

@@ -36,8 +36,9 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
         long[] ids = new long[n];
         Integer[] indices = new Integer[n];
 
+        Object[] col = input.itemColumn(itemField);
         for (int i = 0; i < n; i++) {
-            String itemVal = anyToString(input.item(i, itemField));
+            String itemVal = anyToString(col[i]);
             String key = saltPrefix + itemVal;
             ranks[i] = hashToUnitInterval(key);
             ids[i] = parseUint64(itemVal);

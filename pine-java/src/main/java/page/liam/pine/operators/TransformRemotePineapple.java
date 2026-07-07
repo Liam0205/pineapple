@@ -91,13 +91,17 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
             reqCommon.put(cReq.get(i), input.common(commonInput().get(i)));
         }
 
-        List<Map<String, Object>> reqItems = new ArrayList<>(input.itemCount());
-        for (int j = 0; j < input.itemCount(); j++) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            for (int i = 0; i < itemInput().size() && i < iReq.size(); i++) {
-                item.put(iReq.get(i), input.item(j, itemInput().get(i)));
+        int n = input.itemCount();
+        List<Map<String, Object>> reqItems = new ArrayList<>(n);
+        for (int j = 0; j < n; j++) {
+            reqItems.add(new LinkedHashMap<>());
+        }
+        for (int i = 0; i < itemInput().size() && i < iReq.size(); i++) {
+            String remoteField = iReq.get(i);
+            Object[] col = input.itemColumn(itemInput().get(i));
+            for (int j = 0; j < n; j++) {
+                reqItems.get(j).put(remoteField, col[j]);
             }
-            reqItems.add(item);
         }
 
         Map<String, Object> reqBody = new LinkedHashMap<>();

@@ -38,13 +38,16 @@ public class ObserveLog extends AbstractOperator {
         }
 
         if (!itemInput().isEmpty() && input.itemCount() > 0) {
-            List<Map<String, Object>> items = new ArrayList<>(input.itemCount());
-            for (int i = 0; i < input.itemCount(); i++) {
-                Map<String, Object> row = new TreeMap<>();
-                for (String k : itemInput()) {
-                    row.put(k, input.item(i, k));
+            int n = input.itemCount();
+            List<Map<String, Object>> items = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                items.add(new TreeMap<>());
+            }
+            for (String k : itemInput()) {
+                Object[] col = input.itemColumn(k);
+                for (int i = 0; i < n; i++) {
+                    items.get(i).put(k, col[i]);
                 }
-                items.add(row);
             }
             snapshot.put("items", items);
         }

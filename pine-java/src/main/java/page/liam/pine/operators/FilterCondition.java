@@ -29,8 +29,10 @@ public class FilterCondition extends AbstractOperator implements page.liam.pine.
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
         String field = itemInput().get(0);
-        for (int i = 0; i < input.itemCount(); i++) {
-            if (Objects.equals(GoFormat.sprint(input.item(i, field)), GoFormat.sprint(value))) {
+        String want = GoFormat.sprint(value);
+        Object[] col = input.itemColumn(field);
+        for (int i = 0; i < col.length; i++) {
+            if (Objects.equals(GoFormat.sprint(col[i]), want)) {
                 output.removeItem(i);
             }
         }

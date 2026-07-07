@@ -7,6 +7,7 @@ import page.liam.pine.OperatorOutput;
 import page.liam.pine.OperatorParams;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -66,8 +67,9 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
                 for (int i = 0; i < itemInput().size(); i++) {
                     String src = itemInput().get(i);
                     String dst = itemOutput().get(i);
-                    for (int j = 0; j < input.itemCount(); j++) {
-                        output.setItem(j, dst, input.item(j, src));
+                    Object[] col = input.itemColumn(src);
+                    for (int j = 0; j < col.length; j++) {
+                        output.setItem(j, dst, col[j]);
                     }
                 }
                 break;
@@ -75,10 +77,7 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
             case "item_to_common":
                 for (int i = 0; i < itemInput().size(); i++) {
                     String src = itemInput().get(i);
-                    List<Object> vals = new ArrayList<>();
-                    for (int j = 0; j < input.itemCount(); j++) {
-                        vals.add(input.item(j, src));
-                    }
+                    List<Object> vals = new ArrayList<>(Arrays.asList(input.itemColumn(src)));
                     output.setCommon(commonOutput().get(i), vals);
                 }
                 break;

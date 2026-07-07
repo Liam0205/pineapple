@@ -35,10 +35,13 @@ public class TransformNormalize extends AbstractOperator {
         String field = itemInput().get(0);
         String outputField = itemOutput().get(0);
 
+        // Batched column access: one lock + one lookup instead of
+        // per-element item calls.
+        Object[] raw = input.itemColumn(field);
         double[] vals = new double[n];
         for (int i = 0; i < n; i++) {
             try {
-                vals[i] = toDouble(input.item(i, field));
+                vals[i] = toDouble(raw[i]);
             } catch (PineErrors.OperatorException e) {
                 throw new PineErrors.OperatorException("transform_normalize: item[" + i + "]." + field + ": " + e.getMessage(), e);
             }
