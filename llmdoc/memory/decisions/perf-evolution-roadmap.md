@@ -12,10 +12,10 @@
 
 推论：在负载形状（per-item 边界）和数据布局（interface 装箱）改变之前，继续投入 VM 层优化没有端到端回报。
 
-## 第一步：typed-ColumnFrame / arena（最高优先，独立收益）
+## 第一步：typed-ColumnFrame / arena（已于 2026-07-07 实现 typed 列，issue #156 / PR #162）
 
-- 现状：pine-go ColumnFrame（`pine-go/internal/dataframe/column_frame.go` `ColumnFrame`）列是 `map[string][]any`——列的"壳"对了，但每元素仍是 interface 装箱指向 Go 堆散落对象；pine-java / pine-cpp 的 ColumnFrame 同构。
-- 演进：类型化扁平列（`[]float64` / `[]int64` / `[]bool` + 字符串 arena + presence bitmap）。
+- ~~现状：列是 `map[string][]any`~~ **已完成（PR #162）**：pine-go / pine-java ColumnFrame 均已改为 typed 列存储（float64/string/bool 扁平数组 + validity bitmap + json 兜底，`pine-go/internal/dataframe/column.go` / `pine-java Column.java`），比照 pine-cpp Column 层级；构造期类型推断 + 运行时类型提升语义与 pine-cpp `make_column`/`write_item_field_locked` 对齐。typed 派发按精确运行时类型（数值只认 float64/Double）——与 pine-cpp 折叠所有数值到 DoubleColumn 是刻意分歧：Go/Java 装箱保留 int vs float 且下游契约观察它（`%T` 错误消息、type-prefixed dedup key），而 cpp Variant 数值本就只有 double；三引擎外部行为字节级一致。零拷贝 typed 快路径 `ItemColumnFloat64`/`itemColumnDouble` 仅在"列为 typed 且窗口全 present"时命中（defaults 不可能触发），normalize/sort 已启用。实测 transform-heavy 1000：列存 0.89ms vs 行存 1.37ms（-35%，bytes -51%）；Removals 微基准 88KB/21 allocs → 1KB/1 alloc（bitmap 压缩）。
+- 剩余演进：字符串 arena（`StringColumn` 目前是 `[]string`/`String[]`，字节 arena + 偏移量待做）；int64 列在 Go/Java 因精确类型派发暂不适用。
 - 独立收益：原生算子去装箱 + cache 友好，不依赖任何 VM 野心。
 - 配合收益：扁平列可零拷贝映射进未来 VM 的 linear memory / arena；若外部 VM 项目成立，arena 内存布局 ABI 需与其协同设计。
 - 适用判据沿用列存复盘的场景分析（`llmdoc/memory/reflections/column-store-dataframe.md`：大量 item、少结构变更的负载占优；removals / reorder 天然劣势）。
