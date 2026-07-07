@@ -25,7 +25,12 @@ if [ -f ".venv/bin/activate" ]; then
 fi
 
 # Staged files, added/copied/modified only (skip deletions/renames-away).
-mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
+# while-read instead of mapfile: macOS ships bash 3.2 as /bin/bash (mapfile
+# is bash 4+), and hooks must run under the system interpreter.
+staged=()
+while IFS= read -r line; do
+  staged+=("$line")
+done < <(git diff --cached --name-only --diff-filter=ACM)
 if [ "${#staged[@]}" -eq 0 ]; then
   exit 0
 fi

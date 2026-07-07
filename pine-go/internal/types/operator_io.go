@@ -131,6 +131,13 @@ func (in *OperatorInput) ItemColumn(field string) []any {
 	var hasDefault bool
 	if in.itemDefaults != nil {
 		defaultVal, hasDefault = in.itemDefaults[field]
+		// A nil default substitutes nil for nil — a no-op. Treat it as
+		// "no default" so the zero-copy view path stays available, and so
+		// the branch condition matches pine-java's defaultVal == null
+		// check (cross-engine path parity, PR #155 review note).
+		if defaultVal == nil {
+			hasDefault = false
+		}
 	}
 
 	if cr, ok := in.frame.(ColumnReader); ok {
