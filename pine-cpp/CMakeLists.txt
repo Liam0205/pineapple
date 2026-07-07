@@ -34,13 +34,15 @@ if(PINE_STACKTRACE_LIB STREQUAL "")
 endif()
 
 # --- LuaJIT ---
-# Search common install locations (linuxbrew, system apt, /usr/local).
+# Search common install locations (linuxbrew, system apt, /usr/local, macOS homebrew).
 find_library(LUAJIT_LIB NAMES luajit-5.1
-    HINTS /home/linuxbrew/.linuxbrew/lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu)
+    HINTS /home/linuxbrew/.linuxbrew/lib /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu
+          /opt/homebrew/opt/luajit/lib)
 find_path(LUAJIT_INCLUDE NAMES luajit.h
     HINTS /home/linuxbrew/.linuxbrew/include/luajit-2.1
           /usr/local/include/luajit-2.1
-          /usr/include/luajit-2.1)
+          /usr/include/luajit-2.1
+          /opt/homebrew/opt/luajit/include/luajit-2.1)
 if(NOT LUAJIT_LIB OR NOT LUAJIT_INCLUDE)
     message(FATAL_ERROR "LuaJIT not found. Install with: brew install luajit OR apt install libluajit-5.1-dev")
 endif()
