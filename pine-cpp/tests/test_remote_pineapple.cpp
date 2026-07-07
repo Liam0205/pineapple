@@ -162,12 +162,22 @@ pine::ColumnFrame build_frame() {
 // Build an OperatorInput from a frame using the standard remote config metadata.
 // OperatorInput stores a raw pointer to the spec (in production the Engine's
 // input_specs_ map owns specs for the engine's lifetime), so the spec must
-// outlive the returned input — a plain stack local here would dangle. Keep
-// them alive in a function-static store instead.
-pine::OperatorInput build_input_from_frame(pine::ColumnFrame& frame, const pine::OperatorConfig& cfg) {
-  static std::vector<std::unique_ptr<pine::InputFieldSpec>> specs;
-  specs.push_back(std::make_unique<pine::InputFieldSpec>(pine::compute_input_field_spec(cfg)));
-  return pine::build_operator_input(frame, cfg.name, *specs.back());
+// outlive the returned input — a plain stack local inside a helper would
+// dangle. Bundle spec + input into one owning object whose lifetime follows
+// the test scope, mirroring the production ownership shape without the
+// unbounded growth / thread-safety caveats of a function-static store.
+struct OwnedInput {
+  std::unique_ptr<pine::InputFieldSpec> spec;
+  pine::OperatorInput input;
+
+  OwnedInput(pine::ColumnFrame& frame, const pine::OperatorConfig& cfg)
+      : spec(std::make_unique<pine::InputFieldSpec>(pine::compute_input_field_spec(cfg))),
+        input(pine::build_operator_input(frame, cfg.name, *spec)) {
+  }
+};
+
+OwnedInput build_input_from_frame(pine::ColumnFrame& frame, const pine::OperatorConfig& cfg) {
+  return OwnedInput(frame, cfg);
 }
 
 }  // namespace
@@ -296,8 +306,8 @@ TEST_CASE("remote_pineapple: happy path maps response fields") {
 
   auto frame = build_frame();
   pine::OperatorOutput out;
-  auto input = build_input_from_frame(frame, cfg);
-  op->execute(input, out);
+  auto owned = build_input_from_frame(frame, cfg);
+  op->execute(owned.input, out);
 
   const auto& cw = out.common_writes();
   REQUIRE(cw.count("b") == 1);
@@ -330,8 +340,8 @@ TEST_CASE("remote_pineapple: HTTP 500 throws when fail_on_error=true") {
   op->init(cfg);
   auto frame = build_frame();
   pine::OperatorOutput out;
-  auto input = build_input_from_frame(frame, cfg);
-  CHECK_THROWS_AS(op->execute(input, out), pine::ExecutionError);
+  auto owned = build_input_from_frame(frame, cfg);
+  CHECK_THROWS_AS(op->execute(owned.input, out), pine::ExecutionError);
 }
 
 TEST_CASE("remote_pineapple: HTTP 500 emits warning when fail_on_error=false") {
@@ -341,8 +351,8 @@ TEST_CASE("remote_pineapple: HTTP 500 emits warning when fail_on_error=false") {
   op->init(cfg);
   auto frame = build_frame();
   pine::OperatorOutput out;
-  auto input = build_input_from_frame(frame, cfg);
-  op->execute(input, out);
+  auto owned = build_input_from_frame(frame, cfg);
+  op->execute(owned.input, out);
   CHECK(out.warning().find("HTTP 500") != std::string::npos);
 }
 
@@ -353,8 +363,8 @@ TEST_CASE("remote_pineapple: downstream error field surfaces as warning") {
   op->init(cfg);
   auto frame = build_frame();
   pine::OperatorOutput out;
-  auto input = build_input_from_frame(frame, cfg);
-  op->execute(input, out);
+  auto owned = build_input_from_frame(frame, cfg);
+  op->execute(owned.input, out);
   CHECK(out.warning().find("downstream error: downstream broke") != std::string::npos);
 }
 
@@ -366,7 +376,7 @@ TEST_CASE("remote_pineapple: timeout produces request-failed warning") {
   op->init(cfg);
   auto frame = build_frame();
   pine::OperatorOutput out;
-  auto input = build_input_from_frame(frame, cfg);
-  op->execute(input, out);
+  auto owned = build_input_from_frame(frame, cfg);
+  op->execute(owned.input, out);
   CHECK(out.warning().find("request failed") != std::string::npos);
 }
