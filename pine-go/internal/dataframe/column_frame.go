@@ -321,6 +321,7 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 				}
 				if !col.appendVal(v) {
 					promoted := col.toJSON()
+					promoted.grow(newCap)
 					promoted.appendVal(v)
 					f.columns[field] = promoted
 					col = promoted

@@ -45,7 +45,6 @@ public class ReorderSort extends AbstractOperator implements page.liam.pine.Cons
         String field = itemInput().get(0);
         // Typed fast path avoids per-element boxing + instanceof checks
         // when the column is fully-present double.
-        List<int[]> entries = new ArrayList<>(n);
         double[] vals = input.itemColumnDouble(field);
         if (vals == null) {
             Object[] raw = input.itemColumn(field);
@@ -57,9 +56,6 @@ public class ReorderSort extends AbstractOperator implements page.liam.pine.Cons
                     throw new PineErrors.OperatorException("reorder_sort: item[" + i + "]." + field + ": " + e.getMessage(), e);
                 }
             }
-        }
-        for (int i = 0; i < n; i++) {
-            entries.add(new int[]{i});
         }
 
         Integer[] indices = new Integer[n];

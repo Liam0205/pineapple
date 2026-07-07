@@ -335,6 +335,7 @@ public class ColumnFrame implements Frame {
                         Object value = row.get(field);
                         if (!col.append(value)) {
                             Column promoted = col.toJson();
+                            promoted.grow(newCap);
                             promoted.append(value);
                             entry.setValue(promoted);
                             col = promoted;
