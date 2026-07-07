@@ -306,11 +306,31 @@ C++ 侧提供注册路径：
 
 - `Common(field)`
 - `Item(index, field)`
+- `ItemColumn(field)` — 批量列访问（见下）
 - `ItemCount()`
 - `CommonKeys()`
 - `ItemKeys(index)`
 
 不要假设完整 frame 或任意未声明字段存在；输入从声明的元数据投影。
+
+#### 批量列访问（`ItemColumn` / `itemColumn` / `item_column`）
+
+一次调用返回某 item 字段的整列值（一次锁 + 一次列解析，替代逐元素 `Item()` 循环的 per-element 锁税 + map 查找税——这是列存连续布局优势的兑现点，详见 `memory/reflections/column-vs-row-parity-investigation.md`）。三引擎方法名与返回类型：
+
+| 引擎 | 方法 | 返回 | Frame 层扩展点 |
+|---|---|---|---|
+| pine-go | `OperatorInput.ItemColumn(field)` | `[]any` | `types.ColumnReader` 可选接口（未实现则降级逐元素 gather） |
+| pine-java | `OperatorInput.itemColumn(field)` | `Object[]` | `Frame.itemColumnView` default method（返回 null = 降级） |
+| pine-cpp | `OperatorInput::item_column(field)` | `std::vector<Variant>` | `Frame::item_column` 纯虚方法 |
+
+语义契约（三引擎一致）：
+
+- 元素 i 与逐元素 `Item(i, field)` **完全一致**，含 item_defaults 对 nil 槽位的替换
+- 返回值**只读**，仅在当次 Execute 内有效——Go/Java 下 ColumnFrame 无 defaults 时返回零拷贝视图（逃逸出锁的安全性依赖 DAG 冒险排序：写同字段的算子与行集变异算子已与读者串行化）；**禁止变异或在 Execute 结束后滞留引用**
+- 缺失字段返回全 nil 列（与 `Item()` 的 nil-on-absent 一致）
+- 兼容 data_parallel 分片窗口（offset/count 平移）
+
+算子作者指引：扫描型热循环（对同一字段遍历全部 item）优先用批量 API；单点随机访问仍用 `Item(i, field)`。内置算子已全部改写为批量访问，可作参考实现。
 
 字段访问遵循 InputFieldSpec 三态模型：
 
