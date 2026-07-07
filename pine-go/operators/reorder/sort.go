@@ -65,19 +65,25 @@ func (o *SortOp) Execute(_ context.Context, in *pine.OperatorInput, out *pine.Op
 
 	field := o.ItemInput[0]
 
-	// Collect values and indices (batched column access)
+	// Collect values and indices. Typed fast path avoids per-element
+	// boxing + type assertions when the column is fully-present float64.
 	type entry struct {
 		idx int
 		val float64
 	}
-	raw := in.ItemColumn(field)
 	entries := make([]entry, n)
-	for i, rv := range raw {
-		v, err := sortToFloat64(rv)
-		if err != nil {
-			return fmt.Errorf("reorder_sort: item[%d].%s: %w", i, field, err)
+	if raw, ok := in.ItemColumnFloat64(field); ok {
+		for i, v := range raw {
+			entries[i] = entry{idx: i, val: v}
 		}
-		entries[i] = entry{idx: i, val: v}
+	} else {
+		for i, rv := range in.ItemColumn(field) {
+			v, err := sortToFloat64(rv)
+			if err != nil {
+				return fmt.Errorf("reorder_sort: item[%d].%s: %w", i, field, err)
+			}
+			entries[i] = entry{idx: i, val: v}
+		}
 	}
 
 	// Sort (stable to match Java/Python TimSort behavior)

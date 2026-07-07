@@ -27,6 +27,15 @@ type ColumnReader interface {
 	ItemColumnView(field string, offset, count int) (col []any, ok bool)
 }
 
+// Float64ColumnReader is a further optional upgrade for frames whose
+// columns are stored as typed flat arrays. ok requires the whole window
+// to be non-null, so callers skip both boxing and per-element nil/type
+// checks. Same read-only / Execute-scoped escape contract as
+// ColumnReader.
+type Float64ColumnReader interface {
+	ItemColumnFloat64View(field string, offset, count int) (col []float64, ok bool)
+}
+
 // OperatorInput provides read-only access to DataFrame data for one operator invocation.
 // It operates in two modes:
 //   - Lazy mode (frame != nil): reads from Frame on demand, avoiding O(N×M) materialization
@@ -169,6 +178,28 @@ func (in *OperatorInput) ItemColumn(field string) []any {
 		col[i] = v
 	}
 	return col
+}
+
+// ItemColumnFloat64 returns the field's whole window as a raw []float64
+// when the backing frame stores it as a typed float64 column AND every
+// slot in the window is non-null (so no item-default substitution or
+// nil handling can apply). ok=false means the caller must use
+// ItemColumn / Item instead. The slice is a zero-copy view: read-only,
+// valid only for the current Execute (same escape contract as
+// ItemColumn).
+//
+// This is the fully-unboxed fast path: scan loops over the result avoid
+// both the per-element interface boxing and the per-element type
+// assertion that ItemColumn callers pay.
+func (in *OperatorInput) ItemColumnFloat64(field string) ([]float64, bool) {
+	if in.items != nil || in.frame == nil {
+		return nil, false
+	}
+	fr, ok := in.frame.(Float64ColumnReader)
+	if !ok {
+		return nil, false
+	}
+	return fr.ItemColumnFloat64View(field, in.offset, in.count)
 }
 
 // CommonKeys returns the list of common field names available in this input.

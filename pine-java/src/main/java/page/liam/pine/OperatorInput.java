@@ -115,6 +115,24 @@ public class OperatorInput {
     }
 
     /**
+     * Typed batch read: the field's whole window as a raw double[] when
+     * the backing frame stores it as a typed double column AND every slot
+     * is non-null (so item-default substitution can never apply). Null
+     * means the caller must use itemColumn / item instead. Zero-copy
+     * where possible: read-only, valid only for the current execute.
+     *
+     * <p>This is the fully-unboxed fast path: scan loops avoid both the
+     * per-element boxing and the per-element instanceof checks that
+     * itemColumn callers pay.
+     */
+    public double[] itemColumnDouble(String field) {
+        if (items != null || frame == null) {
+            return null;
+        }
+        return frame.itemColumnDoubleView(field, offset, count);
+    }
+
+    /**
      * Returns the resolved + coerced templated param value for {@code name}
      * (issue #74), or {@code null} if the param was not templated or no
      * templated params were resolved for this request. The map is shared

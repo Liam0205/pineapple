@@ -29,6 +29,17 @@ public interface Frame {
         return null;
     }
 
+    /**
+     * Optional typed batch read: raw double[] window when the field is
+     * stored as a typed double column AND every slot in the window is
+     * present. Null = unsupported / mixed types / nulls present; callers
+     * fall back to itemColumnView. Same read-only/Execute-scoped escape
+     * contract as itemColumnView.
+     */
+    default double[] itemColumnDoubleView(String field, int offset, int count) {
+        return null;
+    }
+
     static Frame create(String storageMode, Map<String, Object> common, List<Map<String, Object>> items) {
         if ("column".equalsIgnoreCase(storageMode)) {
             return new ColumnFrame(common, items);

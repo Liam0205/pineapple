@@ -8,14 +8,16 @@ import (
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
 
-// ColumnFrame is a request-local column-store DataFrame.
+// ColumnFrame is a request-local column-store DataFrame backed by typed
+// columns (see column.go — float64/string/bool flat arrays + validity
+// bitmap, jsonColumn as the heterogeneous fallback), mirroring pine-cpp's
+// Column hierarchy.
 // It is concurrency-safe via a single RWMutex: read operations take RLock,
 // write operations take Lock.
 type ColumnFrame struct {
 	mu       sync.RWMutex
 	common   map[string]any
-	columns  map[string][]any
-	present  map[string][]bool
+	columns  map[string]column
 	rowCount int
 }
 
@@ -25,25 +27,20 @@ func newColumnFrame(common map[string]any, items []map[string]any) *ColumnFrame 
 		c[k] = v
 	}
 
-	n := len(items)
-	cols := make(map[string][]any)
-	presence := make(map[string][]bool)
-
-	// Scan all items to collect field union and build columns.
-	for i, item := range items {
-		for k, v := range item {
-			col, ok := cols[k]
-			if !ok {
-				col = make([]any, n)
-				cols[k] = col
-				presence[k] = make([]bool, n)
-			}
-			col[i] = v
-			presence[k][i] = true
+	// Collect the field union, then build each column with
+	// construction-time type inference (one pass per field).
+	fieldSet := make(map[string]struct{})
+	for _, item := range items {
+		for k := range item {
+			fieldSet[k] = struct{}{}
 		}
 	}
+	cols := make(map[string]column, len(fieldSet))
+	for field := range fieldSet {
+		cols[field] = makeColumn(items, field)
+	}
 
-	return &ColumnFrame{common: c, columns: cols, present: presence, rowCount: n}
+	return &ColumnFrame{common: c, columns: cols, rowCount: len(items)}
 }
 
 func (f *ColumnFrame) Common(field string) any {
@@ -76,14 +73,16 @@ func (f *ColumnFrame) Item(index int, field string) any {
 	if !ok {
 		return nil
 	}
-	return col[index]
+	return col.get(index)
 }
 
-// ItemColumnView implements types.ColumnReader: it returns a zero-copy
-// window of the field's column under a single lock acquisition. Escaping
-// the lock is safe because the DAG scheduler hazard-orders writers of this
-// field and row-set mutating operators (including the in-place reorder in
-// ApplyOutput) relative to the reader — see types.ColumnReader.
+// ItemColumnView implements types.ColumnReader: it returns a boxed
+// window of the field's column under a single lock acquisition.
+// jsonColumn windows are zero-copy views of the backing array; typed
+// columns box a fresh copy (their raw arrays are not []any). Escaping
+// the lock is safe because the DAG scheduler hazard-orders writers of
+// this field and row-set mutating operators (including the in-place
+// reorder in ApplyOutput) relative to the reader — see types.ColumnReader.
 func (f *ColumnFrame) ItemColumnView(field string, offset, count int) ([]any, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -96,7 +95,25 @@ func (f *ColumnFrame) ItemColumnView(field string, offset, count int) ([]any, bo
 		// nil-filled slice so callers keep the batch path.
 		return make([]any, count), true
 	}
-	return col[offset : offset+count : offset+count], true
+	return col.view(offset, count), true
+}
+
+// ItemColumnFloat64View implements types.Float64ColumnReader: zero-copy
+// access to a float64 column's raw array. ok requires the whole window
+// to be present (no nil slots) so element i is exactly the float64 that
+// Item(offset+i, field) would box. Same lock-escape contract as
+// ItemColumnView.
+func (f *ColumnFrame) ItemColumnFloat64View(field string, offset, count int) ([]float64, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if offset < 0 || count < 0 || offset+count > f.rowCount {
+		return nil, false
+	}
+	col, ok := f.columns[field]
+	if !ok {
+		return nil, false
+	}
+	return float64Window(col, offset, count)
 }
 
 func (f *ColumnFrame) BuildInput(
@@ -140,24 +157,22 @@ func (f *ColumnFrame) BuildInput(
 	// map lookup per item × field). Iteration stays item-major so the
 	// first-error priority is byte-identical across storage modes and
 	// runtimes (see llmdoc/memory/reflections/review-driven-build-input-error-ordering.md).
-	strictCols := make([][]any, len(spec.StrictItem))
-	strictPresent := make([][]bool, len(spec.StrictItem))
+	strictCols := make([]column, len(spec.StrictItem))
 	for k, field := range spec.StrictItem {
 		strictCols[k] = f.columns[field] // nil if absent
-		strictPresent[k] = f.present[field]
 	}
-	nullablePresent := make([][]bool, len(spec.NullableItem))
+	nullableCols := make([]column, len(spec.NullableItem))
 	for k, field := range spec.NullableItem {
-		nullablePresent[k] = f.present[field] // nil if absent
+		nullableCols[k] = f.columns[field] // nil if absent
 	}
 	for i := 0; i < f.rowCount; i++ {
 		for k, field := range spec.StrictItem {
-			if strictCols[k] == nil || !strictPresent[k][i] || strictCols[k][i] == nil {
+			if strictCols[k] == nil || strictCols[k].isNull(i) {
 				return nil, fmt.Errorf("required field %q is nil on item[%d]", field, i)
 			}
 		}
 		for k, field := range spec.NullableItem {
-			if nullablePresent[k] == nil || !nullablePresent[k][i] {
+			if nullableCols[k] == nil || !nullableCols[k].present(i) {
 				return nil, fmt.Errorf("required field %q is missing on item[%d]", field, i)
 			}
 		}
@@ -198,10 +213,9 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 	// 2. Item field writes
 	// Cache the last-resolved column: operators typically write
 	// field-major (the same field for consecutive indices), so this turns
-	// 2 map lookups per write into 2 per field run.
+	// the per-write map lookup into one per field run.
 	var lastField string
-	var lastCol []any
-	var lastPresent []bool
+	var lastCol column
 	for _, w := range out.GetItemWrites() {
 		if w.Index < 0 || w.Index >= f.rowCount {
 			return fmt.Errorf("SetItem index %d out of range [0, %d)", w.Index, f.rowCount)
@@ -212,16 +226,20 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		if w.Field != lastField || lastCol == nil {
 			col, ok := f.columns[w.Field]
 			if !ok {
-				col = make([]any, f.rowCount)
+				col = newColumnForValue(w.Value, f.rowCount)
 				f.columns[w.Field] = col
-				f.present[w.Field] = make([]bool, f.rowCount)
 			}
 			lastField = w.Field
 			lastCol = col
-			lastPresent = f.present[w.Field]
 		}
-		lastCol[w.Index] = w.Value
-		lastPresent[w.Index] = true
+		if !lastCol.set(w.Index, w.Value) {
+			// Type mismatch or present-null into a typed column: promote
+			// to jsonColumn and retry (cannot fail there).
+			promoted := lastCol.toJSON()
+			f.columns[w.Field] = promoted
+			lastCol = promoted
+			lastCol.set(w.Index, w.Value)
+		}
 	}
 
 	// 3. Removals
@@ -235,20 +253,11 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 		for idx := range removed {
 			bitmap[idx] = true
 		}
-		newCount := f.rowCount - len(removed)
-		for field, col := range f.columns {
-			newCol := make([]any, 0, newCount)
-			newPresent := make([]bool, 0, newCount)
-			for i, v := range col {
-				if !bitmap[i] {
-					newCol = append(newCol, v)
-					newPresent = append(newPresent, f.present[field][i])
-				}
-			}
-			f.columns[field] = newCol
-			f.present[field] = newPresent
+		kept := f.rowCount - len(removed)
+		for _, col := range f.columns {
+			col.removeByBitmap(bitmap, kept)
 		}
-		f.rowCount = newCount
+		f.rowCount = kept
 	}
 
 	// 4. Reorder
@@ -270,48 +279,16 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 			}
 			seen[origIdx] = true
 		}
-		// In-place permutation via cycle following. `order` is a validated
-		// length-N permutation of [0, N); each cycle is walked once,
-		// performing ≤ N moves per column with zero per-column allocation.
-		// Replaces the prior "allocate fresh slice + copy each slot" loop
-		// which paid 2K large allocations (data + presence) per reorder.
-		// The cycle structure depends only on `order`, so `visited` is
-		// allocated once and reset per column.
+		// In-place cycle-following permutation; the visited scratch is
+		// allocated once and shared across all columns (the cycle
+		// structure depends only on `order`).
 		visited := make([]bool, len(order))
-		for field, col := range f.columns {
-			presentCol := f.present[field]
-			for i := range visited {
-				visited[i] = false
-			}
-			for i := range order {
-				if visited[i] {
-					continue
-				}
-				if order[i] == i {
-					visited[i] = true
-					continue
-				}
-				tmpVal := col[i]
-				tmpPres := presentCol[i]
-				j := i
-				for {
-					src := order[j]
-					if src == i {
-						col[j] = tmpVal
-						presentCol[j] = tmpPres
-						visited[j] = true
-						break
-					}
-					col[j] = col[src]
-					presentCol[j] = presentCol[src]
-					visited[j] = true
-					j = src
-				}
-			}
+		for _, col := range f.columns {
+			col.reorder(order, visited)
 		}
 	}
 
-	// 5. Additions (zero-copy: take ownership of the caller's map)
+	// 5. Additions (column-major batch append)
 	if addedItems := out.GetAddedItems(); len(addedItems) > 0 {
 		newCap := f.rowCount + len(addedItems)
 
@@ -325,32 +302,30 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 					return fmt.Errorf("added item write: %w", err)
 				}
 				if _, ok := f.columns[k]; !ok {
-					f.columns[k] = make([]any, f.rowCount, newCap)
-					f.present[k] = make([]bool, f.rowCount, newCap)
+					col := newColumnForValue(v, f.rowCount)
+					col.grow(newCap)
+					f.columns[k] = col
 				}
 			}
 		}
 
 		// Pass 2: column-major batch append — iterate the columns map once
-		// instead of once per added item (the previous item-major loop paid
-		// O(added × cols) map iterations).
+		// instead of once per added item.
 		for field, col := range f.columns {
-			presentCol := f.present[field]
-			if cap(col) < newCap {
-				grown := make([]any, f.rowCount, newCap)
-				copy(grown, col)
-				col = grown
-				grownP := make([]bool, f.rowCount, newCap)
-				copy(grownP, presentCol)
-				presentCol = grownP
-			}
+			col.grow(newCap)
 			for _, added := range addedItems {
 				v, ok := added[field]
-				col = append(col, v)
-				presentCol = append(presentCol, ok)
+				if !ok {
+					col.appendAbsent()
+					continue
+				}
+				if !col.appendVal(v) {
+					promoted := col.toJSON()
+					promoted.appendVal(v)
+					f.columns[field] = promoted
+					col = promoted
+				}
 			}
-			f.columns[field] = col
-			f.present[field] = presentCol
 		}
 		f.rowCount = newCap
 	}
@@ -362,14 +337,25 @@ func (f *ColumnFrame) ToResult(commonOut, itemOut []string) *types.Result {
 	f.mu.RLock()
 	common := projectMap(f.common, commonOut)
 	items := make([]map[string]any, f.rowCount)
+	// Column-major projection: resolve each output column once, then fill
+	// down the rows.
+	outCols := make([]column, len(itemOut))
+	for k, field := range itemOut {
+		outCols[k] = f.columns[field] // nil if absent
+	}
 	for i := 0; i < f.rowCount; i++ {
-		row := make(map[string]any, len(itemOut))
-		for _, field := range itemOut {
-			if col, ok := f.columns[field]; ok && f.present[field][i] {
-				row[field] = col[i]
+		items[i] = make(map[string]any, len(itemOut))
+	}
+	for k, field := range itemOut {
+		col := outCols[k]
+		if col == nil {
+			continue
+		}
+		for i := 0; i < f.rowCount; i++ {
+			if col.present(i) {
+				items[i][field] = col.get(i)
 			}
 		}
-		items[i] = row
 	}
 	f.mu.RUnlock()
 
