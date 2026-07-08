@@ -194,6 +194,27 @@ void RowFrame::apply_output(OperatorOutput& out, const std::string& op_name, boo
     items_[static_cast<std::size_t>(idx)][field] = value;
   }
 
+  // 2b. Whole-column typed writes: scatter into per-row maps in one
+  // lock window. Applied after per-element writes so a column write to
+  // the same field wins. Variant boxing here is unavoidable (rows store
+  // Variant maps); the column-store frame adopts instead.
+  for (const auto& cw : out.column_writes()) {
+    if (cw.vals.size() != items_.size()) {
+      throw ExecutionError(op_name, "SetItemColumnFloat64 \"" + cw.field + "\" length " +
+                                        std::to_string(cw.vals.size()) + " does not match item count " +
+                                        std::to_string(items_.size()));
+    }
+    for (std::size_t i = 0; i < cw.vals.size(); ++i) {
+      if (!std::isfinite(cw.vals[i])) {
+        throw ExecutionError(op_name, "item[" + std::to_string(i) + "] write: field \"" + cw.field +
+                                          "\": NaN/Inf is not a valid JSON value");
+      }
+    }
+    for (std::size_t i = 0; i < cw.vals.size(); ++i) {
+      items_[i][cw.field] = Variant(cw.vals[i]);
+    }
+  }
+
   // 3. removals
   if (!out.removed_items().empty()) {
     const auto& removed = out.removed_items();

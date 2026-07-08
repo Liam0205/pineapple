@@ -236,10 +236,21 @@ type ItemWrite struct {
 	Value any
 }
 
+// Float64ColumnWrite is a whole-column typed write: vals becomes the
+// field's full column (validity all-true) when applied. Ownership of the
+// slice transfers to the frame at ApplyOutput time — the operator must
+// not read or mutate vals afterwards (same zero-copy convention as
+// added-item maps).
+type Float64ColumnWrite struct {
+	Field string
+	Vals  []float64
+}
+
 // OperatorOutput collects writes from an operator, applied to the DataFrame by the engine.
 type OperatorOutput struct {
 	commonWrites map[string]any
 	itemWrites   []ItemWrite
+	colWrites    []Float64ColumnWrite
 	addedItems   []map[string]any
 	removedItems map[int]struct{}
 	itemOrder    []int
@@ -262,6 +273,25 @@ func (out *OperatorOutput) SetCommon(field string, value any) {
 // SetItem writes a field for the item at the given index.
 func (out *OperatorOutput) SetItem(index int, field string, value any) {
 	out.itemWrites = append(out.itemWrites, ItemWrite{Index: index, Field: field, Value: value})
+}
+
+// SetItemColumnFloat64 writes a whole float64 column in one call: vals[i]
+// becomes the field's value on item i for every row, all slots present.
+// len(vals) must equal the frame's item count at apply time (whole column
+// or nothing — no partial writes). Ownership of vals transfers to the
+// frame when the engine applies this output; the operator must not read
+// or mutate the slice afterwards.
+//
+// Column writes apply AFTER per-element item writes within the same
+// OperatorOutput (a column write to the same field overwrites every
+// element of it); mixing both on one field in one Execute is legal but
+// pointless — prefer one or the other.
+//
+// This is the write-side counterpart of ItemColumn's typed fast path:
+// no per-element boxing, no per-element write records, and column-store
+// frames adopt vals as the column's backing array directly.
+func (out *OperatorOutput) SetItemColumnFloat64(field string, vals []float64) {
+	out.colWrites = append(out.colWrites, Float64ColumnWrite{Field: field, Vals: vals})
 }
 
 // AddItem appends a new item row.
@@ -304,6 +334,11 @@ func (out *OperatorOutput) Reset() {
 		out.itemWrites[i] = ItemWrite{}
 	}
 	out.itemWrites = out.itemWrites[:0]
+
+	for i := range out.colWrites {
+		out.colWrites[i] = Float64ColumnWrite{}
+	}
+	out.colWrites = out.colWrites[:0]
 
 	for i := range out.addedItems {
 		out.addedItems[i] = nil
@@ -365,15 +400,18 @@ func (in *OperatorInput) LazyItemDefaults() map[string]any { return in.itemDefau
 // LazyItemFields returns the item field names (nil if materialized).
 func (in *OperatorInput) LazyItemFields() []string { return in.itemFields }
 
-func (out *OperatorOutput) GetCommonWrites() map[string]any   { return out.commonWrites }
-func (out *OperatorOutput) GetItemWrites() []ItemWrite        { return out.itemWrites }
-func (out *OperatorOutput) GetAddedItems() []map[string]any   { return out.addedItems }
-func (out *OperatorOutput) GetRemovedItems() map[int]struct{} { return out.removedItems }
-func (out *OperatorOutput) GetItemOrder() []int               { return out.itemOrder }
-func (out *OperatorOutput) GetWarning() error                 { return out.warning }
+func (out *OperatorOutput) GetCommonWrites() map[string]any       { return out.commonWrites }
+func (out *OperatorOutput) GetItemWrites() []ItemWrite            { return out.itemWrites }
+func (out *OperatorOutput) GetColumnWrites() []Float64ColumnWrite { return out.colWrites }
+func (out *OperatorOutput) GetAddedItems() []map[string]any       { return out.addedItems }
+func (out *OperatorOutput) GetRemovedItems() map[int]struct{}     { return out.removedItems }
+func (out *OperatorOutput) GetItemOrder() []int                   { return out.itemOrder }
+func (out *OperatorOutput) GetWarning() error                     { return out.warning }
 
 // ItemWriteMap reconstructs the legacy map[int]map[string]any view from the
-// flat slice. Intended for tests and debug snapshots only.
+// flat slice, folding in whole-column writes (which apply after and
+// therefore override per-element writes on the same field). Intended for
+// tests and debug snapshots only.
 func (out *OperatorOutput) ItemWriteMap() map[int]map[string]any {
 	m := make(map[int]map[string]any)
 	for _, w := range out.itemWrites {
@@ -381,6 +419,14 @@ func (out *OperatorOutput) ItemWriteMap() map[int]map[string]any {
 			m[w.Index] = make(map[string]any)
 		}
 		m[w.Index][w.Field] = w.Value
+	}
+	for _, cw := range out.colWrites {
+		for i, v := range cw.Vals {
+			if m[i] == nil {
+				m[i] = make(map[string]any)
+			}
+			m[i][cw.Field] = v
+		}
 	}
 	return m
 }

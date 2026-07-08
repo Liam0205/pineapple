@@ -91,6 +91,14 @@ func mergeOutputs(opName string, outputs []*types.OperatorOutput, offsets []int)
 		for _, w := range out.GetItemWrites() {
 			merged.SetItem(w.Index+offset, w.Field, w.Value)
 		}
+		// Shard-local whole-column writes cannot adopt into the parent
+		// frame directly (each shard only covers a window), so fold them
+		// into per-element writes with the shard offset applied.
+		for _, cw := range out.GetColumnWrites() {
+			for localIdx, v := range cw.Vals {
+				merged.SetItem(localIdx+offset, cw.Field, v)
+			}
+		}
 		for localIdx := range out.GetRemovedItems() {
 			merged.RemoveItem(localIdx + offset)
 		}

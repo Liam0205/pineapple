@@ -15,7 +15,9 @@ public enum OperatorType {
         List<String> violations = new ArrayList<>();
 
         boolean hasCommonWrites = !out.getCommonWrites().isEmpty();
-        boolean hasItemWrites = !out.getItemWrites().isEmpty();
+        // Whole-column writes are item writes for the method-restriction
+        // contract: setItemColumnDouble counts as SetItem.
+        boolean hasItemWrites = !out.getItemWrites().isEmpty() || !out.getColumnWrites().isEmpty();
         boolean hasAddedItems = !out.getAddedItems().isEmpty();
         boolean hasRemovedItems = !out.getRemovedItems().isEmpty();
         boolean hasItemOrder = out.getItemOrder() != null;

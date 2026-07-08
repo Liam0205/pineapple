@@ -112,6 +112,14 @@ public class ParallelExecutor {
                         merged.setItem(absIdx, field.getKey(), field.getValue());
                     }
                 }
+                // Shard-local whole-column writes cannot adopt into the
+                // parent frame (each shard covers a window), so fold them
+                // into per-element writes with the shard offset applied.
+                for (OperatorOutput.DoubleColumnWrite cw : out.getColumnWrites()) {
+                    for (int localIdx = 0; localIdx < cw.vals.length; localIdx++) {
+                        merged.setItem(localIdx + offset, cw.field, cw.vals[localIdx]);
+                    }
+                }
                 for (Integer localIdx : out.getRemovedItems()) {
                     merged.removeItem(localIdx + offset);
                 }

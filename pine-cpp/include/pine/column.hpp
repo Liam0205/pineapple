@@ -125,6 +125,14 @@ class TypedColumn final : public Column {
     return validity_;
   }
 
+  // Takes ownership of vals as the full column, all slots present
+  // (write-side zero-copy counterpart of data()). Used by
+  // ColumnFrame::apply_output to adopt whole-column typed writes.
+  void adopt(std::vector<T> vals) {
+    validity_.assign(vals.size(), true);
+    data_ = std::move(vals);
+  }
+
  private:
   std::vector<T> data_;
   std::vector<bool> validity_;
