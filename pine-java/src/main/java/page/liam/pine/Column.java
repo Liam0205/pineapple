@@ -146,6 +146,17 @@ abstract class Column {
         return new JsonColumn(n);
     }
 
+    /**
+     * Wraps a caller-supplied double[] as a fully-present typed column
+     * without copying (write-side zero-copy counterpart of rawWindow).
+     * Ownership of vals transfers to the column.
+     */
+    static DoubleColumn adoptDoubles(double[] vals) {
+        DoubleColumn col = new DoubleColumn(0);
+        col.adopt(vals);
+        return col;
+    }
+
     // --- shared permutation helper ---
 
     /**
@@ -463,6 +474,13 @@ abstract class Column {
                 return data;
             }
             return java.util.Arrays.copyOfRange(data, offset, offset + count);
+        }
+
+        /** Takes ownership of vals as the full column, all slots present. */
+        void adopt(double[] vals) {
+            data = vals;
+            size = vals.length;
+            validity.set(0, size);
         }
     }
 

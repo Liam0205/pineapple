@@ -55,10 +55,17 @@ class TransformNormalizeOp : public Operator {
     double minv = *std::min_element(vals.begin(), vals.end());
     double maxv = *std::max_element(vals.begin(), vals.end());
     double rng = maxv - minv;
-    for (std::size_t i = 0; i < vals.size(); ++i) {
-      double norm = (rng == 0.0) ? 0.0 : (vals[i] - minv) / rng;
-      out.set_item(static_cast<int>(i), out_field_, Variant(norm));
+    // Normalize into a fresh column and hand it over whole: no
+    // per-element Variant boxing, no per-element write records — the
+    // frame adopts the vector (column store) or scatters it in one lock
+    // window (row store).
+    std::vector<double> norms(vals.size(), 0.0);
+    if (rng != 0.0) {
+      for (std::size_t i = 0; i < vals.size(); ++i) {
+        norms[i] = (vals[i] - minv) / rng;
+      }
     }
+    out.set_item_column_double(out_field_, std::move(norms));
   }
 
  private:

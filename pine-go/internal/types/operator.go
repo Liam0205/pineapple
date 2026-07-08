@@ -58,7 +58,9 @@ func IsValidOperatorType(t OperatorType) bool {
 // this operator type. Returns an error describing the violation, or nil.
 func (t OperatorType) ValidateOutput(out *OperatorOutput) error {
 	hasCW := len(out.commonWrites) > 0
-	hasIW := len(out.itemWrites) > 0
+	// Whole-column writes are item writes for the purposes of the
+	// method-restriction contract: SetItemColumnFloat64 counts as SetItem.
+	hasIW := len(out.itemWrites) > 0 || len(out.colWrites) > 0
 	hasAI := len(out.addedItems) > 0
 	hasRI := len(out.removedItems) > 0
 	hasIO := out.itemOrder != nil

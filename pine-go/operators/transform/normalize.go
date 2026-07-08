@@ -90,17 +90,19 @@ func (o *NormalizeOp) Execute(_ context.Context, in *pine.OperatorInput, out *pi
 		}
 	}
 
-	// Normalize
+	// Normalize into a fresh column and hand it over whole: no
+	// per-element boxing, no per-element write records — the frame
+	// adopts the slice directly (column store) or scatters it in one
+	// lock window (row store). vals may be a zero-copy read view, so
+	// results go into a new slice rather than in-place.
 	rng := maxV - minV
-	for i, v := range vals {
-		var norm float64
-		if rng == 0 {
-			norm = 0.0
-		} else {
-			norm = (v - minV) / rng
+	norms := make([]float64, n)
+	if rng != 0 {
+		for i, v := range vals {
+			norms[i] = (v - minV) / rng
 		}
-		out.SetItem(i, outputField, norm)
 	}
+	out.SetItemColumnFloat64(outputField, norms)
 	return nil
 }
 

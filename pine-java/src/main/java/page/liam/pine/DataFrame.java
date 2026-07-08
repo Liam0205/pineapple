@@ -171,6 +171,28 @@ public class DataFrame implements Frame {
                 items.get(idx).putAll(entry.getValue());
             }
 
+            // 2b. Whole-column typed writes: scatter into per-item maps in
+            // one lock window. Applied after per-element writes so a column
+            // write to the same field wins. Boxing here is unavoidable
+            // (values live in maps); the column-store frame adopts instead.
+            for (OperatorOutput.DoubleColumnWrite cw : out.getColumnWrites()) {
+                if (cw.vals.length != items.size()) {
+                    throw new PineErrors.ExecutionError(opName,
+                        "SetItemColumnFloat64 \"" + cw.field + "\" length " + cw.vals.length
+                        + " does not match item count " + items.size());
+                }
+                for (int i = 0; i < cw.vals.length; i++) {
+                    if (Double.isNaN(cw.vals[i]) || Double.isInfinite(cw.vals[i])) {
+                        throw new PineErrors.ExecutionError(opName,
+                            "item[" + i + "] write: field \"" + cw.field
+                            + "\": NaN/Inf is not a valid JSON value");
+                    }
+                }
+                for (int i = 0; i < cw.vals.length; i++) {
+                    items.get(i).put(cw.field, cw.vals[i]);
+                }
+            }
+
             // 3. Removals
             Set<Integer> removed = out.getRemovedItems();
             if (!removed.isEmpty()) {

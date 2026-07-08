@@ -167,6 +167,20 @@ func newBoolColumn(n int) *typedColumn[bool] {
 	}
 }
 
+// adoptFloat64Column wraps a caller-supplied []float64 as a fully-present
+// typed column without copying (the write-side zero-copy counterpart of
+// float64Window). Ownership of vals transfers to the column.
+func adoptFloat64Column(vals []float64) *typedColumn[float64] {
+	validity := make([]bool, len(vals))
+	for i := range validity {
+		validity[i] = true
+	}
+	return &typedColumn[float64]{
+		data: vals, validity: validity, k: kindFloat64,
+		accept: func(v any) (float64, bool) { f, ok := v.(float64); return f, ok },
+	}
+}
+
 func (c *typedColumn[T]) kind() columnKind { return c.k }
 func (c *typedColumn[T]) len() int         { return len(c.data) }
 

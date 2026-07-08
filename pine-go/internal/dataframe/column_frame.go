@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/Liam0205/pineapple/pine-go/internal/config"
@@ -240,6 +241,28 @@ func (f *ColumnFrame) ApplyOutput(out *types.OperatorOutput, opName string, reca
 			lastCol = promoted
 			lastCol.set(w.Index, w.Value)
 		}
+	}
+
+	// 2b. Whole-column typed writes: adopt vals as the column's backing
+	// array (validity all-true). Applied after per-element writes so a
+	// column write to the same field deterministically wins. NaN/Inf
+	// validation runs as a batch scan with the same first-error message
+	// the per-element path would produce.
+	for _, cw := range out.GetColumnWrites() {
+		if len(cw.Vals) != f.rowCount {
+			return fmt.Errorf("SetItemColumnFloat64 %q length %d does not match item count %d",
+				cw.Field, len(cw.Vals), f.rowCount)
+		}
+		// Inline the float64 NaN/Inf check instead of calling
+		// validateValue(field, any(v)) — the any conversion boxes every
+		// element (one heap alloc each), defeating the boxing-free write
+		// path. Same first-error message as validateValue.
+		for i, v := range cw.Vals {
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return fmt.Errorf("item[%d] write: field %q: NaN/Inf is not a valid JSON value", i, cw.Field)
+			}
+		}
+		f.columns[cw.Field] = adoptFloat64Column(cw.Vals)
 	}
 
 	// 3. Removals

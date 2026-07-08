@@ -440,6 +440,24 @@ func snapshotOutput(out *types.OperatorOutput) map[string]any {
 		}
 		snap["item_writes"] = iwMap
 	}
+	// Whole-column writes fold into the same item_writes view (they apply
+	// after per-element writes, so they override on field collision) —
+	// debug output stays shape-identical across write styles.
+	if cws := out.GetColumnWrites(); len(cws) > 0 {
+		iwMap, _ := snap["item_writes"].(map[int]map[string]any)
+		if iwMap == nil {
+			iwMap = make(map[int]map[string]any)
+		}
+		for _, cw := range cws {
+			for i, v := range cw.Vals {
+				if iwMap[i] == nil {
+					iwMap[i] = make(map[string]any)
+				}
+				iwMap[i][cw.Field] = v
+			}
+		}
+		snap["item_writes"] = iwMap
+	}
 	if ai := out.GetAddedItems(); len(ai) > 0 {
 		aiCopy := make([]map[string]any, len(ai))
 		copy(aiCopy, ai)

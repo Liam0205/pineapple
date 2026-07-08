@@ -36,6 +36,10 @@ void OperatorOutput::set_item(int index, const std::string& field, Variant value
   item_writes_.push_back(ItemWrite{index, field, std::move(value)});
 }
 
+void OperatorOutput::set_item_column_double(const std::string& field, std::vector<double> vals) {
+  column_writes_.push_back(DoubleColumnWrite{field, std::move(vals)});
+}
+
 void OperatorOutput::add_item(Variant::object_t fields) {
   added_items_.push_back(std::move(fields));
 }
@@ -168,14 +172,21 @@ Variant snapshot_output(const OperatorOutput& out) {
     snap["common_writes"] = Variant(std::move(cw));
   }
 
-  if (!out.item_writes().empty()) {
+  if (!out.item_writes().empty() || !out.column_writes().empty()) {
     // The vector log can hold multiple writes for the same (idx, field);
     // group by idx and let later writes overwrite earlier ones to
     // preserve the snapshot's "final state" semantics. apply_output
     // also replays the vector in order so the on-frame state matches.
+    // Whole-column writes fold in last — they apply after per-element
+    // writes, so the snapshot shows the same final state as the frame.
     std::map<int, std::map<std::string, Variant>> grouped;
     for (const auto& w : out.item_writes()) {
       grouped[w.index][w.field] = w.value;
+    }
+    for (const auto& cw : out.column_writes()) {
+      for (std::size_t i = 0; i < cw.vals.size(); ++i) {
+        grouped[static_cast<int>(i)][cw.field] = Variant(cw.vals[i]);
+      }
     }
     Variant::object_t iw;
     for (const auto& [idx, fields] : grouped) {
@@ -408,7 +419,7 @@ void dispatch_operator(const OperatorInput& input, const OperatorConfig& op,
 void validate_output_against_type(const std::string& op_name, const std::string& op_type,
                                   const OperatorOutput& out) {
   const bool has_cw = !out.common_writes().empty();
-  const bool has_iw = !out.item_writes().empty();
+  const bool has_iw = !out.item_writes().empty() || !out.column_writes().empty();
   const bool has_ai = !out.added_items().empty();
   const bool has_ri = !out.removed_items().empty();
   const bool has_io = out.has_item_order();
@@ -575,6 +586,14 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offs
   }
   for (const auto& [idx, field, value] : src.item_writes()) {
     dst.set_item(idx + offset, field, value);
+  }
+  // Shard-local whole-column writes cannot adopt into the parent frame
+  // (each shard covers a window), so fold them into per-element writes
+  // with the shard offset applied.
+  for (const auto& cw : src.column_writes()) {
+    for (std::size_t i = 0; i < cw.vals.size(); ++i) {
+      dst.set_item(static_cast<int>(i) + offset, cw.field, Variant(cw.vals[i]));
+    }
   }
   for (int idx : src.removed_items()) {
     dst.remove_item(idx + offset);

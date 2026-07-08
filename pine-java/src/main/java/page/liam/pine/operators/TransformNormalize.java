@@ -60,10 +60,18 @@ public class TransformNormalize extends AbstractOperator {
         }
 
         double range = max - min;
-        for (int i = 0; i < n; i++) {
-            double norm = range == 0 ? 0.0 : (vals[i] - min) / range;
-            output.setItem(i, outputField, norm);
+        // Normalize into a fresh column and hand it over whole: no
+        // per-element boxing, no per-element write records — the frame
+        // adopts the array (column store) or scatters it in one lock
+        // window (row store). vals may be a zero-copy read view, so
+        // results go into a new array rather than in-place.
+        double[] norms = new double[n];
+        if (range != 0) {
+            for (int i = 0; i < n; i++) {
+                norms[i] = (vals[i] - min) / range;
+            }
         }
+        output.setItemColumnDouble(outputField, norms);
     }
 
     private static double toDouble(Object v) throws PineErrors.OperatorException {

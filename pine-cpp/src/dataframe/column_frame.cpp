@@ -350,6 +350,28 @@ void ColumnFrame::apply_output(OperatorOutput& out, const std::string& op_name, 
     write_item_field_locked(static_cast<std::size_t>(idx), field, value);
   }
 
+  // 2b. Whole-column typed writes: adopt vals as the column's backing
+  // vector (all slots present). Applied after per-element writes so a
+  // column write to the same field wins. NaN/Inf validation runs as a
+  // batch scan producing the same first error the per-element path
+  // would.
+  for (auto& cw : out.column_writes()) {
+    if (cw.vals.size() != items_->row_count()) {
+      throw ExecutionError(op_name, "SetItemColumnFloat64 \"" + cw.field + "\" length " +
+                                        std::to_string(cw.vals.size()) + " does not match item count " +
+                                        std::to_string(items_->row_count()));
+    }
+    for (std::size_t i = 0; i < cw.vals.size(); ++i) {
+      if (!std::isfinite(cw.vals[i])) {
+        throw ExecutionError(op_name, "item[" + std::to_string(i) + "] write: field \"" + cw.field +
+                                          "\": NaN/Inf is not a valid JSON value");
+      }
+    }
+    auto col = std::make_unique<DoubleColumn>();
+    col->adopt(std::move(cw.vals));
+    items_->set_column(cw.field, std::move(col));
+  }
+
   // 3. removals
   if (!out.removed_items().empty()) {
     const auto& removed = out.removed_items();

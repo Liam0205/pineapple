@@ -142,7 +142,7 @@ public class FixtureTest {
         // Validate item writes
         if (expected.containsKey("items")) {
             List<Map<String, Object>> expectedItems = (List<Map<String, Object>>) expected.get("items");
-            Map<Integer, Map<String, Object>> iw = output.getItemWrites();
+            Map<Integer, Map<String, Object>> iw = output.itemWriteMap();
             for (int i = 0; i < expectedItems.size(); i++) {
                 Map<String, Object> expectedItem = expectedItems.get(i);
                 if (expectedItem == null || expectedItem.isEmpty()) continue;

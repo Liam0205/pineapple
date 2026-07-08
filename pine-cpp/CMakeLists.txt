@@ -233,6 +233,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_column_frame.cpp
         tests/test_row_frame.cpp
         tests/test_item_column.cpp
+        tests/test_column_write.cpp
         tests/test_window_view_race.cpp
         tests/test_frame_equivalence.cpp
         tests/test_register_operator.cpp

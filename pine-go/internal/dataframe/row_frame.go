@@ -174,6 +174,30 @@ func (f *RowFrame) ApplyOutput(out *types.OperatorOutput, opName string, recall 
 		f.items[w.Index][w.Field] = w.Value
 	}
 
+	// 2b. Whole-column typed writes: scatter into the per-item maps in
+	// one lock window. Applied after per-element writes so a column
+	// write to the same field deterministically wins. Boxing here is
+	// unavoidable (values live in maps); the column-store frame gets the
+	// zero-copy adopt path instead.
+	for _, cw := range out.GetColumnWrites() {
+		if len(cw.Vals) != len(f.items) {
+			return fmt.Errorf("SetItemColumnFloat64 %q length %d does not match item count %d",
+				cw.Field, len(cw.Vals), len(f.items))
+		}
+		// Inline the float64 NaN/Inf check instead of calling
+		// validateValue(field, any(v)) — the any conversion boxes every
+		// element (one heap alloc each), which would hand back a third of
+		// the batch-write win. Same first-error message as validateValue.
+		for i, v := range cw.Vals {
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return fmt.Errorf("item[%d] write: field %q: NaN/Inf is not a valid JSON value", i, cw.Field)
+			}
+		}
+		for i, v := range cw.Vals {
+			f.items[i][cw.Field] = v
+		}
+	}
+
 	// 3. Removals
 	removed := out.GetRemovedItems()
 	if len(removed) > 0 {

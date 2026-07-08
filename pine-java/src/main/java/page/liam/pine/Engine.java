@@ -599,6 +599,20 @@ public class Engine {
         if (!out.getItemWrites().isEmpty()) {
             snap.put("item_writes", new LinkedHashMap<>(out.getItemWrites()));
         }
+        // Whole-column writes fold into the same item_writes view (they
+        // apply after per-element writes, so they override on collision) —
+        // debug output stays shape-identical across write styles.
+        if (!out.getColumnWrites().isEmpty()) {
+            @SuppressWarnings("unchecked")
+            Map<Integer, Map<String, Object>> iwMap =
+                (Map<Integer, Map<String, Object>>) snap.computeIfAbsent(
+                    "item_writes", k -> new LinkedHashMap<Integer, Map<String, Object>>());
+            for (OperatorOutput.DoubleColumnWrite cw : out.getColumnWrites()) {
+                for (int i = 0; i < cw.vals.length; i++) {
+                    iwMap.computeIfAbsent(i, k -> new LinkedHashMap<>()).put(cw.field, cw.vals[i]);
+                }
+            }
+        }
         if (!out.getAddedItems().isEmpty()) {
             snap.put("added_items", new ArrayList<>(out.getAddedItems()));
         }

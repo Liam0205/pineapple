@@ -394,8 +394,28 @@ class OperatorOutput {
     Variant value;
   };
 
+  // DoubleColumnWrite is a whole-column typed write: vals becomes the
+  // field's full column (all slots present) when applied. Ownership of
+  // the vector transfers to the frame at apply_output time — the
+  // operator must not read or mutate it afterwards (same move-consume
+  // convention as added_items).
+  struct DoubleColumnWrite {
+    std::string field;
+    std::vector<double> vals;
+  };
+
   void set_common(const std::string& field, Variant value);
   void set_item(int index, const std::string& field, Variant value);
+  // Writes a whole double column in one call: vals[i] becomes the
+  // field's value on item i, all slots present. vals.size() must equal
+  // the frame's item count at apply time (whole column or nothing).
+  // Column writes apply AFTER per-element item writes within the same
+  // output (a column write to the same field overwrites every element).
+  //
+  // Write-side counterpart of item_column: no per-element Variant
+  // boxing, no per-element write records; the column-store frame adopts
+  // the vector as the column's backing storage directly.
+  void set_item_column_double(const std::string& field, std::vector<double> vals);
   void add_item(Variant::object_t fields);
   void remove_item(int index);
   void set_item_order(std::vector<int> order);
@@ -406,6 +426,15 @@ class OperatorOutput {
   }
   const std::vector<ItemWrite>& item_writes() const {
     return item_writes_;
+  }
+  const std::vector<DoubleColumnWrite>& column_writes() const {
+    return column_writes_;
+  }
+  // Mutable view for apply_output implementations that move-adopt the
+  // column vectors into frame storage. Must not be called twice on the
+  // same OperatorOutput (same contract as mutable added_items()).
+  std::vector<DoubleColumnWrite>& column_writes() {
+    return column_writes_;
   }
   const std::vector<Variant::object_t>& added_items() const {
     return added_items_;
@@ -435,6 +464,7 @@ class OperatorOutput {
  private:
   Variant::object_t common_writes_;
   std::vector<ItemWrite> item_writes_;
+  std::vector<DoubleColumnWrite> column_writes_;
   std::vector<Variant::object_t> added_items_;
   std::set<int> removed_items_;
   std::vector<int> item_order_;

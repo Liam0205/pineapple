@@ -242,6 +242,27 @@ public class ColumnFrame implements Frame {
                 }
             }
 
+            // 2b. Whole-column typed writes: adopt vals as the column's
+            // backing array (all slots present). Applied after per-element
+            // writes so a column write to the same field wins. NaN/Inf
+            // validation runs as a batch scan producing the same first
+            // error the per-element path would.
+            for (OperatorOutput.DoubleColumnWrite cw : out.getColumnWrites()) {
+                if (cw.vals.length != rowCount) {
+                    throw new PineErrors.ExecutionError(opName,
+                        "SetItemColumnFloat64 \"" + cw.field + "\" length " + cw.vals.length
+                        + " does not match item count " + rowCount);
+                }
+                for (int i = 0; i < cw.vals.length; i++) {
+                    if (Double.isNaN(cw.vals[i]) || Double.isInfinite(cw.vals[i])) {
+                        throw new PineErrors.ExecutionError(opName,
+                            "item[" + i + "] write: field \"" + cw.field
+                            + "\": NaN/Inf is not a valid JSON value");
+                    }
+                }
+                columns.put(cw.field, Column.adoptDoubles(cw.vals));
+            }
+
             // 3. Removals
             Set<Integer> removed = out.getRemovedItems();
             if (!removed.isEmpty()) {
