@@ -20,6 +20,7 @@
 - 配合收益：扁平列可零拷贝映射进未来 VM 的 linear memory / arena；若外部 VM 项目成立，arena 内存布局 ABI 需与其协同设计。
 - 适用判据沿用列存复盘的场景分析（`llmdoc/memory/reflections/column-store-dataframe.md`：大量 item、少结构变更的负载占优；removals / reorder 天然劣势）。
 - **接口税数据点（2026-07-07，列存 vs 行存持平调查）**：逐元素 `OperatorInput.Item(i, field)`（RLock + map 查列 + 边界检查）是列存优势不可见的**第一性原因**——ColumnFrame 逐元素访问 7,210ns vs 理想列扫描 262ns（27x），而 typed `[]float64` 扫描（257ns）与 `[]any` 理想列扫描几乎无差。推论：**typed columns 必须配合批量列访问 API（一次锁 + 一次 lookup 拿整列）才能兑现，单独做 typed columns 仍被逐元素接口税吃掉**。批量列访问 API 已于 2026-07-07 在三引擎实现并提交（`ItemColumn`/`itemColumn`/`item_column`，分支 feat/column-store-batch-access，契约见 `llmdoc/reference/operator-contract.md`）——typed columns 的前置接口已就位；ColumnFrame 三处行主序热路径同批改为列主序，transform-heavy e2e 列存快 ~30%。详见 `llmdoc/memory/reflections/column-vs-row-parity-investigation.md`。
+- **写侧对偶（2026-07-08，issue #157 / PR #163）**：批量列写 `SetItemColumnFloat64`/`setItemColumnDouble`/`set_item_column_double` 三引擎落地——profiling 归因写侧占 transform-heavy 分配 ~24%（SetItem 装箱 + newColumnForValue 重建 + 写日志记录），过 >15% 闸门后立项。列存 adopt 零拷贝 / 行存 scatter，stage 2b 顺序语义（列写覆盖逐元素写）+ NaN/Inf 批量校验消息字节对等。transform-heavy 1000 列存 allocs -66%（12.1k → 4.1k）、时间 -24%。读写两侧批量 API 至此闭环，契约见 `llmdoc/reference/operator-contract.md`。
 
 ## 第二步：算子 API 负载形状迁移——common-mode 列内核
 

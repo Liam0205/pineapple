@@ -365,12 +365,33 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 - `SetCommon`
 - `SetItem`
+- `SetItemColumnFloat64` — 批量列写（见下）
 - `AddItem`
 - `RemoveItem`
 - `SetItemOrder`
 - `SetWarning`
 
 `SetWarning` 与算子类型正交，用于非致命 warning。
+
+#### 批量列写（`SetItemColumnFloat64` / `setItemColumnDouble` / `set_item_column_double`）
+
+批量列访问的写侧对偶（issue #157 / PR #163）：算子把整列 float64/double 一次性交给 frame，替代 N 条逐元素 `SetItem` 记录（消除 per-element 装箱 + 写日志分配——profiling 归因写侧占 transform-heavy 分配 ~24%）。三引擎方法名：
+
+| 引擎 | 方法 | 参数 |
+|---|---|---|
+| pine-go | `OperatorOutput.SetItemColumnFloat64(field, vals)` | `[]float64` |
+| pine-java | `OperatorOutput.setItemColumnDouble(field, vals)` | `double[]` |
+| pine-cpp | `OperatorOutput::set_item_column_double(field, vals)` | `std::vector<double>`（值传递，move 交接） |
+
+语义契约（三引擎一致，由各引擎 column_write 测试钉死）：
+
+- **应用时机 stage 2b**：在逐元素 item writes 之后、removals 之前；同字段"列写覆盖逐元素写"是确定性顺序语义
+- **整列或全无**：`len(vals)` 必须等于 frame 当时的 item 数，不匹配报 `SetItemColumnFloat64 "f" length N does not match item count M`（跨引擎字节一致）
+- **NaN/Inf 批量校验**先于任何写入（单次列写全有或全无），首错消息与逐元素路径相同：`item[i] write: field "f": NaN/Inf is not a valid JSON value`
+- **所有权转移**：apply 时列存 frame 直接 adopt 底层数组为列存储（零拷贝，全槽位 present，typed 读快路径可命中）；行存 frame 在一个锁窗口内逐行 scatter（装箱不可避免）。算子交出后**不得再读写该数组**
+- 对 `ValidateOutput` 计为 `SetItem`（Transform/Filter 可用，Recall 违规）；debug 快照折叠进 `item_writes` 视图；data_parallel 分片的列写由 merge 折叠为带 offset 的逐元素写（分片是窗口，无法 adopt）
+
+算子作者指引：整列计算型算子（normalize 等）优先用批量写；稀疏/条件写仍用 `SetItem`。Go 侧校验注意：不要用 `validateValue(field, any(v))` 逐元素校验——`any` 转换每元素装箱一次，吃掉批量写的收益；直接内联 `math.IsNaN/IsInf`。
 
 ## 算子类型表
 
