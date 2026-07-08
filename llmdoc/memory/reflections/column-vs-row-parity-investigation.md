@@ -91,3 +91,15 @@
 
 - **跨引擎"对齐样板"不等于逐行照抄**：pine-cpp 折叠所有数值进 DoubleColumn 的前提是它的 Variant 数值只有 double；Go/Java 装箱保留 int vs float 且下游契约（`%T` 消息、dedup key）观察它。对等性定义在可观测输出上——各引擎用各自语言里最诚实的内部表示达成同一外部行为，这类分歧应在代码注释与 PR 里显式论证归档，而非硬抄。
 - **翻译残留死代码是移植型 PR 的高发缺陷**：Java ReorderSort 从 Go entry struct 翻译时留下从未被读取的 `List<int[]>` 填充循环（每次排序 n 次无用分配），与 PR 自身的减分配目标矛盾，被 review bot 抓出。移植后应回读一遍"翻译产物里有没有源语言习惯的残留"。
+
+## 第三阶段实现记录（2026-07-08，批量列写，issue #157 / PR #163）
+
+读侧闭环后补写侧对偶。先 profiling 归因过闸门（>15%）：transform-heavy 写侧占分配 ~24%（SetItem 装箱 137MB + `newColumnForValue` 重建 154MB + ItemWrite 记录 14MB），立项成立。三引擎同日实现 `SetItemColumnFloat64` / `setItemColumnDouble` / `set_item_column_double`：stage 2b 应用（逐元素写之后，同字段列写覆盖）、整列或全无长度校验、NaN/Inf 批量校验（首错消息与逐元素路径字节一致）、列存 adopt 零拷贝 / 行存 scatter、ValidateOutput 计为 SetItem、debug 快照折叠、并行分片 merge 折叠为逐元素写。`transform_normalize` 三引擎改用批量写。契约全文见 `llmdoc/reference/operator-contract.md`。
+
+pine-go transform-heavy 1000 对 master：列存 0.92ms → 0.70ms（-24%），allocs 12.1k → 4.1k（**-66%**），bytes -11%。验证：三引擎单测全绿（新增各引擎 column_write 专项测试 6-7 例）、cross-validate 3/4/5（95/95 + 95/95 + 30/30）、120 轮三引擎 fuzz 零 divergence、CI 全绿、review bot APPROVE 零问题。
+
+### 本阶段教训
+
+- **Go 批量路径里 `any` 参数的隐性装箱税**：初版复用 `validateValue(field, any(v))` 做逐元素 NaN 校验，每元素一次 interface 装箱——批量写省下的分配被校验路径吃回三分之一。批量 API 的整条路径（含校验）都要保持 typed，直接内联 `math.IsNaN/IsInf`。
+- **新写路径的消费点清单**：OperatorOutput 增加一类写记录时，消费点不止 ApplyOutput——`ValidateOutput`（类型合规）、debug 快照、并行分片 merge、`ItemWriteMap`/`itemWriteMap` 测试视图、`Reset`，六处全要折叠，漏一处就是隐性数据丢失。三引擎各自过一遍此清单。
+- **CI 卡死的判定与处置**：cpp-test 在 master 上通常 ~1.5 分钟，本次 pending 20+ 分钟且本地同配置（Debug + ctest）7 秒全绿，判定为 runner 卡死而非代码问题；`gh run cancel` 后该 run 收敛为 success（其余 job 已全绿）。先本地复现排除代码因素，再动 CI。
