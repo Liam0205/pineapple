@@ -48,10 +48,15 @@ jobs:
           cache: maven
 
       - name: Install C++ build deps
+        # ci-apt-install.sh retries with a per-attempt timeout so one slow
+        # mirror rotation doesn't burn the whole budget (#125, #164). cmake /
+        # g++-13 / make are preinstalled on the runner image (apt's cmake is
+        # older and shadowed by PATH anyway; #164's fatal 11.2 MB download
+        # was exactly that dead weight) — assert them instead of installing.
         run: |
-          timeout 600 sudo apt-get update
-          timeout 600 sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build g++-13 libluajit-5.1-dev libcurl4-openssl-dev
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
+          cmake --version | head -1
+          g++-13 --version | head -1
 
       - name: Build Go binary
         run: go build -o pineapple-run ./cmd/pineapple-run/

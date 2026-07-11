@@ -34,10 +34,12 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install LuaJIT and build deps
+        # ci-apt-install.sh retries with a per-attempt timeout so one slow
+        # mirror rotation doesn't burn the whole budget (#125, #164). cmake /
+        # gcc / make (build-essential) are preinstalled on the runner image.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev util-linux
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev util-linux
+          cmake --version | head -1
 
       - name: Run TSan stress
         id: tsan
@@ -62,10 +64,10 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install LuaJIT and build deps
+        # Same resilient install as the tsan job above (#125, #164).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev util-linux
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev util-linux
+          cmake --version | head -1
 
       - name: Run ASan/UBSan smoke
         id: asan

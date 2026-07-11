@@ -43,10 +43,14 @@ jobs:
           cache: maven
 
       - name: Install system deps
+        # ci-apt-install.sh retries with a per-attempt timeout so one slow
+        # mirror rotation doesn't burn the whole budget (#125, #164). cmake /
+        # gcc / make (build-essential) are preinstalled on the runner image —
+        # assert instead of apt-installing shadowed duplicates.
         run: |
-          timeout 600 sudo apt-get update
-          timeout 600 sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
+          cmake --version | head -1
+          g++ --version | head -1
 
       - name: Install hey
         run: go install github.com/rakyll/hey@latest
