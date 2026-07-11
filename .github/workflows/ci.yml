@@ -173,10 +173,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install LuaJIT and build deps
+        # ci-apt-install.sh retries with a per-attempt timeout so one slow
+        # mirror rotation doesn't fail the job (#125, #164). cmake / gcc /
+        # make (build-essential) are preinstalled on the runner image —
+        # asserted below instead of apt-installing shadowed duplicates.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
+          cmake --version | head -1
       - name: Configure pine-cpp
         working-directory: pine-cpp
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -220,10 +223,10 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install LuaJIT and build deps
+        # Resilient apt install — see cpp-build job comment (#125, #164).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
+          cmake --version | head -1
       - name: Run ASan/UBSan smoke
         run: bash scripts/cpp-sanitizer-smoke.sh
 
@@ -236,10 +239,10 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install LuaJIT and build deps
+        # Resilient apt install — see cpp-build job comment (#125, #164).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev util-linux
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev util-linux
+          cmake --version | head -1
       - name: Run TSan smoke (high-fanout DAG stress)
         run: bash scripts/cpp-tsan-smoke.sh
 
@@ -248,10 +251,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install build deps
+        # Resilient apt install — see cpp-build job comment (#125, #164).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
+          cmake --version | head -1
       - name: Strict build (-Werror)
         working-directory: pine-cpp
         run: |
@@ -305,10 +308,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install build deps
+        # Resilient apt install — see cpp-build job comment (#125, #164).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
+          cmake --version | head -1
       - name: Build + run tests
         run: make cpp-test PARALLEL=$(nproc)
 
@@ -382,11 +385,11 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install redis-server and LuaJIT
+        # Resilient apt install — see cpp-build job comment (#125, #164).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            redis-server=5:7.* cmake build-essential libluajit-5.1-dev libcurl4-openssl-dev
+          bash scripts/ci-apt-install.sh "redis-server=5:7.*" libluajit-5.1-dev libcurl4-openssl-dev
           redis-server --version
+          cmake --version | head -1
       - name: Cross-validate Go vs Java vs C++
         run: make cross-validate | tee cross-validate-output.txt
       - name: Fail on any divergence
@@ -525,9 +528,13 @@ jobs:
         run: mvn package -B -q -DskipTests
         working-directory: pine-java
       - name: Install LuaJIT and build deps
+        # Resilient apt install — see cpp-build job comment (#125, #164).
+        # libhiredis-dev was dropped: pine-cpp's redis client is raw-socket
+        # (no hiredis reference anywhere in the tree), and every other cpp
+        # job already builds without it.
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libluajit-5.1-dev libcurl4-openssl-dev libhiredis-dev >/dev/null
+          bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
+          cmake --version | head -1
       - name: Build C++
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
