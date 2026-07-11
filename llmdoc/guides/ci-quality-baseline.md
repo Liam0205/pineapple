@@ -42,6 +42,16 @@
 
 Benchmark job 将 `go test -bench` 输出写入 `benchmark.txt`，同时追加到 `$GITHUB_STEP_SUMMARY` 供 PR/CI 页面直接查看；artifact 作为可下载原始结果保留。
 
+## CI apt 依赖安装约定
+
+所有 workflow 中安装 apt 依赖的步骤必须统一走 `scripts/ci-apt-install.sh`，不得回退到裸 `timeout N sudo apt-get install ...` 单发模式。
+
+背景：慢速 Azure archive mirror 曾两次拖垮 CI——#125（2026-06-18）把整段 `timeout` 从 300s 提到 600s 作为"修复"，#164（2026-07-10）同一堵墙被再次撞穿（单个包在 26 KB/s 下载了 433s）。根因是"单发安装 + 整段超时"结构本身没有第二次机会，静态加大超时数值只是把击穿点往后挪。判断准则：先问这个失败模式重试后是否大概率自愈（mirror rotation 通常会）——是则加重试层，否则才考虑调大超时数值。
+
+`ci-apt-install.sh` 的结构：update / install 各自最多 3 次尝试（`ATTEMPTS`，默认 3）、每次独立 per-attempt timeout（`ATTEMPT_TIMEOUT`，默认 300s，均可通过环境变量覆盖）、尝试间 backoff（`attempt * 10`s）、kill 后 `dpkg --configure -a` 修复半配置状态、`Acquire::Retries=3`（覆盖单次尝试内的连接中断）+ `DPkg::Lock::Timeout=60`（等待 unattended-upgrades 类锁持有者）。
+
+包清单纪律：只安装 runner image 真正缺失的包，不重复安装已预装工具（GitHub runner image 预装 cmake / g++ / build-essential，apt 装的同名包版本更旧且 PATH 排序在后，纯粹是死重，只会放大慢镜像暴露面）；install step 之后应对预装工具做版本断言（如 `cmake --version`、`g++ --version`），使 image 变更导致的依赖缺失在 install 阶段就明确报错，而不是在后续编译步骤里表现为莫名错误。新增 workflow 或 job 时禁止绕过 `ci-apt-install.sh` 直接内联 apt 命令。
+
 ## 统一任务入口（Makefile）
 
 仓库提供顶层 `Makefile` 与 `pine-go/Makefile` 作为本地与 CI 共用的统一任务入口，封装跨四语言的格式化 / lint / test / bench / codegen / 版本管理等命令。目标列表以 `make help`（或两个 Makefile 自身）为准，禁止在本指南中硬编码完整清单。常用入口示例：
@@ -289,6 +299,7 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 ## 检索指针
 
 - CI 配置：`.github/workflows/ci.yml`
+- CI apt 安装 wrapper：`scripts/ci-apt-install.sh`
 - Nightly differential-fuzz：`.github/workflows/nightly-diff-fuzz.yml`
 - Daily sanitized-fuzz：`.github/workflows/daily-sanitized-fuzz.yml`
 - Nightly cross-runtime benchmark：`.github/workflows/nightly-benchmark.yml`
