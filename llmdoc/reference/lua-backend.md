@@ -18,6 +18,8 @@
 
 下游 `makeArrayTable` 的 typed-array 快路径与 `SetGlobal` 的 GlobalsSlot 缓存分别消费这两组 API（见下文对应小节）。升级遵循「复跑 cross-validate + calibrated_itemlua 端到端 benchmark」流程、双 tag 全绿，跨引擎 parity 契约不变。
 
+**版本 bump 必须走 `make -C pine-go tidy`（或 `pine-go/` 目录下 `make tidy`），不可手工 `go mod tidy`**：`pine-go/benchmarks/` 是独立子 module（自己的 `go.mod`/`go.sum`），indirect pin wangshu；`make tidy` 明确覆盖两个 module（`go mod tidy && cd benchmarks && go mod tidy`），手工只 tidy 主 module 会让 benchmarks 子 module 的 wangshu pin 停留旧版本——Go 模块图取 max(旧, 新) 但 `benchmarks/go.sum` 缺新版本条目，CI benchmark job 在 `-mod=readonly` 下直接因 MVS 模块图不一致而拒绝构建（PR #166 教训）。bump 后可反向核查 `grep -rn "旧版本号" --include="go.mod" --include="go.sum" .` 全仓扫一遍确认无残留。
+
 ## Backend / Pool / Engine 三层抽象
 
 抽象定义在 `pine-go/operators/lua/backend.go`，两后端实现各自的 `Backend` / `Pool` / `Engine`：
