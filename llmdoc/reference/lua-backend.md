@@ -4,14 +4,14 @@
 
 ## 后端选择契约
 
-- 默认：**wangshu**（纯 Go Lua 5.1 VM，NaN-boxing + arena GC，下限版本 **v0.2.0-rc4**），build tag 表达为 `!lua_gopher`
+- 默认：**wangshu**（纯 Go Lua 5.1 VM，NaN-boxing + arena GC，下限版本 **v0.2.0**），build tag 表达为 `!lua_gopher`
 - Opt-in：`-tags=lua_gopher` → gopher-lua
 
 编译期单一后端零运行时分发，binary 只链一个 VM。Build tag 极性是排他选择，不存在双后端共存运行时。Tag 文件在 `pine-go/operators/lua/` 下成对出现（`*_wangshu.go` `//go:build !lua_gopher` / `*_gopher.go` `//go:build lua_gopher`），Makefile 与 `scripts/bench-lua-backends.sh` 同步切换。
 
 下限最初采用 release candidate（**v0.2.0-rc3**）的原因：下游依赖的 `State.NewArrayTable` / `State.MaybeCollectNow` / `State.ArenaCapKB` 三个 API 自 v0.2.0-rc3 新增，上游 maintainer 已确认 v0.2.0 API 面冻结、rc 仅做缺陷修复与严格增量 API；生产路径通过 cross-validate 与双 tag 测试套全量验证。
 
-下限现已前移至 **v0.2.0-rc4**（#115）。rc4 再引入两组**严格增量**、为四引擎 `lua_script` 字节对等而设计的 API：
+下限现已前移至 **v0.2.0 正式版**：rc4（#115）引入两组**严格增量**、为四引擎 `lua_script` 字节对等而设计的 API；rc5 为 docs-only（上游 benchmarks/pineapple/ submodule）；v0.2.0 相对 rc5 仅一个 githook 相关提交（`.githooks/pre-push`，非库代码），API 面与 rc4 完全一致。rc4 引入的两组 API：
 
 - typed-array 批量建表构造器 `NewFloatArrayTable` / `NewInt64ArrayTable` / `NewBoolArrayTable` / `NewStringArrayTable`
 - 预解析全局键 `State.GlobalsSlot(name)` + `SetBySlot` / `GetBySlot` / `Release`
