@@ -1,7 +1,7 @@
 {
   "name": "transform_bench_cpu byte-identical work output across runtimes (M12)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.10",
+    "_PINEAPPLE_VERSION": "0.10.11",
     "pipeline_config": {
       "operators": {
         "bench": {
