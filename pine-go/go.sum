@@ -1,5 +1,5 @@
-github.com/Liam0205/wangshu v0.2.0-rc5 h1:eANZcAYwT+mslRZkWFCWpU93kB6CKnt+vmzPxG4DzA0=
-github.com/Liam0205/wangshu v0.2.0-rc5/go.mod h1:9XM24QK5+YK+lTe3jHZj9vfuDMV+I5cbj+b5S64lbQE=
+github.com/Liam0205/wangshu v0.2.0 h1:A6euWbHzRliZ644cFgx90mP8Znh8xrRrOh2gCN8nD5s=
+github.com/Liam0205/wangshu v0.2.0/go.mod h1:9XM24QK5+YK+lTe3jHZj9vfuDMV+I5cbj+b5S64lbQE=
 github.com/alicebob/miniredis/v2 v2.37.0 h1:RheObYW32G1aiJIj81XVt78ZHJpHonHLHW7OLIshq68=
 github.com/alicebob/miniredis/v2 v2.37.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
