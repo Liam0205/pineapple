@@ -1,7 +1,7 @@
 {
   "name": "control operator nil field does not crash — branch skipped",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.10",
+    "_PINEAPPLE_VERSION": "0.10.11",
     "pipeline_config": {
       "operators": {
         "ctrl_if": {
