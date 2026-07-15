@@ -17,6 +17,8 @@ Randomization dimensions:
   - debug=true on random operators
   - _return_trace=true in request common
   - Resource operators (transform_resource_lookup, recall_resource with static resource_config)
+  - Recall writing common (recall_static set_common: request-level common state a
+    recall emits and downstream operators consume — exercises Recall.SetCommon)
   - merge_dedup, reorder_shuffle_by_salt, filter_paginate operators
   - transform_copy all 4 directions (common_to_item, item_to_common, common_to_common, item_to_item)
   - Templatable params (PR #74): filter_truncate.top_n optionally rendered as
@@ -316,6 +318,15 @@ def gen_operator(rng: random.Random, name: str,
         config["items"] = items
         config["recall"] = True
         item_out = out_fields + ["_fuzz_distinctive_score"]
+        # ~30% chance: recall also writes request-level common state (a
+        # recall-generated request id etc.). Exercises the Recall.SetCommon
+        # relaxation end-to-end — the written fields flow into
+        # prev_common_outputs below so downstream ops read them, forcing
+        # the DAG's common RAW edges to serialize reader after recall.
+        if rng.random() < 0.3:
+            sc_fields = rng.sample(FIELD_POOL, min(rng.randint(1, 2), len(FIELD_POOL)))
+            config["set_common"] = {f: random_scalar(rng) for f in sc_fields}
+            common_out = sc_fields
         # data_parallel not valid for recall
         config.pop("data_parallel", None)
 

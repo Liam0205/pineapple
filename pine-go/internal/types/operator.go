@@ -69,9 +69,12 @@ func (t OperatorType) ValidateOutput(out *OperatorOutput) error {
 
 	switch t {
 	case OpTypeRecall:
-		if hasCW {
-			violations = append(violations, "SetCommon")
-		}
+		// Recall may write common (e.g. a recall-generated request id that
+		// downstream operators consume): a common write is a normal mutating
+		// hazard participant, and the DAG already builds correct RAW/WAW/WAR
+		// edges from CommonOutput regardless of operator type. It still must
+		// not mutate/remove/reorder existing items — its only item-level
+		// action is AddItem (additive).
 		if hasIW {
 			violations = append(violations, "SetItem")
 		}

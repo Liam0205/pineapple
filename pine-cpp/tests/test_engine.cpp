@@ -132,11 +132,12 @@ TEST_CASE("Engine::log_prefix: empty when unset on both Config and EngineOptions
   CHECK(engine.log_prefix() == "");
 }
 
-TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
-  // Use a custom in-process operator registered just for this test to keep
-  // the assertion focused on the validate_output codepath. The Recall type
-  // forbids SetCommon, SetItem, RemoveItem, SetItemOrder.
-  struct BadRecall : public pine::Operator {
+TEST_CASE("validate_output_against_type: Recall may SetCommon (downstream consumable)") {
+  // Recall is allowed to write common (e.g. a recall-generated request id
+  // that downstream operators consume). The common write participates in
+  // normal DAG hazard tracking. Recall still must NOT SetItem/RemoveItem/
+  // SetItemOrder — see the next test case.
+  struct CommonWritingRecall : public pine::Operator {
     void init(const pine::OperatorConfig&) override {
     }
     void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
@@ -144,19 +145,19 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
     }
   };
   static const pine::OperatorSchema s{
-      "bad_recall_set_common", pine::OpType::Recall, "recall that illegally writes common", {}};
+      "recall_set_common", pine::OpType::Recall, "recall that writes common", {}};
   static bool registered = false;
   if (!registered) {
-    pine::register_operator_typed<BadRecall>(s);
+    pine::register_operator_typed<CommonWritingRecall>(s);
     registered = true;
   }
 
-  static const char* kBadRecallConfig = R"({
+  static const char* kConfig = R"({
       "_PINEAPPLE_VERSION": "0.9.0",
       "pipeline_config": {
         "operators": {
           "r1": {
-            "type_name": "bad_recall_set_common",
+            "type_name": "recall_set_common",
             "$metadata": {"common_output": ["region"]}
           }
         },
@@ -174,6 +175,55 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
         "item_output": []
       }
     })";
+  Engine engine(load_config_from_json(kConfig));
+  Request req;
+  auto resp = engine.execute(req);  // must not throw
+  // The recall-written common field is projected into the response common.
+  REQUIRE(resp.common.count("region") == 1);
+  CHECK(resp.common.at("region").as_string() == "us");
+}
+
+TEST_CASE("validate_output_against_type: Recall must not SetItem") {
+  // Guards the still-forbidden item-mutation half of the Recall contract:
+  // relaxing SetCommon must not accidentally relax SetItem.
+  struct BadRecall : public pine::Operator {
+    void init(const pine::OperatorConfig&) override {
+    }
+    void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
+      out.set_item(0, "score", pine::Variant(1.0));
+    }
+  };
+  static const pine::OperatorSchema s{
+      "bad_recall_set_item", pine::OpType::Recall, "recall that illegally writes an item", {}};
+  static bool registered = false;
+  if (!registered) {
+    pine::register_operator_typed<BadRecall>(s);
+    registered = true;
+  }
+
+  static const char* kBadRecallConfig = R"({
+      "_PINEAPPLE_VERSION": "0.9.0",
+      "pipeline_config": {
+        "operators": {
+          "r1": {
+            "type_name": "bad_recall_set_item",
+            "$metadata": {"item_output": ["score"]}
+          }
+        },
+        "pipeline_map": {
+          "stage": {"pipeline": ["r1"]}
+        }
+      },
+      "pipeline_group": {
+        "main": {"pipeline": ["stage"]}
+      },
+      "flow_contract": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": [],
+        "item_output": ["score"]
+      }
+    })";
   Engine engine(load_config_from_json(kBadRecallConfig));
   Request req;
   try {
@@ -181,7 +231,7 @@ TEST_CASE("validate_output_against_type: Recall must not SetCommon") {
     FAIL("expected ExecutionError");
   } catch (const Error& e) {
     std::string msg = e.what();
-    CHECK(msg.find("type violation: operator type Recall must not call [SetCommon]") != std::string::npos);
+    CHECK(msg.find("type violation: operator type Recall must not call [SetItem]") != std::string::npos);
     CHECK(msg.find("pine: execution error in operator \"r1\"") != std::string::npos);
   }
 }
