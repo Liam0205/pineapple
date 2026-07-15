@@ -20,6 +20,11 @@ class RecallStaticOp : public Operator, public AdditiveWritesRowSet {
     const auto& params = cfg.params.as_object();
     auto it = params.find("set_common");
     if (it != params.end() && !it->second.is_null()) {
+      if (!it->second.is_object()) {
+        throw RegistryError(op_name_,
+            "recall_static: 'set_common' must be a JSON object, got " +
+            pine::operators::json_type_name(it->second));
+      }
       for (const auto& [key, value] : it->second.as_object()) {
         set_common_[key] = value;
       }
