@@ -389,7 +389,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - **整列或全无**：`len(vals)` 必须等于 frame 当时的 item 数，不匹配报 `SetItemColumnFloat64 "f" length N does not match item count M`（跨引擎字节一致）
 - **NaN/Inf 批量校验**先于任何写入（单次列写全有或全无），首错消息与逐元素路径相同：`item[i] write: field "f": NaN/Inf is not a valid JSON value`
 - **所有权转移**：apply 时列存 frame 直接 adopt 底层数组为列存储（零拷贝，全槽位 present，typed 读快路径可命中）；行存 frame 在一个锁窗口内逐行 scatter（装箱不可避免）。算子交出后**不得再读写该数组**
-- 对 `ValidateOutput` 计为 `SetItem`（Transform/Filter 可用，Recall 违规）；debug 快照折叠进 `item_writes` 视图；data_parallel 分片的列写由 merge 折叠为带 offset 的逐元素写（分片是窗口，无法 adopt）
+- 对 `ValidateOutput` 计为 `SetItem`（Transform 可用，Recall/Filter/Observe 等非 item-write 类型违规）；debug 快照折叠进 `item_writes` 视图；data_parallel 分片的列写由 merge 折叠为带 offset 的逐元素写（分片是窗口，无法 adopt）
 
 算子作者指引：整列计算型算子（normalize 等）优先用批量写；稀疏/条件写仍用 `SetItem`。Go 侧校验注意：不要用 `validateValue(field, any(v))` 逐元素校验——`any` 转换每元素装箱一次，吃掉批量写的收益；直接内联 `math.IsNaN/IsInf`。
 
@@ -399,7 +399,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 | 类型 | 预期角色 | 允许的输出方法 |
 |---|---|---|
-| Recall | 产生新行/item | `AddItem` |
+| Recall | 产生新行/item，可选写 common | `AddItem`、`SetCommon` |
 | Transform | 变异 common 或 item 字段值 | `SetCommon`、`SetItem` |
 | Filter | 移除行/item | `RemoveItem` |
 | Merge | 合并/去重行集 | `SetItem`、`RemoveItem` |
