@@ -231,12 +231,14 @@ class RecallStaticOp(BaseOp):
     _name = "recall_static"
     _params_schema = {
         "items": {"type": "any", "required": True},
+        "set_common": {"type": "any", "required": False},
     }
 
     def __call__(
         self,
         *,
         items: Any = ...,
+        set_common: Any = None,
         common_input: list[str] | None = None,
         common_output: list[str] | None = None,
         item_input: list[str] | None = None,
@@ -250,6 +252,8 @@ class RecallStaticOp(BaseOp):
         _params = {
             "items": items,
         }
+        if set_common is not None:
+            _params["set_common"] = set_common
         return self._apply(
             params=_params,
             common_input=common_input,

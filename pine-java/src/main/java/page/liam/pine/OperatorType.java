@@ -24,7 +24,11 @@ public enum OperatorType {
 
         switch (this) {
             case RECALL:
-                if (hasCommonWrites) violations.add("SetCommon");
+                // Recall may write common (e.g. a recall-generated request id
+                // that downstream operators consume): a common write is a
+                // normal mutating hazard participant and the DAG builds correct
+                // edges from common_output regardless of operator type. It
+                // still must not mutate/remove/reorder existing items.
                 if (hasItemWrites) violations.add("SetItem");
                 if (hasRemovedItems) violations.add("RemoveItem");
                 if (hasItemOrder) violations.add("SetItemOrder");

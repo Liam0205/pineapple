@@ -21,6 +21,7 @@ import java.util.Map;
  */
 public class RecallStatic extends AbstractOperator implements page.liam.pine.AdditiveWritesRowSet {
     private List<Map<String, Object>> items;
+    private Map<String, Object> setCommon;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -42,10 +43,22 @@ public class RecallStatic extends AbstractOperator implements page.liam.pine.Add
         for (Object o : list) {
             items.add(new HashMap<>((Map<String, Object>) o));
         }
+        Object sc = params.get("set_common");
+        if (sc != null) {
+            if (!(sc instanceof Map)) {
+                throw new IllegalArgumentException("recall_static: 'set_common' must be a JSON object, got " + GoTypeNames.of(sc));
+            }
+            setCommon = new HashMap<>((Map<String, Object>) sc);
+        }
     }
 
     @Override
     public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+        if (setCommon != null) {
+            for (Map.Entry<String, Object> e : setCommon.entrySet()) {
+                output.setCommon(e.getKey(), e.getValue());
+            }
+        }
         for (Map<String, Object> item : items) {
             Map<String, Object> copy = new HashMap<>(item);
             output.addItem(copy);

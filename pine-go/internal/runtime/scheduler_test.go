@@ -1040,3 +1040,88 @@ func TestRun_OutputPool_NoLeakageWithAdditions(t *testing.T) {
 			runs, op.saw, op.sawAddedLen)
 	}
 }
+
+// commonWritingRecallOp is a Recall that both appends items AND writes a
+// common field (e.g. a recall-generated request id). Exercises the
+// relaxation allowing Recall.SetCommon end-to-end.
+type commonWritingRecallOp struct {
+	items       []map[string]any
+	commonField string
+	commonValue any
+}
+
+func (o *commonWritingRecallOp) Init(map[string]any) error { return nil }
+func (o *commonWritingRecallOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
+	out.SetCommon(o.commonField, o.commonValue)
+	for _, item := range o.items {
+		out.AddItem(item)
+	}
+	return nil
+}
+
+// stampCommonToItemsOp reads a common field and stamps it onto every item —
+// a downstream consumer of the recall-produced common value.
+type stampCommonToItemsOp struct {
+	readField  string
+	writeField string
+}
+
+func (o *stampCommonToItemsOp) Init(map[string]any) error { return nil }
+func (o *stampCommonToItemsOp) Execute(_ context.Context, in *types.OperatorInput, out *types.OperatorOutput) error {
+	v := in.Common(o.readField)
+	for i := 0; i < in.ItemCount(); i++ {
+		out.SetItem(i, o.writeField, v)
+	}
+	return nil
+}
+
+// TestRunRecallWritesCommonConsumedDownstream is the end-to-end proof that a
+// Recall may write a common field and a downstream operator deterministically
+// observes it: the DAG must serialize the reader after the recall (RAW on the
+// common field), and the value must arrive intact.
+func TestRunRecallWritesCommonConsumedDownstream(t *testing.T) {
+	recall := &CompiledOperator{
+		Name: "recall_x",
+		Instance: &commonWritingRecallOp{
+			items:       []map[string]any{{"item_id": int64(1)}, {"item_id": int64(2)}},
+			commonField: "request_id",
+			commonValue: "req-abc",
+		},
+		Config: config.OperatorConfig{
+			TypeName: "recall", Recall: true, AdditiveWritesRowSet: true,
+			OperatorType: "Recall",
+			Meta:         config.Metadata{CommonOutput: []string{"request_id"}, ItemOutput: []string{"item_id"}},
+			InputSpec:    &config.InputFieldSpec{},
+		},
+	}
+	stamp := &CompiledOperator{
+		Name:     "stamp",
+		Instance: &stampCommonToItemsOp{readField: "request_id", writeField: "rid"},
+		Config: config.OperatorConfig{
+			TypeName:     "transform",
+			OperatorType: "Transform",
+			Meta:         config.Metadata{CommonInput: []string{"request_id"}, ItemOutput: []string{"rid"}},
+			InputSpec:    config.ComputeInputFieldSpec(config.Metadata{CommonInput: []string{"request_id"}}, nil, nil, nil, nil, nil),
+		},
+	}
+	plan := buildPlan(t, []string{"recall_x", "stamp"}, map[string]*CompiledOperator{
+		"recall_x": recall,
+		"stamp":    stamp,
+	})
+	frame := dataframe.New(map[string]any{}, nil)
+	if _, _, err := Run(context.Background(), plan, frame, nil, nil); err != nil {
+		t.Fatalf("Run failed (Recall.SetCommon should be allowed): %v", err)
+	}
+	if got := frame.Common("request_id"); got != "req-abc" {
+		t.Fatalf("common request_id = %v, want req-abc", got)
+	}
+	if frame.ItemCount() != 2 {
+		t.Fatalf("item count = %d, want 2", frame.ItemCount())
+	}
+	// Downstream deterministically saw the recall-written common value.
+	for i := 0; i < frame.ItemCount(); i++ {
+		if got := frame.Item(i, "rid"); got != "req-abc" {
+			t.Errorf("item %d rid = %v, want req-abc (downstream must observe recall's common write)", i, got)
+		}
+	}
+}

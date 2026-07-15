@@ -432,9 +432,11 @@ void validate_output_against_type(const std::string& op_name, const std::string&
   std::string display_type;
   if (op_type == "recall") {
     display_type = "Recall";
-    if (has_cw) {
-      violations.push_back("SetCommon");
-    }
+    // Recall may write common (e.g. a recall-generated request id that
+    // downstream operators consume): a common write is a normal mutating
+    // hazard participant and the DAG builds correct edges from common_output
+    // regardless of operator type. It still must not mutate/remove/reorder
+    // existing items — its only item-level action is AddItem (additive).
     if (has_iw) {
       violations.push_back("SetItem");
     }

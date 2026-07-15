@@ -187,7 +187,9 @@ public class AllOperators {
                         "Emits a configurable static set of items for testing and validation.",
                         Map.of(
                                 "items", ParamSpec.required("any",
-                                        "JSON array of item maps to emit as candidates.")
+                                        "JSON array of item maps to emit as candidates."),
+                                "set_common", ParamSpec.optional("any", null,
+                                        "JSON object of common fields the recall writes.")
                         )),
                 RecallStatic::new);
 

@@ -9,6 +9,7 @@ Emits a configurable static set of items for testing and validation.
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | items | any | Yes | - | JSON array of item maps to emit as candidates. |
+| set_common | any | No | - | JSON object of common fields the recall writes. |
 
 ## Metadata Contract
 
@@ -24,6 +25,7 @@ Emits a configurable static set of items for testing and validation.
 ```python
 flow.recall_static(
     items=...,
+    set_common=...,
     common_input=[...],
     item_input=[...],
     item_output=[...],
