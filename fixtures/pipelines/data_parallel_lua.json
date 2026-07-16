@@ -1,7 +1,7 @@
 {
   "name": "data_parallel Lua transform (verify shard-independent computation)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.11",
+    "_PINEAPPLE_VERSION": "0.10.12",
     "pipeline_config": {
       "operators": {
         "recall_items": {

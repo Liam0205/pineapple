@@ -903,7 +903,7 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     storage_mode = rng.choice(["row", "column"])
 
     config: dict[str, Any] = {
-        "_PINEAPPLE_VERSION": "0.10.11",
+        "_PINEAPPLE_VERSION": "0.10.12",
         "pipeline_config": {
             "operators": operators,
             "pipeline_map": pipeline_map,
