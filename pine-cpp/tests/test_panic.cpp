@@ -24,7 +24,7 @@ TEST_CASE("PanicError: is a pine::Error") {
 namespace {
 
 constexpr const char* kBadCopyConfig = R"({
-  "_PINEAPPLE_VERSION": "0.10.11",
+  "_PINEAPPLE_VERSION": "0.10.12",
   "pipeline_config": {
     "operators": {
       "bad": {
