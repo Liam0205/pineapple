@@ -499,10 +499,14 @@ public class PineServer {
     }
 
     /**
-     * InputStream wrapper that fails the read crossing the configured limit.
-     * A body of exactly {@code limit} bytes is allowed; byte {@code limit + 1}
-     * throws {@link BodyLimitExceededException} (same boundary semantics as
-     * Go's http.MaxBytesReader).
+     * InputStream wrapper that fails once total consumption crosses the
+     * configured limit. Every way of advancing the underlying stream (read,
+     * bulk read, skip) is counted; a body of exactly {@code limit} bytes is
+     * allowed and byte {@code limit + 1} throws
+     * {@link BodyLimitExceededException} (same boundary semantics as Go's
+     * http.MaxBytesReader). Bulk reads and skips are clamped to
+     * {@code remaining + 1} so the underlying stream is never consumed far
+     * past the limit.
      */
     private static final class LimitedBodyStream extends java.io.FilterInputStream {
         private long remaining;
@@ -523,7 +527,11 @@ public class PineServer {
 
         @Override
         public int read(byte[] buf, int off, int len) throws IOException {
-            int n = super.read(buf, off, len);
+            // Clamp so at most remaining+1 bytes are pulled from the
+            // underlying stream: enough to detect the first byte past the
+            // limit without reading unbounded data.
+            int capped = (int) Math.min(len, Math.max(remaining + 1, 1));
+            int n = super.read(buf, off, capped);
             if (n > 0) {
                 remaining -= n;
                 if (remaining < 0) {
@@ -531,6 +539,22 @@ public class PineServer {
                 }
             }
             return n;
+        }
+
+        @Override
+        public long skip(long n) throws IOException {
+            // skip() advances the underlying stream just like read() — it
+            // must count against the limit, or Ingress code could skip past
+            // arbitrarily large bodies unmetered.
+            long capped = Math.min(n, Math.max(remaining + 1, 1));
+            long skipped = super.skip(capped);
+            if (skipped > 0) {
+                remaining -= skipped;
+                if (remaining < 0) {
+                    throw new BodyLimitExceededException();
+                }
+            }
+            return skipped;
         }
     }
 
