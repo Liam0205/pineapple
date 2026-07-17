@@ -75,7 +75,7 @@ pine-go 的 `transform_by_lua` 算子由 build tag 选择 Lua VM 后端，编译
 
 ### Go 入口点
 
-- `pine-go/cmd/pineapple-server/main.go` — 运行 `pine-go/pkg/server/` 中的 HTTP 服务，提供 `/health`、`/execute`、`/stats`、`/dag` 端点，并允许通过 `server.Config.Middlewares` 注入业务侧 HTTP middleware。可选通过 `-admin-addr :6060`（对应 `Config.AdminAddr`）启动**独立的 admin server**，仅暴露 `/debug/pprof/*`；admin server 无 `WriteTimeout`，长时 CPU/trace profile（`?seconds=120`）不会被截断。默认空值即不监听 admin 端口，业务端口与 profiling 端口彻底隔离。
+- `pine-go/cmd/pineapple-server/main.go` — 运行 `pine-go/pkg/server/` 中的 HTTP 服务，提供 `/health`、`/execute`、`/stats`、`/dag` 端点，并允许通过 `server.Config.Middlewares` 注入业务侧 HTTP middleware、通过 `server.Config.Routes` 注册自定义路由（Ingress/Egress 适配器）；`-watch=false`（对应 `Config.Watch`）关闭配置热加载；`-demo-routes` 注册 cross-validate 用的 `POST /api/echo` 演示路由。嵌入场景（Gin 等既有框架）用 `server.NewServer` + `Execute`/`Acquire`/`Close`，不经过内置 net/http 壳。可选通过 `-admin-addr :6060`（对应 `Config.AdminAddr`）启动**独立的 admin server**，仅暴露 `/debug/pprof/*`；admin server 无 `WriteTimeout`，长时 CPU/trace profile（`?seconds=120`）不会被截断。默认空值即不监听 admin 端口，业务端口与 profiling 端口彻底隔离。
 - `pine-go/cmd/pineapple-codegen/main.go` — 读取已注册的算子 Schema，生成 Python helper 和可选文档。
 
 ### Java 入口点
