@@ -330,6 +330,70 @@ with open('$BIG_BODY_FILE', 'w') as f:
   fi
 
   cr_cleanup
+
+  # Test 10: custom route under active hot-reload (watch=true). Guards the
+  # C++ lock-window regression where the resource manager was snapshotted
+  # outside the engine lock: a reload swapping engine_/resource_manager_
+  # mid-request could race a concurrent custom-route execute (use-after-free
+  # or old-resources-on-new-engine). Hammer /api/echo while repeatedly
+  # touching the config to force reloads; every response must stay 200.
+  reload_race_arm() {
+    # $1=port; returns 0 when all requests succeed and >=1 reload happened.
+    # touch is synchronous (instant); the race window comes from the watcher
+    # thread running reload_config concurrently with the request hammer below.
+    local port=$1 code ok=0 total=40
+    for i in $(seq 1 4); do
+      touch "$CR_CONFIG"
+      for j in $(seq 1 10); do
+        code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$port/api/echo" -d "$CR_BODY")
+        [[ "$code" == "200" ]] && ok=$((ok + 1))
+      done
+      sleep 1  # let a watcher tick observe the touch
+    done
+    local rc
+    rc=$(curl -s "http://localhost:$port/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))" 2>/dev/null || echo 0)
+    [[ $ok -eq $total && "$rc" -ge 1 ]] && return 0
+    echo "        port=$port ok=$ok/$total reload_count=$rc" >&2
+    return 1
+  }
+
+  cr_total=$((cr_total + 1))
+  "$WORK_DIR/pineapple-server" -config "$CR_CONFIG" -addr ":$GO_CR_PORT" -demo-routes &
+  GO_CR_PID=$!
+  java -cp "$JAVA_CP" -Dpine.config="$CR_CONFIG" -Dpine.port=$JAVA_CR_PORT \
+    -Dpine.demoRoutes=true page.liam.pine.PineServer &
+  JAVA_CR_PID=$!
+  if [[ -n "${CPP_SERVER:-}" ]]; then
+    "$CPP_SERVER" -config "$CR_CONFIG" -addr ":$CPP_CR_PORT" -demo-routes &
+    CPP_CR_PID=$!
+  fi
+
+  if srv_ready $GO_CR_PORT && srv_ready $JAVA_CR_PORT; then
+    go_race_ok=false
+    java_race_ok=false
+    reload_race_arm $GO_CR_PORT && go_race_ok=true
+    reload_race_arm $JAVA_CR_PORT && java_race_ok=true
+    if $go_race_ok && $java_race_ok; then
+      cr_pass=$((cr_pass + 1))
+      echo "    [10] custom route stays 200 under active hot-reload (Go, Java)"
+    else
+      fail "custom-routes: reload race (Go ok=$go_race_ok, Java ok=$java_race_ok)"
+    fi
+
+    if [[ -n "${CPP_CR_PID:-}" ]]; then
+      cpp_cr_total=$((cpp_cr_total + 1))
+      if srv_ready $CPP_CR_PORT && reload_race_arm $CPP_CR_PORT; then
+        cpp_cr_pass=$((cpp_cr_pass + 1))
+        echo "    [10] C++ custom route stays 200 under active hot-reload"
+      else
+        fail "custom-routes: C++ reload race"
+      fi
+    fi
+  else
+    fail "custom-routes: reload-race servers failed to start"
+  fi
+
+  cr_cleanup
 fi
 
 if [[ $cr_total -gt 0 && $cr_pass -eq $cr_total ]]; then
