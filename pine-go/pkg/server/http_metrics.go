@@ -9,15 +9,14 @@ import (
 	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
-var knownPaths = map[string]bool{
-	"/execute": true,
-	"/health":  true,
-	"/stats":   true,
-	"/dag":     true,
-}
-
-func normalizePath(path string) string {
-	if knownPaths[path] {
+// normalizePath collapses any path not present in known to "_other" so HTTP
+// metrics labels stay low-cardinality. known is the dynamic set of registered
+// paths (the built-in endpoints plus any custom Config.Routes), passed in from
+// Run() rather than read from a package-level variable so custom routes are
+// reported under their own path instead of being lumped into "_other". The
+// built-in defaults live in defaultKnownPaths (server.go).
+func normalizePath(path string, known map[string]bool) string {
+	if known[path] {
 		return path
 	}
 	return "_other"
@@ -135,7 +134,7 @@ func (h *HttpStats) Snapshot() map[string]any {
 	}
 }
 
-func httpMetricsMiddleware(mp metrics.Provider, stats *HttpStats, next http.Handler) http.Handler {
+func httpMetricsMiddleware(mp metrics.Provider, stats *HttpStats, known map[string]bool, next http.Handler) http.Handler {
 	requestsTotal := mp.NewCounter(metrics.MetricOpts{
 		Name:       "pine_http_requests_total",
 		Help:       "Total HTTP requests.",
@@ -152,7 +151,7 @@ func httpMetricsMiddleware(mp metrics.Provider, stats *HttpStats, next http.Hand
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		path := normalizePath(r.URL.Path)
+		path := normalizePath(r.URL.Path, known)
 
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)

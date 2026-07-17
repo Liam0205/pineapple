@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/pprof"
@@ -23,9 +24,40 @@ import (
 	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
 
+// ErrEngineNotLoaded is returned by Execute when no engine snapshot is live.
+var ErrEngineNotLoaded = errors.New("engine not loaded")
+
+// defaultKnownPaths is the set of built-in endpoints. It seeds the dynamic
+// known-path set used for HTTP metrics normalization and for detecting custom
+// route conflicts. Custom Config.Routes are layered on top of these.
+var defaultKnownPaths = map[string]bool{
+	"/execute": true,
+	"/health":  true,
+	"/stats":   true,
+	"/dag":     true,
+}
+
 // errorResponse is a lightweight JSON error envelope used for non-200 responses.
 type errorResponse struct {
 	Error string `json:"error"`
+}
+
+// Ingress converts an incoming HTTP request into a pine.Request. Returning
+// an error aborts execution; the Server responds via the route's Egress
+// with a nil result and that error.
+type Ingress func(r *http.Request) (*pine.Request, error)
+
+// Egress writes the pipeline outcome to the response. It receives the
+// engine result (nil on ingress/execute error) and any error, and owns
+// the entire HTTP response.
+type Egress func(w http.ResponseWriter, r *http.Request, result *pine.Result, err error)
+
+// Route declares a custom endpoint layered on top of the Pine engine.
+type Route struct {
+	Method  string // e.g. http.MethodPost; empty means any method
+	Path    string // exact path, e.g. "/api/v1/report"
+	Ingress Ingress
+	Egress  Egress
 }
 
 // Config holds the server startup settings.
@@ -36,6 +68,17 @@ type Config struct {
 	Resources   *resource.Manager                 // Optional: pre-registered ResourceManager (caller registers, Run starts/stops)
 	Metrics     metrics.Provider                  // Optional: metrics provider (nil → no-op)
 	Middlewares []func(http.Handler) http.Handler // Optional: HTTP middlewares applied outer-to-inner
+
+	// Routes are custom ingress/egress endpoints registered alongside the
+	// built-in /execute, /health, /stats and /dag endpoints. Each route's
+	// Ingress converts an HTTP request into a pine.Request; the server
+	// executes it against the live snapshot; Egress writes the response.
+	Routes []Route
+
+	// Watch controls config hot-reload. nil (default) enables the watcher
+	// for backward compatibility; non-nil false disables it (config changes
+	// require a process restart). Use pine.Bool(true/false) as a helper.
+	Watch *bool
 
 	// Timeouts for the HTTP server. Zero means no timeout.
 	ReadHeaderTimeout time.Duration
@@ -139,110 +182,28 @@ type Server struct {
 		reloadDuration metrics.Histogram
 	}
 	httpStats *HttpStats
+
+	// watchCancel stops the config-reload watcher goroutine; watchDone is
+	// closed once that goroutine has returned. Both are nil when the watcher
+	// is disabled (Config.Watch == false).
+	watchCancel context.CancelFunc
+	watchDone   chan struct{}
 }
 
 // Run starts the Pine HTTP server with the given configuration.
-// It loads the initial config, starts a config-reload watcher, registers
-// HTTP handlers, and blocks until a SIGINT/SIGTERM is received.
+// It builds the Server (via NewServer), registers HTTP handlers (built-in
+// endpoints plus any custom Config.Routes), and blocks until a SIGINT/SIGTERM
+// is received. The config-reload watcher and graceful shutdown are wired up
+// for the built-in net/http server; embedders that only need the engine can
+// use NewServer + Execute/Acquire instead.
 func Run(cfg Config) error {
-	s := &Server{}
-	return s.run(cfg)
-}
-
-func (s *Server) run(cfg Config) error {
-	if cfg.ConfigPath == "" {
-		log.Fatal("usage: pineapple-server -config <path-to-config.json>")
-	}
-	if cfg.Addr == "" {
-		cfg.Addr = ":8080"
-	}
-
-	// Set effective max request body size.
-	s.maxRequestBodySize = cfg.MaxRequestBodySize
-	if s.maxRequestBodySize == 0 {
-		s.maxRequestBodySize = 10 << 20 // 10 MB default
-	}
-
-	// Initialize metrics provider
-	mp := cfg.Metrics
-	if mp == nil {
-		mp = metrics.Nop()
-	}
-	s.metricsProvider = mp
-	s.srvMetrics.reloadTotal = mp.NewCounter(metrics.MetricOpts{
-		Name: "pine_config_reload_total",
-		Help: "Total successful config reloads.",
-	})
-	s.srvMetrics.reloadErrors = mp.NewCounter(metrics.MetricOpts{
-		Name: "pine_config_reload_errors_total",
-		Help: "Total failed config reloads.",
-	})
-	s.srvMetrics.reloadDuration = mp.NewHistogram(metrics.HistogramOpts{
-		MetricOpts: metrics.MetricOpts{
-			Name: "pine_config_reload_duration_seconds",
-			Help: "Config reload duration in seconds.",
-		},
-		Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0},
-	})
-
-	// Load initial config
-	configData, err := os.ReadFile(cfg.ConfigPath)
+	s, err := NewServer(cfg)
 	if err != nil {
-		log.Fatalf("failed to read config: %v", err)
+		return err
 	}
-	engine, err := pine.NewEngine(configData, pine.WithMetrics(mp))
-	if err != nil {
-		log.Fatalf("failed to load engine: %v", err)
-	}
-	log.Printf("engine loaded from %s", cfg.ConfigPath)
+	defer s.Close()
 
-	// Initialize ResourceManager.
-	// If the caller supplied a pre-registered manager, use it;
-	// otherwise create an empty one whose resource metrics flow into a
-	// dedicated Collector serialized under /stats.resources (keeping engine
-	// metrics out of that subtree).
-	var rm *resource.Manager
-	var rmMetrics *metrics.Collector
-	if cfg.Resources != nil {
-		rm = cfg.Resources
-	} else {
-		rmMetrics = metrics.NewCollector()
-		// Fan out resource metrics to both the caller-injected provider (e.g.
-		// Prometheus) and the dedicated collector for /stats.resources. Only the
-		// ResourceManager writes through this tee, so the collector stays scoped
-		// to resource metrics; engine metrics use mp directly.
-		rm = resource.NewManager(metrics.Tee(mp, rmMetrics))
-	}
-
-	// Load resource config from unified JSON.
-	if err := rm.LoadFromRootConfig(configData); err != nil {
-		log.Fatalf("failed to load resource config: %v", err)
-	}
-
-	if err := rm.Start(context.Background()); err != nil {
-		log.Fatalf("failed to start resource manager: %v", err)
-	}
-
-	s.snapshot.Store(newSnapshot(engine, rm, rmMetrics))
-	defer func() {
-		// Load at shutdown time, not defer-registration time: a hot-reload may
-		// have swapped the snapshot, and the live one must be the one torn down.
-		// Dropping the baseline reference runs teardown once the last in-flight
-		// request releases its reference.
-		s.snapshot.Load().release()
-	}()
-
-	// Validate resource dependencies against pipeline config.
-	if err := resource.ValidateResourceDeps(configData, rm); err != nil {
-		log.Fatalf("resource dependency check failed: %v", err)
-	}
-
-	// Start config reload watcher
-	watchCtx, watchCancel := context.WithCancel(context.Background())
-	defer watchCancel()
-	go s.watchConfig(watchCtx, cfg.ConfigPath)
-
-	// Set up routes
+	// Set up routes: built-in endpoints first, then custom routes.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/execute", s.handleExecute)
@@ -250,10 +211,22 @@ func (s *Server) run(cfg Config) error {
 	mux.HandleFunc("/dag", s.handleDAG)
 	mux.HandleFunc("/", handleNotFound)
 
+	// Validate and register custom routes. known starts from the built-in
+	// endpoints and grows as each custom route is registered, so it doubles as
+	// the low-cardinality path set handed to the HTTP metrics middleware.
+	known, err := validateRoutes(cfg.Routes)
+	if err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		mux.Handle(route.Path, s.routeHandler(route))
+	}
+
 	// Apply HTTP metrics as innermost middleware (measures handler duration
-	// excluding user middleware overhead).
+	// excluding user middleware overhead). Pass the dynamic known-path set so
+	// custom routes are reported under their own path, not "_other".
 	s.httpStats = NewHttpStats()
-	handler := httpMetricsMiddleware(mp, s.httpStats, mux)
+	handler := httpMetricsMiddleware(s.metricsProvider, s.httpStats, known, mux)
 
 	// Apply user middlewares (outer-to-inner: first middleware sees request first)
 	for i := len(cfg.Middlewares) - 1; i >= 0; i-- {
@@ -305,6 +278,117 @@ func (s *Server) run(cfg Config) error {
 		return err
 	}
 	return nil
+}
+
+// NewServer builds a Server from cfg: it loads the config, creates the engine,
+// creates and starts the ResourceManager, stores the live snapshot, and (unless
+// Config.Watch is explicitly false) starts the config-reload watcher.
+//
+// It is the shared foundation of the built-in Run() server and of embedding
+// pine-go into an existing HTTP framework (see Execute / Acquire). The caller
+// owns the returned Server and must call Close when done to stop the watcher
+// and release the engine/resource baseline.
+func NewServer(cfg Config) (*Server, error) {
+	if cfg.ConfigPath == "" {
+		return nil, errors.New("server: Config.ConfigPath must not be empty")
+	}
+	if cfg.Addr == "" {
+		cfg.Addr = ":8080"
+	}
+
+	s := &Server{}
+
+	// Set effective max request body size.
+	s.maxRequestBodySize = cfg.MaxRequestBodySize
+	if s.maxRequestBodySize == 0 {
+		s.maxRequestBodySize = 10 << 20 // 10 MB default
+	}
+
+	// Initialize metrics provider
+	mp := cfg.Metrics
+	if mp == nil {
+		mp = metrics.Nop()
+	}
+	s.metricsProvider = mp
+	s.srvMetrics.reloadTotal = mp.NewCounter(metrics.MetricOpts{
+		Name: "pine_config_reload_total",
+		Help: "Total successful config reloads.",
+	})
+	s.srvMetrics.reloadErrors = mp.NewCounter(metrics.MetricOpts{
+		Name: "pine_config_reload_errors_total",
+		Help: "Total failed config reloads.",
+	})
+	s.srvMetrics.reloadDuration = mp.NewHistogram(metrics.HistogramOpts{
+		MetricOpts: metrics.MetricOpts{
+			Name: "pine_config_reload_duration_seconds",
+			Help: "Config reload duration in seconds.",
+		},
+		Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0},
+	})
+
+	// Load initial config
+	configData, err := os.ReadFile(cfg.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config: %w", err)
+	}
+	engine, err := pine.NewEngine(configData, pine.WithMetrics(mp))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load engine: %w", err)
+	}
+	log.Printf("engine loaded from %s", cfg.ConfigPath)
+
+	// Initialize ResourceManager.
+	// If the caller supplied a pre-registered manager, use it;
+	// otherwise create an empty one whose resource metrics flow into a
+	// dedicated Collector serialized under /stats.resources (keeping engine
+	// metrics out of that subtree).
+	var rm *resource.Manager
+	var rmMetrics *metrics.Collector
+	if cfg.Resources != nil {
+		rm = cfg.Resources
+	} else {
+		rmMetrics = metrics.NewCollector()
+		// Fan out resource metrics to both the caller-injected provider (e.g.
+		// Prometheus) and the dedicated collector for /stats.resources. Only the
+		// ResourceManager writes through this tee, so the collector stays scoped
+		// to resource metrics; engine metrics use mp directly.
+		rm = resource.NewManager(metrics.Tee(mp, rmMetrics))
+	}
+
+	// Load resource config from unified JSON.
+	if err := rm.LoadFromRootConfig(configData); err != nil {
+		return nil, fmt.Errorf("failed to load resource config: %w", err)
+	}
+
+	if err := rm.Start(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to start resource manager: %w", err)
+	}
+
+	// Validate resource dependencies against pipeline config.
+	if err := resource.ValidateResourceDeps(configData, rm); err != nil {
+		rm.Stop()
+		if cerr := engine.Close(); cerr != nil {
+			log.Printf("[NewServer] engine close after failed dep check: %v", cerr)
+		}
+		return nil, fmt.Errorf("resource dependency check failed: %w", err)
+	}
+
+	s.snapshot.Store(newSnapshot(engine, rm, rmMetrics))
+
+	// Start config reload watcher unless explicitly disabled. Watch defaults to
+	// enabled (nil or *true) for backward compatibility; *false disables it so
+	// config changes require a process restart.
+	if cfg.Watch == nil || *cfg.Watch {
+		watchCtx, watchCancel := context.WithCancel(context.Background())
+		s.watchCancel = watchCancel
+		s.watchDone = make(chan struct{})
+		go func() {
+			defer close(s.watchDone)
+			s.watchConfig(watchCtx, cfg.ConfigPath)
+		}()
+	}
+
+	return s, nil
 }
 
 func (s *Server) reloadConfig(path string) error {
@@ -382,6 +466,122 @@ func (s *Server) watchConfig(ctx context.Context, path string) {
 
 func handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, errorResponse{Error: "not found"})
+}
+
+// Execute runs the pipeline against the live snapshot. For embedding pine-go
+// into existing HTTP frameworks (e.g. Gin) without using the built-in
+// net/http server. It acquires an in-flight reference on the live snapshot so
+// a concurrent hot-reload never tears down the engine/resources mid-execution,
+// injects the snapshot's resources into ctx, and returns ErrEngineNotLoaded
+// when no snapshot is live.
+func (s *Server) Execute(ctx context.Context, req *pine.Request) (*pine.Result, error) {
+	snap := s.acquireSnapshot()
+	if snap == nil {
+		return nil, ErrEngineNotLoaded
+	}
+	defer snap.release()
+	ctx = resource.WithResources(ctx, snap.resources)
+	return snap.engine.Execute(ctx, req)
+}
+
+// Handle is an acquired reference to the live snapshot. It keeps the underlying
+// engine and resources alive (deferring hot-reload teardown) until Release is
+// called, so callers embedding pine-go can drive multiple Execute-equivalent
+// operations against a stable engine/resource pair. Always call Release.
+type Handle struct{ snap *serverSnapshot }
+
+// Release drops the in-flight reference held by this Handle. After Release the
+// Handle must not be used again.
+func (h *Handle) Release() { h.snap.release() }
+
+// Engine returns the engine bound to this snapshot.
+func (h *Handle) Engine() *pine.Engine { return h.snap.engine }
+
+// Resources returns the ResourceManager bound to this snapshot.
+func (h *Handle) Resources() *resource.Manager { return h.snap.resources }
+
+// ResourceMetrics returns the resource-level metrics Collector for this
+// snapshot, or nil when the caller supplied a pre-built ResourceManager.
+func (h *Handle) ResourceMetrics() *metrics.Collector { return h.snap.resourceMetrics }
+
+// Acquire returns a Handle to the live snapshot with an in-flight reference
+// held, or nil if no snapshot is live. The caller must call Release on the
+// returned Handle when done.
+func (s *Server) Acquire() *Handle {
+	snap := s.acquireSnapshot()
+	if snap == nil {
+		return nil
+	}
+	return &Handle{snap: snap}
+}
+
+// Close stops the config watcher and drops the baseline snapshot reference.
+// Teardown (resource Stop + engine Close) runs once the last in-flight
+// reference is released. Close is safe to call once; the built-in Run() calls
+// it via defer, and embedders must call it when finished with the Server.
+func (s *Server) Close() {
+	if s.watchCancel != nil {
+		s.watchCancel()
+		<-s.watchDone
+		s.watchCancel = nil
+		s.watchDone = nil
+	}
+	if old := s.snapshot.Swap(nil); old != nil {
+		old.release()
+	}
+}
+
+// validateRoutes checks custom routes for conflicts with built-in endpoints,
+// duplicates, malformed paths, and missing Ingress/Egress. On success it
+// returns the full known-path set (built-ins + custom paths) used for HTTP
+// metrics normalization.
+func validateRoutes(routes []Route) (map[string]bool, error) {
+	known := make(map[string]bool, len(defaultKnownPaths)+len(routes))
+	for p := range defaultKnownPaths {
+		known[p] = true
+	}
+	for _, route := range routes {
+		if route.Path == "" || route.Path[0] != '/' {
+			return nil, fmt.Errorf("custom route path %q must start with '/'", route.Path)
+		}
+		if route.Path == "/" {
+			return nil, errors.New(`custom route path "/" conflicts with the built-in not-found handler`)
+		}
+		if defaultKnownPaths[route.Path] {
+			return nil, fmt.Errorf("custom route %q conflicts with built-in endpoint", route.Path)
+		}
+		if known[route.Path] {
+			return nil, fmt.Errorf("duplicate custom route %q", route.Path)
+		}
+		if route.Ingress == nil {
+			return nil, fmt.Errorf("custom route %q has nil Ingress", route.Path)
+		}
+		if route.Egress == nil {
+			return nil, fmt.Errorf("custom route %q has nil Egress", route.Path)
+		}
+		known[route.Path] = true
+	}
+	return known, nil
+}
+
+// routeHandler wraps a custom Route into an http.Handler: it enforces the
+// route's method (when set), runs Ingress to build the request, executes it
+// against the live snapshot, and hands the result (or error) to Egress, which
+// owns the response.
+func (s *Server) routeHandler(route Route) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if route.Method != "" && r.Method != route.Method {
+			writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
+			return
+		}
+		req, err := route.Ingress(r)
+		if err != nil {
+			route.Egress(w, r, nil, err)
+			return
+		}
+		result, err := s.Execute(r.Context(), req)
+		route.Egress(w, r, result, err)
+	})
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {

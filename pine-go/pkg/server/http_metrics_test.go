@@ -24,7 +24,7 @@ func TestNormalizePath(t *testing.T) {
 		{"/", "_other"},
 	}
 	for _, tt := range tests {
-		if got := normalizePath(tt.input); got != tt.want {
+		if got := normalizePath(tt.input, defaultKnownPaths); got != tt.want {
 			t.Errorf("normalizePath(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
@@ -83,7 +83,7 @@ func TestHTTPMetricsMiddleware_Integration(t *testing.T) {
 		http.Error(w, "bad", http.StatusBadRequest)
 	})
 
-	handler := httpMetricsMiddleware(mp, NewHttpStats(), mux)
+	handler := httpMetricsMiddleware(mp, NewHttpStats(), defaultKnownPaths, mux)
 
 	// GET /health → 200
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -156,7 +156,7 @@ func TestHTTPMetricsMiddleware_NopProvider(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
 
-	handler := httpMetricsMiddleware(mp, NewHttpStats(), mux)
+	handler := httpMetricsMiddleware(mp, NewHttpStats(), defaultKnownPaths, mux)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -262,7 +262,7 @@ func TestHttpStats_RecordAndSnapshot(t *testing.T) {
 	mux.HandleFunc("/execute", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad", http.StatusBadRequest)
 	})
-	handler := httpMetricsMiddleware(mp, stats, mux)
+	handler := httpMetricsMiddleware(mp, stats, defaultKnownPaths, mux)
 
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -303,7 +303,7 @@ func TestHttpStats_NilSafeInMiddleware(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
-	handler := httpMetricsMiddleware(mp, nil, mux)
+	handler := httpMetricsMiddleware(mp, nil, defaultKnownPaths, mux)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
