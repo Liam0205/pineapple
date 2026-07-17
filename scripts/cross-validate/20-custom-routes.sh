@@ -64,9 +64,15 @@ elif ! srv_ready $JAVA_CR_PORT; then
   cr_cleanup
 else
   echo "    Go and Java servers ready."
-  if [[ -n "${CPP_SERVER:-}" ]] && srv_ready $CPP_CR_PORT; then
-    cpp_cr_ready=true
-    echo "    C++ server also ready."
+  if [[ -n "${CPP_SERVER:-}" ]]; then
+    # A configured C++ binary that fails readiness is a hard failure — it
+    # must not silently drop the C++ arm (zero checks would still "pass").
+    if srv_ready $CPP_CR_PORT; then
+      cpp_cr_ready=true
+      echo "    C++ server also ready."
+    else
+      fail "custom-routes: C++ server failed to start (CPP_SERVER is set)"
+    fi
   fi
 
   # Test 1: POST /api/echo with a valid body → 200 + identical body
@@ -229,7 +235,77 @@ print(any(k.startswith('POST /api/echo ') for k in reqs))
     fi
   fi
 
-  # Test 7: watch=false → touching the config does NOT bump reload_count
+  # Test 7: custom-route executions count in scheduler/operator stats.
+  # Guards the C++ regression where custom routes bypassed the shared server
+  # execution path and /stats.scheduler run_count stayed flat.
+  cr_total=$((cr_total + 1))
+  stats_counts() {
+    curl -s "http://localhost:$1/stats" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+run = d.get('scheduler', {}).get('run_count', 0)
+execs = sum(op.get('exec_count', 0) for op in d.get('operators', {}).values())
+print(f'{run} {execs}')
+"
+  }
+  read -r go_run0 go_exec0 <<< "$(stats_counts $GO_CR_PORT)"
+  read -r java_run0 java_exec0 <<< "$(stats_counts $JAVA_CR_PORT)"
+  curl -s -X POST "http://localhost:$GO_CR_PORT/api/echo" -d "$CR_BODY" > /dev/null
+  curl -s -X POST "http://localhost:$JAVA_CR_PORT/api/echo" -d "$CR_BODY" > /dev/null
+  read -r go_run1 go_exec1 <<< "$(stats_counts $GO_CR_PORT)"
+  read -r java_run1 java_exec1 <<< "$(stats_counts $JAVA_CR_PORT)"
+  if [[ $((go_run1 - go_run0)) -ge 1 && $((go_exec1 - go_exec0)) -ge 1 &&
+        $((java_run1 - java_run0)) -ge 1 && $((java_exec1 - java_exec0)) -ge 1 ]]; then
+    cr_pass=$((cr_pass + 1))
+    echo "    [7] /api/echo bumps scheduler run_count + operator exec_count (Go, Java)"
+  else
+    fail "custom-routes: stats increments (Go run ${go_run0}->${go_run1} exec ${go_exec0}->${go_exec1}, Java run ${java_run0}->${java_run1} exec ${java_exec0}->${java_exec1})"
+  fi
+
+  if $cpp_cr_ready; then
+    cpp_cr_total=$((cpp_cr_total + 1))
+    read -r cpp_run0 cpp_exec0 <<< "$(stats_counts $CPP_CR_PORT)"
+    curl -s -X POST "http://localhost:$CPP_CR_PORT/api/echo" -d "$CR_BODY" > /dev/null
+    read -r cpp_run1 cpp_exec1 <<< "$(stats_counts $CPP_CR_PORT)"
+    if [[ $((cpp_run1 - cpp_run0)) -ge 1 && $((cpp_exec1 - cpp_exec0)) -ge 1 ]]; then
+      cpp_cr_pass=$((cpp_cr_pass + 1))
+      echo "    [7] C++ /api/echo bumps scheduler run_count + operator exec_count"
+    else
+      fail "custom-routes: C++ stats increments (run ${cpp_run0}->${cpp_run1} exec ${cpp_exec0}->${cpp_exec1})"
+    fi
+  fi
+
+  # Test 8: oversized body on the custom route → central 413, Egress not run
+  cr_total=$((cr_total + 1))
+  BIG_BODY_FILE="$WORK_DIR/cr_big_body.json"
+  python3 -c "
+with open('$BIG_BODY_FILE', 'w') as f:
+    f.write('{\"common\":{\"boost\":\"' + 'a' * (11 * 1024 * 1024) + '\"}}')
+"
+  go_413=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$GO_CR_PORT/api/echo" --data-binary "@$BIG_BODY_FILE")
+  java_413=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$JAVA_CR_PORT/api/echo" --data-binary "@$BIG_BODY_FILE")
+  go_413_body=$(curl -s -X POST "http://localhost:$GO_CR_PORT/api/echo" --data-binary "@$BIG_BODY_FILE" | normalize_json)
+  java_413_body=$(curl -s -X POST "http://localhost:$JAVA_CR_PORT/api/echo" --data-binary "@$BIG_BODY_FILE" | normalize_json)
+  if [[ "$go_413" == "413" && "$java_413" == "413" && "$go_413_body" == "$java_413_body" ]]; then
+    cr_pass=$((cr_pass + 1))
+    echo "    [8] oversized POST /api/echo → 413 + body parity (Go, Java)"
+  else
+    fail "custom-routes: body limit (Go=$go_413/$go_413_body, Java=$java_413/$java_413_body)"
+  fi
+
+  if $cpp_cr_ready; then
+    cpp_cr_total=$((cpp_cr_total + 1))
+    cpp_413=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$CPP_CR_PORT/api/echo" --data-binary "@$BIG_BODY_FILE")
+    cpp_413_body=$(curl -s -X POST "http://localhost:$CPP_CR_PORT/api/echo" --data-binary "@$BIG_BODY_FILE" | normalize_json)
+    if [[ "$cpp_413" == "413" && "$go_413_body" == "$cpp_413_body" ]]; then
+      cpp_cr_pass=$((cpp_cr_pass + 1))
+      echo "    [8] C++ oversized POST /api/echo → 413 matches Go"
+    else
+      fail "custom-routes: C++ body limit (code=$cpp_413, Go=$go_413_body, C++=$cpp_413_body)"
+    fi
+  fi
+
+  # Test 9: watch=false → touching the config does NOT bump reload_count
   cr_total=$((cr_total + 1))
   touch "$CR_CONFIG"
   sleep 3  # watcher interval is 2s in all three engines; 3s covers a tick
@@ -237,7 +313,7 @@ print(any(k.startswith('POST /api/echo ') for k in reqs))
   java_rc=$(curl -s "http://localhost:$JAVA_CR_PORT/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))" 2>/dev/null || echo -1)
   if [[ "$go_rc" == "0" && "$java_rc" == "0" ]]; then
     cr_pass=$((cr_pass + 1))
-    echo "    [7] watch=false → reload_count stays 0 after config touch (Go, Java)"
+    echo "    [9] watch=false → reload_count stays 0 after config touch (Go, Java)"
   else
     fail "custom-routes: watch toggle (Go reload_count=$go_rc, Java reload_count=$java_rc)"
   fi
@@ -247,7 +323,7 @@ print(any(k.startswith('POST /api/echo ') for k in reqs))
     cpp_rc=$(curl -s "http://localhost:$CPP_CR_PORT/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))" 2>/dev/null || echo -1)
     if [[ "$cpp_rc" == "0" ]]; then
       cpp_cr_pass=$((cpp_cr_pass + 1))
-      echo "    [7] C++ watch=false → reload_count stays 0"
+      echo "    [9] C++ watch=false → reload_count stays 0"
     else
       fail "custom-routes: C++ watch toggle (reload_count=$cpp_rc)"
     fi
@@ -263,7 +339,12 @@ elif [[ $cr_total -eq 0 ]]; then
 fi
 
 if [[ -n "${CPP_SERVER:-}" ]]; then
+  # Terminal assertion: with a configured C++ binary the C++ arm must have
+  # actually run its checks — zero checks means readiness silently failed
+  # (already fail()-ed above, but this pins the invariant explicitly).
   if [[ $cpp_cr_total -gt 0 && $cpp_cr_pass -eq $cpp_cr_total ]]; then
     pass "custom routes parity C++ ($cpp_cr_pass/$cpp_cr_total checks)"
+  elif [[ $cpp_cr_total -eq 0 && $cr_total -gt 0 ]]; then
+    fail "custom-routes: CPP_SERVER is set but the C++ arm ran zero checks"
   fi
 fi
