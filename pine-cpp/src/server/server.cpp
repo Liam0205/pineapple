@@ -567,6 +567,14 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
     // Execute (R10-2: pass client_fd so engine sees client-disconnect cancel)
     auto exec_result = execute_with_trace(req, return_trace, client_fd);
 
+    // Hot-reload can swap the engine out between the fast-path check above
+    // and the locked execute; the helper reports that via engine_not_loaded
+    // and it must keep the same 503 contract as the fast path.
+    if (exec_result.engine_not_loaded) {
+      send_error(client_fd, 503, "engine not loaded");
+      return;
+    }
+
     // Build response JSON — match Go's executeResponse structure.
     // Go writes resp.Common/Items from result only when result != nil; an
     // engine-level error leaves them as nil maps → JSON `null`. A successful
@@ -858,25 +866,18 @@ void Server::handle_custom_route(int client_fd, const Route& route, const RouteR
 
     // Execute through execute_with_trace — the same path as the built-in
     // /execute — so scheduler run_count and per-operator exec/skip stats
-    // count custom-route pipeline runs too (three-runtime /stats parity),
-    // and client-disconnect cancel works exactly like /execute. An unloaded
-    // engine surfaces to Egress as an error (mirrors pine-go Execute
-    // returning ErrEngineNotLoaded, which routeHandler forwards to Egress
-    // with a nil result).
-    bool engine_loaded = false;
-    {
-      std::shared_lock<std::shared_mutex> lock(engine_mu_);
-      engine_loaded = static_cast<bool>(engine_);
-    }
-    if (!engine_loaded) {
-      route.egress(resp, req, nullptr, "engine not loaded");
+    // count custom-route pipeline runs too (cross-runtime /stats parity),
+    // and client-disconnect cancel works exactly like /execute. The helper
+    // does the engine-null check inside its engine_mu_ shared-lock window
+    // (no check-then-execute race with hot-reload) and reports it via
+    // engine_not_loaded, which surfaces to Egress as an error (mirrors
+    // pine-go Execute returning ErrEngineNotLoaded, which routeHandler
+    // forwards to Egress with a nil result).
+    ExecuteResult exec_result = execute_with_trace(engine_req, false, client_fd);
+    if (exec_result.has_error) {
+      route.egress(resp, req, nullptr, exec_result.error);
     } else {
-      ExecuteResult exec_result = execute_with_trace(engine_req, false, client_fd);
-      if (exec_result.has_error) {
-        route.egress(resp, req, nullptr, exec_result.error);
-      } else {
-        route.egress(resp, req, &exec_result.result, "");
-      }
+      route.egress(resp, req, &exec_result.result, "");
     }
   }  // arena scope ends — all arena-allocated Variants freed
 
@@ -886,14 +887,9 @@ void Server::handle_custom_route(int client_fd, const Route& route, const RouteR
 
 ExecuteResult Server::execute_with_trace(const Request& request, bool return_trace, int client_fd) {
   ExecuteResult exec_result;
-  run_count_.fetch_add(1, std::memory_order_relaxed);
 
   try {
     TracedResult traced;
-    std::map<std::string, Variant> res_snap;
-    if (resource_manager_) {
-      res_snap = resource_manager_->snapshot();
-    }
     std::exception_ptr exec_err = nullptr;
 
     // R10-2: poll the client socket for disconnect and forward the
@@ -943,11 +939,28 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
       });
     }
     {
+      // Engine-null check, resource snapshot and execute share ONE engine_mu_
+      // shared-lock window. reload_config moves BOTH engine_ and
+      // resource_manager_ under the exclusive lock and tears the old ones
+      // down after unlocking, so reading either outside this window races
+      // hot-reload (unique_ptr data race / use-after-free) or pairs an old
+      // resource snapshot with a new engine.
       std::shared_lock<std::shared_mutex> lock(engine_mu_);
-      try {
-        engine_->execute_traced_into(request, res_snap, &traced, cancel_src.get_token());
-      } catch (...) {
-        exec_err = std::current_exception();
+      if (!engine_) {
+        exec_result.engine_not_loaded = true;
+        exec_result.has_error = true;
+        exec_result.error = "engine not loaded";
+      } else {
+        run_count_.fetch_add(1, std::memory_order_relaxed);
+        std::map<std::string, Variant> res_snap;
+        if (resource_manager_) {
+          res_snap = resource_manager_->snapshot();
+        }
+        try {
+          engine_->execute_traced_into(request, res_snap, &traced, cancel_src.get_token());
+        } catch (...) {
+          exec_err = std::current_exception();
+        }
       }
     }
     if (watcher.joinable()) {
@@ -960,6 +973,9 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     }
     if (wake_fd >= 0) {
       ::close(wake_fd);
+    }
+    if (exec_result.engine_not_loaded) {
+      return exec_result;
     }
     // Match Go: even on partial execution errors, we capture the Projected
     // result (items and common containing fields up to failure point) as well
