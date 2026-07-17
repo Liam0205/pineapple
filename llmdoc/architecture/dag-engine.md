@@ -602,13 +602,15 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 Server 是 struct-based 设计：`Server` 结构体封装所有可变状态（snapshot 指针、metrics handle、watcher 控制等），handler 函数作为 `*Server` 的方法接收者运行。自 issue #169 起构造与传输分离：
 
 - `NewServer(cfg Config) (*Server, error)` — 加载配置、创建引擎与 ResourceManager、存入初始 snapshot、按 `Config.Watch` 启动 config watcher。所有失败路径返回 error（不再 `log.Fatal`）。
-- `Run(cfg Config) error` — 在 `NewServer` 之上组装 net/http 传输壳：注册内置端点 + `Config.Routes` 自定义路由、httpMetricsMiddleware、用户 middleware、admin pprof、signal 驱动 graceful shutdown。
+- `Run(cfg Config) error` — 在 `NewServer` 之上组装 net/http 传输壳：注册内置端点 + `Config.Routes` 自定义路由、httpMetricsMiddleware、用户 middleware、admin pprof、signal 驱动 graceful shutdown。自定义路由不注册为 ServeMux pattern，而是通过 `/` fallback 的精确字符串查表分发（`fallbackHandler` + map lookup）——尾随 `/`、`{name}` 花括号等 Go 1.22+ pattern 语法不会被解释，与"精确路径"的 API 声明一致。空 `Addr` 由 `normalizeConfig` 统一补 `:8080`，`Run` 与 `NewServer` 两个入口都调用（默认值归一化不能只写在按值 Config 的某一个副本里）。
 - 嵌入 API（供 Gin 等既有框架使用，不经过内置 HTTP server）：
   - `Server.Execute(ctx, req)` — acquire 快照 → 注入 resources 到 ctx → `engine.Execute`，无快照时返回 `ErrEngineNotLoaded`
   - `Server.Acquire() *Handle` — 持 in-flight 引用的句柄，暴露 `Engine()`/`Resources()`/`ResourceMetrics()`，用完必须 `Release()`
   - `Server.Close()` — 先 cancel watcher context 并 `<-watchDone` join，再 `snapshot.Swap(nil)` 并 release baseline 引用；teardown 推迟到最后一个 in-flight 引用释放
 
 自定义路由：`Route{Method, Path, Ingress, Egress}`，`Ingress func(*http.Request) (*pine.Request, error)` 转换请求、`Egress func(w, r, *pine.Result, error)` 拥有整个响应。`validateRoutes` 在启动时校验：与内置端点冲突、重复、非 `/` 前缀、`/` 根路径、nil 适配器均报错。自定义路径加入 known-path 集合，HTTP 指标以自身路径为标签（基数依然有界）。
+
+请求体上限在共享分发层统一施加，业务 Ingress 不需要（也不应）自行实现限流：Go 的 routeHandler 在调用 Ingress 之前用 `http.MaxBytesReader` 包住 body，`MaxBytesError` 集中映射为 413（与 `/execute` 的响应字节一致）；Java 用 `LimitedBodyStream`（读到 limit+1 抛异常）对齐 Go 的边界语义；C++ 天然在 socket 读取层集中限流。这是跨引擎行为契约——`scripts/cross-validate/20-custom-routes.sh` 的 check [8] 验证 custom route 超限 413 三端字节一致。
 
 `Config.Watch *bool`：nil（默认）与 true 启动热加载 watcher（向后兼容），false 关闭（配置变更需重启进程）。`pine.Bool` 是取址辅助。
 

@@ -137,6 +137,21 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 
 适用条件：扩展点本身是代码而非配置时（配置类扩展点直接用 fixture 驱动即可）。该模式补上了"能力等价"审计维度中编程扩展点无法落到可执行验证的缺口。来源：issue #169，详见 `memory/reflections/upstream-serverplus-custom-routes.md`。
 
+### 对等验证要覆盖执行路径的可观测副作用
+
+响应字节一致不代表执行路径对等。历史案例（issue #169 第二轮 review）：pine-cpp 的 custom route 直接调 `engine_->execute` 旁路了 `execute_with_trace`，scheduler `run_count` 与算子 exec/skip 统计全部不计数（Go/Java 正常计数），而 `/api/echo` 的响应与另两引擎完全一致——section 20 首版只查 HTTP metrics label，7/7 绿也没发现。
+
+要求：black-box 对等检查除响应字节外，应包含 `/stats` 中 scheduler/operator 统计的**增量比对**（发请求前后各取一次 `/stats`，断言三引擎增量一致）。现为 `scripts/cross-validate/20-custom-routes.sh` 的 check [7]。判断原则：凡是新入口/新分发路径接入引擎执行，就要问"它是否走了与内置端点相同的共享执行路径"，并用可观测副作用（统计、trace、指标）钉住答案。
+
+### 可选测试臂必须 fail-closed
+
+可选组件（如 `CPP_SERVER` 环境变量注入的 C++ 二进制）的跳过逻辑必须区分两种情况：
+
+- **未配置**：跳过合法，明确报 "skipped"（与 codegen byte-equal gate 的 `CPP_CODEGEN` 约定一致）
+- **配置了但坏了**（如 readiness 探测失败）：必须硬失败，不得静默跳过
+
+历史案例（issue #169 第二轮 review）：section 20 里 `CPP_SERVER` 已配置但 readiness 失败时，既不 fail 也不加 total，C++ 臂静默消失、零检查仍整段 pass——fail-open 反模式。修复补两层防护：readiness 失败硬 fail + 终态断言（配置了二进制则该臂检查计数必须 > 0，如 `cpp_cr_total > 0`）。终态断言防的是"中间每步都没报错但整臂被绕过"的结构性静默。
+
 ## 7. 声明→生效端到端路径校验
 
 当 Apple DSL 引入或修改声明侧字段（如 `strict_common`、`debug`），且该字段最终需要被运行时消费时，必须验证完整的声明→编译→运行时链路，而非仅验证编译产出的 JSON 格式正确。
