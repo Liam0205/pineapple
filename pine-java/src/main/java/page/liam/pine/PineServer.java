@@ -20,6 +20,10 @@ public class PineServer {
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>();
+    // Serializes stop() against an in-flight reload publishing a new snapshot.
+    // Once closed is set no reload may re-publish; see loadConfig / stop.
+    private final Object stopLock = new Object();
+    private boolean closed;
     private final String configPath;
     private final int port;
     private final page.liam.pine.metrics.Provider metricsProvider;
@@ -444,9 +448,10 @@ public class PineServer {
 
     /**
      * Wrap a custom {@link Route} into an HttpHandler: enforce the route method
-     * (when set), run the Ingress to build the request, execute it against the
-     * live snapshot, and hand the result (or error) to the Egress, which owns
-     * the response. Mirrors Go's Server.routeHandler.
+     * (when set), cap the request body at the server-wide limit, run the
+     * Ingress to build the request, execute it against the live snapshot, and
+     * hand the result (or error) to the Egress, which owns the response.
+     * Mirrors Go's Server.routeHandler.
      */
     private com.sun.net.httpserver.HttpHandler routeHandler(Route route) {
         return exchange -> {
@@ -455,9 +460,18 @@ public class PineServer {
                 sendResponse(exchange, 405, Map.of("error", "method not allowed"));
                 return;
             }
+            // Apply the request-body cap before user Ingress code can read the
+            // body, so custom endpoints cannot bypass max_request_body_size.
+            // A tripped cap responds 413 centrally (same bytes as /execute's
+            // limit), never reaching Egress. Mirrors Go's MaxBytesReader.
+            exchange.setStreams(
+                    new LimitedBodyStream(exchange.getRequestBody(), maxRequestBodyBytes), null);
             ExecRequest req;
             try {
                 req = route.ingress.apply(exchange);
+            } catch (BodyLimitExceededException e) {
+                sendResponse(exchange, 413, Map.of("error", "request body too large"));
+                return;
             } catch (Exception e) {
                 route.egress.apply(exchange, null, e);
                 return;
@@ -475,6 +489,49 @@ public class PineServer {
                 route.egress.apply(exchange, null, e);
             }
         };
+    }
+
+    /** Thrown by {@link LimitedBodyStream} when a read exceeds the body cap. */
+    static final class BodyLimitExceededException extends IOException {
+        BodyLimitExceededException() {
+            super("request body too large");
+        }
+    }
+
+    /**
+     * InputStream wrapper that fails the read crossing the configured limit.
+     * A body of exactly {@code limit} bytes is allowed; byte {@code limit + 1}
+     * throws {@link BodyLimitExceededException} (same boundary semantics as
+     * Go's http.MaxBytesReader).
+     */
+    private static final class LimitedBodyStream extends java.io.FilterInputStream {
+        private long remaining;
+
+        LimitedBodyStream(java.io.InputStream in, long limit) {
+            super(in);
+            this.remaining = limit;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = super.read();
+            if (b != -1 && --remaining < 0) {
+                throw new BodyLimitExceededException();
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] buf, int off, int len) throws IOException {
+            int n = super.read(buf, off, len);
+            if (n > 0) {
+                remaining -= n;
+                if (remaining < 0) {
+                    throw new BodyLimitExceededException();
+                }
+            }
+            return n;
+        }
     }
 
     private com.sun.net.httpserver.HttpHandler wrapHandler(String path, com.sun.net.httpserver.HttpHandler handler) {
@@ -541,6 +598,17 @@ public class PineServer {
     public void stop() {
         if (watcherExecutor != null) {
             watcherExecutor.shutdownNow();
+            // Wait for an in-flight checkReload to finish: shutdownNow only
+            // interrupts, and loadConfig does not poll the interrupt flag, so
+            // without this join a reload could still be running concurrently
+            // with (and after) the teardown below.
+            try {
+                if (!watcherExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    System.err.println("[pine-server] watcher did not stop within 10s");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
         if (httpServer != null) {
             httpServer.stop(5);
@@ -554,13 +622,19 @@ public class PineServer {
         // (not a captured startup value) is what must be released. Dropping the
         // baseline reference runs teardown once the last in-flight request that
         // captured it releases its reference. Mirrors Go's Close() Swap(nil).
-        Snapshot snap = snapshot.getAndSet(null);
-        if (snap != null) {
-            snap.release();
+        // closed (under stopLock) prevents any straggler reload that survived
+        // the join above from re-publishing a snapshot after this point.
+        synchronized (stopLock) {
+            closed = true;
+            Snapshot snap = snapshot.getAndSet(null);
+            if (snap != null) {
+                snap.release();
+            }
         }
     }
 
-    private void loadConfig(byte[] configData) throws Exception {
+    // Package-private for RouteTest, which simulates a reload racing stop().
+    void loadConfig(byte[] configData) throws Exception {
         long start = System.nanoTime();
         page.liam.pine.operators.AllOperators.ensureRegistered();
         // Dedicated aggregating collector exposed under /stats.resources. The
@@ -577,13 +651,24 @@ public class PineServer {
             Config cfg = Config.load(configData);
             rm.validateDeps(cfg.pipelineConfig.operators);
             Engine engine = Engine.create(configData, rm, metricsProvider);
-            Snapshot old = snapshot.getAndSet(new Snapshot(engine, rm, resourceMetrics));
-            if (old != null) {
-                // Drop the baseline reference. Teardown (resource stop + engine
-                // close) runs once the last in-flight request that captured the
-                // old snapshot releases its reference, so no request is ever
-                // served with a closed operator resource.
-                old.release();
+            Snapshot next = new Snapshot(engine, rm, resourceMetrics);
+            // Publish under the stop lock: an in-flight reload that already
+            // passed the mtime check must not re-publish a snapshot after
+            // stop() cleared the reference — that snapshot would leak and
+            // execute()/acquire() would spuriously come back to life.
+            synchronized (stopLock) {
+                if (closed) {
+                    next.release();
+                    throw new IllegalStateException("server stopped during reload");
+                }
+                Snapshot old = snapshot.getAndSet(next);
+                if (old != null) {
+                    // Drop the baseline reference. Teardown (resource stop +
+                    // engine close) runs once the last in-flight request that
+                    // captured the old snapshot releases its reference, so no
+                    // request is ever served with a closed operator resource.
+                    old.release();
+                }
             }
         } catch (Exception e) {
             rm.stop();
