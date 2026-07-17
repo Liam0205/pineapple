@@ -80,14 +80,14 @@ pine-go 的 `transform_by_lua` 算子由 build tag 选择 Lua VM 后端，编译
 
 ### Java 入口点
 
-- `pine-java/PineServer.java` — 基于 `com.sun.net.httpserver` 的 HTTP 服务，提供与 Go 对等的 `/health`、`/execute`、`/stats`、`/dag` 端点，支持 middleware 链、config hot-reload 和 reload metrics。
+- `pine-java/PineServer.java` — 基于 `com.sun.net.httpserver` 的 HTTP 服务，提供与 Go 对等的 `/health`、`/execute`、`/stats`、`/dag` 端点，支持 middleware 链、config hot-reload 和 reload metrics。自 issue #169 起对齐 Go 的扩展点：`addRoute(Route)` 注册自定义路由（`Ingress`/`Egress` 适配器），`setWatch(false)` 关闭配置热加载 watcher（配置变更需重启）；嵌入场景用 `load()`/`start()` 分离构造与传输、`execute(...)` 直接执行、`acquire()` 拿持 in-flight 引用的 `Handle`（用完 `release()`）、`close()` 拆除。
 - `pine-java/Codegen.java` — 读取 Schema JSON，生成 `operators.py`、`resources.py`、`__init__.py` 及算子文档（即 `apple_generated/` 下的 Apple DSL 类型化 helper）。
 
 ### C++ 引擎入口点
 
 - `pineapple-cpp-run -config <pipeline.json> -request <request.json> [-static-resources <resources.json>]` — CLI 执行
 - `pineapple-cpp-render-dag -config <pipeline.json> -format dot|mermaid [-collapse N]` — DAG 渲染
-- `pineapple-cpp-server -config <pipeline.json> [-addr :8080] [-read-header-timeout 10s] [-read-timeout 30s] [-write-timeout 60s] [-idle-timeout 120s] [-max-body-size 10485760] [-dag-pool-size N] [-shard-pool-size N]` — HTTP 服务，支持 graceful shutdown、配置 mtime 热加载、`ServerConfig::middlewares` 注入与 `pine::server::http_metrics_middleware(provider)` 内置指标 middleware
+- `pineapple-cpp-server -config <pipeline.json> [-addr :8080] [-read-header-timeout 10s] [-read-timeout 30s] [-write-timeout 60s] [-idle-timeout 120s] [-max-body-size 10485760] [-dag-pool-size N] [-shard-pool-size N] [-watch=true|false] [-demo-routes]` — HTTP 服务，支持 graceful shutdown、配置 mtime 热加载、`ServerConfig::middlewares` 注入与 `pine::server::http_metrics_middleware(provider)` 内置指标 middleware；自 issue #169 起对齐 Go 的 `Route`（`ServerConfig::routes`，socket-free 的 `validate_routes`/`routes.cpp` 集中校验）与 `ServerConfig::watch`（`-watch=false` 跳过 config watcher 线程），`-demo-routes` 注册 cross-validate 用的 `POST /api/echo` 演示路由。按「黑盒行为对等、实现结构自由」决策，C++ 有意不提供 Go/Java 的嵌入 API（`Execute`/`Acquire`），仅走内置 HTTP 壳
 - `pineapple-cpp-codegen -schema-json <out>` — 从 C++ Registry 导出算子 schema JSON
 - `pineapple-cpp-codegen -output <dir>` — 发射完整 Apple DSL 产物集（`operators.py` / `__init__.py` / `markers.py` / `resources.py` / `resources_init.py`），与 Go / Java 字节级一致；CI cross-validate `01-codegen-schema.sh` 1d 段对 Go 与 C++ 产物做 `diff -r` 字节级校验
 
