@@ -45,7 +45,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Redis cascade-safety** — `redis_connection` 资源暴露 `{dial,read,write,pool}_timeout_ms` + `pool_size` 五参数，per-command 指标 `pine_redis_command_*`（4-state status：ok / timeout / pool_timeout / error），fail-on-error 静默降级契约
 - **白盒可观测** — 算子级 trace；`/stats` 组合响应含 `/stats.http`（请求级 4-state 指标）+ `/stats.resources`（资源池连接池/探针/per-command 4 状态分类）；可插拔 Prometheus 接口
 - **行存/列存可切换** — DataFrame 支持两种存储模式
-- **三引擎一致性** — Go/Java/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息字节级一致（20 section cross-validate + 三引擎差分 fuzz + 每日 ASan/TSan sanitized fuzz）
+- **三引擎一致性** — Go/Java/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息字节级一致（多 section cross-validate + 三引擎差分 fuzz + 每日 ASan/TSan sanitized fuzz，section 清单以 `scripts/cross-validate/` 为准）
 - **Pine-C++ 标杆运行时** — 完整第三运行时，内置算子与 Go/Java 完全对等、HTTP server（热加载/graceful shutdown）、ColumnFrame/RowFrame 双物理实现、OperatorInput lazy 投影、LuaJIT 集成、metrics/resource 对等
 
 ## Quick Start
@@ -240,7 +240,7 @@ CI 在每次 push/PR 时自动运行：
 
 ### 交叉验证
 
-`scripts/cross-validate.sh` 验证三引擎的一致性，当前 20 个 section（具体以 `scripts/cross-validate/` 目录为准）：
+`scripts/cross-validate.sh` 验证三引擎的一致性，当前 section 清单（以 `scripts/cross-validate/` 目录为准）：
 
 1. **Schema parity** — 三端 codegen 导出的算子 schema 与 apple_generated 产物字节级一致
 2. **DAG parity** — 相同配置，三端渲染的 DAG（DOT + Mermaid，含 collapse）必须一致
