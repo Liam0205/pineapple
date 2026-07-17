@@ -599,12 +599,23 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 
 ### Server 结构体生命周期
 
-Server 现在是 struct-based 设计：`Server` 结构体封装所有可变状态（snapshot 指针、metrics handle 等），handler 函数作为 `*Server` 的方法接收者运行。公共 API `Run(cfg Config) error` 保持不变，内部委托给 `s.run(cfg)`。
+Server 是 struct-based 设计：`Server` 结构体封装所有可变状态（snapshot 指针、metrics handle、watcher 控制等），handler 函数作为 `*Server` 的方法接收者运行。自 issue #169 起构造与传输分离：
+
+- `NewServer(cfg Config) (*Server, error)` — 加载配置、创建引擎与 ResourceManager、存入初始 snapshot、按 `Config.Watch` 启动 config watcher。所有失败路径返回 error（不再 `log.Fatal`）。
+- `Run(cfg Config) error` — 在 `NewServer` 之上组装 net/http 传输壳：注册内置端点 + `Config.Routes` 自定义路由、httpMetricsMiddleware、用户 middleware、admin pprof、signal 驱动 graceful shutdown。
+- 嵌入 API（供 Gin 等既有框架使用，不经过内置 HTTP server）：
+  - `Server.Execute(ctx, req)` — acquire 快照 → 注入 resources 到 ctx → `engine.Execute`，无快照时返回 `ErrEngineNotLoaded`
+  - `Server.Acquire() *Handle` — 持 in-flight 引用的句柄，暴露 `Engine()`/`Resources()`/`ResourceMetrics()`，用完必须 `Release()`
+  - `Server.Close()` — 先 cancel watcher context 并 `<-watchDone` join，再 `snapshot.Swap(nil)` 并 release baseline 引用；teardown 推迟到最后一个 in-flight 引用释放
+
+自定义路由：`Route{Method, Path, Ingress, Egress}`，`Ingress func(*http.Request) (*pine.Request, error)` 转换请求、`Egress func(w, r, *pine.Result, error)` 拥有整个响应。`validateRoutes` 在启动时校验：与内置端点冲突、重复、非 `/` 前缀、`/` 根路径、nil 适配器均报错。自定义路径加入 known-path 集合，HTTP 指标以自身路径为标签（基数依然有界）。
+
+`Config.Watch *bool`：nil（默认）与 true 启动热加载 watcher（向后兼容），false 关闭（配置变更需重启进程）。`pine.Bool` 是取址辅助。
 
 `watchConfig` 接受 `context.Context`，通过 `ticker + select` 实现干净的关闭传播：
 
 - `ctx.Done()` 分支停止 ticker 并退出 goroutine
-- 不再依赖永不退出的 goroutine 存活模式
+- `Close()` 先 join watcher 再拆 snapshot，避免 reload/teardown 竞态
 
 这消除了旧版包级全局状态的竞态风险，并确保 graceful shutdown 时 watchConfig goroutine 可被确定性回收。
 

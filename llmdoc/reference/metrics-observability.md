@@ -181,7 +181,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 行为约定：
 
-- `path` 标签只输出已知路径（`/execute`、`/health`、`/stats`、`/dag`），未知路径归一化为 `_other`，防止高基数标签爆炸
+- `path` 标签只输出已知路径（内置 `/execute`、`/health`、`/stats`、`/dag`，加上 `server.Config.Routes` 注册的自定义路由路径），未知路径归一化为 `_other`，防止高基数标签爆炸。known-path 集合在启动时由 `validateRoutes` 一次性构建，运行期不增长
 - `status` 标签按 HTTP 状态码桶化为 `2xx`、`3xx`、`4xx`、`5xx`、`other`
 - 该中间件在用户 `Middlewares` 之内、`http.ServeMux` 路由之外包装，因此用户 middleware 的处理时间不会被计入 `request_duration`
 - 当 `server.Config.Metrics` 为 nil 时，使用 `metrics.Nop()` 作为 provider，此时中间件仍执行但观测被丢弃，开销可忽略
