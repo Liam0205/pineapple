@@ -279,14 +279,25 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("resource: already started")
 	}
 
-	// Synchronous initial load
+	// Synchronous initial load. On failure, roll back values loaded so far:
+	// started stays false so Stop() would be a no-op, and without an explicit
+	// release here a partially-initialized Manager would leak live values
+	// (e.g. open connections) with no path to close them.
+	loaded := make([]*managedResource, 0, len(m.resources))
 	for _, r := range m.resources {
 		val, err := r.fetcher(ctx)
 		if err != nil {
+			for _, lr := range loaded {
+				if rv := lr.value.Load(); rv != nil {
+					rv.release()
+				}
+				lr.loaded.Store(false)
+			}
 			return fmt.Errorf("resource: initial load of %q failed: %w", r.name, err)
 		}
 		r.value.Store(newRefValue(val))
 		r.loaded.Store(true)
+		loaded = append(loaded, r)
 	}
 
 	// Launch background refresh
