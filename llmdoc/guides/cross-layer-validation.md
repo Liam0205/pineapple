@@ -133,7 +133,7 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 
 ### 编程扩展点的黑盒验证模式（demo-routes 注入）
 
-编程 API 类扩展点（函数指针/闭包，如 custom Route 的 `Ingress`/`Egress` 适配器）无法从黑盒直接构造——cross-validate 只能起 server 二进制发 HTTP 请求，没法注入代码。解法：各引擎 server 二进制加一个统一的演示开关（Go `-demo-routes` / Java `-Dpine.demoRoutes=true` / C++ `-demo-routes`），启用时注册一条行为完全对齐的演示路由（`POST /api/echo`），把编程扩展点物化为可黑盒观测的 HTTP 行为。`scripts/cross-validate/20-custom-routes.sh` 对成功响应、405、400、404、HTTP metrics label、`watch=false` 开关做三引擎字节比对。
+编程 API 类扩展点（函数指针/闭包，如 custom Route 的 `Ingress`/`Egress` 适配器）无法从黑盒直接构造——cross-validate 只能起 server 二进制发 HTTP 请求，没法注入代码。解法：各引擎 server 二进制加一个统一的演示开关（Go `-demo-routes` / Java `-Dpine.demoRoutes=true` / C++ `-demo-routes`），启用时注册一条行为完全对齐的演示路由（`POST /api/echo`），把编程扩展点物化为可黑盒观测的 HTTP 行为。`scripts/cross-validate/20-custom-routes.sh` 对成功响应、405、400、404、HTTP metrics label、`watch=false` 开关做跨运行时（Go/Java/C++）字节比对。
 
 适用条件：扩展点本身是代码而非配置时（配置类扩展点直接用 fixture 驱动即可）。该模式补上了"能力等价"审计维度中编程扩展点无法落到可执行验证的缺口。来源：issue #169，详见 `memory/reflections/upstream-serverplus-custom-routes.md`。
 
@@ -141,7 +141,7 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 
 响应字节一致不代表执行路径对等。历史案例（issue #169 第二轮 review）：pine-cpp 的 custom route 直接调 `engine_->execute` 旁路了 `execute_with_trace`，scheduler `run_count` 与算子 exec/skip 统计全部不计数（Go/Java 正常计数），而 `/api/echo` 的响应与另两引擎完全一致——section 20 首版只查 HTTP metrics label，7/7 绿也没发现。
 
-要求：black-box 对等检查除响应字节外，应包含 `/stats` 中 scheduler/operator 统计的**增量比对**（发请求前后各取一次 `/stats`，断言三引擎增量一致）。现为 `scripts/cross-validate/20-custom-routes.sh` 的 check [7]。判断原则：凡是新入口/新分发路径接入引擎执行，就要问"它是否走了与内置端点相同的共享执行路径"，并用可观测副作用（统计、trace、指标）钉住答案。
+要求：black-box 对等检查除响应字节外，应包含 `/stats` 中 scheduler/operator 统计的**增量比对**（发请求前后各取一次 `/stats`，断言各运行时增量一致）。现为 `scripts/cross-validate/20-custom-routes.sh` 的 check [7]。判断原则：凡是新入口/新分发路径接入引擎执行，就要问"它是否走了与内置端点相同的共享执行路径"，并用可观测副作用（统计、trace、指标）钉住答案。
 
 ### 可选测试臂必须 fail-closed
 
