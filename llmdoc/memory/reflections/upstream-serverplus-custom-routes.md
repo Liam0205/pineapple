@@ -89,3 +89,12 @@
 ### 验证注记
 
 - section 20 新增 check [10]：watch=true 下 touch config 与 `/api/echo` 高频交错，全程 200 + `reload_count >= 1`。第一次跑因两个 cross-validate run 并行抢同一组端口出现假失败——复用固定端口的 section 不能并行跑自己，排查时先看 "bind: address already in use"。
+
+## 第四轮：竞态检查自身的有效性修复（6a91f1db）
+
+第三轮之后，增量审查 2（`.code-review/from-c353c04/increment-2-to-b191639.md`）指出 check [10] 本身无效（重要 1 项，无阻塞）：`touch → 串行 curl burst → sleep` 的形状不保证请求与 reload 真正重叠——2s watcher 完全可以在 burst 结束后的 sleep 里 reload，零重叠也绿；且三个 server 共用一个 config，前一臂的 touch 预先推高后一臂的 `reload_count`，`>= 1` 的终态断言形同虚设。修复 commit `6a91f1db`。
+
+### 教训
+
+- **竞态回归测试必须证明重叠，不能假设重叠**：正确形状是「取本 server 基线 → 后台 worker 持续压请求 → 主线程 touch 并轮询直到计数严格越过基线 → 观测到 reload 完成后再停 worker → 断言零非 200」。重叠是被观测到的事实（reload 在请求在途期间完成），不是调度巧合。写并发检查时先问：这个断言在完全串行的调度下会不会也通过？会，就还没钉住竞态。
+- **共享可变文件是跨臂污染源**：多个 server 按序复用同一个 config 文件时，任何以「该文件引发的副作用计数」为断言的检查都会被先行臂预满足。每臂独立副本（`race_config_{go,java,cpp}.json`）+ 以自身基线的严格增量为准，才隔离得干净。
