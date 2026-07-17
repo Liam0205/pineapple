@@ -610,7 +610,7 @@ Server 是 struct-based 设计：`Server` 结构体封装所有可变状态（sn
 
 自定义路由：`Route{Method, Path, Ingress, Egress}`，`Ingress func(*http.Request) (*pine.Request, error)` 转换请求、`Egress func(w, r, *pine.Result, error)` 拥有整个响应。`validateRoutes` 在启动时校验：与内置端点冲突、重复、非 `/` 前缀、`/` 根路径、nil 适配器均报错。自定义路径加入 known-path 集合，HTTP 指标以自身路径为标签（基数依然有界）。
 
-请求体上限在共享分发层统一施加，业务 Ingress 不需要（也不应）自行实现限流：Go 的 routeHandler 在调用 Ingress 之前用 `http.MaxBytesReader` 包住 body，`MaxBytesError` 集中映射为 413（与 `/execute` 的响应字节一致）；Java 用 `LimitedBodyStream`（读到 limit+1 抛异常）对齐 Go 的边界语义；C++ 天然在 socket 读取层集中限流。这是跨引擎行为契约——`scripts/cross-validate/20-custom-routes.sh` 的 check [8] 验证 custom route 超限 413 三端字节一致。
+请求体上限在共享分发层统一施加，业务 Ingress 不需要（也不应）自行实现限流：Go 的 routeHandler 在调用 Ingress 之前用 `http.MaxBytesReader` 包住 body，`MaxBytesError` 集中映射为 413（与 `/execute` 的响应字节一致）；Java 用 `LimitedBodyStream`（读到 limit+1 抛异常）对齐 Go 的边界语义；C++ 天然在 socket 读取层集中限流。这是跨引擎行为契约——`scripts/cross-validate/20-custom-routes.sh` 的 check [8] 验证 custom route 超限 413 各运行时字节一致。
 
 `Config.Watch *bool`：nil（默认）与 true 启动热加载 watcher（向后兼容），false 关闭（配置变更需重启进程）。`pine.Bool` 是取址辅助。
 
