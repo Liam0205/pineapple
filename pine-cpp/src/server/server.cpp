@@ -856,37 +856,27 @@ void Server::handle_custom_route(int client_fd, const Route& route, const RouteR
       return;
     }
 
-    // Execute against the live engine holding engine_mu_ shared for the whole
-    // call — same lock discipline as execute_with_trace, so a concurrent
-    // hot-reload cannot swap the engine mid-execute. The resource snapshot is
-    // taken inside the same window. An unloaded engine surfaces to Egress as
-    // an error (mirrors pine-go Execute returning ErrEngineNotLoaded, which
-    // routeHandler forwards to Egress with a nil result).
-    Result result;
-    std::string exec_error;
-    bool ok = false;
+    // Execute through execute_with_trace — the same path as the built-in
+    // /execute — so scheduler run_count and per-operator exec/skip stats
+    // count custom-route pipeline runs too (three-runtime /stats parity),
+    // and client-disconnect cancel works exactly like /execute. An unloaded
+    // engine surfaces to Egress as an error (mirrors pine-go Execute
+    // returning ErrEngineNotLoaded, which routeHandler forwards to Egress
+    // with a nil result).
+    bool engine_loaded = false;
     {
       std::shared_lock<std::shared_mutex> lock(engine_mu_);
-      if (!engine_) {
-        exec_error = "engine not loaded";
-      } else {
-        std::map<std::string, Variant> res_snap;
-        if (resource_manager_) {
-          res_snap = resource_manager_->snapshot();
-        }
-        try {
-          result = engine_->execute(engine_req, res_snap);
-          ok = true;
-        } catch (const std::exception& e) {
-          exec_error = e.what();
-        }
-      }
+      engine_loaded = static_cast<bool>(engine_);
     }
-
-    if (ok) {
-      route.egress(resp, req, &result, "");
+    if (!engine_loaded) {
+      route.egress(resp, req, nullptr, "engine not loaded");
     } else {
-      route.egress(resp, req, nullptr, exec_error);
+      ExecuteResult exec_result = execute_with_trace(engine_req, false, client_fd);
+      if (exec_result.has_error) {
+        route.egress(resp, req, nullptr, exec_result.error);
+      } else {
+        route.egress(resp, req, &exec_result.result, "");
+      }
     }
   }  // arena scope ends — all arena-allocated Variants freed
 
