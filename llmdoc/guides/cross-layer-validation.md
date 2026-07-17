@@ -131,6 +131,12 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 - 对比各运行时的公共 API surface（不只是内部实现）
 - 枚举 Server 级扩展点（add handler、wrap middleware、custom route），验证各运行时均暴露等价能力
 
+### 编程扩展点的黑盒验证模式（demo-routes 注入）
+
+编程 API 类扩展点（函数指针/闭包，如 custom Route 的 `Ingress`/`Egress` 适配器）无法从黑盒直接构造——cross-validate 只能起 server 二进制发 HTTP 请求，没法注入代码。解法：各引擎 server 二进制加一个统一的演示开关（Go `-demo-routes` / Java `-Dpine.demoRoutes=true` / C++ `-demo-routes`），启用时注册一条行为完全对齐的演示路由（`POST /api/echo`），把编程扩展点物化为可黑盒观测的 HTTP 行为。`scripts/cross-validate/20-custom-routes.sh` 对成功响应、405、400、404、HTTP metrics label、`watch=false` 开关做三引擎字节比对。
+
+适用条件：扩展点本身是代码而非配置时（配置类扩展点直接用 fixture 驱动即可）。该模式补上了"能力等价"审计维度中编程扩展点无法落到可执行验证的缺口。来源：issue #169，详见 `memory/reflections/upstream-serverplus-custom-routes.md`。
+
 ## 7. 声明→生效端到端路径校验
 
 当 Apple DSL 引入或修改声明侧字段（如 `strict_common`、`debug`），且该字段最终需要被运行时消费时，必须验证完整的声明→编译→运行时链路，而非仅验证编译产出的 JSON 格式正确。

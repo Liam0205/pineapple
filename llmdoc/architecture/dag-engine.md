@@ -650,6 +650,8 @@ Server 是 struct-based 设计：`Server` 结构体封装所有可变状态（sn
 
   重启对齐的触发条件：生产出现 Java/cpp pool 长时间运行 RSS 单调爬升 / OOM 数据。届时走 issue #91 方案 C 路径（warm/cold + idle TTL + per-引擎适配机制）。
 
+- **Java routeHandler 错误模型不对称（issue #169）**：Go `Server.Execute` 把校验错误与执行错误统一为 `err` 传给自定义路由的 Egress；Java `Engine.execute` 是抛（`ValidationError`）/ 返回（`Result.error` 字段）二分，`routeHandler` 只把抛出的异常传 `egress(null, e)`，算子级执行错误留在 `result.error` 由 Egress 自查。接受理由：语言习惯差异（Java checked/unchecked 边界 vs Go 统一 error 返回），黑盒行为（demo route 输出）字节一致，由 `scripts/cross-validate/20-custom-routes.sh` 锁定。
+
 HTTP 路由先由 `http.ServeMux` 注册内部端点，再由内置 `httpMetricsMiddleware`（`pine-go/pkg/server/http_metrics.go`）作为最内层中间件包装，最后由 `server.Config.Middlewares []func(http.Handler) http.Handler` 在启动 `ListenAndServe` 前按切片顺序从外到内包装整个 handler 链。也就是说，`Middlewares[0]` 最先看到请求、最后看到响应；`nil` 或空切片时行为与旧版一致。内置 HTTP 指标中间件记录 `pine_http_requests_total` 和 `pine_http_request_duration_seconds`，且将未知路径归一化为 `_other` 以防止高基数标签。该注入点位于 server 边界层，不参与 Engine 编译、DAG 推导或配置热加载逻辑，因此业务侧可叠加访问日志、认证、限流等横切能力，而不必自行重写 Pineapple 的 reload / shutdown 框架。
 
 此分离很重要：DAG 执行仅依赖请求上下文和编译后的 plan，不依赖服务器特定逻辑。

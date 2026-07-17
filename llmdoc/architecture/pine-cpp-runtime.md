@@ -82,6 +82,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
   - **read-header-timeout**（R3-L9a）：`read_http_request` 入参增 `header_timeout` / `body_timeout`；header 阶段 `SO_RCVTIMEO` 短窗口防 Slowloris，`\r\n\r\n` 边界后 swap 为 body_timeout 长窗口
   - **客户端断连取消**（R10-2）：`execute_with_trace` 接收 `client_fd`，spawn watcher 线程 `poll()` 同时监听 client fd（`POLLRDHUP|POLLHUP|POLLERR`）和 `eventfd` wakeup fd，`poll` 超时设为 `-1`（无限等待），实现零延迟唤醒。请求完成后主线程 `eventfd_write` 通知 watcher 退出，替代原 100ms 轮询超时方案
   - 双重边界 body 读取：Content-Length 与 `max_request_body_size+1` hard cap 同时生效；malformed Content-Length 直接拒绝
+  - **custom Route / Watch 对等采取"黑盒行为对等、实现结构自由"**（issue #169）：C++ server 不是公开库 API（在 `src/server/` 不在 `include/pine/`），有意不做 Go/Java 的嵌入 API（`Execute`/`Acquire`），保持 shared_mutex 引擎生命周期方案——handler 持 shared_lock 是 Go 引用计数快照的语义等价物。支持 `Route{method, path, ingress, egress}` 自定义路由与 `ServerConfig::watch`（CLI `-watch=false` / `-demo-routes`）。可测校验逻辑（`validate_routes` / `normalize_path`）抽在 socket-free 的 `src/server/routes.cpp`，同时链进 `pineapple-server` 与 `pine_cpp_tests` 两个 target；错误文案与 Go `validateRoutes` 字节对齐，由 `scripts/cross-validate/20-custom-routes.sh` 锁定
 - **Engine / 调度**
   - **Ready-queue DAG 调度器**（v0.9.2）：替代原 per-node `std::thread` 方案，使用双隔离线程池架构：
     - **DAG pool**（默认 `nproc * 4`）：负责 DAG 节点调度，只有前驱全部完成的节点才被提交到池中，池中不存在阻塞任务
