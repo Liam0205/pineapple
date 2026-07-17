@@ -55,6 +55,10 @@ struct ExecuteResult {
   std::string error;
   bool is_validation_error = false;
   bool has_error = false;
+  // True when no engine was loaded at execute time (checked under the same
+  // engine_mu_ shared lock that guards the execute itself). Callers map this
+  // to 503 (/execute) or an Egress error string (custom routes).
+  bool engine_not_loaded = false;
   // Whether `result` was populated by the engine. Mirrors pine-go's
   // `result != nil` check: on engine-level errors the result is "nil",
   // and the response must serialize common/items as JSON `null` (not `{}`/`[]`).
