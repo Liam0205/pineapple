@@ -178,6 +178,24 @@ public class RouteTest {
         }
     }
 
+    // start() failing after load() (e.g. port already bound) must roll back the
+    // watcher thread and snapshot baseline so the caller is not left with a
+    // half-started server. Mirrors Go Run()'s defer Close.
+    @Test
+    void testStartFailureRollsBackLoad() throws Exception {
+        try (ServerSocket occupier = new ServerSocket(0)) {
+            PineServer s = new PineServer(writeTempConfig().toString(), occupier.getLocalPort());
+            assertThrows(Exception.class, s::start);
+            // load() side effects were rolled back: no live snapshot remains,
+            // so the embedding API reports engine-not-loaded instead of
+            // executing against a leaked baseline.
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> s.execute(Map.of(), List.of()));
+            assertTrue(e.getMessage().contains("engine not loaded"), e.getMessage());
+            assertNull(s.acquire(), "acquire() after failed start must return null");
+        }
+    }
+
     // --- Watch toggle -----------------------------------------------------
 
     @Test

@@ -201,24 +201,32 @@ public class PineServer {
         // Build the engine/resource baseline and start the watcher (idempotent).
         load();
 
-        httpServer = HttpServer.create(new InetSocketAddress(port), 0);
-        httpExecutor = Executors.newFixedThreadPool(
-                Runtime.getRuntime().availableProcessors() * 2);
-        httpServer.setExecutor(httpExecutor);
+        // If standing up the HTTP layer fails (e.g. port already bound), roll
+        // back what load() started so the caller is not left with a live
+        // watcher thread and snapshot baseline. Mirrors Go Run()'s defer Close.
+        try {
+            httpServer = HttpServer.create(new InetSocketAddress(port), 0);
+            httpExecutor = Executors.newFixedThreadPool(
+                    Runtime.getRuntime().availableProcessors() * 2);
+            httpServer.setExecutor(httpExecutor);
 
-        httpServer.createContext("/health", wrapHandler("/health", this::handleHealth));
-        httpServer.createContext("/execute", wrapHandler("/execute", this::handleExecute));
-        httpServer.createContext("/stats", wrapHandler("/stats", this::handleStats));
-        httpServer.createContext("/dag", wrapHandler("/dag", this::handleDAG));
-        httpServer.createContext("/", wrapHandler("_other", this::handleNotFound));
+            httpServer.createContext("/health", wrapHandler("/health", this::handleHealth));
+            httpServer.createContext("/execute", wrapHandler("/execute", this::handleExecute));
+            httpServer.createContext("/stats", wrapHandler("/stats", this::handleStats));
+            httpServer.createContext("/dag", wrapHandler("/dag", this::handleDAG));
+            httpServer.createContext("/", wrapHandler("_other", this::handleNotFound));
 
-        // Register custom routes. The path label handed to the metrics wrapper is
-        // the route's own exact path, keeping HTTP metrics cardinality bounded.
-        for (Route route : routesSnapshot) {
-            httpServer.createContext(route.path, wrapHandler(route.path, routeHandler(route)));
+            // Register custom routes. The path label handed to the metrics wrapper is
+            // the route's own exact path, keeping HTTP metrics cardinality bounded.
+            for (Route route : routesSnapshot) {
+                httpServer.createContext(route.path, wrapHandler(route.path, routeHandler(route)));
+            }
+
+            httpServer.start();
+        } catch (Exception e) {
+            stop();
+            throw e;
         }
-
-        httpServer.start();
     }
 
     @FunctionalInterface
