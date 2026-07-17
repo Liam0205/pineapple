@@ -18,10 +18,10 @@
 
 ## guides/
 
-- `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步、review-driven scope expansion 接受、并行 worker 改动收集（worktree diff→apply 收集模式 + 新公开入口需重审旧状态机可达性）。
+- `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步、review-driven scope expansion 接受、并行 worker 改动收集（worktree diff→apply 收集模式 + 新公开入口/状态机修复需重扫整个状态机：可达性、并发交错、发布顺序）。
 - `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint（含 Java checkstyle `failOnViolation=true` + `OneStatementPerLine`、C++ clang-format）/ test / coverage / fuzz / differential-fuzz / daily sanitized-fuzz（ASan/TSan 深度诊断，与 nightly Release 10k 轮吞吐互补，`--time-budget-seconds` 内层 pacing + 外层纯 hang 保护两层 timeout 设计） / cross-validate / nightly cross-runtime benchmark / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径），统一任务入口 Makefile 体系（顶层 + `pine-go/` Makefile 封装跨四语言 fmt/lint/test/bench/codegen/版本管理，CI 与本地共用同一命令序列、`make bench` 默认 `pine_bench` tag），CI apt 依赖安装约定（`scripts/ci-apt-install.sh` 重试 wrapper + 包清单瘦身，防慢镜像单发击穿，历史 #125/#164），以及本地 `.githooks/` 体系（`pre-commit` staged-only 格式 gate + `pre-push` 工程级 lint + 自包装 CI watch）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则、跟进上游 issue 与临时止血方法论（跨 issue 根因归属不顺 follow-up 措辞、临时止血阈值用 probe 实测标定）。
-- `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证（含跨引擎 markdown / Python 产物 byte-equal gate）、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价 + 编程扩展点的 demo-routes 黑盒验证模式）。
+- `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证（含跨引擎 markdown / Python 产物 byte-equal gate）、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价 + 编程扩展点的 demo-routes 黑盒验证模式 + 执行路径可观测副作用增量比对 + 可选测试臂 fail-closed）。
 - `llmdoc/guides/benchmark-hygiene.md` — Benchmark 噪声卫生：跑前/跑后 load 与残留进程检查、同日同机对照纪律、±5-7% 二进制布局噪声与 perf stat 交叉验证、calibrated stddev 33-36ms 来源校准（DAG 调度抖动 + LuaJ JIT warmup + 网络抖动主导，GC pause 非主要源）、fixture 代表性（calibrated 为性能决策唯一裁判）、microbench 访问模式戒律、逐 op 删除归因法、测量路径对称性（PureVM vs CallOnly vs Boundary 不可互推）。
 
 ## reference/
@@ -112,7 +112,7 @@
 - `llmdoc/memory/reflections/column-vs-row-parity-investigation.md` — 列存 vs 行存性能持平调查复盘（2026-07-07，pine-go 调查 + 同日三引擎实现 fbf2ef7/bf7ce0b/95a3000），记录三层根因（逐元素 `Item()` 接口税 27x 第一性、ColumnFrame 三处行主序热路径、负载形状由列存劣势操作构成）、A/B 数据（BuildInput 列存 53μs→3.9μs、transform-heavy e2e 列存 +30%）、三引擎批量列访问 API 形式对照与验证结果（cross-validate + 120 轮 fuzz 零 divergence + coverage 背书）、实现阶段教训（spec 裸指针生命周期、覆盖要量化不要感觉、flaky divergence 先排环境、样板对齐不等于逐行照抄、翻译残留死代码）与 row/column 使用判据；含第二阶段 typed columns 实现记录（issue #156 / PR #162）与第三阶段批量列写实现记录（issue #157 / PR #163，写侧 profiling 归因 ~24% 过闸门、列存 allocs -66%、Go 批量路径 `any` 装箱税教训、新写路径六消费点清单）。
 - `llmdoc/memory/reflections/ci-apt-resilience-and-dead-weight-packages.md` — 修复 apt 慢镜像二次击穿 CI（#125→#164）复盘，记录单发安装+整段超时结构性缺陷需重试层而非更大超时数值（判据：失败模式重试后是否大概率自愈）、死重包（cmake/ninja-build/build-essential）放大慢镜像暴露面 10 倍（15.7 MB vs 实需 ~1.5 MB）、依赖断言（`cmake --version`）比隐式依赖预装更健壮、go native fuzz "context deadline exceeded" 且无 crash corpus 文件即为 coordinator flake（应 rerun 而非误判为真实发现）四条教训。
 - `llmdoc/memory/reflections/wangshu-v020-stable-bump-dual-module-miss.md` — wangshu rc5→v0.2.0 正式版 bump（PR #166）复盘，记录手工 `go mod tidy` 漏掉 `pine-go/benchmarks/` 独立子 module（应走 `make tidy` 双 module 封装入口，绕开手工命令即绕开该保护）、CI 失败后应先扫 PR review bot 评论再挖日志（bot 诊断早于且更完整）两条教训；rc→stable 升级审计三件套（逐 commit 审上游 diff / go.mod 哈希对比证模块定义等价 / 双 tag 测试）本次做对，作正面对照记录。
-- `llmdoc/memory/reflections/upstream-serverplus-custom-routes.md` — 下游 serverplus 上游化复盘（issue #169 / PR #170，三引擎自定义路由 / Watch 开关 / 嵌入 API），记录 demo-routes 黑盒验证模式、错误文案设计期锁定、C++ 有意不做嵌入 API、Java 错误模型二分接受四项决策，以及 worktree 改动搬运误判、新入口暴露旧状态机 bug（stop 后 acquireSnapshot 自旋）、mvn 诊断链三坑等教训。
+- `llmdoc/memory/reflections/upstream-serverplus-custom-routes.md` — 下游 serverplus 上游化复盘（issue #169 / PR #170，三引擎自定义路由 / Watch 开关 / 嵌入 API），记录 demo-routes 黑盒验证模式、错误文案设计期锁定、C++ 有意不做嵌入 API、Java 错误模型二分接受四项决策，以及 worktree 改动搬运误判、新入口暴露旧状态机 bug（stop 后 acquireSnapshot 自旋）、mvn 诊断链三坑等教训；含第二轮深度 code-review 修复记录（8 项问题：body limit 绕过、ServeMux pattern 陷阱、Addr 默认值回归、stop/reload 竞态、C++ stats 旁路、fail-open 测试臂等）。
 
 ## memory/decisions/
 

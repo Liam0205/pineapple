@@ -52,3 +52,25 @@
 
 - 由 recorder 同步 index.md，并把上面前四条 promotion 落到对应稳定文档。
 - Go 侧 `Close()` 与 Java `stop()` 的快照清引用行为现已对齐，后续任何一侧改生命周期须两侧同看（可在 parity 审计 checklist 提一句）。
+
+## 第二轮：深度 code-review 修复（54922de8）
+
+首轮 CI 全绿、bot review 三轮 APPROVE 之后，本地深度 code-review（`.code-review/from-c353c04/from-c353c04-to-603238b.md`）判 REQUEST_CHANGES，找出 8 项真实问题（阻塞 1 + 重要 6 + 小 1），全部属实、无一误报。四个修复 commit（`6509c4a0` Go / `9ae0fa4f` Java / `2201e7a1` C++ / `54922de8` cross-validate+docs）后 CI 全绿、bot 增量审查 APPROVE。
+
+### 教训
+
+- **bot review APPROVE ≠ 无问题**：bot 三轮 APPROVE 只提了 1 个 minor；深度 review 找出 8 项，含 1 个安全阻塞（custom route 绕过 body limit）。深度 review 的价值在于逐项验证边界——请求体上限、ServeMux pattern 语义、生命周期回滚、统计对齐、测试脚本的静默跳过——而不是走查 diff。
+- **Go 1.22+ ServeMux pattern 语义陷阱**：把用户提供的 path 直接 `mux.Handle(path, ...)` 注册，尾随 `/` 会变成匿名子树通配符、`{name}` 变通配段、非法花括号直接 panic。声明为「精确路径」的 API 必须用精确字符串查表分发（`fallbackHandler` + map lookup），不能借道 pattern 注册。
+- **按值 Config 参数的默认值修改只影响副本**：`NewServer(cfg Config)` 里 `cfg.Addr = ":8080"` 改的是自己的副本；`Run` 后续读原始 `cfg.Addr` 拿到空串 → net/http 用 `:http`（80 端口）。「构造 / 运行分离」重构时，默认值归一化必须抽成共享函数（`normalizeConfig`）在两个入口都调用。这是 Run→NewServer 拆分引入的回归，原先单函数写法里不存在。
+- **共享分发层统一施加请求体上限**：编程扩展点（Ingress 读原始请求）不能依赖每个业务实现自己限流——Go 在 routeHandler 里用 `http.MaxBytesReader` 包 body、`MaxBytesError` 集中回 413；Java 用 `LimitedBodyStream`（读到 limit+1 抛异常）对齐 Go 边界语义；C++ 天然在 socket 读取层集中限流（先例证明「核心层统一」是对的形状）。section 20 新增 check [8] 验证 custom route 超限 413 三端字节一致。
+- **shutdownNow 只中断不等待**：Java `stop()` 原来 `shutdownNow` 后立即拆 snapshot，在途 reload（不检查中断标志）可在拆除后 `getAndSet` 重新发布快照——服务器「复活」+ 泄漏。修复为 `awaitTermination` join + `stopLock` 下 `closed` 标志防落后发布。这与首轮修的「stop 后自旋」是同一状态机的两个不同竞态窗口——**给状态机修一个洞之后要重扫整个状态机**，首轮只修了可达性洞，没扫并发洞。
+- **旁路共享执行路径 = 统计静默丢失**：C++ custom route 直接调 `engine_->execute` 绕过 `execute_with_trace`，scheduler run_count 和算子 exec/skip 统计全部不计数（Go/Java 计数）。black-box section 20 只查了 http metrics label，没查 scheduler/operator 统计增量，所以 7/7 绿也没发现。修复后 section 20 加 check [7]（/api/echo 后 stats 增量三端比对）。教训：**对等验证要覆盖「执行路径的可观测副作用」，不只是响应字节**。
+- **可选测试臂的静默消失**：section 20 里 `CPP_SERVER` 已配置但 readiness 失败时，既不 fail 也不加 total，C++ 臂静默消失、整段仍 pass。修复：配置了二进制但 readiness 失败 → 硬 fail + 终态断言 `cpp_cr_total > 0`。这是 fail-open 反模式——可选组件的跳过必须显式区分「未配置」（跳过合法）和「配置了但坏了」（必须失败）。
+- **硬编码数量再犯**：README 写「20 个 section」+ Makefile help 还是「19 section」，违反 `llmdoc/must/conventions.md` 明令禁止的硬编码层数约定（首轮还自己把 19 改成 20，等于两个入口互相矛盾）。规则已存在但写 README 时没触发检索——**改 README 的定量描述前先查 conventions.md**。
+
+### Promotion Candidates（本轮）
+
+- 进 `guides/standard-workflow.md`：与首轮已收录的「新公开入口需重审旧状态机可达性」合并成完整审计动作——修一个洞后重扫整个状态机，可达性洞与并发洞分开扫。
+- 进 `guides/cross-layer-validation.md`：对等验证需覆盖执行路径的可观测副作用（scheduler/operator 统计增量，不只响应字节）；可选测试臂必须 fail-closed（「配置了但坏了」硬失败并断言检查数 > 0）。
+- 进 `architecture/dag-engine.md`（server 生命周期一节）：custom route 的请求体上限由共享分发层统一施加（Go MaxBytesReader / Java LimitedBodyStream / C++ socket 层），属跨引擎行为契约。
+- 仅留 memory：ServeMux pattern 语义陷阱、按值 Config 副本回归、limit+1 边界对齐细节——检索到本篇即可。
