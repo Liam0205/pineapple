@@ -430,6 +430,51 @@ public class RouteTest {
         }
     }
 
+    // skip() advances the underlying stream just like read(): an Ingress that
+    // skips past an oversized body must still trip the central 413 and never
+    // reach Egress — otherwise skipNBytes would bypass max_request_body_size.
+    @Test
+    void testRouteHandlerBodyLimitNotBypassedBySkip() throws Exception {
+        int port = findFreePort();
+        // Config with a tiny body cap (16 bytes) so a small request trips it.
+        Map<String, Object> cfg = mapper.readValue(MINIMAL_CONFIG, new TypeReference<>() {});
+        cfg.put("max_request_body_size", 16);
+        Path cfgFile = Files.createTempFile("pine-route-limit-", ".json");
+        Files.write(cfgFile, mapper.writeValueAsBytes(cfg));
+        cfgFile.toFile().deleteOnExit();
+
+        boolean[] egressRan = {false};
+        PineServer s = new PineServer(cfgFile.toString(), port);
+        s.setWatch(false);
+        s.addRoute(new PineServer.Route(
+                "POST", "/api/skip",
+                exchange -> {
+                    // Skip the whole body instead of reading it — must still
+                    // count against the limit.
+                    exchange.getRequestBody().skipNBytes(1000);
+                    return new PineServer.ExecRequest(Map.of(), List.of());
+                },
+                (exchange, result, error) -> {
+                    egressRan[0] = true;
+                    writeJson(exchange, 200, "{}");
+                }));
+        s.start();
+        HttpClient client = HttpClient.newHttpClient();
+        try {
+            HttpResponse<String> resp = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + port + "/api/skip"))
+                            .POST(HttpRequest.BodyPublishers.ofString("a".repeat(1000)))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertEquals(413, resp.statusCode(), resp.body());
+            assertTrue(resp.body().contains("request body too large"), resp.body());
+            assertFalse(egressRan[0], "Egress must not run when the body cap trips via skip()");
+        } finally {
+            s.stop();
+        }
+    }
+
     // --- helpers ----------------------------------------------------------
 
     private static void drain(java.io.InputStream in) throws IOException {
