@@ -196,6 +196,24 @@ public class RouteTest {
         }
     }
 
+    // A reload that publishes after stop() must not resurrect the server: the
+    // closed flag (under the stop lock) makes the late publication release its
+    // snapshot and fail, so execute()/acquire() stay engine-not-loaded.
+    @Test
+    void testReloadAfterStopDoesNotResurrectSnapshot() throws Exception {
+        PineServer s = newServer();
+        s.setWatch(false);
+        s.load();
+        byte[] config = Files.readAllBytes(writeTempConfig());
+        s.stop();
+
+        assertThrows(IllegalStateException.class, () -> s.loadConfig(config),
+                "loadConfig after stop must refuse to publish");
+        assertThrows(IllegalStateException.class, () -> s.execute(Map.of(), List.of()),
+                "execute must stay engine-not-loaded after a late reload");
+        assertNull(s.acquire(), "acquire must stay null after a late reload");
+    }
+
     // --- Watch toggle -----------------------------------------------------
 
     @Test
