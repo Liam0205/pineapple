@@ -335,56 +335,111 @@ with open('$BIG_BODY_FILE', 'w') as f:
   # C++ lock-window regression where the resource manager was snapshotted
   # outside the engine lock: a reload swapping engine_/resource_manager_
   # mid-request could race a concurrent custom-route execute (use-after-free
-  # or old-resources-on-new-engine). Hammer /api/echo while repeatedly
-  # touching the config to force reloads; every response must stay 200.
+  # or old-resources-on-new-engine).
+  #
+  # Overlap is guaranteed, not assumed: background workers hammer /api/echo
+  # continuously while the main thread touches the config and polls THIS
+  # server's reload_count until it strictly increases past the baseline taken
+  # at arm start — so at least one reload demonstrably completes while
+  # requests are in flight. Each server gets its own config file so another
+  # arm's touches can never pre-satisfy the counter.
+  reload_count_of() {
+    curl -s "http://localhost:$1/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))" 2>/dev/null || echo 0
+  }
+
   reload_race_arm() {
-    # $1=port; returns 0 when all requests succeed and >=1 reload happened.
-    # touch is synchronous (instant); the race window comes from the watcher
-    # thread running reload_config concurrently with the request hammer below.
-    local port=$1 code ok=0 total=40
-    for i in $(seq 1 4); do
-      touch "$CR_CONFIG"
-      for j in $(seq 1 10); do
-        code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$port/api/echo" -d "$CR_BODY")
-        [[ "$code" == "200" ]] && ok=$((ok + 1))
-      done
-      sleep 1  # let a watcher tick observe the touch
+    # $1=port $2=per-server config file; returns 0 when reload_count strictly
+    # increased while workers were hammering and every request returned 200.
+    local port=$1 cfg=$2
+    local rc0 rc1
+    rc0=$(reload_count_of "$port")
+
+    local stop_flag="$WORK_DIR/race_stop_$port"
+    local fail_file="$WORK_DIR/race_fail_$port"
+    rm -f "$stop_flag" "$fail_file"
+    local worker_pids=()
+    local w
+    for w in 1 2 3; do
+      (
+        local n=0 code
+        while [[ ! -f "$stop_flag" ]]; do
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:$port/api/echo" -d "$CR_BODY")
+          if [[ "$code" != "200" ]]; then
+            echo "$code" >> "$fail_file"
+          fi
+          n=$((n + 1))
+        done
+        echo "$n" > "$WORK_DIR/race_count_${port}_$w"
+      ) &
+      worker_pids+=($!)
     done
-    local rc
-    rc=$(curl -s "http://localhost:$port/stats" | python3 -c "import json,sys; print(json.load(sys.stdin).get('server',{}).get('reload_count',0))" 2>/dev/null || echo 0)
-    [[ $ok -eq $total && "$rc" -ge 1 ]] && return 0
-    echo "        port=$port ok=$ok/$total reload_count=$rc" >&2
+
+    # Touch repeatedly until THIS server's counter moves. Watcher tick is 2s
+    # and C++ mtime granularity is 1s, so a 20s deadline is generous.
+    local deadline=$((SECONDS + 20)) reloaded=false
+    while (( SECONDS < deadline )); do
+      touch "$cfg"
+      sleep 0.5
+      rc1=$(reload_count_of "$port")
+      if (( rc1 > rc0 )); then
+        reloaded=true
+        break
+      fi
+    done
+    sleep 0.5  # keep the hammer running briefly past the observed reload
+    touch "$stop_flag"
+    wait "${worker_pids[@]}" 2>/dev/null || true
+
+    local fails=0 reqs=0
+    [[ -f "$fail_file" ]] && fails=$(wc -l < "$fail_file")
+    for w in 1 2 3; do
+      if [[ -f "$WORK_DIR/race_count_${port}_$w" ]]; then
+        reqs=$((reqs + $(cat "$WORK_DIR/race_count_${port}_$w")))
+      fi
+    done
+
+    if $reloaded && [[ $fails -eq 0 && $reqs -gt 0 ]]; then
+      return 0
+    fi
+    echo "        port=$port reloaded=$reloaded reqs=$reqs fails=$fails (reload_count ${rc0} -> ${rc1:-?})" >&2
     return 1
   }
 
   cr_total=$((cr_total + 1))
-  "$WORK_DIR/pineapple-server" -config "$CR_CONFIG" -addr ":$GO_CR_PORT" -demo-routes &
+  GO_RACE_CONFIG="$WORK_DIR/race_config_go.json"
+  JAVA_RACE_CONFIG="$WORK_DIR/race_config_java.json"
+  CPP_RACE_CONFIG="$WORK_DIR/race_config_cpp.json"
+  cp "$CR_CONFIG" "$GO_RACE_CONFIG"
+  cp "$CR_CONFIG" "$JAVA_RACE_CONFIG"
+  cp "$CR_CONFIG" "$CPP_RACE_CONFIG"
+
+  "$WORK_DIR/pineapple-server" -config "$GO_RACE_CONFIG" -addr ":$GO_CR_PORT" -demo-routes &
   GO_CR_PID=$!
-  java -cp "$JAVA_CP" -Dpine.config="$CR_CONFIG" -Dpine.port=$JAVA_CR_PORT \
+  java -cp "$JAVA_CP" -Dpine.config="$JAVA_RACE_CONFIG" -Dpine.port=$JAVA_CR_PORT \
     -Dpine.demoRoutes=true page.liam.pine.PineServer &
   JAVA_CR_PID=$!
   if [[ -n "${CPP_SERVER:-}" ]]; then
-    "$CPP_SERVER" -config "$CR_CONFIG" -addr ":$CPP_CR_PORT" -demo-routes &
+    "$CPP_SERVER" -config "$CPP_RACE_CONFIG" -addr ":$CPP_CR_PORT" -demo-routes &
     CPP_CR_PID=$!
   fi
 
   if srv_ready $GO_CR_PORT && srv_ready $JAVA_CR_PORT; then
     go_race_ok=false
     java_race_ok=false
-    reload_race_arm $GO_CR_PORT && go_race_ok=true
-    reload_race_arm $JAVA_CR_PORT && java_race_ok=true
+    reload_race_arm $GO_CR_PORT "$GO_RACE_CONFIG" && go_race_ok=true
+    reload_race_arm $JAVA_CR_PORT "$JAVA_RACE_CONFIG" && java_race_ok=true
     if $go_race_ok && $java_race_ok; then
       cr_pass=$((cr_pass + 1))
-      echo "    [10] custom route stays 200 under active hot-reload (Go, Java)"
+      echo "    [10] custom route stays 200 with a reload completing mid-hammer (Go, Java)"
     else
       fail "custom-routes: reload race (Go ok=$go_race_ok, Java ok=$java_race_ok)"
     fi
 
     if [[ -n "${CPP_CR_PID:-}" ]]; then
       cpp_cr_total=$((cpp_cr_total + 1))
-      if srv_ready $CPP_CR_PORT && reload_race_arm $CPP_CR_PORT; then
+      if srv_ready $CPP_CR_PORT && reload_race_arm $CPP_CR_PORT "$CPP_RACE_CONFIG"; then
         cpp_cr_pass=$((cpp_cr_pass + 1))
-        echo "    [10] C++ custom route stays 200 under active hot-reload"
+        echo "    [10] C++ custom route stays 200 with a reload completing mid-hammer"
       else
         fail "custom-routes: C++ reload race"
       fi
