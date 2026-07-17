@@ -415,16 +415,6 @@ std::string jsonvalue_to_string(const Variant& v) {
 
 }  // anonymous namespace
 
-// Public-to-file helper: map a request path to a small set of known buckets
-// so per-path metric label cardinality stays bounded. Mirrors pine-go
-// http_metrics.go normalizePath.
-static std::string normalize_path(const std::string& path) {
-  if (path == "/execute" || path == "/health" || path == "/stats" || path == "/dag") {
-    return path;
-  }
-  return "_other";
-}
-
 // ---- Server implementation ----
 
 // Thread-local pointer to the current request's MiddlewareContext, so that
@@ -838,6 +828,72 @@ void Server::handle_not_found(int client_fd) {
   send_error(client_fd, 404, "not found");
 }
 
+void Server::handle_custom_route(int client_fd, const Route& route, const RouteRequest& req) {
+  // Method enforcement mirrors pine-go's routeHandler: an empty route.method
+  // means "any method"; otherwise a mismatch short-circuits with the same 405
+  // JSON body the built-in endpoints emit (byte-exact with send_error/405).
+  if (!route.method.empty() && req.method != route.method) {
+    send_error(client_fd, 405, "method not allowed");
+    return;
+  }
+
+  // Run under a per-request arena like handle_execute so all Variant
+  // containers allocated by ingress/execute/egress hit the bump allocator and
+  // are freed together at scope exit.
+  RouteResponse resp;
+  {
+    RequestArena arena;
+
+    // Ingress: convert the raw request into an engine Request. A throw aborts
+    // execution and surfaces to Egress as a non-empty error, mirroring
+    // pine-go's Ingress returning (nil, err) → Egress(w, r, nil, err).
+    Request engine_req;
+    try {
+      engine_req = route.ingress(req);
+    } catch (const std::exception& e) {
+      route.egress(resp, req, nullptr, e.what());
+      send_response(client_fd, resp.status, resp.content_type, resp.body);
+      return;
+    }
+
+    // Execute against the live engine holding engine_mu_ shared for the whole
+    // call — same lock discipline as execute_with_trace, so a concurrent
+    // hot-reload cannot swap the engine mid-execute. The resource snapshot is
+    // taken inside the same window. An unloaded engine surfaces to Egress as
+    // an error (mirrors pine-go Execute returning ErrEngineNotLoaded, which
+    // routeHandler forwards to Egress with a nil result).
+    Result result;
+    std::string exec_error;
+    bool ok = false;
+    {
+      std::shared_lock<std::shared_mutex> lock(engine_mu_);
+      if (!engine_) {
+        exec_error = "engine not loaded";
+      } else {
+        std::map<std::string, Variant> res_snap;
+        if (resource_manager_) {
+          res_snap = resource_manager_->snapshot();
+        }
+        try {
+          result = engine_->execute(engine_req, res_snap);
+          ok = true;
+        } catch (const std::exception& e) {
+          exec_error = e.what();
+        }
+      }
+    }
+
+    if (ok) {
+      route.egress(resp, req, &result, "");
+    } else {
+      route.egress(resp, req, nullptr, exec_error);
+    }
+  }  // arena scope ends — all arena-allocated Variants freed
+
+  // Egress owns status / content_type / body; the core just writes it out.
+  send_response(client_fd, resp.status, resp.content_type, resp.body);
+}
+
 ExecuteResult Server::execute_with_trace(const Request& request, bool return_trace, int client_fd) {
   ExecuteResult exec_result;
   run_count_.fetch_add(1, std::memory_order_relaxed);
@@ -1116,6 +1172,24 @@ int Server::run(const ServerConfig& cfg) {
     return 1;
   }
 
+  // Validate custom routes before doing any expensive setup (engine load,
+  // resource manager start, socket bind). known_paths_ starts from the
+  // built-in endpoints and grows as each custom route is validated, so it
+  // doubles as the low-cardinality path set handed to normalize_path for HTTP
+  // metrics. route_map_ gives dispatch an O(log n) exact-path lookup. Mirrors
+  // pine-go's validateRoutes + mux registration in Run.
+  {
+    std::string route_err;
+    if (!validate_routes(config_.routes, known_paths_, route_err)) {
+      std::cerr << route_err << "\n";
+      return 1;
+    }
+    route_map_.clear();
+    for (const auto& route : config_.routes) {
+      route_map_[route.path] = &route;
+    }
+  }
+
   // Apply HTTP metrics as innermost middleware. Standard behavior: we use
   // the configured metrics_provider, or fall back to nop_provider() so the
   // middleware chain is ALWAYS configured identically to Go/Java/Python.
@@ -1246,8 +1320,14 @@ int Server::run(const ServerConfig& cfg) {
 
   std::cerr << "listening on " << addr << "\n";
 
-  // Start config file watcher thread
-  std::thread watcher_thread([this]() { watch_config(); });
+  // Start the config file watcher thread unless disabled. Watch defaults to
+  // true; watch=false leaves watcher_thread default-constructed (not
+  // joinable) so config changes require a process restart. Mirrors pine-go's
+  // Config.Watch toggle. The join at shutdown is guarded by joinable().
+  std::thread watcher_thread;
+  if (config_.watch) {
+    watcher_thread = std::thread([this]() { watch_config(); });
+  }
 
   // Accept loop
   while (running_.load(std::memory_order_acquire)) {
@@ -1354,12 +1434,15 @@ int Server::run(const ServerConfig& cfg) {
         MiddlewareContext mw_ctx;
         mw_ctx.method = req.method;
         mw_ctx.path = req.path;
-        mw_ctx.normalized_path = normalize_path(req.path);
+        mw_ctx.normalized_path = normalize_path(req.path, known_paths_);
         mw_ctx.request_bytes = req.content_length > 0 ? req.content_length : 0;
         mw_ctx.status = 200;
         mw_ctx.keep_alive = keep_alive;
 
-        // Innermost handler: actual route dispatch.
+        // Innermost handler: actual route dispatch. Built-in endpoints first,
+        // then custom routes, then the not-found fallback — mirroring pine-go's
+        // mux where built-ins are registered before Config.Routes and "/" is
+        // the catch-all. route_map_ is read-only after run() built it.
         std::function<void()> dispatch = [&]() {
           if (req.path == "/health") {
             handle_health(client_fd, req.method);
@@ -1369,6 +1452,13 @@ int Server::run(const ServerConfig& cfg) {
             handle_stats(client_fd, req.method);
           } else if (req.path == "/dag") {
             handle_dag(client_fd, req.method, req.query_string);
+          } else if (auto it = route_map_.find(req.path); it != route_map_.end()) {
+            RouteRequest rr;
+            rr.method = req.method;
+            rr.path = req.path;
+            rr.query = req.query_string;
+            rr.body = req.body;
+            handle_custom_route(client_fd, *it->second, rr);
           } else {
             handle_not_found(client_fd);
           }
@@ -1401,7 +1491,9 @@ int Server::run(const ServerConfig& cfg) {
   }
 
   g_server.store(nullptr, std::memory_order_release);
-  watcher_thread.join();
+  if (watcher_thread.joinable()) {
+    watcher_thread.join();
+  }
   if (listen_fd_ >= 0) {
     ::close(listen_fd_);
     listen_fd_ = -1;

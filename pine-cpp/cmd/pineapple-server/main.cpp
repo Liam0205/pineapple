@@ -1,9 +1,13 @@
+#include "pine/pine.hpp"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
+#include "config/json_writer.hpp"
 #include "server/server.hpp"
 
 namespace {
@@ -66,6 +70,62 @@ int parse_duration_seconds(std::string_view s) {
   return total;
 }
 
+// Builds the demo custom route POST /api/echo used to exercise the Route
+// extension point end-to-end (and via cross-validate as a black box). Its
+// Ingress parses the same {"common":{...},"items":[...]} body shape as
+// /execute; its Egress emits {"common": <result.common>} on success, reusing
+// result_common_to_json so the common serialization is byte-identical to the
+// /execute response. Enabled with -demo-routes.
+pine::server::Route make_demo_echo_route() {
+  pine::server::Route route;
+  route.method = "POST";
+  route.path = "/api/echo";
+  route.ingress = [](const pine::server::RouteRequest& req) -> pine::Request {
+    // Parse the body with the same JSON base the /execute handler uses. Any
+    // parse/shape failure aborts with a fixed message that surfaces to Egress.
+    pine::Variant json;
+    try {
+      json = pine::parse_json(req.body);
+    } catch (...) {
+      throw std::runtime_error("invalid request body");
+    }
+    if (!json.is_object()) {
+      throw std::runtime_error("invalid request body");
+    }
+    pine::Request engine_req;
+    if (auto* common = json.find("common"); common != nullptr && common->is_object()) {
+      engine_req.common = common->as_object();
+    }
+    if (auto* items = json.find("items"); items != nullptr && items->is_array()) {
+      for (const auto& item : items->as_array()) {
+        if (item.is_object()) {
+          engine_req.items.push_back(item.as_object());
+        } else {
+          engine_req.items.push_back({});
+        }
+      }
+    }
+    return engine_req;
+  };
+  route.egress = [](pine::server::RouteResponse& resp, const pine::server::RouteRequest&,
+                    const pine::Result* result, const std::string& error) {
+    if (!error.empty() || result == nullptr) {
+      // Fixed 400 for any ingress/execute failure, mirroring the demo's
+      // "invalid request body" contract.
+      resp.status = 400;
+      resp.content_type = "application/json";
+      resp.body = "{\"error\":\"invalid request body\"}\n";
+      return;
+    }
+    resp.status = 200;
+    resp.content_type = "application/json";
+    // Reuse result_common_to_json for byte-identical common serialization with
+    // the /execute response; wrap it in the demo's {"common": ...} envelope.
+    resp.body = "{\"common\":" + pine::result_common_to_json(result->common) + "}\n";
+  };
+  return route;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -87,6 +147,9 @@ int main(int argc, char** argv) {
     }
     return s;
   };
+
+  // -demo-routes registers the demo POST /api/echo route after parsing.
+  bool demo_routes = false;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -132,6 +195,26 @@ int main(int argc, char** argv) {
         std::exit(2);
       }
       cfg.shard_pool_size = static_cast<std::size_t>(v);
+    } else if (arg == "-demo-routes") {
+      // Boolean flag: presence enables the demo route.
+      demo_routes = true;
+    } else if (arg == "-watch" || arg.rfind("-watch=", 0) == 0) {
+      // Boolean flag mirroring pine-go's Config.Watch. Accepts the Go-style
+      // "-watch=true|false" (and "-watch=1|0"); a bare "-watch" means true.
+      // Defaults to true when the flag is absent.
+      if (arg == "-watch") {
+        cfg.watch = true;
+      } else {
+        std::string val = arg.substr(std::string("-watch=").size());
+        if (val == "true" || val == "1") {
+          cfg.watch = true;
+        } else if (val == "false" || val == "0") {
+          cfg.watch = false;
+        } else {
+          fprintf(stderr, "invalid -watch value: %s (want true|false)\n", val.c_str());
+          std::exit(2);
+        }
+      }
     }
   }
 
@@ -141,8 +224,16 @@ int main(int argc, char** argv) {
             "[-addr :8080] [-read-timeout 30s] [-read-header-timeout 5s] "
             "[-write-timeout 60s] [-idle-timeout 120s] "
             "[-max-body-size 10485760] "
-            "[-dag-pool-size N] [-shard-pool-size N]\n");
+            "[-dag-pool-size N] [-shard-pool-size N] "
+            "[-watch=true|false] [-demo-routes]\n");
     return 1;
+  }
+
+  // Register the demo custom route when requested. Kept behind a flag so the
+  // default server surface is unchanged; used by cross-validate to exercise
+  // the Route extension point as a black box.
+  if (demo_routes) {
+    cfg.routes.push_back(make_demo_echo_route());
   }
 
   pine::server::Server server;
