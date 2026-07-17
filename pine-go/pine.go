@@ -353,6 +353,10 @@ func (e *Engine) RenderDAG(format string, opts ...RenderOption) (string, error) 
 	}
 }
 
+// Bool returns a pointer to v. Useful for optional bool fields like
+// server.Config.Watch.
+func Bool(v bool) *bool { return &v }
+
 func filterOutField(ss []string, exclude string) []string {
 	out := make([]string, 0, len(ss))
 	for _, s := range ss {
