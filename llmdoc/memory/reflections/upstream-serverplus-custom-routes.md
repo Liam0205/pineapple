@@ -74,3 +74,18 @@
 - 进 `guides/cross-layer-validation.md`：对等验证需覆盖执行路径的可观测副作用（scheduler/operator 统计增量，不只响应字节）；可选测试臂必须 fail-closed（「配置了但坏了」硬失败并断言检查数 > 0）。
 - 进 `architecture/dag-engine.md`（server 生命周期一节）：custom route 的请求体上限由共享分发层统一施加（Go MaxBytesReader / Java LimitedBodyStream / C++ socket 层），属跨引擎行为契约。
 - 仅留 memory：ServeMux pattern 语义陷阱、按值 Config 副本回归、limit+1 边界对齐细节——检索到本篇即可。
+
+## 第三轮：增量审查修复（b1916392）
+
+第二轮修复（`54922de8`）后，增量审查（`.code-review/from-c353c04/increment-1-to-54922de.md`）再判 REQUEST_CHANGES：4 项问题（阻塞 1 + 重要 1 + 小 2），全部属实。修复 commit：`13adce9c`（C++）、`25c0b86a`（Java）、`6dfda6e0`（cross-validate check [10]）、`b1916392`（docs）。CI 全绿，bot 增量审查 APPROVE。
+
+### 教训
+
+- **修复本身会引入新回归——修完要重审自己的 diff**：第二轮把 C++ custom route 改走 `execute_with_trace`（修统计旁路），却引入 check-then-execute 竞态：调用方短锁判空后释放锁，helper 在锁外读 `resource_manager_` 再重新加锁执行；`reload_config` 在写锁下同时换 `engine_` 和 `resource_manager_` 并在锁外析构旧对象——交错时 `unique_ptr` 数据竞争 / use-after-free，或旧资源快照配新引擎。修复：判空 + snapshot + execute 收进单一 `shared_lock` 窗口，`ExecuteResult` 加 `engine_not_loaded` 标志（`/execute` 映射 503、custom route 转 Egress error）。教训：改锁结构的修复必须把「原实现的锁窗口覆盖了什么」列全再动手。
+- **包装流要覆盖所有前进方法**：Java `LimitedBodyStream` 只重写了两个 `read`；`FilterInputStream.skip` 直通底层流，Ingress 用 `skipNBytes` 可无计量跳过任意大 body 绕过上限。修复：`skip` 同样计量并 clamp 到 remaining+1。教训：包装 InputStream/Reader 这类「可前进」的流时，read / bulk read / skip（以及未来的 transferTo）都要审一遍。
+- **llmdoc 里的事实错误也会被 review 抓**：第二轮写进 standard-workflow 的「cp 报 same file 只说明内容相同」是错的——GNU cp 不比较内容，该错误指源目标解析为同一文件身份（同路径或同 inode）。写「某工具行为」进文档前要查证，不能凭当时的现场猜测定论。
+- **数量硬编码是惯犯**：第二轮刚删掉 section 数量字面量，本轮新写的文档又引入「三引擎 / 三端」运行时数量字面量（`conventions.md` 明令禁止）。规则遵守要在写作时触发，不能靠事后 review 兜底；写文档涉及定量描述时先查 `conventions.md` 的禁令清单。
+
+### 验证注记
+
+- section 20 新增 check [10]：watch=true 下 touch config 与 `/api/echo` 高频交错，全程 200 + `reload_count >= 1`。第一次跑因两个 cross-validate run 并行抢同一组端口出现假失败——复用固定端口的 section 不能并行跑自己，排查时先看 "bind: address already in use"。
