@@ -27,7 +27,9 @@ func demoRoutes() []server.Route {
 		Ingress: func(r *http.Request) (*pine.Request, error) {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				return nil, errors.New("invalid request body")
+				// Propagate read errors as-is so the server's central 413
+				// handling sees http.MaxBytesError when the body cap trips.
+				return nil, err
 			}
 			var req struct {
 				Common map[string]any   `json:"common"`

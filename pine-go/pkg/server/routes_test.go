@@ -3,12 +3,17 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
+	"github.com/Liam0205/pineapple/pine-go/internal/types"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 	"github.com/Liam0205/pineapple/pine-go/pkg/resource"
 )
 
@@ -287,4 +292,157 @@ func TestRouteHandler_ExecutePipeline(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"y":9`) {
 		t.Errorf("body = %q, want y=9 from pipeline", w.Body.String())
 	}
+}
+
+// Custom routes must not bypass MaxRequestBodySize: the server caps the body
+// before user Ingress code runs, and an oversized body gets the same central
+// 413 response as the built-in /execute — Egress is never invoked.
+func TestRouteHandler_BodyLimitEnforced(t *testing.T) {
+	resource.ResetRegistry()
+	defer resource.ResetRegistry()
+
+	path := writeTempConfig(t, minimalConfig(t, nil))
+	s, err := NewServer(Config{
+		ConfigPath:         path,
+		Watch:              pine.Bool(false),
+		MaxRequestBodySize: 64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	egressCalled := false
+	handler := s.routeHandler(Route{
+		Path: "/api/big",
+		Ingress: func(r *http.Request) (*pine.Request, error) {
+			if _, err := io.ReadAll(r.Body); err != nil {
+				return nil, err
+			}
+			return &pine.Request{Common: map[string]any{"x": 1.0}}, nil
+		},
+		Egress: func(w http.ResponseWriter, r *http.Request, result *pine.Result, err error) {
+			egressCalled = true
+		},
+	})
+
+	big := strings.Repeat("a", 4096)
+	req := httptest.NewRequest(http.MethodPost, "/api/big", strings.NewReader(big))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "request body too large") {
+		t.Errorf("body = %q, want central 413 message", w.Body.String())
+	}
+	if egressCalled {
+		t.Error("Egress must not run when the body cap trips")
+	}
+}
+
+// Custom route paths are dispatched by exact string lookup, never as ServeMux
+// patterns: a trailing slash must not become a subtree wildcard, and "{}"
+// segments must not be interpreted (or panic mux registration).
+func TestRun_CustomRoutePathsAreExact(t *testing.T) {
+	okEgress := func(w http.ResponseWriter, r *http.Request, result *pine.Result, err error) {
+		writeJSON(w, http.StatusOK, map[string]string{"hit": r.URL.Path})
+	}
+	customRoutes := map[string]http.Handler{}
+	for _, p := range []string{"/api/", "/api/{name}"} {
+		route := Route{Path: p, Ingress: passthroughIngress, Egress: okEgress}
+		// Bypass pipeline execution: the handler under test is only the
+		// dispatch layer, so a Server with no snapshot is fine — Egress runs
+		// with ErrEngineNotLoaded but still writes 200.
+		s := &Server{}
+		route.Egress = okEgress
+		customRoutes[p] = s.routeHandler(route)
+	}
+	fallback := fallbackHandler(customRoutes)
+
+	cases := []struct {
+		path     string
+		wantCode int
+	}{
+		{"/api/", http.StatusOK},               // exact match
+		{"/api/{name}", http.StatusOK},         // literal braces, exact match
+		{"/api/anything", http.StatusNotFound}, // no subtree wildcard
+		{"/api/sub/deep", http.StatusNotFound},
+		{"/api/value", http.StatusNotFound}, // braces are not a wildcard segment
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		w := httptest.NewRecorder()
+		fallback.ServeHTTP(w, req)
+		if w.Code != tc.wantCode {
+			t.Errorf("GET %s = %d, want %d", tc.path, w.Code, tc.wantCode)
+		}
+	}
+}
+
+// Empty Addr must normalize to :8080 in both Run and NewServer — not fall
+// through to net/http's ":http" (port 80).
+func TestNormalizeConfig_DefaultAddr(t *testing.T) {
+	if got := normalizeConfig(Config{}).Addr; got != ":8080" {
+		t.Errorf("normalizeConfig empty Addr = %q, want :8080", got)
+	}
+	if got := normalizeConfig(Config{Addr: ":9999"}).Addr; got != ":9999" {
+		t.Errorf("normalizeConfig set Addr = %q, want :9999", got)
+	}
+}
+
+// NewServer failure after the engine is built must tear down everything built
+// so far: with a resource whose second Start fetch fails, the first resource's
+// value must be released (its Closer runs) and no watcher goroutine leaks.
+func TestNewServer_FailureRollsBackResources(t *testing.T) {
+	resource.ResetRegistry()
+	defer resource.ResetRegistry()
+
+	// One shared fetcher: first call succeeds with a Closer value, second call
+	// fails. Manager.Start iterates the resources map in random order, so a
+	// fixed succeed-then-fail sequence keeps the test deterministic: whichever
+	// resource loads first must be rolled back when the other one fails.
+	closed := make(chan struct{}, 1)
+	var calls atomic.Int32
+	resource.Register(types.ResourceSchema{
+		Name:            "flaky_res",
+		Description:     "first fetch succeeds with a Closer, second fails",
+		DefaultInterval: 3600,
+	}, func(params map[string]any, _ metrics.Provider) (resource.Fetcher, error) {
+		return func(ctx context.Context) (any, error) {
+			if calls.Add(1) == 1 {
+				return closeSignaler{ch: closed}, nil
+			}
+			return nil, errors.New("connection refused")
+		}, nil
+	})
+
+	cfg := minimalConfig(t, map[string]any{
+		"res_one": map[string]any{"type": "flaky_res", "interval": 3600, "params": map[string]any{}},
+		"res_two": map[string]any{"type": "flaky_res", "interval": 3600, "params": map[string]any{}},
+	})
+	path := writeTempConfig(t, cfg)
+
+	_, err := NewServer(Config{ConfigPath: path, Watch: pine.Bool(false)})
+	if err == nil {
+		t.Fatal("expected NewServer to fail on the second resource fetch")
+	}
+
+	select {
+	case <-closed:
+		// The first-loaded value was released and closed by the rollback.
+	case <-time.After(2 * time.Second):
+		t.Error("closable resource value was not closed on NewServer failure")
+	}
+}
+
+type closeSignaler struct{ ch chan struct{} }
+
+func (c closeSignaler) Close() error {
+	select {
+	case c.ch <- struct{}{}:
+	default:
+	}
+	return nil
 }

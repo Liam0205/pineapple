@@ -197,30 +197,37 @@ type Server struct {
 // for the built-in net/http server; embedders that only need the engine can
 // use NewServer + Execute/Acquire instead.
 func Run(cfg Config) error {
+	cfg = normalizeConfig(cfg)
+
 	s, err := NewServer(cfg)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
 
-	// Set up routes: built-in endpoints first, then custom routes.
+	// Validate custom routes up front. known starts from the built-in
+	// endpoints plus every custom route path, so it doubles as the
+	// low-cardinality path set handed to the HTTP metrics middleware.
+	known, err := validateRoutes(cfg.Routes)
+	if err != nil {
+		return err
+	}
+
+	// Set up routes: built-in endpoints on the mux, custom routes behind the
+	// "/" fallback. Custom paths are dispatched by exact string lookup — NOT
+	// registered as ServeMux patterns — so a trailing slash never becomes a
+	// subtree wildcard and "{}" segments are never interpreted, matching the
+	// exact-path semantics of pine-java (path guard) and pine-cpp (map lookup).
+	customRoutes := make(map[string]http.Handler, len(cfg.Routes))
+	for _, route := range cfg.Routes {
+		customRoutes[route.Path] = s.routeHandler(route)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/execute", s.handleExecute)
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/dag", s.handleDAG)
-	mux.HandleFunc("/", handleNotFound)
-
-	// Validate and register custom routes. known starts from the built-in
-	// endpoints and grows as each custom route is registered, so it doubles as
-	// the low-cardinality path set handed to the HTTP metrics middleware.
-	known, err := validateRoutes(cfg.Routes)
-	if err != nil {
-		return err
-	}
-	for _, route := range cfg.Routes {
-		mux.Handle(route.Path, s.routeHandler(route))
-	}
+	mux.Handle("/", fallbackHandler(customRoutes))
 
 	// Apply HTTP metrics as innermost middleware (measures handler duration
 	// excluding user middleware overhead). Pass the dynamic known-path set so
@@ -280,6 +287,30 @@ func Run(cfg Config) error {
 	return nil
 }
 
+// normalizeConfig applies documented defaults to zero-value fields. Both Run
+// (which reads cfg.Addr when building the http.Server) and NewServer call it,
+// so an empty Addr always means ":8080" — never net/http's ":http" (port 80).
+func normalizeConfig(cfg Config) Config {
+	if cfg.Addr == "" {
+		cfg.Addr = ":8080"
+	}
+	return cfg
+}
+
+// fallbackHandler dispatches the ServeMux "/" catch-all: exact string lookup
+// into the custom-route table, else the standard 404. Keeping custom routes
+// out of ServeMux pattern registration preserves their documented exact-path
+// semantics (no trailing-slash subtrees, no "{}" wildcards, no pattern panics).
+func fallbackHandler(customRoutes map[string]http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h, ok := customRoutes[r.URL.Path]; ok {
+			h.ServeHTTP(w, r)
+			return
+		}
+		handleNotFound(w, r)
+	})
+}
+
 // NewServer builds a Server from cfg: it loads the config, creates the engine,
 // creates and starts the ResourceManager, stores the live snapshot, and (unless
 // Config.Watch is explicitly false) starts the config-reload watcher.
@@ -292,9 +323,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if cfg.ConfigPath == "" {
 		return nil, errors.New("server: Config.ConfigPath must not be empty")
 	}
-	if cfg.Addr == "" {
-		cfg.Addr = ":8080"
-	}
+	cfg = normalizeConfig(cfg)
 
 	s := &Server{}
 
@@ -337,12 +366,31 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	log.Printf("engine loaded from %s", cfg.ConfigPath)
 
+	// Every failure path between here and publishing the snapshot must tear
+	// down what has been built so far: NewServer returns errors to a long-lived
+	// host (not log.Fatal), so a leaked Engine or a started ResourceManager
+	// would accumulate across caller retries. Ownership of cfg.Resources also
+	// transfers to the server (a hot-reload replaces and stops it), so it is
+	// covered by the same rollback.
+	published := false
+	var rm *resource.Manager
+	defer func() {
+		if published {
+			return
+		}
+		if rm != nil {
+			rm.Stop()
+		}
+		if cerr := engine.Close(); cerr != nil {
+			log.Printf("[NewServer] engine close during rollback: %v", cerr)
+		}
+	}()
+
 	// Initialize ResourceManager.
 	// If the caller supplied a pre-registered manager, use it;
 	// otherwise create an empty one whose resource metrics flow into a
 	// dedicated Collector serialized under /stats.resources (keeping engine
 	// metrics out of that subtree).
-	var rm *resource.Manager
 	var rmMetrics *metrics.Collector
 	if cfg.Resources != nil {
 		rm = cfg.Resources
@@ -366,14 +414,11 @@ func NewServer(cfg Config) (*Server, error) {
 
 	// Validate resource dependencies against pipeline config.
 	if err := resource.ValidateResourceDeps(configData, rm); err != nil {
-		rm.Stop()
-		if cerr := engine.Close(); cerr != nil {
-			log.Printf("[NewServer] engine close after failed dep check: %v", cerr)
-		}
 		return nil, fmt.Errorf("resource dependency check failed: %w", err)
 	}
 
 	s.snapshot.Store(newSnapshot(engine, rm, rmMetrics))
+	published = true
 
 	// Start config reload watcher unless explicitly disabled. Watch defaults to
 	// enabled (nil or *true) for backward compatibility; *false disables it so
@@ -565,17 +610,27 @@ func validateRoutes(routes []Route) (map[string]bool, error) {
 }
 
 // routeHandler wraps a custom Route into an http.Handler: it enforces the
-// route's method (when set), runs Ingress to build the request, executes it
-// against the live snapshot, and hands the result (or error) to Egress, which
-// owns the response.
+// route's method (when set), caps the request body at the server-wide limit,
+// runs Ingress to build the request, executes it against the live snapshot,
+// and hands the result (or error) to Egress, which owns the response.
 func (s *Server) routeHandler(route Route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if route.Method != "" && r.Method != route.Method {
 			writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
 			return
 		}
+		// Apply MaxRequestBodySize before user Ingress code can read the body,
+		// so custom endpoints cannot be used to bypass the server-wide limit.
+		// When the Ingress read trips the cap, respond 413 centrally (same
+		// bytes as the built-in /execute limit) instead of calling Egress.
+		r.Body = http.MaxBytesReader(w, r.Body, s.effectiveMaxRequestBodySize())
 		req, err := route.Ingress(r)
 		if err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: "request body too large"})
+				return
+			}
 			route.Egress(w, r, nil, err)
 			return
 		}
