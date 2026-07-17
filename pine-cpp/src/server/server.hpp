@@ -108,6 +108,60 @@ struct MiddlewareContext {
 // pine-go's Config.Middlewares semantics.
 using Middleware = std::function<void(MiddlewareContext&, const std::function<void()>& next)>;
 
+// Raw HTTP request data handed to a custom route's Ingress. Mirrors the subset
+// of pine-go's *http.Request that Ingress functions typically read.
+struct RouteRequest {
+  std::string method;
+  std::string path;
+  std::string query;  // raw query string, may be empty
+  std::string body;   // full request body (already read by the core)
+};
+
+// Response staged by a custom route's Egress; the core writes it out via
+// send_response. Mirrors pine-go's Egress owning the http.ResponseWriter.
+struct RouteResponse {
+  int status = 200;
+  std::string content_type = "application/json";
+  std::string body;
+};
+
+// Converts a raw HTTP request into an engine request. Throwing aborts
+// execution; the thrown message reaches Egress as a non-empty `error` string
+// (mirrors pine-go's Ingress returning (nil, err)).
+using Ingress = std::function<Request(const RouteRequest&)>;
+
+// Writes the outcome. `result` is nullptr when ingress/execute failed and
+// `error` carries the failure message; otherwise `result` is non-null and
+// `error` is empty. Mirrors pine-go's Egress(w, r, result, err).
+using Egress = std::function<void(RouteResponse& resp, const RouteRequest& req, const Result* result,
+                                  const std::string& error)>;
+
+// Route declares a custom endpoint layered on top of the built-in /execute,
+// /health, /stats and /dag endpoints. Mirrors pine-go's server.Route.
+struct Route {
+  std::string method;  // e.g. "POST"; empty means any method
+  std::string path;    // exact path, e.g. "/api/v1/report"
+  Ingress ingress;
+  Egress egress;
+};
+
+// validate_routes checks custom routes for malformed paths, conflicts with
+// built-in endpoints, duplicates, and missing Ingress/Egress. On success it
+// returns true and fills `known` with the full known-path set (built-ins plus
+// every custom path), which doubles as the low-cardinality path set for HTTP
+// metrics normalization. On failure it returns false and writes the byte-exact
+// pine-go error message into `err`. Kept as a free function (not a Server
+// method) so it is unit-testable without opening a socket, mirroring pine-go's
+// package-private validateRoutes.
+bool validate_routes(const std::vector<Route>& routes, std::map<std::string, bool>& known, std::string& err);
+
+// normalize_path maps a request path to a small set of known buckets so
+// per-path metric label cardinality stays bounded. Paths in `known` (built-in
+// endpoints plus registered custom routes) report under their own path; any
+// other path collapses to "_other". Mirrors pine-go http_metrics.go
+// normalizePath after the known-path set was made dynamic for custom routes.
+std::string normalize_path(const std::string& path, const std::map<std::string, bool>& known);
+
 class HttpStats;
 
 // Builds the HTTP-layer metrics middleware (requests_total + duration
@@ -136,6 +190,18 @@ struct ServerConfig {
   // HTTP middlewares applied outer-to-inner (first sees request first).
   // Mirrors pine-go server.Config.Middlewares.
   std::vector<Middleware> middlewares;
+
+  // Custom ingress/egress endpoints registered alongside the built-in
+  // /execute, /health, /stats and /dag endpoints. Each route's Ingress
+  // converts an HTTP request into a pine::Request; the server executes it
+  // against the live engine; Egress stages the response. Mirrors pine-go
+  // server.Config.Routes.
+  std::vector<Route> routes;
+
+  // Controls config hot-reload. true (default) starts the mtime watcher;
+  // false disables it so config changes require a process restart. Mirrors
+  // pine-go server.Config.Watch (*bool, nil/true enables, false disables).
+  bool watch = true;
 
   // Optional metrics provider for HTTP-layer instrumentation. nullptr → no-op.
   pine::metrics::Provider* metrics_provider = nullptr;
@@ -166,6 +232,12 @@ class Server {
   void handle_dag(int client_fd, const std::string& method, const std::string& query_string);
   void handle_not_found(int client_fd);
 
+  // Custom route handler: enforces the route's method (when set), runs Ingress
+  // to build the request, executes it against the live engine, and hands the
+  // result (or error) to Egress, which stages the RouteResponse the core then
+  // writes out. Mirrors pine-go's Server.routeHandler.
+  void handle_custom_route(int client_fd, const Route& route, const RouteRequest& req);
+
   // Execute with stats tracking and tracing.
   ExecuteResult execute_with_trace(const Request& request, bool return_trace, int client_fd = -1);
 
@@ -192,6 +264,16 @@ class Server {
   std::unique_ptr<metrics::Provider> resource_tee_;
   std::unique_ptr<Stats> stats_;
   ServerConfig config_;
+
+  // Custom route lookup + known-path set, built once in run() from
+  // config_.routes and read-only thereafter (routes are fixed at startup and
+  // do not participate in hot-reload, mirroring pine-go registering them on
+  // the mux in Run). route_map_ points into config_.routes, so config_ must
+  // outlive it — both are Server members, so that holds. known_paths_ is the
+  // low-cardinality set handed to normalize_path for HTTP metrics.
+  std::map<std::string, const Route*> route_map_;
+  std::map<std::string, bool> known_paths_;
+
   std::atomic<bool> running_{false};
   int listen_fd_ = -1;
 
