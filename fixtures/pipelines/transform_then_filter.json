@@ -1,7 +1,7 @@
 {
   "name": "transform_copy then filter_truncate",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.12",
+    "_PINEAPPLE_VERSION": "0.10.13",
     "pipeline_config": {
       "operators": {
         "copy_score": {
