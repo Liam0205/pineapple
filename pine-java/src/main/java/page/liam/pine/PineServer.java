@@ -28,6 +28,14 @@ public class PineServer {
     private ExecutorService httpExecutor;
     private ScheduledExecutorService watcherExecutor;
 
+    // Config hot-reload toggle. Defaults to true for backward compatibility;
+    // setWatch(false) disables the watcher so config changes require a restart.
+    // Mirrors Go's Config.Watch (nil/true enables, false disables).
+    private boolean watch = true;
+    // Guards load() so the engine/resource baseline is built exactly once,
+    // whether reached via the embedding load() or via start().
+    private boolean loaded;
+
     private final AtomicLong reloadCount = new AtomicLong();
     private final AtomicLong reloadErrorCount = new AtomicLong();
     private volatile long lastReloadDurationNs;
@@ -128,18 +136,25 @@ public class PineServer {
                 new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration", new double[]{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}));
     }
 
-    public void start() throws Exception {
-        synchronized (this) {
-            started = true;
-            middlewares = Collections.unmodifiableList(middlewares);
+    /**
+     * Load the engine and resource baseline: parse the effective max request
+     * body size, build the engine + ResourceManager from the config file, store
+     * the live snapshot, and (unless {@link #setWatch(boolean)} disabled it)
+     * start the config-reload watcher. Idempotent — a second call is a no-op.
+     *
+     * <p>This is the embedding entry point. Callers that only need the engine
+     * (see {@link #execute} / {@link #acquire}) can call {@code load()} without
+     * ever standing up the HTTP server; {@link #start()} calls it internally.
+     * Mirrors Go's NewServer.
+     */
+    public synchronized void load() throws Exception {
+        if (loaded) {
+            return;
         }
 
         byte[] configData = Files.readAllBytes(Paths.get(configPath));
-        loadConfig(configData); // initial load — not counted as reload
-        lastReloadDurationNs = 0;
-        lastModified = Files.getLastModifiedTime(Paths.get(configPath)).toMillis();
 
-        // Read max_request_body_size from config if present
+        // Read max_request_body_size from config if present.
         try {
             Map<String, Object> rawConfig = mapper.readValue(configData, new TypeReference<Map<String, Object>>() {});
             Object bodySize = rawConfig.get("max_request_body_size");
@@ -150,8 +165,41 @@ public class PineServer {
                 }
             }
         } catch (Exception ignored) {
-            // If parsing fails for body size, keep default
+            // If parsing fails for body size, keep default.
         }
+
+        loadConfig(configData); // initial load — not counted as reload
+        lastReloadDurationNs = 0;
+        lastModified = Files.getLastModifiedTime(Paths.get(configPath)).toMillis();
+
+        // Start the config-reload watcher unless it was disabled. Watch defaults
+        // to enabled for backward compatibility; setWatch(false) turns it off so
+        // config changes require a process restart.
+        if (watch) {
+            watcherExecutor = Executors.newSingleThreadScheduledExecutor();
+            watcherExecutor.scheduleAtFixedRate(this::checkReload, 2, 2, TimeUnit.SECONDS);
+        }
+
+        loaded = true;
+    }
+
+    // Package-private accessor for tests: the scheduled watcher executor, or
+    // null when the config-reload watcher was never started (setWatch(false)).
+    ScheduledExecutorService watcherExecutorForTest() {
+        return watcherExecutor;
+    }
+
+    public void start() throws Exception {
+        List<Route> routesSnapshot;
+        synchronized (this) {
+            started = true;
+            middlewares = Collections.unmodifiableList(middlewares);
+            routes = Collections.unmodifiableList(routes);
+            routesSnapshot = routes;
+        }
+
+        // Build the engine/resource baseline and start the watcher (idempotent).
+        load();
 
         httpServer = HttpServer.create(new InetSocketAddress(port), 0);
         httpExecutor = Executors.newFixedThreadPool(
@@ -164,10 +212,13 @@ public class PineServer {
         httpServer.createContext("/dag", wrapHandler("/dag", this::handleDAG));
         httpServer.createContext("/", wrapHandler("_other", this::handleNotFound));
 
-        httpServer.start();
+        // Register custom routes. The path label handed to the metrics wrapper is
+        // the route's own exact path, keeping HTTP metrics cardinality bounded.
+        for (Route route : routesSnapshot) {
+            httpServer.createContext(route.path, wrapHandler(route.path, routeHandler(route)));
+        }
 
-        watcherExecutor = Executors.newSingleThreadScheduledExecutor();
-        watcherExecutor.scheduleAtFixedRate(this::checkReload, 2, 2, TimeUnit.SECONDS);
+        httpServer.start();
     }
 
     @FunctionalInterface
@@ -187,6 +238,235 @@ public class PineServer {
             throw new IllegalStateException("cannot add middleware after server has started");
         }
         this.middlewares.add(mw);
+    }
+
+    // --- Custom routes (issue #169) --------------------------------------
+    //
+    // Mirror of pine-go's Config.Routes: an Ingress converts the raw HTTP
+    // exchange into an ExecRequest (common + items), the server runs it against
+    // the live snapshot, and an Egress owns the entire HTTP response.
+
+    /**
+     * Ingress converts an incoming HTTP request into an {@link ExecRequest}.
+     * It reads the request body itself (parallel to Go's Ingress receiving the
+     * raw {@code *http.Request}). Throwing aborts execution; the route's Egress
+     * is then invoked with a null result and the thrown exception.
+     */
+    @FunctionalInterface
+    public interface Ingress {
+        ExecRequest apply(HttpExchange exchange) throws Exception;
+    }
+
+    /**
+     * Egress writes the pipeline outcome to the response. It receives the engine
+     * result (null on ingress error) and any error, and owns the whole HTTP
+     * response — status, body, and closing the response body.
+     */
+    @FunctionalInterface
+    public interface Egress {
+        void apply(HttpExchange exchange, Engine.Result result, Exception error) throws IOException;
+    }
+
+    /**
+     * ExecRequest is the request an {@link Ingress} builds for the engine.
+     * Either field may be null, which is treated as empty.
+     */
+    public static final class ExecRequest {
+        public final Map<String, Object> common;
+        public final List<Map<String, Object>> items;
+
+        public ExecRequest(Map<String, Object> common, List<Map<String, Object>> items) {
+            this.common = common;
+            this.items = items;
+        }
+    }
+
+    /** Route declares a custom endpoint layered on top of the Pine engine. */
+    public static final class Route {
+        public final String method; // empty/null means any method
+        public final String path;   // exact path, e.g. "/api/v1/report"
+        public final Ingress ingress;
+        public final Egress egress;
+
+        public Route(String method, String path, Ingress ingress, Egress egress) {
+            this.method = method;
+            this.path = path;
+            this.ingress = ingress;
+            this.egress = egress;
+        }
+    }
+
+    private List<Route> routes = new ArrayList<>();
+
+    /**
+     * Enable or disable config hot-reload. Must be called before {@link #load()}
+     * or {@link #start()}. Defaults to true; passing false means config changes
+     * require a process restart. Mirrors Go's Config.Watch.
+     */
+    public synchronized void setWatch(boolean enabled) {
+        if (started || loaded) {
+            throw new IllegalStateException("cannot set watch after server has loaded");
+        }
+        this.watch = enabled;
+    }
+
+    /**
+     * Register a custom route. Must be called before {@link #start()}.
+     * Validation and error wording mirror pine-go's validateRoutes exactly.
+     */
+    public synchronized void addRoute(Route route) {
+        if (started) {
+            throw new IllegalStateException("cannot add route after server has started");
+        }
+        String path = route.path;
+        if (path == null || path.isEmpty() || path.charAt(0) != '/') {
+            throw new IllegalArgumentException(
+                    "custom route path " + goQuote(path) + " must start with '/'");
+        }
+        if (path.equals("/")) {
+            throw new IllegalArgumentException(
+                    "custom route path \"/\" conflicts with the built-in not-found handler");
+        }
+        if (isBuiltinPath(path)) {
+            throw new IllegalArgumentException(
+                    "custom route " + goQuote(path) + " conflicts with built-in endpoint");
+        }
+        for (Route existing : routes) {
+            if (existing.path.equals(path)) {
+                throw new IllegalArgumentException("duplicate custom route " + goQuote(path));
+            }
+        }
+        if (route.ingress == null) {
+            throw new IllegalArgumentException("custom route " + goQuote(path) + " has nil Ingress");
+        }
+        if (route.egress == null) {
+            throw new IllegalArgumentException("custom route " + goQuote(path) + " has nil Egress");
+        }
+        this.routes.add(route);
+    }
+
+    // The set of built-in endpoints custom routes may not shadow. "/" is
+    // handled separately (it maps to the not-found handler).
+    private static boolean isBuiltinPath(String path) {
+        return "/execute".equals(path)
+                || "/health".equals(path)
+                || "/stats".equals(path)
+                || "/dag".equals(path);
+    }
+
+    // Quote a string the way Go's %q verb does for the simple paths we accept
+    // (surround with double quotes). Kept minimal on purpose: paths reaching
+    // this point are user-supplied route paths, not arbitrary text.
+    private static String goQuote(String s) {
+        return "\"" + (s == null ? "" : s) + "\"";
+    }
+
+    /**
+     * Run the pipeline against the live snapshot. This is the embedding entry
+     * point mirroring Go's Server.Execute: it acquires an in-flight reference so
+     * a concurrent hot-reload never tears down the engine/resources mid-run, and
+     * releases it when done. Throws {@link IllegalStateException} with the
+     * message "engine not loaded" (matching Go's ErrEngineNotLoaded) when no
+     * snapshot is live.
+     *
+     * <p>Resources are bound to the engine at build time (unlike Go, which
+     * injects them per-call via context), so this simply drives the held
+     * snapshot's engine.
+     */
+    public Engine.Result execute(Map<String, Object> common, List<Map<String, Object>> items) {
+        Snapshot snap = acquireSnapshot();
+        if (snap == null) {
+            throw new IllegalStateException("engine not loaded");
+        }
+        try {
+            return snap.engine.execute(common, items);
+        } finally {
+            snap.release();
+        }
+    }
+
+    /**
+     * Handle is an acquired reference to the live snapshot. It keeps the engine
+     * and resources alive (deferring hot-reload teardown) until {@link #release}
+     * is called. Mirrors Go's Handle. Always call {@link #release}.
+     */
+    public final class Handle {
+        private final Snapshot snap;
+
+        private Handle(Snapshot snap) {
+            this.snap = snap;
+        }
+
+        /** The engine bound to this snapshot. */
+        public Engine engine() {
+            return snap.engine;
+        }
+
+        /** The resource provider bound to this snapshot. */
+        public ResourceProvider resources() {
+            return snap.resources;
+        }
+
+        /**
+         * The resource-level metrics collector for this snapshot, or null when
+         * the snapshot was built without a dedicated collector.
+         */
+        public page.liam.pine.metrics.MetricsCollector resourceMetrics() {
+            return snap.resourceMetrics;
+        }
+
+        /** Drop the in-flight reference. The Handle must not be used afterward. */
+        public void release() {
+            snap.release();
+        }
+    }
+
+    /**
+     * Acquire a {@link Handle} to the live snapshot with an in-flight reference
+     * held, or null if no snapshot is live. The caller must call
+     * {@link Handle#release()} when done. Mirrors Go's Server.Acquire.
+     */
+    public Handle acquire() {
+        Snapshot snap = acquireSnapshot();
+        if (snap == null) {
+            return null;
+        }
+        return new Handle(snap);
+    }
+
+    /**
+     * Wrap a custom {@link Route} into an HttpHandler: enforce the route method
+     * (when set), run the Ingress to build the request, execute it against the
+     * live snapshot, and hand the result (or error) to the Egress, which owns
+     * the response. Mirrors Go's Server.routeHandler.
+     */
+    private com.sun.net.httpserver.HttpHandler routeHandler(Route route) {
+        return exchange -> {
+            if (route.method != null && !route.method.isEmpty()
+                    && !route.method.equals(exchange.getRequestMethod())) {
+                sendResponse(exchange, 405, Map.of("error", "method not allowed"));
+                return;
+            }
+            ExecRequest req;
+            try {
+                req = route.ingress.apply(exchange);
+            } catch (Exception e) {
+                route.egress.apply(exchange, null, e);
+                return;
+            }
+            Map<String, Object> common = req != null ? req.common : null;
+            List<Map<String, Object>> items = req != null ? req.items : null;
+            try {
+                Engine.Result result = execute(common, items);
+                route.egress.apply(exchange, result, null);
+            } catch (IOException e) {
+                // Egress already owns the response; a write failure here has
+                // nowhere left to go. Rethrow so the HttpServer logs it.
+                throw e;
+            } catch (Exception e) {
+                route.egress.apply(exchange, null, e);
+            }
+        };
     }
 
     private com.sun.net.httpserver.HttpHandler wrapHandler(String path, com.sun.net.httpserver.HttpHandler handler) {
@@ -260,11 +540,13 @@ public class PineServer {
         if (httpExecutor != null) {
             httpExecutor.shutdownNow();
         }
-        // Tear down the live snapshot: a hot-reload may have swapped it, so the
-        // current one (not a captured startup value) is what must be released.
-        // Dropping the baseline reference runs teardown once the last in-flight
-        // request releases its reference.
-        Snapshot snap = snapshot.get();
+        // Tear down the live snapshot and clear the pointer so no post-stop
+        // caller (e.g. the embedding execute()/acquire()) spins forever on a
+        // retired snapshot. A hot-reload may have swapped it, so the current one
+        // (not a captured startup value) is what must be released. Dropping the
+        // baseline reference runs teardown once the last in-flight request that
+        // captured it releases its reference. Mirrors Go's Close() Swap(nil).
+        Snapshot snap = snapshot.getAndSet(null);
         if (snap != null) {
             snap.release();
         }
@@ -587,10 +869,16 @@ public class PineServer {
     public static void main(String[] args) {
         String configPath = System.getProperty("pine.config", "config.json");
         int port = Integer.parseInt(System.getProperty("pine.port", "8080"));
+        boolean watch = !"false".equals(System.getProperty("pine.watch", "true"));
+        boolean demoRoutes = "true".equals(System.getProperty("pine.demoRoutes", "false"));
 
         PineServer server;
         try {
             server = new PineServer(configPath, port);
+            server.setWatch(watch);
+            if (demoRoutes) {
+                registerDemoRoutes(server);
+            }
             server.start();
         } catch (Exception e) {
             System.err.println("fatal: " + e.getMessage());
@@ -605,5 +893,45 @@ public class PineServer {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // Register a demonstration custom route (POST /api/echo) showing the
+    // Ingress/Egress contract. Enabled via -Dpine.demoRoutes=true. Kept in
+    // main() land (not the library core) so it never runs in production unless
+    // explicitly opted in. Mirrors the demo route in pine-go's cmd/server.
+    private static void registerDemoRoutes(PineServer server) {
+        server.addRoute(new Route(
+                "POST",
+                "/api/echo",
+                exchange -> {
+                    byte[] body = readLimitedBody(exchange.getRequestBody(), server.maxRequestBodyBytes);
+                    if (body == null) {
+                        throw new IllegalArgumentException("invalid request body");
+                    }
+                    Map<String, Object> parsed;
+                    try {
+                        parsed = mapper.readValue(body, new TypeReference<Map<String, Object>>() {});
+                    } catch (Exception e) {
+                        throw new IllegalArgumentException("invalid request body");
+                    }
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> common = (Map<String, Object>) parsed.get("common");
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> items =
+                            (List<Map<String, Object>>) parsed.get("items");
+                    return new ExecRequest(common, items);
+                },
+                (exchange, result, error) -> {
+                    if (error != null) {
+                        // Fixed wording — never leak exception detail to clients.
+                        server.sendResponse(exchange, 400, Map.of("error", "invalid request body"));
+                        return;
+                    }
+                    Map<String, Object> resp = new LinkedHashMap<>();
+                    // Sort common keys recursively so the serialized bytes match
+                    // Go's encoding/json for map[string]any.
+                    resp.put("common", sortMapKeys(result.common));
+                    server.sendResponse(exchange, 200, resp);
+                }));
     }
 }
