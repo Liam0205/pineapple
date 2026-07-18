@@ -96,7 +96,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 - 同一 provider 会被传给所有实现 `MetricsAware` 的算子实例
 - 日志前缀可来自 JSON 根级 `log_prefix` 或 `pine.WithLogPrefix(...)`
 - 当两者同时存在时，`pine.WithLogPrefix(...)` 优先
-- 最终通过标准库 `log.SetPrefix()` 应用前缀，并调用 `log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)`，因此会影响引擎日志和复用标准库 logger 的算子日志，输出包含 `file:line`
+- 前缀作用于引擎实例私有的 `*log.Logger`（`Ldate|Ltime|Lshortfile` flags，输出含 `file:line`），经 `LoggerAware` 注入到算子与 scheduler 诊断路径；进程全局 `log` 包不受影响（issue #172）
 
 ### 可选接口注入顺序
 
