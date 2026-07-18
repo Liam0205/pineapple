@@ -53,14 +53,15 @@ type Plan struct {
 }
 
 // logf writes through the plan's engine logger, or the global one when unset.
-// calldepth 3: Output's caller is logf, logf's caller is the scheduler line
-// that should appear in Lshortfile output.
+// calldepth 2: depth 1 is Output's caller (this function), depth 2 is logf's
+// caller — the scheduler line that should appear in Lshortfile output. Unlike
+// LoggerHolder.Logf (two wrapper layers, depth 3), logf wraps Output directly.
 func (p *Plan) logf(format string, args ...any) {
 	if p.Logger != nil {
-		p.Logger.Output(3, fmt.Sprintf(format, args...)) //nolint:errcheck
+		p.Logger.Output(2, fmt.Sprintf(format, args...)) //nolint:errcheck
 		return
 	}
-	log.Output(3, fmt.Sprintf(format, args...)) //nolint:errcheck
+	log.Output(2, fmt.Sprintf(format, args...)) //nolint:errcheck
 }
 
 // Warning records a recoverable warning from an operator.
