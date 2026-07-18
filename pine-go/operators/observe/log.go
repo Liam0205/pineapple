@@ -1,6 +1,6 @@
 // Operator: observe_log
 // Type: Observe
-// Description: Reads declared input fields and writes them to Go standard log.
+// Description: Reads declared input fields and writes them to the engine's logger.
 //
 //	This is a read-only operator: it produces no output fields and does not
 //	modify the DataFrame. It is exempt from dead-code detection.
@@ -19,7 +19,6 @@ package observe
 import (
 	"context"
 	"encoding/json"
-	"log"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
 )
@@ -37,9 +36,10 @@ func init() {
 	})
 }
 
-// LogOp writes declared input fields to the Go standard logger.
+// LogOp writes declared input fields to its engine's logger.
 type LogOp struct {
 	pine.MetadataHolder
+	pine.LoggerHolder
 	prefix string
 }
 
@@ -79,14 +79,14 @@ func (o *LogOp) Execute(_ context.Context, in *pine.OperatorInput, _ *pine.Opera
 
 	data, err := json.Marshal(snapshot)
 	if err != nil {
-		log.Printf("[observe_log] %s marshal error: %v", o.prefix, err)
+		o.Logf("[observe_log] %s marshal error: %v", o.prefix, err)
 		return nil // observe errors are non-fatal
 	}
 
 	if o.prefix != "" {
-		log.Printf("[observe_log] %s %s", o.prefix, string(data))
+		o.Logf("[observe_log] %s %s", o.prefix, string(data))
 	} else {
-		log.Printf("[observe_log] %s", string(data))
+		o.Logf("[observe_log] %s", string(data))
 	}
 
 	return nil

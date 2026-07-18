@@ -199,6 +199,46 @@ type DebugAware interface {
 	SetDebugInfo(operatorName string, debug bool)
 }
 
+// LoggerAware is an optional interface for operators that emit log lines.
+// The engine calls SetEngineLogger after Init with its per-engine logger,
+// so operator diagnostics carry the owning engine's log_prefix even when
+// multiple engines run in one process (issue #172). Embed LoggerHolder to
+// satisfy it automatically.
+type LoggerAware interface {
+	SetEngineLogger(l *log.Logger)
+}
+
+// LoggerHolder stores the per-engine logger and provides the Logf helper.
+// Embed it in an operator struct to satisfy LoggerAware automatically.
+type LoggerHolder struct {
+	logger *log.Logger
+}
+
+// SetEngineLogger implements LoggerAware.
+func (h *LoggerHolder) SetEngineLogger(l *log.Logger) {
+	h.logger = l
+}
+
+// logOutput emits s through the engine logger (or the process-global one
+// before injection / outside an engine, e.g. unit tests). calldepth follows
+// the log package convention: 2 reports the caller of the function invoking
+// Output, so each wrapper layer above logOutput adds 1. Exported helpers
+// that call logOutput directly pass 3 so Lshortfile points at THEIR caller
+// (the operator code), not at this file.
+func (h *LoggerHolder) logOutput(calldepth int, s string) {
+	if h.logger != nil {
+		h.logger.Output(calldepth, s) //nolint:errcheck
+		return
+	}
+	log.Output(calldepth, s) //nolint:errcheck
+}
+
+// Logf writes a log line through the engine's logger (carrying its
+// log_prefix). The reported file:line is Logf's caller.
+func (h *LoggerHolder) Logf(format string, args ...any) {
+	h.logOutput(3, fmt.Sprintf(format, args...))
+}
+
 // OperatorName returns the operator name injected by SetDebugInfo.
 func (d *DebugHolder) OperatorName() string {
 	return d.operatorName
@@ -206,13 +246,14 @@ func (d *DebugHolder) OperatorName() string {
 
 // DebugHolder stores the debug flag and operator name, and provides
 // IsDebug / DebugLog helpers. Embed it in an operator struct to satisfy
-// DebugAware automatically:
+// DebugAware (and LoggerAware, via the embedded LoggerHolder) automatically:
 //
 //	type MyOp struct {
 //	    pine.MetadataHolder
 //	    pine.DebugHolder
 //	}
 type DebugHolder struct {
+	LoggerHolder
 	operatorName string
 	debug        bool
 }
@@ -230,12 +271,15 @@ func (d *DebugHolder) IsDebug() bool {
 
 // DebugLog prints a log line prefixed with the operator name.
 // Only outputs when debug is enabled; silent otherwise.
+// The reported file:line is DebugLog's caller.
 func (d *DebugHolder) DebugLog(format string, args ...any) {
 	if !d.debug {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	log.Printf("[pine:debug] operator=%q %s", d.operatorName, msg)
+	// Call logOutput directly (not Logf) so calldepth 3 resolves to the
+	// operator code invoking DebugLog rather than this file.
+	d.logOutput(3, fmt.Sprintf("[pine:debug] operator=%q %s", d.operatorName, msg))
 }
 
 // ParamSpec describes a single operator parameter for schema validation.

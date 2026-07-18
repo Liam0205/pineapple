@@ -46,6 +46,15 @@ type DebugAware = types.DebugAware
 // structs for automatic DebugAware compliance with IsDebug/DebugLog helpers.
 type DebugHolder = types.DebugHolder
 
+// LoggerAware is an optional interface for operators that emit log lines;
+// the engine injects its per-engine logger (carrying log_prefix) after Init.
+type LoggerAware = types.LoggerAware
+
+// LoggerHolder stores the per-engine logger and provides the Logf helper.
+// Embed it in operator structs for automatic LoggerAware compliance.
+// DebugHolder embeds it already.
+type LoggerHolder = types.LoggerHolder
+
 // ResourceSchema describes a resource type for registration and codegen.
 type ResourceSchema = types.ResourceSchema
 

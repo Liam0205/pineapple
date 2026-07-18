@@ -30,7 +30,6 @@ package transform
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	pine "github.com/Liam0205/pineapple/pine-go"
@@ -60,6 +59,7 @@ func init() {
 type RedisSetOp struct {
 	pine.MetadataHolder
 	pine.ConcurrentSafeMarker
+	pine.LoggerHolder
 	resourceName string
 	keyPrefix    string
 	dataType     string
@@ -143,7 +143,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	case "set":
 		members, ok := toStringSlice(value)
 		if !ok {
-			log.Printf("transform_redis_set: value for key %s is not []string", key)
+			o.Logf("transform_redis_set: value for key %s is not []string", key)
 			return nil
 		}
 		if len(members) == 0 {
@@ -160,7 +160,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	case "list":
 		members, ok := toStringSlice(value)
 		if !ok {
-			log.Printf("transform_redis_set: value for key %s is not []string", key)
+			o.Logf("transform_redis_set: value for key %s is not []string", key)
 			return nil
 		}
 		if len(members) == 0 {
@@ -177,7 +177,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	case "string":
 		s, ok := value.(string)
 		if !ok {
-			log.Printf("transform_redis_set: value for key %s is not string", key)
+			o.Logf("transform_redis_set: value for key %s is not string", key)
 			return nil
 		}
 		err = rdb.Set(ctx, key, s, ttl).Err()
@@ -187,7 +187,7 @@ func (o *RedisSetOp) Execute(ctx context.Context, in *pine.OperatorInput, out *p
 	}
 
 	if err != nil {
-		log.Printf("transform_redis_set: write key %s: %v", key, err)
+		o.Logf("transform_redis_set: write key %s: %v", key, err)
 		if o.failOnError {
 			return fmt.Errorf("transform_redis_set: write key %s: %w", key, err)
 		}

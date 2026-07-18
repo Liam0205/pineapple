@@ -45,6 +45,22 @@ type Plan struct {
 	Graph     *dag.Graph
 	Operators []*CompiledOperator // indexed by dag node index
 	Contract  config.FlowContract
+	// Logger carries the owning engine's log_prefix; engine-scoped
+	// diagnostics ([pine-debug] snapshots) go through it so concurrent
+	// engines in one process keep their own prefixes (issue #172).
+	// Nil falls back to the process-global logger.
+	Logger *log.Logger
+}
+
+// logf writes through the plan's engine logger, or the global one when unset.
+// calldepth 3: Output's caller is logf, logf's caller is the scheduler line
+// that should appear in Lshortfile output.
+func (p *Plan) logf(format string, args ...any) {
+	if p.Logger != nil {
+		p.Logger.Output(3, fmt.Sprintf(format, args...)) //nolint:errcheck
+		return
+	}
+	log.Output(3, fmt.Sprintf(format, args...)) //nolint:errcheck
 }
 
 // Warning records a recoverable warning from an operator.
@@ -289,7 +305,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 				if err != nil {
 					outputJSON = []byte(fmt.Sprintf("%v", outputSnapshot))
 				}
-				log.Printf("[pine-debug] operator=%q duration=%v input_size=%d output_size=%d input=%s output=%s",
+				plan.logf("[pine-debug] operator=%q duration=%v input_size=%d output_size=%d input=%s output=%s",
 					cop.Name, duration, inputSize, outputSize, inputJSON, outputJSON)
 			}
 
