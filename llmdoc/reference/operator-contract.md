@@ -253,6 +253,20 @@ C++ 侧提供注册路径：
 
 `DebugHolder.OperatorName()` 会返回引擎注入的算子实例名。它不仅用于 debug log，也可被后续 `MetricsAware` 注入阶段复用，例如把 operator 名作为外部 metric label 值。
 
+### `LoggerAware`（算子日志规范）
+
+算子的诊断日志必须走引擎注入的 logger 通道，输出自动携带所属引擎的 `log_prefix`（引擎实例级作用域，issue #172——多引擎同进程时各自的日志保持归属正确）。禁止直接用进程全局 `log.Printf` / `System.err` / `std::cerr` 输出算子诊断行。三运行时入口：
+
+| 运行时 | 接口 | 使用方式 |
+|---|---|---|
+| pine-go | `types.LoggerAware`（`SetEngineLogger(*log.Logger)`） | 嵌入 `pine.LoggerHolder` 自动满足，调用 `Logf(format, args...)`；`DebugHolder` 已内嵌 `LoggerHolder`，DebugAware 算子免费获得 |
+| pine-java | `LoggerAware`（`setEngineLogPrefix(String)`） | 继承 `AbstractOperator` 后调用 `logf(format, args...)` |
+| pine-cpp | `LoggerAware`（`set_engine_log_prefix(const std::string&)`） | 实现接口存下 prefix，输出行自行前置（参考 `pine-cpp/operators/observe/observe_log.cpp`） |
+
+安全约束：**用户可控字符串（如配置来的 log_prefix）绝不拼进 printf 格式串**——要么作为 `%s` 实参、要么单独 print。Java 的 printf 家族有 `%` 注入坑：`printf(prefix + format, args)` 会让含 `%` 的前缀（如 `"[100%] "`）运行时抛 `UnknownFormatConversionException`（`AbstractOperator.logf` 的 prefix 单独 print 是 reference 实现）；Go 的 `log.New` 把 prefix 当字面量、C++ 用 `<<` 拼接，天然安全，但新增格式化路径时同样遵守此隔离。
+
+Go 侧包装 `log.Logger.Output(calldepth, ...)` 时注意 calldepth 是 wrapper 层数的函数而非常量，逐层 +1 并在注释写清推导（详见 `memory/reflections/per-engine-log-prefix.md`）。
+
 ### `StatsProvider`
 
 若算子实现 `StatsProvider`，引擎会在 `Engine.OperatorCustomStats()` 中收集该算子的自定义原子统计，并由 `pine-go/pkg/server/server.go` 挂载到 `/stats` 响应中的 `operator_detail` 字段。
@@ -267,7 +281,8 @@ C++ 侧提供注册路径：
 
 1. `MetadataAware`
 2. `DebugAware`
-3. `MetricsAware`
+3. `LoggerAware`
+4. `MetricsAware`
 
 这使得像 Lua 算子这样的实现可以在 `SetMetricsProvider` 内安全读取 `DebugHolder.OperatorName()`，把 operator 名绑定为 label 值。
 
