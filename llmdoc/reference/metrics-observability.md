@@ -104,9 +104,10 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 
 1. `MetadataAware`
 2. `DebugAware`
-3. `MetricsAware`
+3. `LoggerAware`
+4. `MetricsAware`
 
-该顺序是承载性的。像 `pine-go/operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
+（Go 实际路径；Java 在 Metrics 之后还有 `ResourceAware`，C++ 的 Metadata/Debug 经 `init(op_cfg)` 携带、随后同样是 Logger → Metrics → Resource。完整对照见 `llmdoc/architecture/dag-engine.md` 不变量 11。）该顺序是承载性的。像 `pine-go/operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
 
 ## 双通道观测模型
 
@@ -278,7 +279,7 @@ Lua pool 还会创建以下 provider metrics，并绑定 `operator` label：
 - `pine_lua_pool_create_total`
 - `pine_lua_pool_active`
 
-label 值取自 `DebugHolder.OperatorName()`，所以 Lua 算子的 metrics 注入依赖固定顺序：MetadataAware → DebugAware → MetricsAware。
+label 值取自 `DebugHolder.OperatorName()`，所以 Lua 算子的 metrics 注入依赖固定顺序：MetadataAware → DebugAware →（LoggerAware →）MetricsAware，Debug 信息先于 Metrics 就位。
 
 ## 资源级指标 fan-out 路由
 

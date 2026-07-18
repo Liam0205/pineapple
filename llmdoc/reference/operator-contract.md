@@ -277,14 +277,14 @@ Go 侧包装 `log.Logger.Output(calldepth, ...)` 时注意 calldepth 是 wrapper
 
 若算子实现 `MetricsAware`，引擎会在 `Init()`、`SetMetadata(...)`、`SetDebugInfo(...)` 之后调用 `SetMetricsProvider(provider)`。
 
-稳定注入顺序为：
+稳定注入顺序（Go）为：
 
 1. `MetadataAware`
 2. `DebugAware`
 3. `LoggerAware`
 4. `MetricsAware`
 
-这使得像 Lua 算子这样的实现可以在 `SetMetricsProvider` 内安全读取 `DebugHolder.OperatorName()`，把 operator 名绑定为 label 值。
+Java 在 `MetricsAware` 之后还有 `ResourceAware`；C++ 的 metadata/debug 经 `init(op_cfg)` 直接携带，provider 注入同样按 Logger → Metrics → Resource（跨运行时不变量见 `llmdoc/architecture/dag-engine.md` 不变量 11）。这使得像 Lua 算子这样的实现可以在 `SetMetricsProvider` 内安全读取 `DebugHolder.OperatorName()`，把 operator 名绑定为 label 值。
 
 设计边界：
 
