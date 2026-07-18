@@ -4,7 +4,7 @@
 
 ## must/
 
-- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / C++ `PINE_REGISTER_OPERATOR_T`）、版本同步（含 pine-cpp `kVersion`）、codegen 新鲜度、codegen 单向对齐方向（Go 是 source of truth、pine-java/pine-cpp 单向对齐）、测试规范、外部 I/O 安全默认值（LimitReader、sync.Once、goroutine 与 C++ graceful shutdown 生命周期、pine-cpp 网络客户端必须 MSG_NOSIGNAL）、cross-validate 入口指针、跨引擎能力等价审计维度、禁止硬编码定量描述、InputFieldSpec 三态模型（Nullable/Strict/Defaulted）、operator-level debug 三态继承。
+- `llmdoc/must/conventions.md` — 跨代码库约定：算子命名、JSON 作为 Apple DSL 与各运行时之间的契约、各运行时副作用注册（Go blank-import / Java static init / C++ `PINE_REGISTER_OPERATOR_T`）、版本同步（含 pine-cpp `kVersion`）、codegen 新鲜度、codegen 单向对齐方向（Go 是 source of truth、pine-java/pine-cpp 单向对齐）、测试规范、外部 I/O 安全默认值（LimitReader、全局副作用归属判断、goroutine 与 C++ graceful shutdown 生命周期、pine-cpp 网络客户端必须 MSG_NOSIGNAL）、cross-validate 入口指针、跨引擎能力等价审计维度（含消费点追踪：值存了谁读、读了产生什么可观测输出）、禁止硬编码定量描述、InputFieldSpec 三态模型（Nullable/Strict/Defaulted）、operator-level debug 三态继承。
 
 ## overview/
 
@@ -18,7 +18,7 @@
 
 ## guides/
 
-- `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步、review-driven scope expansion 接受、并行 worker 改动收集（worktree diff→apply 收集模式 + 新公开入口/状态机修复需重扫整个状态机：可达性、并发交错、发布顺序）。
+- `llmdoc/guides/standard-workflow.md` — 标准工作流程：llmdoc 加载、plan mode 对齐、任务跟踪、逐步验证、文档同步、review-driven scope expansion 接受、并行 worker 改动收集（worktree diff→apply 收集模式 + 新公开入口/状态机修复需重扫整个状态机：可达性、并发交错、发布顺序 + 新公开入口上线后审计既有全局状态的归属：sync.Once/静态 CAS/System property/全局 setter 在多实例下该属于谁）。
 - `llmdoc/guides/ci-quality-baseline.md` — CI 工程质量基线：lint（含 Java checkstyle `failOnViolation=true` + `OneStatementPerLine`、C++ clang-format）/ test / coverage / fuzz / differential-fuzz / daily sanitized-fuzz（ASan/TSan 深度诊断，与 nightly Release 10k 轮吞吐互补，`--time-budget-seconds` 内层 pacing + 外层纯 hang 保护两层 timeout 设计） / cross-validate / nightly cross-runtime benchmark / release-gate 架构与接入约定（含 pine-cpp 的 4 个 CI job 与 cross-validate cpp 二进制注入路径），统一任务入口 Makefile 体系（顶层 + `pine-go/` Makefile 封装跨四语言 fmt/lint/test/bench/codegen/版本管理，CI 与本地共用同一命令序列、`make bench` 默认 `pine_bench` tag），CI apt 依赖安装约定（`scripts/ci-apt-install.sh` 重试 wrapper + 包清单瘦身，防慢镜像单发击穿，历史 #125/#164），以及本地 `.githooks/` 体系（`pre-commit` staged-only 格式 gate + `pre-push` 工程级 lint + 自包装 CI watch）。
 - `llmdoc/guides/investigation-to-fix-testing.md` — 从调查到修复的测试策略：按缺陷类型选择测试层、最小修复面原则、跟进上游 issue 与临时止血方法论（跨 issue 根因归属不顺 follow-up 措辞、临时止血阈值用 probe 实测标定）。
 - `llmdoc/guides/cross-layer-validation.md` — 跨层语义校验：JSON 边界类型枚举、codegen 语义验证（含跨引擎 markdown / Python 产物 byte-equal gate）、边界值 E2E、隐含 metadata 契约检测、扩展点对等验证（能力等价 + 编程扩展点的 demo-routes 黑盒验证模式 + 执行路径可观测副作用增量比对 + 可选测试臂 fail-closed）。
@@ -26,7 +26,7 @@
 
 ## reference/
 
-- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、批量列访问 API 契约（`ItemColumn`/`itemColumn`/`item_column` 三引擎对照、与逐元素 `Item()` 含 defaults 语义一致、只读/仅当次 Execute 有效、扫描型热循环优先批量）、批量列写 API 契约（`SetItemColumnFloat64`/`setItemColumnDouble`/`set_item_column_double`、stage 2b 顺序语义列写覆盖逐元素写、整列或全无、NaN 批量校验消息对等、列存 adopt 零拷贝/行存 scatter、所有权转移）、可选的 metadata/debug/metrics/stats 钩子、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）、Redis 算子句柄型资源借用契约（`transform_redis_get`/`transform_redis_set` 按 `resource_name` 借用 `redis_connection`、借用失败静默降级；`redis_connection` cascade-safety 五参数：`{dial,read,write,pool}_timeout_ms` + `pool_size`、Jedis socketTimeout 折叠 max(read,write)、cpp pool_timeout_ms no-op；`metrics_name` 资源级指标开关；failed-path 静默降级审计契约——新增 client/资源失败路径必须走完 `fail_on_error=false → connected()==false` 链路）。
+- `llmdoc/reference/operator-contract.md` — 算子开发参考：接口、Schema 注册契约、批量列访问 API 契约（`ItemColumn`/`itemColumn`/`item_column` 三引擎对照、与逐元素 `Item()` 含 defaults 语义一致、只读/仅当次 Execute 有效、扫描型热循环优先批量）、批量列写 API 契约（`SetItemColumnFloat64`/`setItemColumnDouble`/`set_item_column_double`、stage 2b 顺序语义列写覆盖逐元素写、整列或全无、NaN 批量校验消息对等、列存 adopt 零拷贝/行存 scatter、所有权转移）、可选的 metadata/debug/logger/metrics/stats 钩子、算子日志规范（`LoggerAware` 三引擎入口 + 引擎实例级 log_prefix + 用户可控字符串绝不拼进 printf 格式串）、类型/输出限制、保留 JSON 键、命名规范、网络调用安全约束（SSRF 防护、LimitReader、fail_on_error 模式）、Redis 算子句柄型资源借用契约（`transform_redis_get`/`transform_redis_set` 按 `resource_name` 借用 `redis_connection`、借用失败静默降级；`redis_connection` cascade-safety 五参数：`{dial,read,write,pool}_timeout_ms` + `pool_size`、Jedis socketTimeout 折叠 max(read,write)、cpp pool_timeout_ms no-op；`metrics_name` 资源级指标开关；failed-path 静默降级审计契约——新增 client/资源失败路径必须走完 `fail_on_error=false → connected()==false` 链路）。
 - `llmdoc/reference/apple-control-template-syntax.md` — Apple DSL 控制流条件参考：`if_` / `elseif_` 需要使用 `{{field_name}}` 模板语法显式标记字段引用，编译器据此提取依赖并在发射 Lua 前去掉模板标记。
 - `llmdoc/reference/metrics-observability.md` — 可插拔观测参考：跨运行时 `Provider` 契约（pine-go 规范 + pine-cpp/pine-java 对等）、引擎/调度器/Lua pool 指标注入、`/stats` 组合响应（含 `/stats.http` 与 `/stats.resources` 子树 schema）、内置 HTTP metrics middleware（各运行时 default-on）、资源级指标 fan-out（Tee）路由与 Collector 契约（4 个连接池/探针指标 + 2 个 per-command 指标 `pine_redis_command_*`、status taxonomy ok/timeout/pool_timeout/error、lifecycle 命令过滤、cpp 错误类型分层 known follow-up）、Prometheus 适配边界。
 - `llmdoc/reference/dag-visualization.md` — DAG 可视化参考：`RenderDAG` / `WithCollapse` API、SubFlow 折叠规则、`GET /dag` 参数与 DOT/Mermaid 输出约定。
@@ -113,6 +113,7 @@
 - `llmdoc/memory/reflections/ci-apt-resilience-and-dead-weight-packages.md` — 修复 apt 慢镜像二次击穿 CI（#125→#164）复盘，记录单发安装+整段超时结构性缺陷需重试层而非更大超时数值（判据：失败模式重试后是否大概率自愈）、死重包（cmake/ninja-build/build-essential）放大慢镜像暴露面 10 倍（15.7 MB vs 实需 ~1.5 MB）、依赖断言（`cmake --version`）比隐式依赖预装更健壮、go native fuzz "context deadline exceeded" 且无 crash corpus 文件即为 coordinator flake（应 rerun 而非误判为真实发现）四条教训。
 - `llmdoc/memory/reflections/wangshu-v020-stable-bump-dual-module-miss.md` — wangshu rc5→v0.2.0 正式版 bump（PR #166）复盘，记录手工 `go mod tidy` 漏掉 `pine-go/benchmarks/` 独立子 module（应走 `make tidy` 双 module 封装入口，绕开手工命令即绕开该保护）、CI 失败后应先扫 PR review bot 评论再挖日志（bot 诊断早于且更完整）两条教训；rc→stable 升级审计三件套（逐 commit 审上游 diff / go.mod 哈希对比证模块定义等价 / 双 tag 测试）本次做对，作正面对照记录。
 - `llmdoc/memory/reflections/upstream-serverplus-custom-routes.md` — 下游 serverplus 上游化复盘（issue #169 / PR #170，跨运行时自定义路由 / Watch 开关 / 嵌入 API），记录 demo-routes 黑盒验证模式、错误文案设计期锁定、C++ 有意不做嵌入 API、Java 错误模型二分接受四项决策，以及 worktree 改动搬运误判、新入口暴露旧状态机 bug（stop 后 acquireSnapshot 自旋）、mvn 诊断链三坑等教训；含第二轮深度 code-review 修复记录（8 项问题：body limit 绕过、ServeMux pattern 陷阱、Addr 默认值回归、stop/reload 竞态、C++ stats 旁路、fail-open 测试臂等）与第三轮增量审查修复记录（C++ 锁窗口回归、Java skip 绕过、文档事实纠错、数量硬编码再犯）及第四轮竞态检查有效性修复（check [10] 须证明请求/reload 重叠而非假设、共享配置文件的跨臂计数污染）。
+- `llmdoc/memory/reflections/per-engine-log-prefix.md` — log_prefix 从进程全局改为引擎实例级复盘（issue #172 / PR #173），记录三引擎三种错误形态（Go sync.Once first-engine-wins / Java property 无消费者 / C++ 成员无消费者）的消费点审计盲区、LoggerAware 三引擎注入设计、Go calldepth 逐层推导与 Java printf 格式串注入两处 review 命中缺陷。
 
 ## memory/decisions/
 
