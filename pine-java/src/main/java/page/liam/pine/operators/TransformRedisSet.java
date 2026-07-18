@@ -111,7 +111,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                 case "set": {
                     List<String> members = toStringList(value);
                     if (members == null || members.isEmpty()) {
-                        if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
+                        if (members == null) logf("transform_redis_set: value for key %s is not []string", key);
                         return;
                     }
                     resource.runCommand("SADD", jedis -> {
@@ -127,7 +127,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                 case "list": {
                     List<String> members = toStringList(value);
                     if (members == null || members.isEmpty()) {
-                        if (members == null) System.err.printf("transform_redis_set: value for key %s is not []string%n", key);
+                        if (members == null) logf("transform_redis_set: value for key %s is not []string", key);
                         return;
                     }
                     resource.runCommand("RPUSH", jedis -> {
@@ -142,7 +142,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                 }
                 case "string": {
                     if (!(value instanceof String)) {
-                        System.err.printf("transform_redis_set: value for key %s is not string%n", key);
+                        logf("transform_redis_set: value for key %s is not string", key);
                         return;
                     }
                     final String stringValue = (String) value;
@@ -165,7 +165,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
             if (failOnError) {
                 throw new PineErrors.OperatorException("transform_redis_set: write key " + key + ": " + e.getMessage(), e);
             }
-            System.err.printf("transform_redis_set: write key %s: %s%n", key, e.getMessage());
+            logf("transform_redis_set: write key %s: %s", key, e.getMessage());
             output.setWarning(new Exception("transform_redis_set: write key " + key + ": " + e.getMessage(), e));
         }
     }

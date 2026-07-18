@@ -11,8 +11,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Engine {
-    private static final AtomicBoolean logPrefixSet = new AtomicBoolean();
-
     private final List<CompiledOperator> operators;
     private final DAG dag;
     private final Config.FlowContract contract;
@@ -21,10 +19,14 @@ public class Engine {
     private final EngineMetrics engineMetrics;
     private final String storageMode;
     private final ExecutorService executor;
+    // Per-engine log prefix (option > JSON config). Scoped to this engine's
+    // diagnostics only — the process-global state is never touched, so
+    // multiple engines in one process keep their own prefixes (issue #172).
+    private final String logPrefix;
 
     private Engine(List<CompiledOperator> operators, DAG dag, Config.FlowContract contract,
                    ResourceProvider resourceProvider, Stats stats, EngineMetrics engineMetrics,
-                   String storageMode, ExecutorService executor) {
+                   String storageMode, ExecutorService executor, String logPrefix) {
         this.operators = operators;
         this.dag = dag;
         this.contract = contract;
@@ -33,6 +35,7 @@ public class Engine {
         this.engineMetrics = engineMetrics;
         this.storageMode = storageMode;
         this.executor = executor;
+        this.logPrefix = logPrefix;
     }
 
     // --- Option pattern ---
@@ -60,6 +63,14 @@ public class Engine {
 
     public static Option withLogPrefix(String prefix) {
         return opts -> opts.logPrefix = prefix;
+    }
+
+    /**
+     * Returns this engine's resolved log prefix (option &gt; JSON config),
+     * scoped to this engine only (issue #172). Mirrors Go's Engine.Logger().
+     */
+    public String logPrefix() {
+        return logPrefix;
     }
 
     public static Option withDebug(boolean debug) {
@@ -102,16 +113,9 @@ public class Engine {
 
         validateSourcesOrder(sequence, cfg.pipelineConfig.operators);
 
-        // Resolve log_prefix: Option > JSON config (set once only, like Go's sync.Once)
+        // Resolve log_prefix: Option > JSON config. Engine-scoped (issue #172):
+        // no global property, no set-once — each engine keeps its own prefix.
         String logPrefix = eo.logPrefix != null ? eo.logPrefix : cfg.logPrefix;
-        if (!logPrefix.isEmpty() && logPrefixSet.compareAndSet(false, true)) {
-            System.setProperty("pine.log.prefix", logPrefix);
-        } else if (!logPrefix.isEmpty()) {
-            String current = System.getProperty("pine.log.prefix", "");
-            if (!logPrefix.equals(current)) {
-                System.err.println("[pine] WARNING: log_prefix changed to \"" + logPrefix + "\" but was already set to \"" + current + "\" (ignored, set-once semantics)");
-            }
-        }
 
         // Resolve global debug: Option > JSON config
         boolean globalDebug = eo.debug != null ? eo.debug : cfg.debug;
@@ -162,6 +166,9 @@ public class Engine {
 
             if (op instanceof DebugAware) {
                 ((DebugAware) op).setDebug(name, effectiveDebug);
+            }
+            if (op instanceof LoggerAware) {
+                ((LoggerAware) op).setEngineLogPrefix(logPrefix);
             }
             if (op instanceof MetricsAware) {
                 ((MetricsAware) op).setMetricsProvider(
@@ -222,7 +229,7 @@ public class Engine {
         em.preInitOperators(opNames);
         stats.preInitOperators(opNames);
         ExecutorService pool = eo.executor != null ? eo.executor : Executors.newVirtualThreadPerTaskExecutor();
-        return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode, pool);
+        return new Engine(compiledOps, dag, cfg.flowContract, eo.resources, stats, em, cfg.storageMode, pool, logPrefix);
     }
 
     public Result execute(Map<String, Object> common, List<Map<String, Object>> items) {
@@ -474,7 +481,7 @@ public class Engine {
             int outputSize = inputSize + output.getAddedItems().size() - output.getRemovedItems().size();
             String inputJson = inputSnapshot != null ? toJson(inputSnapshot) : "{}";
             String outputJson = toJson(outputSnapshot);
-            System.err.printf("[pine-debug] operator=\"%s\" duration=%s input_size=%d output_size=%d input=%s output=%s%n",
+            System.err.printf(logPrefix + "[pine-debug] operator=\"%s\" duration=%s input_size=%d output_size=%d input=%s output=%s%n",
                     cop.name, formatDuration(duration), inputSize, outputSize, inputJson, outputJson);
         }
 

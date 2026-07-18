@@ -276,7 +276,7 @@ public class AllOperators {
                 new OperatorSchema(
                         "observe_log",
                         OperatorType.OBSERVE,
-                        "Reads declared input fields and writes them to Go standard log. This is a read-only operator: it produces no output fields and does not modify the DataFrame. It is exempt from dead-code detection.",
+                        "Reads declared input fields and writes them to the engine's logger. This is a read-only operator: it produces no output fields and does not modify the DataFrame. It is exempt from dead-code detection.",
                         Map.of(
                                 "log_prefix", ParamSpec.optional("string", "",
                                         "Prefix prepended to each log line.")
