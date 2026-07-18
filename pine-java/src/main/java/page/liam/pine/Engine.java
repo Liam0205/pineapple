@@ -6,7 +6,6 @@ import page.liam.pine.operators.AllOperators;
 
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -481,8 +480,8 @@ public class Engine {
             int outputSize = inputSize + output.getAddedItems().size() - output.getRemovedItems().size();
             String inputJson = inputSnapshot != null ? toJson(inputSnapshot) : "{}";
             String outputJson = toJson(outputSnapshot);
-            System.err.printf(logPrefix + "[pine-debug] operator=\"%s\" duration=%s input_size=%d output_size=%d input=%s output=%s%n",
-                    cop.name, formatDuration(duration), inputSize, outputSize, inputJson, outputJson);
+            System.err.printf("%s[pine-debug] operator=\"%s\" duration=%s input_size=%d output_size=%d input=%s output=%s%n",
+                    logPrefix, cop.name, formatDuration(duration), inputSize, outputSize, inputJson, outputJson);
         }
 
         // Apply output

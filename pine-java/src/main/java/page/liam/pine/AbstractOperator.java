@@ -34,6 +34,10 @@ public abstract class AbstractOperator implements Operator, MetadataAware, Logge
      * (issue #172). Use instead of raw System.err in operator code.
      */
     protected final void logf(String format, Object... args) {
-        System.err.printf(engineLogPrefix + format + "%n", args);
+        // The prefix is user-configured and must be emitted as a literal —
+        // never concatenated into the format string, where a stray '%'
+        // (e.g. "[100%] ") would throw at runtime.
+        System.err.print(engineLogPrefix);
+        System.err.printf(format + "%n", args);
     }
 }
