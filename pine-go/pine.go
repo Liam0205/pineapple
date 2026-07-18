@@ -35,7 +35,7 @@ type Option func(*engineOptions)
 
 type engineOptions struct {
 	metricsProvider metrics.Provider
-	logPrefix       string
+	logPrefix       *string
 	debug           *bool
 }
 
@@ -49,10 +49,12 @@ func WithMetrics(p metrics.Provider) Option {
 // (operator DebugLog, [pine-debug] snapshots, observe_log output) go through
 // a per-engine logger carrying this prefix, so multiple engines in one
 // process each keep their own prefix (issue #172). When omitted, the JSON
-// config's log_prefix field is used; when both are set, this Option takes
-// precedence. The process-global log package is not touched.
+// config's log_prefix field is used; when set — including an explicit empty
+// string — this Option takes precedence (nullable tri-state, matching Java's
+// nullable String and C++'s std::optional). The process-global log package
+// is not touched.
 func WithLogPrefix(prefix string) Option {
-	return func(o *engineOptions) { o.logPrefix = prefix }
+	return func(o *engineOptions) { o.logPrefix = &prefix }
 }
 
 // WithDebug enables debug snapshot collection for all operators.
@@ -84,9 +86,9 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	// process-global log package is deliberately left untouched (issue #172:
 	// with multiple engines per process, a global prefix is first-engine-wins
 	// and silently misattributes every other engine's log lines).
-	logPrefix := eo.logPrefix
-	if logPrefix == "" {
-		logPrefix = cfg.LogPrefix
+	logPrefix := cfg.LogPrefix
+	if eo.logPrefix != nil {
+		logPrefix = *eo.logPrefix
 	}
 	engineLogger := log.New(os.Stderr, logPrefix, log.Ldate|log.Ltime|log.Lshortfile)
 

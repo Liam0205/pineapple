@@ -1014,6 +1014,34 @@ func TestLogPrefixOptionOverridesJSON(t *testing.T) {
 	}
 }
 
+// An explicit empty-string option must override a non-empty JSON prefix —
+// the option is nullable tri-state (unset / set-to-value / set-to-empty),
+// matching Java's nullable String and C++'s std::optional (issue #172).
+func TestLogPrefixEmptyOptionOverridesJSON(t *testing.T) {
+	cfg := makeConfig(
+		map[string]any{
+			"op": map[string]any{
+				"type_name": "noop",
+				"$metadata": map[string]any{
+					"common_input": []string{}, "common_output": []string{},
+					"item_input": []string{}, "item_output": []string{},
+				},
+			},
+		},
+		map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+		map[string]any{"common_input": []string{}},
+	)
+	cfg["log_prefix"] = "[json] "
+	engine, err := pine.NewEngine(mustJSON(t, cfg), pine.WithLogPrefix(""))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer engine.Close()
+	if got := engine.Logger().Prefix(); got != "" {
+		t.Errorf("engine.Logger().Prefix() = %q, want empty (explicit empty option must win)", got)
+	}
+}
+
 // TestLogPrefixPerEngineIsolation pins the issue #172 fix: multiple engines
 // in one process each keep their own log_prefix; construction order does not
 // matter and no engine clobbers another's (or the global) logger.
