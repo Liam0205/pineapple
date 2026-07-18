@@ -360,9 +360,9 @@ curl http://localhost:8080/dag?format=dot&collapse=0
 - 跨组的边提升为聚合边，自动去重
 - `collapse=0` 或不传 `collapse` 参数时行为完全不变
 
-### 全局日志前缀
+### 引擎日志前缀
 
-引擎支持为所有日志（包括第三方算子通过 `log.Printf` 打印的日志）统一添加前缀。底层通过 `log.SetPrefix()` 设置标准库全局 logger 前缀，确保无遗漏。
+引擎支持为其诊断日志（`[pine-debug]` 快照、`observe_log` 等 `LoggerAware` 算子输出）统一添加前缀。前缀作用于**引擎实例私有**的 logger——多个引擎同进程时各自保留自己的前缀，进程全局 `log` 包不受影响（issue #172；此前是 `log.SetPrefix()` 全局生效、first-engine-wins 的旧语义）。
 
 #### 配置方式
 
@@ -384,9 +384,9 @@ flow = Flow(
 engine, err := pine.NewEngine(jsonConfig, pine.WithLogPrefix("[svc] "))
 ```
 
-优先级：`WithLogPrefix` Option > JSON `log_prefix` 字段 > 无前缀。
+优先级：`WithLogPrefix` Option > JSON `log_prefix` 字段 > 无前缀。Option 是 nullable 三态（Go `*string` / Java nullable `String` / C++ `std::optional`）：显式传空字符串也视为已设置，会覆盖 JSON 值。
 
-`log_prefix` 是进程级全局状态，不存储在 Engine 实例上。
+`log_prefix` 存储在 Engine 实例上（Go `Engine.Logger()` / Java `Engine.logPrefix()` / C++ `Engine::log_prefix()`），作用域仅限该引擎的日志输出。
 
 #### 编程 API
 

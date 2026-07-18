@@ -151,7 +151,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
   - `transform_by_remote_pineapple` 算子：基于 `libcurl` 实现 SSRF 安全保护（拦截 loopback/private IP 配置）、HTTP POST 超时与最大体积限制
   - Redis `ConnectionPool`：per-key idle 上限（`kMaxIdlePerKey=16`）+ idle timeout（`kIdleTimeout=60s`）+ acquire 时 LIFO stale discard + `connected()` 健康检查。`ScopedClient` RAII handle 自动 release back to pool，替代算子内 inline PoolGuard。**`pool_timeout_ms` 当前 no-op**：cpp 池 acquire 不阻塞（idle 队列空时直接构造新 client），schema 仍保留以便跨引擎配置块对称
 - **根级配置扩展**
-  - `log_prefix`（同时支持 `EngineOptions::log_prefix` 覆盖），最终通过 `log::SetPrefix` + `Ldate|Ltime|Lshortfile` 应用
+  - `log_prefix`（同时支持 `EngineOptions::log_prefix` 覆盖，`std::optional` 三态）——引擎实例成员 `log_prefix_`，由 `[pine-debug]` 行与 `LoggerAware` 算子（如 `observe_log`）消费（issue #172）
   - `_PINEAPPLE_VERSION` / `_PINEAPPLE_CREATE_TIME` 解析并通过 `Config` 暴露，供下游工具读取
   - `resource_config` 解析为 `ResourceEntry`（type / interval / params），由 `Manager::load_from_config(...)` 解析为活跃 fetcher
 - **校验**

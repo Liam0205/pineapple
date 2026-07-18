@@ -24,7 +24,7 @@
 `pine.NewEngine(jsonConfig, opts...)` 现在接受可选的引擎级 option。当前稳定 option 为：
 
 - `pine.WithMetrics(provider)` — 为引擎和支持的算子注入 `pine-go/pkg/metrics.Provider`
-- `pine.WithLogPrefix(prefix)` — 为进程级标准库 logger 设置全局日志前缀，并启用带 `file:line` 的标准日志 flags
+- `pine.WithLogPrefix(prefix)` — 设置该引擎实例私有 logger 的日志前缀（`Ldate|Ltime|Lshortfile` flags 启用 `file:line` 输出）；不触碰进程全局 `log` 包（issue #172），显式空字符串也视为已设置（nullable 三态，`*string`）
 - `pine.WithDebug(enabled)` — 覆盖根级 debug 配置，强制开启或关闭全局调试采集
 
 若调用方未提供 provider，引擎会回退到 `metrics.Nop()`；该默认实现丢弃全部观测，保留零配置 `/stats` 能力，同时避免 Pineapple 核心直接依赖任意具体监控后端。
@@ -83,7 +83,7 @@
    - 从参数中过滤保留键。
    - 应用默认值和必填参数检查。
    - 调用 `factory()` 然后 `Init(params)`。
-   - 对 `MetadataAware`、`DebugAware`、`MetricsAware` 和 `ResourceAware` 算子按固定顺序应用引擎级注入：Metadata → Debug → Metrics → Resource。
+   - 对 `MetadataAware`、`DebugAware`、`LoggerAware`、`MetricsAware` 和 `ResourceAware` 算子按固定顺序应用引擎级注入：Metadata → Debug → Logger → Metrics → Resource。
    - `MetricsAware` 注入使用 `NewEngine` option 中提供的 `metrics.Provider`；默认是 no-op provider。
 
 4. **构建 DAG**（`pine-go/internal/dag.Build`）
