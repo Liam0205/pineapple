@@ -55,12 +55,12 @@ public class ObserveLog extends AbstractOperator {
         try {
             String data = mapper.writeValueAsString(snapshot);
             if (!prefix.isEmpty()) {
-                System.err.printf("[observe_log] %s %s%n", prefix, data);
+                logf("[observe_log] %s %s", prefix, data);
             } else {
-                System.err.printf("[observe_log] %s%n", data);
+                logf("[observe_log] %s", data);
             }
         } catch (Exception e) {
-            System.err.printf("[observe_log] %s marshal error: %s%n", prefix, e.getMessage());
+            logf("[observe_log] %s marshal error: %s", prefix, e.getMessage());
         }
     }
 }
