@@ -127,6 +127,16 @@ TEST_CASE("EngineOptions::log_prefix: overrides Config.log_prefix") {
   CHECK(engine.log_prefix() == "[override] ");
 }
 
+// An explicit empty-string option must override a non-empty Config prefix
+// (std::optional tri-state, cross-runtime parity with Go/Java).
+TEST_CASE("EngineOptions::log_prefix: explicit empty string overrides Config") {
+  auto config = load_config_from_json(kCopyConfigWithLogPrefix);
+  EngineOptions options;
+  options.log_prefix = std::string("");
+  Engine engine(std::move(config), std::move(options));
+  CHECK(engine.log_prefix() == "");
+}
+
 TEST_CASE("Engine::log_prefix: empty when unset on both Config and EngineOptions") {
   Engine engine(load_config_from_json(kCopyConfig));
   CHECK(engine.log_prefix() == "");
