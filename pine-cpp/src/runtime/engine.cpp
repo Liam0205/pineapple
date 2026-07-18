@@ -350,8 +350,18 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     }
     auto instance = entry->factory();
     instance->init(op_cfg);
+    // Optional-interface injection. Cross-runtime relative order (see
+    // llmdoc/architecture/dag-engine.md invariant 11): Logger -> Metrics ->
+    // Resource. Metadata/Debug have no standalone interfaces here — they
+    // arrive via init(op_cfg) above, which precedes all injection.
+    //
+    // Inject this engine's log prefix so operator diagnostics carry it even
+    // with multiple engines in one process (issue #172).
+    if (auto* la = dynamic_cast<LoggerAware*>(instance.get())) {
+      la->set_engine_log_prefix(log_prefix_);
+    }
     // Inject metrics provider for operators that opt-in. Mirrors
-    // pine-go pine.go:170 — init first, then provider injection.
+    // pine-go pine.go — init first, then provider injection.
     if (auto* ma = dynamic_cast<MetricsAware*>(instance.get())) {
       ma->set_metrics_provider(metrics_provider_);
     }
@@ -361,11 +371,6 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     // first, then provider injection.
     if (auto* ra = dynamic_cast<ResourceAware*>(instance.get())) {
       ra->set_resource_provider(resource_provider_);
-    }
-    // Inject this engine's log prefix so operator diagnostics carry it even
-    // with multiple engines in one process (issue #172).
-    if (auto* la = dynamic_cast<LoggerAware*>(instance.get())) {
-      la->set_engine_log_prefix(log_prefix_);
     }
     // Compute the {{field}} interpolation plan for this operator
     // (issue #74). Build-time errors carry the canonical
