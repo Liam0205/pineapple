@@ -132,6 +132,18 @@ TEST_CASE("Engine::log_prefix: empty when unset on both Config and EngineOptions
   CHECK(engine.log_prefix() == "");
 }
 
+// Issue #172: log_prefix is engine-scoped. Multiple engines in one process
+// each keep their own prefix; construction order must not matter (the Go
+// implementation regressed to first-engine-wins via a global sync.Once).
+TEST_CASE("Engine::log_prefix: per-engine isolation across two engines") {
+  Engine first(load_config_from_json(kCopyConfigWithLogPrefix));
+  EngineOptions options;
+  options.log_prefix = std::string("[second] ");
+  Engine second(load_config_from_json(kCopyConfig), std::move(options));
+  CHECK(first.log_prefix() == "[from-config] ");
+  CHECK(second.log_prefix() == "[second] ");
+}
+
 TEST_CASE("validate_output_against_type: Recall may SetCommon (downstream consumable)") {
   // Recall is allowed to write common (e.g. a recall-generated request id
   // that downstream operators consume). The common write participates in

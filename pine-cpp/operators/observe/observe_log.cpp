@@ -6,8 +6,12 @@
 
 namespace pine {
 
-class ObserveLogOp : public Operator {
+class ObserveLogOp : public Operator, public LoggerAware {
  public:
+  void set_engine_log_prefix(const std::string& prefix) override {
+    engine_prefix_ = prefix;
+  }
+
   void init(const OperatorConfig& cfg) override {
     common_input_ = cfg.metadata.common_input;
     item_input_ = cfg.metadata.item_input;
@@ -52,14 +56,15 @@ class ObserveLogOp : public Operator {
     }
 
     if (!prefix_.empty()) {
-      std::cerr << "[observe_log] " << prefix_ << " " << data << "\n";
+      std::cerr << engine_prefix_ << "[observe_log] " << prefix_ << " " << data << "\n";
     } else {
-      std::cerr << "[observe_log] " << data << "\n";
+      std::cerr << engine_prefix_ << "[observe_log] " << data << "\n";
     }
   }
 
  private:
   std::string prefix_;
+  std::string engine_prefix_;
   std::vector<std::string> common_input_;
   std::vector<std::string> item_input_;
 };
@@ -68,7 +73,7 @@ static const OperatorSchema k_observe_log_schema{
     .name = "observe_log",
     .type = OpType::Observe,
     .description =
-        "Reads declared input fields and writes them to Go standard log. This is a read-only operator: it "
+        "Reads declared input fields and writes them to the engine's logger. This is a read-only operator: it "
         "produces no output fields and does not modify the DataFrame. It is exempt from dead-code detection.",
     .params =
         {
