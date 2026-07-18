@@ -34,7 +34,7 @@
 - JSON 根级 `log_prefix`
 - Go option `pine.WithLogPrefix(...)`
 
-优先级固定为 Go option 高于 JSON 配置。`NewEngine` 在解析完 `pine-go/internal/config.RootConfig` 后调用标准库 `log.SetPrefix()` 应用最终值，并同时调用 `log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)`，因此日志输出会包含 `file:line`，且该前缀与 flags 会一起影响引擎日志以及复用标准库 logger 的第三方算子日志。
+优先级固定为 Go option 高于 JSON 配置。自 issue #172 起 `log_prefix` 是**引擎实例级**的：`NewEngine` 用最终值构造一个引擎私有的 `*log.Logger`（flags 为 `Ldate|Ltime|Lshortfile`，输出含 `file:line`），进程全局的 `log` 包不再被触碰。多个引擎同进程时各自保留自己的前缀（此前是 `sync.Once` 守护的 `log.SetPrefix()`——first-engine-wins，后构造引擎的前缀被静默忽略）。消费路径：`LoggerAware`/`LoggerHolder` 算子注入（`DebugHolder` 内嵌 `LoggerHolder`，`Logf`/`DebugLog` 以 calldepth 3 上报调用点行号）、scheduler 的 `[pine-debug]` 快照行（经 `runtime.Plan.Logger`）、`observe_log` 与 `transform_redis_set` 的诊断输出；`Engine.Logger()` 向嵌入方暴露该 logger。Java 对等：`Engine.logPrefix()` 实例字段 + `LoggerAware.setEngineLogPrefix`（旧的 `pine.log.prefix` System property 通道已删除——它从未被消费）。C++ 对等：既有实例成员 `log_prefix_` 现被 `[pine-debug]` 行与 `observe_log`（实现 `LoggerAware`）真正消费。
 
 全局 debug 的来源同样有两层：
 
@@ -48,7 +48,7 @@
 该设计明确区分两类运行时注入：
 
 - 观测 provider 注入：面向 `pine-go/pkg/metrics` 的可插拔外部指标
-- 日志前缀注入：面向标准库全局 logger 的进程级日志格式控制
+- 日志前缀注入：面向引擎私有 logger 的实例级日志归属（issue #172 前曾是进程级全局控制）
 - 全局 debug 注入：面向全部编译后算子的运行时 debug trace 默认开关
 
 同时，Pineapple 的观测通道仍保持分离：
@@ -563,7 +563,7 @@ DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
 
 运行时依赖 `pine-go/internal/config/types.go` 中的若干配置级字段：
 
-- `log_prefix` — 根级全局日志前缀，供 `NewEngine` 调用 `log.SetPrefix()`，并配套设置 `log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)` 以启用 `file:line` 输出
+- `log_prefix` — 根级日志前缀，作用域为该引擎实例的私有 logger（`Ldate|Ltime|Lshortfile` flags 启用 `file:line` 输出）；不影响进程全局 `log` 包（issue #172）
 - `debug` — 根级全局 debug 默认值；`NewEngine` 可直接消费，也可被 `pine.WithDebug(...)` 覆盖，最终作为未显式设置 debug 的算子的默认值
 - `$metadata` — 声明的 common/item 输入和输出
 - `skip` — 控制流守卫字段列表；任一字段只要是 Lua truthy 值即跳过，旧版单字符串 JSON 在加载期会被归一化为单元素列表
