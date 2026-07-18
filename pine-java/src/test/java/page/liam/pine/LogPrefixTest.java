@@ -3,9 +3,16 @@ package page.liam.pine;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,5 +84,73 @@ public class LogPrefixTest {
         } finally {
             engine.close();
         }
+    }
+
+    // An explicit empty-string option must override a non-empty JSON prefix
+    // (nullable tri-state, cross-runtime parity with Go/C++).
+    @Test
+    void emptyOptionOverridesJson() throws Exception {
+        Engine engine = Engine.create(configWithPrefix("[json] "),
+                Engine.withLogPrefix(""));
+        try {
+            assertEquals("", engine.logPrefix(),
+                    "explicit empty option must win over JSON prefix");
+        } finally {
+            engine.close();
+        }
+    }
+
+    // Concurrent executes on two engines must never interleave prefix and
+    // body across engines: logf emits prefix + body + newline in one
+    // PrintStream call. Captures real stderr instead of trusting the stored
+    // prefix string.
+    @Test
+    void concurrentEnginesDoNotInterleavePrefixAndBody() throws Exception {
+        Engine a = Engine.create(configWithPrefix("[engine-a] "));
+        Engine b = Engine.create(configWithPrefix("[engine-b] "));
+        PrintStream origErr = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            CountDownLatch start = new CountDownLatch(1);
+            int perEngine = 50;
+            for (int i = 0; i < perEngine; i++) {
+                pool.submit(() -> {
+                    start.await();
+                    a.execute(Map.of(), List.of());
+                    return null;
+                });
+                pool.submit(() -> {
+                    start.await();
+                    b.execute(Map.of(), List.of());
+                    return null;
+                });
+            }
+            start.countDown();
+            pool.shutdown();
+            assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS), "workers did not finish");
+        } finally {
+            System.setErr(origErr);
+            pool.shutdownNow();
+            a.close();
+            b.close();
+        }
+
+        int observed = 0;
+        for (String line : captured.toString(StandardCharsets.UTF_8).split("\\R")) {
+            if (!line.contains("[observe_log]")) {
+                continue;
+            }
+            observed++;
+            boolean fromA = line.startsWith("[engine-a] ");
+            boolean fromB = line.startsWith("[engine-b] ");
+            assertTrue(fromA || fromB, "observe_log line lost its engine prefix: " + line);
+            // A doubled prefix means two engines' writes interleaved.
+            String rest = line.substring("[engine-x] ".length());
+            assertFalse(rest.startsWith("[engine-a] ") || rest.startsWith("[engine-b] "),
+                    "interleaved prefixes detected: " + line);
+        }
+        assertTrue(observed > 0, "expected observe_log output to be captured");
     }
 }
