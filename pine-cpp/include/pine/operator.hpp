@@ -50,6 +50,16 @@ class ResourceAware {
   virtual void set_resource_provider(const ResourceProvider* provider) = 0;
 };
 
+// LoggerAware mirrors pine-go's LoggerAware optional interface (issue #172).
+// Operators that emit diagnostic log lines implement this; Engine injects its
+// resolved log_prefix (option > JSON config) after init(), so operator output
+// carries the owning engine's prefix even with multiple engines per process.
+class LoggerAware {
+ public:
+  virtual ~LoggerAware() = default;
+  virtual void set_engine_log_prefix(const std::string& prefix) = 0;
+};
+
 // StatsProvider mirrors pine-go's types.StatsProvider optional interface.
 // Operators that expose internal counters/gauges for the /stats endpoint
 // implement this. The Engine polls OperatorStats() during stats collection.

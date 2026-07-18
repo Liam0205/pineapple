@@ -362,6 +362,11 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     if (auto* ra = dynamic_cast<ResourceAware*>(instance.get())) {
       ra->set_resource_provider(resource_provider_);
     }
+    // Inject this engine's log prefix so operator diagnostics carry it even
+    // with multiple engines in one process (issue #172).
+    if (auto* la = dynamic_cast<LoggerAware*>(instance.get())) {
+      la->set_engine_log_prefix(log_prefix_);
+    }
     // Compute the {{field}} interpolation plan for this operator
     // (issue #74). Build-time errors carry the canonical
     // `operator "X": ...` prefix; runtime errors don't, since
@@ -755,7 +760,8 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
                              Engine::EngineMetrics* em = nullptr, runtime::ThreadPool* dag_pool = nullptr,
                              runtime::ThreadPool* shard_pool = nullptr,
                              std::stop_token external_cancel = std::stop_token{},
-                             detail::CentralArena* central = nullptr) {
+                             detail::CentralArena* central = nullptr,
+                             const std::string& log_prefix = std::string{}) {
   const std::size_t n = graph.nodes.size();
 
   if (em && em->scheduler_runs) {
@@ -952,7 +958,7 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
         while (!out_json.empty() && out_json.back() == '\n') {
           out_json.pop_back();
         }
-        std::cerr << "[pine-debug] operator=\"" << op.name << "\" duration=" << dur_str
+        std::cerr << log_prefix << "[pine-debug] operator=\"" << op.name << "\" duration=" << dur_str
                   << " input_size=" << input_size << " output_size=" << output_size << " input=" << in_json
                   << " output=" << out_json << "\n";
       }
@@ -1102,7 +1108,7 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
     out->trace = run_dag(config_, graph_, operators_, input_specs_, templated_plans_.get(), frame,
                          /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
                          dag_pool_ ? &dag_pool_->pool : nullptr, shard_pool_ ? &shard_pool_->pool : nullptr,
-                         external_cancel, central);
+                         external_cancel, central, log_prefix_);
   } catch (...) {
     run_err = std::current_exception();
   }
