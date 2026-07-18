@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sync"
+	"os"
 
 	"github.com/Liam0205/pineapple/pine-go/internal/config"
 	"github.com/Liam0205/pineapple/pine-go/internal/dag"
@@ -20,10 +20,6 @@ import (
 type Request = types.Request
 type Result = types.Result
 
-// logOnce ensures log.SetPrefix/SetFlags is called only once,
-// preventing a data race on hot-reload.
-var logOnce sync.Once
-
 // Engine is an immutable, concurrency-safe execution engine.
 // Create with NewEngine; call Execute for each request.
 type Engine struct {
@@ -31,6 +27,7 @@ type Engine struct {
 	stats         *runtime.Stats
 	engineMetrics *runtime.EngineMetrics
 	storageMode   dataframe.StorageMode
+	logger        *log.Logger
 }
 
 // Option configures optional Engine behaviour.
@@ -48,9 +45,12 @@ func WithMetrics(p metrics.Provider) Option {
 	return func(o *engineOptions) { o.metricsProvider = p }
 }
 
-// WithLogPrefix sets the global log prefix for all log output, including
-// third-party operator logs. When omitted, the JSON config's log_prefix
-// field is used; when both are set, this Option takes precedence.
+// WithLogPrefix sets this engine's log prefix. Engine-scoped diagnostics
+// (operator DebugLog, [pine-debug] snapshots, observe_log output) go through
+// a per-engine logger carrying this prefix, so multiple engines in one
+// process each keep their own prefix (issue #172). When omitted, the JSON
+// config's log_prefix field is used; when both are set, this Option takes
+// precedence. The process-global log package is not touched.
 func WithLogPrefix(prefix string) Option {
 	return func(o *engineOptions) { o.logPrefix = prefix }
 }
@@ -79,17 +79,16 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		return nil, err
 	}
 
-	// 1b. Apply log prefix (Option > JSON config)
+	// 1b. Build the per-engine logger (Option > JSON config). Each engine owns
+	// its own *log.Logger so log_prefix scopes to this engine's output — the
+	// process-global log package is deliberately left untouched (issue #172:
+	// with multiple engines per process, a global prefix is first-engine-wins
+	// and silently misattributes every other engine's log lines).
 	logPrefix := eo.logPrefix
 	if logPrefix == "" {
 		logPrefix = cfg.LogPrefix
 	}
-	if logPrefix != "" {
-		logOnce.Do(func() {
-			log.SetPrefix(logPrefix)
-			log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-		})
-	}
+	engineLogger := log.New(os.Stderr, logPrefix, log.Ldate|log.Ltime|log.Lshortfile)
 
 	// 1c. Resolve global debug (Option > JSON config)
 	globalDebug := cfg.Debug
@@ -170,6 +169,11 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		if da, ok := op.(types.DebugAware); ok {
 			da.SetDebugInfo(name, effectiveDebug)
 		}
+		// If the operator emits log lines, hand it this engine's logger so its
+		// output carries this engine's log_prefix (issue #172).
+		if la, ok := op.(types.LoggerAware); ok {
+			la.SetEngineLogger(engineLogger)
+		}
 		// If the operator records external metrics, inject the provider
 		if ma, ok := op.(types.MetricsAware); ok {
 			ma.SetMetricsProvider(mp)
@@ -202,6 +206,7 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 		Graph:     graph,
 		Operators: compiledOps,
 		Contract:  cfg.FlowContract,
+		Logger:    engineLogger,
 	}
 
 	em := runtime.NewEngineMetrics(mp)
@@ -212,7 +217,15 @@ func NewEngine(jsonConfig []byte, opts ...Option) (*Engine, error) {
 	em.PreInitOperators(opNames)
 	stats := runtime.NewStats()
 	stats.PreInitOperators(opNames)
-	return &Engine{plan: plan, stats: stats, engineMetrics: em, storageMode: dataframe.StorageMode(cfg.StorageMode)}, nil
+	return &Engine{plan: plan, stats: stats, engineMetrics: em, storageMode: dataframe.StorageMode(cfg.StorageMode), logger: engineLogger}, nil
+}
+
+// Logger returns this engine's logger. Its prefix is the resolved log_prefix
+// (WithLogPrefix option > JSON config), scoped to this engine only. Callers
+// embedding multiple engines can route their own per-flow log lines through
+// it to keep prefixes consistent with engine diagnostics.
+func (e *Engine) Logger() *log.Logger {
+	return e.logger
 }
 
 // Execute runs the pipeline for a single request.

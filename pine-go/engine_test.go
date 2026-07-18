@@ -950,10 +950,8 @@ func TestDataParallelValidation(t *testing.T) {
 }
 
 func TestLogPrefixFromJSON(t *testing.T) {
-	pine.ResetLogOnce()
 	origPrefix := log.Prefix()
 	origFlags := log.Flags()
-	defer func() { log.SetPrefix(origPrefix); log.SetFlags(origFlags) }()
 	cfg := makeConfig(
 		map[string]any{
 			"op": map[string]any{
@@ -968,24 +966,29 @@ func TestLogPrefixFromJSON(t *testing.T) {
 		map[string]any{"common_input": []string{}},
 	)
 	cfg["log_prefix"] = "[test] "
-	_, err := pine.NewEngine(mustJSON(t, cfg))
+	engine, err := pine.NewEngine(mustJSON(t, cfg))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := log.Prefix(); got != "[test] " {
-		t.Errorf("log.Prefix() = %q, want %q", got, "[test] ")
+	defer engine.Close()
+	// log_prefix scopes to the engine's own logger (issue #172).
+	if got := engine.Logger().Prefix(); got != "[test] " {
+		t.Errorf("engine.Logger().Prefix() = %q, want %q", got, "[test] ")
 	}
 	wantFlags := log.Ldate | log.Ltime | log.Lshortfile
-	if got := log.Flags(); got != wantFlags {
-		t.Errorf("log.Flags() = %d, want %d", got, wantFlags)
+	if got := engine.Logger().Flags(); got != wantFlags {
+		t.Errorf("engine.Logger().Flags() = %d, want %d", got, wantFlags)
+	}
+	// The process-global logger must be untouched.
+	if log.Prefix() != origPrefix {
+		t.Errorf("global log.Prefix() changed to %q; NewEngine must not touch the global logger", log.Prefix())
+	}
+	if log.Flags() != origFlags {
+		t.Errorf("global log.Flags() changed to %d; NewEngine must not touch the global logger", log.Flags())
 	}
 }
 
 func TestLogPrefixOptionOverridesJSON(t *testing.T) {
-	pine.ResetLogOnce()
-	origPrefix := log.Prefix()
-	origFlags := log.Flags()
-	defer func() { log.SetPrefix(origPrefix); log.SetFlags(origFlags) }()
 	cfg := makeConfig(
 		map[string]any{
 			"op": map[string]any{
@@ -1000,14 +1003,58 @@ func TestLogPrefixOptionOverridesJSON(t *testing.T) {
 		map[string]any{"common_input": []string{}},
 	)
 	cfg["log_prefix"] = "[json] "
-	_, err := pine.NewEngine(mustJSON(t, cfg), pine.WithLogPrefix("[opt] "))
+	engine, err := pine.NewEngine(mustJSON(t, cfg), pine.WithLogPrefix("[opt] "))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// With sync.Once reset, this is the first call to set the prefix.
+	defer engine.Close()
 	// WithLogPrefix takes precedence over JSON config.
-	if got := log.Prefix(); got != "[opt] " {
-		t.Errorf("log.Prefix() = %q, want %q", got, "[opt] ")
+	if got := engine.Logger().Prefix(); got != "[opt] " {
+		t.Errorf("engine.Logger().Prefix() = %q, want %q", got, "[opt] ")
+	}
+}
+
+// TestLogPrefixPerEngineIsolation pins the issue #172 fix: multiple engines
+// in one process each keep their own log_prefix; construction order does not
+// matter and no engine clobbers another's (or the global) logger.
+func TestLogPrefixPerEngineIsolation(t *testing.T) {
+	origPrefix := log.Prefix()
+	mk := func(prefix string) *pine.Engine {
+		cfg := makeConfig(
+			map[string]any{
+				"op": map[string]any{
+					"type_name": "noop",
+					"$metadata": map[string]any{
+						"common_input": []string{}, "common_output": []string{},
+						"item_input": []string{}, "item_output": []string{},
+					},
+				},
+			},
+			map[string]any{"stage1": map[string]any{"pipeline": []string{"op"}}},
+			map[string]any{"common_input": []string{}},
+		)
+		cfg["log_prefix"] = prefix
+		engine, err := pine.NewEngine(mustJSON(t, cfg))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return engine
+	}
+
+	first := mk("[engine-b] ")
+	defer first.Close()
+	second := mk("[engine-a] ")
+	defer second.Close()
+
+	if got := first.Logger().Prefix(); got != "[engine-b] " {
+		t.Errorf("first engine prefix = %q, want %q", got, "[engine-b] ")
+	}
+	// The second engine's prefix must NOT be first-engine-wins ignored.
+	if got := second.Logger().Prefix(); got != "[engine-a] " {
+		t.Errorf("second engine prefix = %q, want %q (first-engine-wins regression)", got, "[engine-a] ")
+	}
+	if log.Prefix() != origPrefix {
+		t.Errorf("global log.Prefix() changed to %q", log.Prefix())
 	}
 }
 
