@@ -42,3 +42,14 @@
 
 - 由 recorder 把前三条 promotion 落到对应稳定文档并同步 index.md。
 - 下次为 #169/#172 这类嵌入场景做回归时，可顺手扫一遍剩余的包级 `sync.Once` 与静态可变状态，确认没有下一个 first-engine-wins。
+
+## 第二轮：深度 code-review 修复（efbd43fd）
+
+首轮 bot review 修完 3 项（calldepth、printf 注入、残留 import）之后，本地深度审查（`.code-review/from-v0.10.13/from-v0.10.13-to-c7c129d.md`）再判 REQUEST_CHANGES：3 项重要问题，全部属实。修复 commit：`004befd7`（Go 三态）、`77517416`(Java 单次写出) 、`a8609d61`（C++ 测试）、`efbd43fd`（docs）。
+
+### 教训
+
+- **option 语义的跨运行时 parity 也要审「哨兵值」**：Go 用空串同时表示「未设置」和「显式设空」，`WithLogPrefix("")` 无法覆盖 JSON 前缀；Java（nullable String）与 C++（std::optional）同一调用产生空前缀——三家 option 行为分歧。修复：Go 改 `*string` 对齐 `WithDebug` 的 `*bool` 模式。规律：**可选参数的"未设置"必须用类型系统表达（nullable/optional/指针），不能用值域里的哨兵值**——`debug` 的 `*bool` 三态先例就在同一个文件里，写 logPrefix 时没有类比过去。
+- **修一个注入坑打开一个并发窗——修复要在原约束集合下重新验证**：首轮为规避 printf `%` 注入把 logf 拆成 print(prefix) + printf(body) 两次调用，恰好破坏了本特性要保证的并发归属（PrintStream 只保证单次调用内串行）。正确解法是先格式化 body 再单次写出——两个约束（格式串隔离 + 原子写出）同时满足。与 #169 第三轮「修统计旁路引入锁窗口回归」同构：**每次修复后要把该代码路径的全部既有约束列出来重新过一遍，而不是只验证新修的那一条**。
+- **改语义必须全量 grep 文档面（llmdoc + design_doc）**：实现改成 engine-scoped 后，dag-engine.md 同一文档内出现两套相反描述（27 行进程级 vs 37 行实例级），metrics-observability / pine-cpp-runtime / design_doc 08/06 五处仍是旧语义。llmdoc 是首要事实源，残留旧语义会诱导后续实现回退。改语义时 `grep -rn` 旧关键词（如 `SetPrefix`、"进程级"）全仓清一遍，不能只改实现邻近的那一篇。
+- **并发归属断言要捕获真实输出**：新增的 Java 并发测试捕获真实 stderr（双引擎并行 execute），断言每行单一前缀开头且无 doubled prefix——只断言存储的 prefix 字符串无法发现写出路径的交错。
