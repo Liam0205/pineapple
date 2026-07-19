@@ -86,6 +86,12 @@ func main() {
 	}
 }
 
+// maxBodyBytes mirrors the bundled server's default request-body cap. An
+// embedding HTTP layer must keep this boundary itself — issue #169 treats
+// the body limit as a shared-dispatch-layer safety contract, and dropping
+// it here would let one oversized request grow process memory unbounded.
+const maxBodyBytes = 10 << 20 // 10 MB
+
 // pipelineHandler adapts HTTP to one embedded pipeline runtime. Execute
 // acquires the live snapshot with an in-flight reference, so a concurrent
 // hot-reload never tears the engine down mid-request.
@@ -95,8 +101,14 @@ func pipelineHandler(rt *server.Server) http.HandlerFunc {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+				return
+			}
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 			return
 		}
