@@ -151,6 +151,28 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.1</version>
             </plugin>
+            <!-- Compile examples/ (QuickStart, MultiPipelineServer) as an
+                 extra test-source root so the default build catches example
+                 rot; test scope keeps examples out of the library jar. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>add-examples-source</id>
+                        <phase>generate-test-sources</phase>
+                        <goals>
+                            <goal>add-test-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>examples</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

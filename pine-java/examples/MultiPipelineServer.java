@@ -24,14 +24,14 @@
  * /execute is kept only as a tombstone: it answers 410 Gone and points
  * callers at the named endpoints.
  *
- * Compile & run (from repo root):
+ * Compile & run (from repo root; the default Maven build compiles this
+ * example as a test source, so plain `mvn test-compile` catches rot):
  *
- *   cd pine-java && mvn -q package -DskipTests
- *   CP="target/classes:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout | tail -1)"
- *   javac -cp "$CP" examples/MultiPipelineServer.java -d /tmp/mps
- *   java  -cp "$CP:/tmp/mps" page.liam.pine.examples.MultiPipelineServer \
- *         ../pine-go/examples/multi-pipeline/feed.json \
- *         ../pine-go/examples/multi-pipeline/search.json 8080
+ *   cd pine-java && mvn -q test-compile
+ *   CP="target/classes:target/test-classes:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout | tail -1)"
+ *   java -cp "$CP" page.liam.pine.examples.MultiPipelineServer \
+ *        ../pine-go/examples/multi-pipeline/feed.json \
+ *        ../pine-go/examples/multi-pipeline/search.json 8080
  *
  * Try:
  *
