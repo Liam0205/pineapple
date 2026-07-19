@@ -73,3 +73,14 @@
 - **已修过的坑会在新代码里按原样重现**：Java `HttpServer` 最长前缀匹配陷阱在 #169 修过（`wrapHandler` 精确路径守卫），三个月后写示例时同一作者（我）在同一 API 上重蹈覆辙。修复记忆不会自动迁移到新调用点——凡用 `createContext` 必须条件反射式配 exact-path 守卫，这类"API 自带陷阱"应在写代码时 grep 仓库内既有用法照抄防御，而不是从 API 文档直觉出发。
 - **文档里的命令必须逐条真实执行过**：Java 示例首版的编译命令用了不存在的 classpath（`mvn package` 不产 `target/dependency/`），审查者原样执行即失败。写"Compile & run"注释时要在干净 shell 里从仓库根逐条跑通，把真实可用的形式（`mvn dependency:build-classpath`）写进去——"看起来对"的命令等价于没有文档。
 - **冒烟验证要覆盖负空间**：首版冒烟只验证了 happy path（200/410/前缀隔离），6 个问题全部藏在负空间：超大 body、子路径、算子失败、客户端断连、含引号的错误消息。修复后的冒烟补齐了这些：413、`/api/feed/sub`→404、错误 JSON 可被 `json.tool` 解析、断连 5 次后进程存活。
+
+## 第五轮：Java 示例接入 Maven 默认构建（increment-4）
+
+增量审查（`.code-review/from-v0.10.13/increment-4-to-5f86db4.md`）指出 1 项重要问题，属实：第四轮刚写进 standard-workflow.md 的规则"示例二进制纳入默认构建防 rot"，Java 自己没做到——C++ 示例是默认 CMake target、Go 示例被 `go test ./...` 编译，但 `pine-java/examples/` 在 Maven source tree 之外，`mvn package`/`mvn test` 都不碰它，公共 API 变化会让这个 README 推荐的示例静默腐化。
+
+修复：`build-helper-maven-plugin` 把 `examples/` 挂为 test-source root（`add-test-source`，generate-test-sources 阶段）——默认 `mvn test-compile` 即编译示例，CI 的 `mvn test -B` 自动覆盖；test scope 保证示例类不进库 jar（已用 `unzip -l` 验证）；surefire 类名模式（`*Test`）不会把示例当测试跑。示例文档命令同步简化为 `mvn -q test-compile` + `target/test-classes` 上 classpath，逐条真实执行验证过。
+
+### 教训
+
+- **写下规则的那个 commit 就要让自己合规**：第四轮把"示例纳入默认构建"晋升为稳定规则时，只有 C++/Go 满足，Java 不满足——规则落笔时应立即对全部运行时逐一核对，不合规的当场修掉或明确记录为待办。否则规则文档本身成为下一轮 review 的靶子。
+- **Maven 项目让 source tree 外的代码进默认构建的最小方案**：`build-helper-maven-plugin:add-test-source`——不新建 module、不动目录结构、test scope 天然隔离出 jar；比 example module（多一个 pom）或 exec/validate 阶段手工 javac（绕过增量编译与 IDE 感知）都轻。
