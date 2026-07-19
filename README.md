@@ -40,7 +40,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **编译期校验** — 死代码、字段缺失、写后未读等问题在部署前拦截
 - **Lua 嵌入** — 内置 Lua 算子支持轻量自定义计算。pine-go 默认 [wangshu](https://github.com/Liam0205/wangshu)（纯 Go Lua 5.1 VM，NaN-boxing + arena GC），可通过 `-tags=lua_gopher` 切回 gopher-lua；pine-java 用 LuaJC（字节码编译），pine-cpp 用 LuaJIT。端到端开销约 1.2-2x；隔离算子级开销随运行时与计算复杂度变化（C++/LuaJIT 约 3-5x、Java 约 2-9x、Go 约 6-17x），计算密集型热路径建议写原生算子
 - **配置热加载** — 服务运行时自动无停机重载引擎配置（引用计数快照保证 in-flight 请求安全；`Watch` 开关可关闭）
-- **可嵌入 / 可扩展 server** — `server.NewServer` + `Execute`/`Acquire` 嵌入 API 支持把引擎挂进既有 HTTP 框架（如 Gin）；`Config.Routes` 自定义路由（Ingress/Egress 适配器）与内置端点共存，自定义路径自动加入有界指标标签集
+- **可嵌入 / 可扩展 server** — `server.NewServer` + `Execute`/`Acquire` 嵌入 API 支持把引擎挂进既有 HTTP 框架（如 Gin）；`Config.Routes` 自定义路由（Ingress/Egress 适配器）与内置端点共存，自定义路径自动加入有界指标标签集。多 pipeline 多 endpoint（各自独立 `log_prefix`）的三运行时示例见 `pine-go/examples/multi-pipeline/`、`pine-java/examples/MultiPipelineServer.java`、`pine-cpp/examples/multi_pipeline_server.cpp`
 - **动态资源** — 双通道资源管理：**数据型**（如静态 dict / 实时 feature store，snapshot 导出后无锁读）+ **句柄型**（如 `redis_connection`，borrow 借用 + RAII 拆除）；后台定时刷新
 - **Redis cascade-safety** — `redis_connection` 资源暴露 `{dial,read,write,pool}_timeout_ms` + `pool_size` 五参数，per-command 指标 `pine_redis_command_*`（4-state status：ok / timeout / pool_timeout / error），fail-on-error 静默降级契约
 - **白盒可观测** — 算子级 trace；`/stats` 组合响应含 `/stats.http`（请求级 4-state 指标）+ `/stats.resources`（资源池连接池/探针/per-command 4 状态分类）；可插拔 Prometheus 接口
