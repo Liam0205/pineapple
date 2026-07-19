@@ -41,6 +41,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <csignal>
 #include <cstring>
 #include <iostream>
@@ -85,11 +86,34 @@ void send_response(int fd, int status, const std::string& body) {
        << "Connection: close\r\n\r\n"
        << body;
   const std::string out = resp.str();
-  (void)!::write(fd, out.data(), out.size());
+  // MSG_NOSIGNAL is mandatory on every pine-cpp raw-socket write path
+  // (llmdoc/must/conventions.md): a client that disconnects mid-response
+  // would otherwise raise SIGPIPE and kill the whole process. Loop until
+  // all bytes are written — a single send may be short.
+  size_t sent = 0;
+  while (sent < out.size()) {
+    ssize_t n = ::send(fd, out.data() + sent, out.size() - sent, MSG_NOSIGNAL);
+    if (n < 0 && errno == EINTR) {
+      continue;
+    }
+    if (n <= 0) {
+      break;  // peer gone; nothing sensible left to do for this response
+    }
+    sent += static_cast<size_t>(n);
+  }
 }
 
 std::string json_error(const std::string& message) {
-  return "{\"error\":\"" + message + "\"}\n";
+  // Route the message through the Variant serializer: exception text can
+  // contain quotes (ValidationError quotes field names) or control
+  // characters, and hand-concatenating it would produce invalid JSON.
+  pine::Variant::object_t obj;
+  obj["error"] = pine::Variant(message);
+  std::string out = pine::dump_json(pine::Variant(std::move(obj)), 0);
+  if (out.empty() || out.back() != '\n') {
+    out += '\n';
+  }
+  return out;
 }
 
 // Adapts one HTTP request to one embedded engine. execute() is
