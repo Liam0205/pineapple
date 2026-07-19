@@ -24,11 +24,14 @@
  * /execute is kept only as a tombstone: it answers 410 Gone and points
  * callers at the named endpoints.
  *
- * Compile & run (from repo root, after `mvn -q package -DskipTests`):
+ * Compile & run (from repo root):
  *
- *   javac -cp pine-java/target/classes pine-java/examples/MultiPipelineServer.java -d /tmp/mps
- *   java  -cp pine-java/target/classes:/tmp/mps:$(ls pine-java/target/dependency/*.jar | tr '\n' ':') \
- *         page.liam.pine.examples.MultiPipelineServer feed.json search.json 8080
+ *   cd pine-java && mvn -q package -DskipTests
+ *   CP="target/classes:$(mvn -q dependency:build-classpath -Dmdep.outputFile=/dev/stdout | tail -1)"
+ *   javac -cp "$CP" examples/MultiPipelineServer.java -d /tmp/mps
+ *   java  -cp "$CP:/tmp/mps" page.liam.pine.examples.MultiPipelineServer \
+ *         ../pine-go/examples/multi-pipeline/feed.json \
+ *         ../pine-go/examples/multi-pipeline/search.json 8080
  *
  * Try:
  *
@@ -72,12 +75,16 @@ public class MultiPipelineServer {
         search.load();
 
         HttpServer http = HttpServer.create(new InetSocketAddress(port), 0);
-        http.createContext("/api/feed", exchange -> handlePipeline(exchange, feed));
-        http.createContext("/api/search", exchange -> handlePipeline(exchange, search));
+        // HttpServer contexts use longest-PREFIX matching: without a guard,
+        // /api/feed/anything would run the feed pipeline. exact() rejects
+        // sub-paths with 404, matching the bundled PineServer.wrapHandler
+        // and the Go/C++ examples' exact-path dispatch.
+        http.createContext("/api/feed", exact("/api/feed", exchange -> handlePipeline(exchange, feed)));
+        http.createContext("/api/search", exact("/api/search", exchange -> handlePipeline(exchange, search)));
         // Legacy endpoint: kept so old callers get a clear migration signal
         // instead of a generic 404, but it no longer runs any pipeline.
-        http.createContext("/execute", exchange -> respond(exchange, 410,
-                Map.of("error", "endpoint retired: use /api/feed or /api/search")));
+        http.createContext("/execute", exact("/execute", exchange -> respond(exchange, 410,
+                Map.of("error", "endpoint retired: use /api/feed or /api/search"))));
         http.start();
         System.out.println("listening on :" + port);
 
@@ -88,6 +95,11 @@ public class MultiPipelineServer {
         }));
     }
 
+    // Mirrors the bundled server's default request-body cap. An embedding
+    // HTTP layer must keep this boundary itself — issue #169 treats the body
+    // limit as a shared-dispatch-layer safety contract.
+    private static final long MAX_BODY_BYTES = 10L * 1024 * 1024; // 10 MB
+
     // Adapts HTTP to one embedded pipeline runtime. execute() acquires the
     // live snapshot with an in-flight reference, so a concurrent hot-reload
     // never tears the engine down mid-request.
@@ -96,10 +108,14 @@ public class MultiPipelineServer {
             respond(exchange, 405, Map.of("error", "method not allowed"));
             return;
         }
+        byte[] body = readLimitedBody(exchange, MAX_BODY_BYTES);
+        if (body == null) {
+            respond(exchange, 413, Map.of("error", "request body too large"));
+            return;
+        }
         Map<String, Object> common;
         List<Map<String, Object>> items;
         try {
-            byte[] body = exchange.getRequestBody().readAllBytes();
             Map<String, Object> parsed = mapper.readValue(body, new TypeReference<>() {});
             @SuppressWarnings("unchecked")
             Map<String, Object> c = (Map<String, Object>) parsed.get("common");
@@ -117,12 +133,54 @@ public class MultiPipelineServer {
             Map<String, Object> resp = new LinkedHashMap<>();
             resp.put("common", result.common);
             resp.put("items", result.items);
-            respond(exchange, 200, resp);
+            // Operator failures are RETURNED in result.error, not thrown —
+            // the Java throw/return split (validation throws, execution
+            // returns). Mirror the bundled handler: error != null -> 500.
+            if (result.error != null) {
+                if (result.error instanceof PineErrors.PanicError) {
+                    // Log the stack trace server-side; clients get the safe message.
+                    System.err.println("[example] PANIC: "
+                            + ((PineErrors.PanicError) result.error).detailedError());
+                }
+                resp.put("error", result.error.getMessage());
+            }
+            respond(exchange, result.error != null ? 500 : 200, resp);
         } catch (PineErrors.ValidationError e) {
             respond(exchange, 400, Map.of("error", e.getMessage()));
         } catch (Exception e) {
             respond(exchange, 500, Map.of("error", e.getMessage()));
         }
+    }
+
+    // Reads at most limit bytes; returns null once the body exceeds it (the
+    // caller answers 413). Counting the stream keeps memory bounded without
+    // trusting Content-Length.
+    private static byte[] readLimitedBody(HttpExchange exchange, long limit) throws java.io.IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        long total = 0;
+        java.io.InputStream in = exchange.getRequestBody();
+        int n;
+        while ((n = in.read(chunk)) != -1) {
+            total += n;
+            if (total > limit) {
+                return null;
+            }
+            buf.write(chunk, 0, n);
+        }
+        return buf.toByteArray();
+    }
+
+    // Enforces exact path matching over HttpServer's longest-prefix contexts.
+    private static com.sun.net.httpserver.HttpHandler exact(
+            String path, com.sun.net.httpserver.HttpHandler handler) {
+        return exchange -> {
+            if (!path.equals(exchange.getRequestURI().getPath())) {
+                respond(exchange, 404, Map.of("error", "not found"));
+                return;
+            }
+            handler.handle(exchange);
+        };
     }
 
     private static void respond(HttpExchange exchange, int status, Object body) throws java.io.IOException {
