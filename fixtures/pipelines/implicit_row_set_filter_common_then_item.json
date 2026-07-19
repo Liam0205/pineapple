@@ -1,7 +1,7 @@
 {
   "name": "implicit row-set: filter → common-only → item-field transform",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.13",
+    "_PINEAPPLE_VERSION": "0.10.14",
     "pipeline_config": {
       "operators": {
         "recall_items": {
