@@ -62,3 +62,14 @@
 
 - **声明"跨运行时不变量"前先逐运行时核对代码**：文档写下的统一顺序是想象的规范而非事实——三家实际路径各不相同。正确姿势：先 grep 三运行时的注入代码确认真实顺序，能统一的统一实现（C++ 重排零行为影响），不能统一的（Go 无 Resource 接口）按运行时如实分别记录，抽出真正共同的不变量（"metadata/debug 先于 provider 注入"）。
 - **同一契约在文档里只保留一份权威定义**：注入顺序在 4 处文档各自复述，改一处漏三处是结构性必然。修复后 dag-engine.md 不变量 11 是唯一完整定义，其余站点引用它。与第二轮"改语义全量 grep 文档面"同根：**复述的契约副本本身就是缺陷温床，发现时应收敛为单点定义 + 引用**。
+
+## 第四轮：multi-pipeline 示例遗漏生产契约（1ffdb408）
+
+用户追加需求：三运行时各写一个"多 pipeline 绑定多 endpoint、各自 log_prefix、/execute 退役为 410 tombstone"的嵌入示例（`b36f270e`）。增量审查（`.code-review/from-v0.10.13/increment-3-to-b36f270.md`）判 REQUEST_CHANGES：6 项重要问题，全部属实。修复 commit：`180bdcc8`（Go body cap）、`4043c7b3`（Java error-map + cap + exact-path + docs 命令）、`1ffdb408`（C++ MSG_NOSIGNAL + JSON 转义）。bot 复核 APPROVE。
+
+### 教训
+
+- **示例代码受全部生产契约约束，"演示用"不是豁免理由**：6 项问题全是既有契约在示例里的遗漏——Java 忽略 `Result.error` 返回 200（抛/返回二分契约）、Go/Java 无 body 上限（#169 共享分发层安全契约）、C++ 裸 `::write` 无 `MSG_NOSIGNAL`（conventions.md 强制约定）、C++ 手拼错误 JSON 不转义、Java 前缀路由陷阱（#169 已修过一次的坑在示例里重现）、文档命令不可运行。示例被 README 推荐为"标准嵌入模式"，读者会原样复制——**示例里的契约缺口会成倍复制到下游**。写示例前应把该语言 bundled server 的 handler 逐行过一遍，把每个防御点显式搬过来或注释说明为何不需要。
+- **已修过的坑会在新代码里按原样重现**：Java `HttpServer` 最长前缀匹配陷阱在 #169 修过（`wrapHandler` 精确路径守卫），三个月后写示例时同一作者（我）在同一 API 上重蹈覆辙。修复记忆不会自动迁移到新调用点——凡用 `createContext` 必须条件反射式配 exact-path 守卫，这类"API 自带陷阱"应在写代码时 grep 仓库内既有用法照抄防御，而不是从 API 文档直觉出发。
+- **文档里的命令必须逐条真实执行过**：Java 示例首版的编译命令用了不存在的 classpath（`mvn package` 不产 `target/dependency/`），审查者原样执行即失败。写"Compile & run"注释时要在干净 shell 里从仓库根逐条跑通，把真实可用的形式（`mvn dependency:build-classpath`）写进去——"看起来对"的命令等价于没有文档。
+- **冒烟验证要覆盖负空间**：首版冒烟只验证了 happy path（200/410/前缀隔离），6 个问题全部藏在负空间：超大 body、子路径、算子失败、客户端断连、含引号的错误消息。修复后的冒烟补齐了这些：413、`/api/feed/sub`→404、错误 JSON 可被 `json.tool` 解析、断连 5 次后进程存活。
