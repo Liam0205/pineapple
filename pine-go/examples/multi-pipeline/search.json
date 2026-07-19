@@ -1,0 +1,59 @@
+{
+  "_PINEAPPLE_VERSION": "0.10.13",
+  "log_prefix": "[search] ",
+  "pipeline_config": {
+    "operators": {
+      "fetch_docs": {
+        "type_name": "recall_static",
+        "recall": true,
+        "items": [
+          {"item_id": "doc_1", "score": 0.71, "category": "tech"},
+          {"item_id": "doc_2", "score": 0.66, "category": "tech"},
+          {"item_id": "doc_3", "score": 0.93, "category": "science"}
+        ],
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "score", "category"]
+        }
+      },
+      "log_query": {
+        "type_name": "observe_log",
+        "log_prefix": "search-query",
+        "$metadata": {
+          "common_input": ["query"],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        }
+      },
+      "rank": {
+        "type_name": "reorder_sort",
+        "order": "desc",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["score"],
+          "item_output": []
+        }
+      }
+    },
+    "pipeline_map": {
+      "search_pipeline": {
+        "pipeline": ["fetch_docs", "log_query", "rank"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["search_pipeline"]
+    }
+  },
+  "flow_contract": {
+    "common_input": ["query"],
+    "item_input": [],
+    "common_output": [],
+    "item_output": ["item_id", "score", "category"]
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "_PINEAPPLE_VERSION": "0.10.13",
+  "log_prefix": "[feed] ",
+  "pipeline_config": {
+    "operators": {
+      "fetch_items": {
+        "type_name": "recall_static",
+        "recall": true,
+        "items": [
+          {"item_id": "article_1", "score": 0.92, "category": "tech"},
+          {"item_id": "article_2", "score": 0.85, "category": "science"},
+          {"item_id": "article_3", "score": 0.78, "category": "tech"},
+          {"item_id": "article_4", "score": 0.95, "category": "health"}
+        ],
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": ["item_id", "score", "category"]
+        }
+      },
+      "log_request": {
+        "type_name": "observe_log",
+        "log_prefix": "feed-request",
+        "$metadata": {
+          "common_input": ["user_id"],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        }
+      },
+      "rank": {
+        "type_name": "reorder_sort",
+        "order": "desc",
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": ["score"],
+          "item_output": []
+        }
+      },
+      "top_k": {
+        "type_name": "filter_truncate",
+        "top_n": 3,
+        "$metadata": {
+          "common_input": [],
+          "common_output": [],
+          "item_input": [],
+          "item_output": []
+        }
+      }
+    },
+    "pipeline_map": {
+      "feed_pipeline": {
+        "pipeline": ["fetch_items", "log_request", "rank", "top_k"]
+      }
+    }
+  },
+  "pipeline_group": {
+    "main": {
+      "pipeline": ["feed_pipeline"]
+    }
+  },
+  "flow_contract": {
+    "common_input": ["user_id"],
+    "item_input": [],
+    "common_output": [],
+    "item_output": ["item_id", "score", "category"]
+  }
+}

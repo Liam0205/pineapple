@@ -62,7 +62,7 @@ perl -pi -e "s/inline constexpr const char\\* kVersion = \".*\"/inline constexpr
 # --- 5. JSON fixtures, C++ tests, fuzz scripts, and Java examples ---
 echo "[5/11] Updating _PINEAPPLE_VERSION in fixtures, tests, and examples"
 updated_files=()
-for f in pipeline.json pine-go/testdata/*.json fixtures/**/*.json pine-cpp/tests/*.cpp scripts/differential-fuzz.py scripts/dag-differential-fuzz.py; do
+for f in pipeline.json pine-go/testdata/*.json pine-go/examples/**/*.json fixtures/**/*.json pine-cpp/tests/*.cpp scripts/differential-fuzz.py scripts/dag-differential-fuzz.py; do
   [[ -f "$f" ]] || continue
   if grep -q '"_PINEAPPLE_VERSION"' "$f"; then
     perl -0pi -e "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"
