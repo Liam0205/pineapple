@@ -7,7 +7,7 @@ using namespace pine;
 namespace {
 
 constexpr const char* kConfig = R"({
-  "_PINEAPPLE_VERSION": "0.10.13",
+  "_PINEAPPLE_VERSION": "0.10.14",
   "pipeline_config": {
     "operators": {
       "a": {
