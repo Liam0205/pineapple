@@ -521,11 +521,12 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - **`toLua(host)` ↔ `fromLua(lua)`**：三运行时使用对称命名（pine-go `toLua`/`fromLua`、pine-java `toLua`/`fromLua`、pine-cpp `to_lua`/`from_lua`）。历史命名（`goToLua`/`luaToGo`、`toJava`、`push_value`/`to_value`）已统一收敛。
 - **复合类型双向支持**：host slice/list/array → Lua array table（1-indexed），host map/dict → Lua hash table。Lua table 在 `fromLua` 时按"数字键 1..N 连续"判定为 array，否则为 map。
 - **非字符串 key 拒绝**：Lua table 含非 string key（如 `{[10]=1}` 或 `{[true]='bad'}`）时，`fromLua` 返回 `lua: table has non-string key of type "<type>"` 错误。各运行时的报错文案在字节级一致，由 `fixtures/errors/runtime_lua_non_string_table_key.json` 锁定。
+- **标量分派必须用真实类型标签，绝不用 coercion 谓词**（issue #175）：luaj 的 `isnumber()`/`isstring()` 是 Lua coercion 查询——`LuaString.isnumber()` 对任何数字形字符串为 true、`LuaNumber.isstring()` 恒为 true——用它们分派会把数字形字符串路由进 number 分支（类型身份丢失，>2^53 经 `todouble()` 往返精度损坏）。唯一无歧义分派是 `v.type() == TNUMBER/TSTRING`。三宿主库语义对照：gopher-lua Go type switch = 标签；wangshu `Is*` = kind 标签；luaj `is*` = coercion——同形 API 语义相反，审计 bridge 时逐个 `is*()` 调用判定属于哪类。回归由 `TransformByLuaTypeIdentityTest`（Java 类身份 assertInstanceOf）+ `fixtures/pipelines/lua_string_number_identity.json`（cross-validate section 3/9 类型保留比对）+ fuzzer identity 通路三层锁定。
 - **空表约定**：Lua 空 table 在三运行时一致编码为空 array `[]`（而非空 map `{}`），避免跨运行时 JSON 序列化产生差异。
 - **Sequence 检测严格性**（pine-go）：`fromLua` 要求 `1..N` 严格连续才识别为 array，遇到 `nil` 中断即降级为 map（避免误判稀疏数组）。
 - **错误前缀去重**（pine-go）：`fromLua` 的内部错误已带 `lua:` 前缀，外层 `executeForItem` / `executeForCommon` 不再二次包裹。
 
-`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。
+`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。标量类型身份路径由 `fixtures/pipelines/lua_string_number_identity.json` 与 fuzzer 的 `LUA_IDENTITY_ITEM_FUNCTION` + flow_contract 投影（使字段值进入差分比对面）覆盖。
 
 ### Lua 语言版本契约：脚本必须停留在 5.1 核心交集
 
