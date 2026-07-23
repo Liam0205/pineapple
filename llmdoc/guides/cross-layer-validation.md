@@ -172,3 +172,12 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 - 断言运行时行为符合声明语义（如 strict 字段传 nil → 运行时报错）
 
 教训来源：v0.9.0 将 InputFieldSpec 默认从 Strict 翻转为 Nullable，运行时 JSON 键从 `nullable_common`/`nullable_item` 改为 `strict_common`/`strict_item`，但 Apple DSL 侧未同步——编译器仍 emit 旧键名，运行时静默忽略，Strict 模式声明能力丧失。详见 `memory/reflections/v090-nullable-strict-apple-desync.md`。
+
+## 8. fixture 比对器语义决定该层能钉住的属性
+
+各验证层的比对器行为不同，决定了该层**能**钉住什么属性：
+
+- Go operator-fixture 比对器用 `fmt.Sprintf("%v")` 把一切字符串化；Java `FixtureTest` 对非 Number 字符串化——两者天生看不见 `"42"` vs `42` 的类型漂移，只能钉**值级对等**
+- Java `PipelineFixtureTest` 对非 Number 对**类型敏感**；cross-validate 的 `normalize_json` 保持 string vs number 区分——**类型身份**类属性只能在这两层钉住
+
+选择在哪一层钉住哪个属性（值级对等 vs 类型身份）前，先核对该层比对器的实际行为；层边界是设计决策，应显式写下（如 fixture 顶层 `_comment` 键或单测注释）。历史案例（issue #175）：Lua 标量类型身份由 Java 单测（`assertInstanceOf`）+ pipeline fixture 钉住，operator fixture 只钉值级，边界用 fixture 内 `_comment` 固化。详见 `memory/reflections/lua-type-tag-dispatch-and-fuzz-blindspot.md`。
