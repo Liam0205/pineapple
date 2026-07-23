@@ -77,6 +77,12 @@ EDGE_SCALARS: list[Any] = [
     True, False, None,
     "", "a", "hello world",
     "x" * 200,  # long string
+    # Numeric-looking strings — must keep string identity end to end.
+    # Issue #175: luaj's coercion-friendly isnumber() routed these through
+    # the number branch, corrupting digits past 2^53 and dropping leading
+    # zeros. Keep one value in each danger zone: above the double mantissa,
+    # exactly 2^53+1, and leading-zero-sensitive.
+    "1777288596209286259", "9007199254740993", "007",
     # Unicode edge cases
     "", "\n\t\r", "日本語テスト", "emoji: 🎉🔥",
     "zero_width", "rtl: ‏text",
@@ -136,6 +142,10 @@ LUA_ITEM_FUNCTIONS = [
         "function compute()\n  return {item_score * 2, item_score * 3}\nend",
         ["item_score"], ["item_result"],
     ),
+    # Identity pass-through: any scalar (including numeric-looking strings
+    # from EDGE_SCALARS) must round-trip toLua -> fromLua unchanged, in type
+    # and in bytes (issue #175).
+    ("function compute()\n  return item_name\nend", ["item_name"], ["item_result"]),
 ]
 
 LUA_COMMON_FUNCTIONS = [
@@ -216,7 +226,13 @@ def random_items(
                 item[f] = [random_numeric(rng, edge_weight) for _ in range(n)]
             elif "tag" in f or "name" in f:
                 if rng.random() < edge_weight:
-                    item[f] = rng.choice(["", "café", "🎉", "a\"b", "x\ny", None])
+                    # Numeric-looking strings target the #175 coercion trap:
+                    # they must survive the Lua identity pass-through as
+                    # strings, byte-exact, on every runtime.
+                    item[f] = rng.choice([
+                        "", "café", "🎉", "a\"b", "x\ny", None,
+                        "1777288596209286259", "9007199254740993", "007",
+                    ])
                 else:
                     item[f] = rng.choice(["a", "b", "c", "d"])
             else:
