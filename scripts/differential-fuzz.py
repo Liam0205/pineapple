@@ -91,6 +91,15 @@ EDGE_SCALARS: list[Any] = [
     "café", "naïve", "über",
 ]
 
+# The identity pass-through function is both a pool member and a guaranteed
+# per-round injection (see gen_operator's transform_by_lua branch): relying on
+# random pool selection alone made the #175 shape (numeric-string scalar
+# through toLua -> fromLua) fire in ~0.25% of rounds, too rare to act as a
+# regression net.
+LUA_IDENTITY_ITEM_FUNCTION = (
+    "function compute()\n  return item_name\nend", ["item_name"], ["item_result"],
+)
+
 LUA_ITEM_FUNCTIONS = [
     ("function compute()\n  return item_score * 2\nend", ["item_score"], ["item_result"]),
     ("function compute()\n  return item_score + 1\nend", ["item_score"], ["item_result"]),
@@ -145,7 +154,7 @@ LUA_ITEM_FUNCTIONS = [
     # Identity pass-through: any scalar (including numeric-looking strings
     # from EDGE_SCALARS) must round-trip toLua -> fromLua unchanged, in type
     # and in bytes (issue #175).
-    ("function compute()\n  return item_name\nend", ["item_name"], ["item_result"]),
+    LUA_IDENTITY_ITEM_FUNCTION,
 ]
 
 LUA_COMMON_FUNCTIONS = [
@@ -359,14 +368,28 @@ def gen_operator(rng: random.Random, name: str,
     elif op_type == "transform_by_lua":
         use_item = rng.choice([True, False]) if prev_item_outputs else False
         if use_item:
-            lua_fn, lua_in, lua_out = rng.choice(LUA_ITEM_FUNCTIONS)
-            available = [f for f in lua_in if f in prev_item_outputs]
-            if not available:
-                lua_fn = "function compute()\n  return 42\nend"
-                lua_in = []
+            # 25% of item-mode rounds force the identity pass-through when a
+            # name/tag field is upstream: this is the #175 regression net
+            # (numeric-string scalars must survive toLua -> fromLua in type
+            # and bytes), and pool-weighted selection alone fired far too
+            # rarely (~0.25% of rounds) to catch a reintroduced coercion bug.
+            identity_candidates = [
+                f for f in prev_item_outputs if "name" in f or "tag" in f
+            ]
+            if identity_candidates and rng.random() < 0.25:
+                field = rng.choice(identity_candidates)
+                lua_fn = "function compute()\n  return " + field + "\nend"
+                lua_in = [field]
                 lua_out = ["item_result"]
             else:
-                lua_in = available
+                lua_fn, lua_in, lua_out = rng.choice(LUA_ITEM_FUNCTIONS)
+                available = [f for f in lua_in if f in prev_item_outputs]
+                if not available:
+                    lua_fn = "function compute()\n  return 42\nend"
+                    lua_in = []
+                    lua_out = ["item_result"]
+                else:
+                    lua_in = available
             config["lua_script"] = lua_fn
             config["function_for_item"] = "compute"
             config["function_for_common"] = ""
@@ -926,6 +949,22 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
         },
         "pipeline_group": {"main": {"pipeline": group_pipeline}},
     }
+
+    # ~40% of rounds: emit a flow_contract projecting ALL final outputs.
+    # Without one, every engine projects common/items to {} (empty
+    # output-field lists), so the differential comparison only sees exit
+    # codes, error text, item counts and order — field VALUES computed
+    # inside the pipeline are invisible. That blind spot hid the #175
+    # class entirely: a Lua-corrupted scalar never reached the output
+    # diff. Output-side only — leaving common_input/item_input empty
+    # skips request validation, which dedicated error-path rounds cover.
+    if rng.random() < 0.4:
+        config["flow_contract"] = {
+            "common_input": [],
+            "item_input": [],
+            "common_output": sorted(common_outputs),
+            "item_output": sorted(item_outputs),
+        }
 
     if storage_mode == "column":
         config["storage_mode"] = "column"
