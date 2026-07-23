@@ -1,5 +1,5 @@
 {
-  "_PINEAPPLE_VERSION": "0.10.14",
+  "_PINEAPPLE_VERSION": "0.10.15",
   "log_prefix": "[search] ",
   "pipeline_config": {
     "operators": {
