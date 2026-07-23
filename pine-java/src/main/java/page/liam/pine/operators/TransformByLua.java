@@ -306,14 +306,20 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     private static Object fromLua(LuaValue v) throws PineErrors.OperatorException {
         if (v.isnil()) return null;
         if (v.isboolean()) return v.toboolean();
-        if (v.isnumber()) {
+        // Dispatch on the actual type tag, never on isnumber()/isstring():
+        // luaj implements those with Lua coercion semantics, so
+        // LuaString.isnumber() is true for any numeric-looking string and
+        // LuaNumber.isstring() is true for every number. Routing a numeric
+        // string through the number branch destroys type identity and, past
+        // 2^53, the value itself (todouble round-trip) — issue #175.
+        if (v.type() == LuaValue.TNUMBER) {
             double d = v.todouble();
             if (d == Math.floor(d) && !Double.isInfinite(d) && d >= Long.MIN_VALUE && d <= Long.MAX_VALUE) {
                 return (long) d;
             }
             return d;
         }
-        if (v.isstring()) return v.tojstring();
+        if (v.type() == LuaValue.TSTRING) return v.tojstring();
         if (v.istable()) {
             LuaTable tbl = v.checktable();
             int len = tbl.length();
