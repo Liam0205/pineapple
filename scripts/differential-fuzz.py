@@ -91,11 +91,12 @@ EDGE_SCALARS: list[Any] = [
     "café", "naïve", "über",
 ]
 
-# The identity pass-through function is both a pool member and a guaranteed
-# per-round injection (see gen_operator's transform_by_lua branch): relying on
-# random pool selection alone made the #175 shape (numeric-string scalar
-# through toLua -> fromLua) fire in ~0.25% of rounds, too rare to act as a
-# regression net.
+# The identity pass-through function is both a pool member and a forced
+# injection: whenever an item-mode round has a name/tag field upstream,
+# gen_operator's transform_by_lua branch forces it with 25% probability
+# (see there). Relying on random pool selection alone made the #175 shape
+# (numeric-string scalar through toLua -> fromLua) fire in ~0.25% of
+# rounds, too rare to act as a regression net.
 LUA_IDENTITY_ITEM_FUNCTION = (
     "function compute()\n  return item_name\nend", ["item_name"], ["item_result"],
 )
