@@ -8,7 +8,8 @@
           "type_name": "recall_static",
           "recall": true,
           "items": [
-            {"seed": 1}
+            {"seed": 1},
+            {"seed": 2}
           ],
           "$metadata": {
             "common_input": [],
@@ -62,7 +63,7 @@
   },
   "cases": [
     {
-      "name": "numeric strings keep string identity and exact digits; real numbers keep number identity",
+      "name": "numeric strings keep string identity and exact digits per item; real numbers keep number identity",
       "request": {
         "common": {},
         "items": []
@@ -70,6 +71,11 @@
       "expected": {
         "common": {"batch_id": "9007199254740993"},
         "items": [
+          {
+            "big_id": "1777288596209286259",
+            "id_list": ["9007199254740993", "007", "42"],
+            "id_num": 42
+          },
           {
             "big_id": "1777288596209286259",
             "id_list": ["9007199254740993", "007", "42"],

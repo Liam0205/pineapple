@@ -1,5 +1,6 @@
 {
   "operator": "transform_by_lua",
+  "_comment": "Numeric-string cases (#175) here pin VALUE-level parity only: the Go/Java operator-fixture comparators stringify non-float values, so a pure type drift ('42' string vs 42 number) is invisible to them. Type identity is pinned by TransformByLuaTypeIdentityTest (assertInstanceOf) and by fixtures/pipelines/lua_string_number_identity.json via cross-validate's type-preserving JSON comparison.",
   "cases": [
     {
       "name": "float precision: 0.1 + 0.2",
