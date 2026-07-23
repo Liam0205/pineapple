@@ -1,0 +1,82 @@
+{
+  "name": "Lua string/number type identity (issue #175: coercion-safe fromLua dispatch)",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.10.14",
+    "pipeline_config": {
+      "operators": {
+        "seed_items": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"seed": 1}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["seed"]
+          }
+        },
+        "lua_item_ids": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function make_ids()\n  return \"1777288596209286259\", {\"9007199254740993\", \"007\", \"42\"}, 42\nend",
+          "function_for_item": "make_ids",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": ["seed"],
+            "item_output": ["big_id", "id_list", "id_num"]
+          }
+        },
+        "lua_common_id": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function make_batch()\n  return \"9007199254740993\"\nend",
+          "function_for_item": "",
+          "function_for_common": "make_batch",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["batch_id"],
+            "item_input": [],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["seed_items", "lua_item_ids", "lua_common_id"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": ["batch_id"],
+      "item_output": ["big_id", "id_list", "id_num"]
+    }
+  },
+  "cases": [
+    {
+      "name": "numeric strings keep string identity and exact digits; real numbers keep number identity",
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {"batch_id": "9007199254740993"},
+        "items": [
+          {
+            "big_id": "1777288596209286259",
+            "id_list": ["9007199254740993", "007", "42"],
+            "id_num": 42
+          }
+        ]
+      }
+    }
+  ]
+}

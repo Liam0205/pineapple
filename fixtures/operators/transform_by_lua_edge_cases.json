@@ -86,6 +86,90 @@
       }
     },
     {
+      "name": "numeric string stays a string: 19-digit ID above 2^53 (issue #175)",
+      "params": {
+        "lua_script": "function big_id()\n  return \"1777288596209286259\"\nend",
+        "function_for_item": "big_id",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": "1777288596209286259"}]
+      }
+    },
+    {
+      "name": "numeric string stays a string: 2^53+1 boundary (issue #175)",
+      "params": {
+        "lua_script": "function boundary_id()\n  return \"9007199254740993\"\nend",
+        "function_for_item": "boundary_id",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": "9007199254740993"}]
+      }
+    },
+    {
+      "name": "numeric string stays a string: leading zeros preserved (issue #175)",
+      "params": {
+        "lua_script": "function padded_id()\n  return \"007\"\nend",
+        "function_for_item": "padded_id",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": "007"}]
+      }
+    },
+    {
+      "name": "table of numeric strings survives byte-exact (issue #175)",
+      "params": {
+        "lua_script": "function id_table()\n  return {\"1777288596209286259\", \"9007199254740993\", \"007\"}\nend",
+        "function_for_item": "id_table",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [{"x": 1}]
+      },
+      "expected": {
+        "items": [{"y": ["1777288596209286259", "9007199254740993", "007"]}]
+      }
+    },
+    {
       "name": "number to string via concatenation",
       "params": {
         "lua_script": "function num_concat()\n  return 3.14 .. \"\"\nend",
