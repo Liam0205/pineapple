@@ -12,6 +12,16 @@ OperatorInput::OperatorInput(const Frame& frame, const InputFieldSpec& spec)
 }
 
 Variant OperatorInput::common(const std::string& field) const {
+  // Engine-internal fields (skip, common_input_template) are hidden from
+  // the operator-visible view — same behavior as pine-go/pine-java, which
+  // exclude them at buildInput time. Without this gate, ops that read
+  // `common(field)` directly (e.g. reorder_shuffle_by_salt building its
+  // salt from metadata.common_input) would see the raw frame value while
+  // Go/Java see nil, producing cross-runtime divergence on any pipeline
+  // that combines skip fields with salt/hash-driven ops (issue #174).
+  if (spec_->excluded_common.count(field)) {
+    return Variant(nullptr);
+  }
   Variant v = frame_->common(field);
   if (!v.is_null()) {
     return v;
@@ -115,6 +125,10 @@ InputFieldSpec compute_input_field_spec(const OperatorConfig& config) {
   std::set<std::string> skip_set(config.skip.begin(), config.skip.end());
   skip_set.insert(config.metadata.common_input_skip.begin(), config.metadata.common_input_skip.end());
   skip_set.insert(config.metadata.common_input_template.begin(), config.metadata.common_input_template.end());
+  // Expose the exclusion set to OperatorInput::common so lazy queries on
+  // skip / template fields return nil (matches Go's build-time exclusion
+  // semantics — see pine-go/pine.go's ExecuteWithOperator input build).
+  spec.excluded_common = skip_set;
   std::set<std::string> strict_common_set(config.strict_common.begin(), config.strict_common.end());
   std::set<std::string> strict_item_set(config.strict_item.begin(), config.strict_item.end());
 
