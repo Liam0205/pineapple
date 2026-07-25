@@ -22,7 +22,11 @@ def parse_report(text: str) -> dict[tuple, dict[str, float]]:
         if not parts:
             continue
         # Skip header/separator lines
-        if parts[0] in ("Runtime", "-------", "═══"):
+        # startswith, not equality: the banner rule is one long run of box
+        # characters, so `parts[0] == "═══"` never matched. Harmless before
+        # (the line has neither 9 nor 11 fields and fell through) but it read
+        # like a working guard.
+        if parts[0] in ("Runtime", "-------") or parts[0].startswith("═"):
             continue
         if len(parts) == 9:
             runtime, fixture, storage = parts[0], parts[1], parts[2]

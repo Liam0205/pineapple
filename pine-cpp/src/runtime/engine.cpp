@@ -939,10 +939,17 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     //
     // thread_local rather than a shared pool: the ready-queue scheduler runs
     // each node body on one worker thread start to finish and never migrates
-    // a half-finished node, so a per-thread buffer needs no locking. The
-    // buffer dies with its thread — ThreadPool workers live as long as the
-    // engine, the std::thread fallback for the duration of the request — so
-    // nothing leaks across engines in a multi-engine process.
+    // a half-finished node, so a per-thread buffer needs no locking.
+    //
+    // In a multi-engine process the buffer is not shared between engines, but
+    // the reason is pool OWNERSHIP, not the buffer's lifetime: dag_pool_ is
+    // constructed per Engine, so a given worker thread only ever runs node
+    // bodies for its own engine. (tls_out is a function-level thread_local,
+    // so its lifetime is the thread's, which by itself says nothing about
+    // which engine used it.) Along the Engine path dag_pool_ is always
+    // non-null — it is constructed unconditionally in the Engine constructor
+    // — so the null-pool synchronous fallback below is reachable only when
+    // run_dag is called directly.
     //
     // RESET ON ACQUIRE, not on release. Two reasons:
     //  1. apply_output MOVE-EXTRACTS added_items_ / column_writes_ through

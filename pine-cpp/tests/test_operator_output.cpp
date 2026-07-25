@@ -76,9 +76,9 @@ TEST_CASE("OperatorOutput: set_warning is first-wins") {
 TEST_CASE("OperatorOutput::reset retains container capacity") {
   // Capacity retention is the entire benefit of reusing the buffer — if
   // reset() ever regressed to move-assignment (`item_writes_ =
-  // std::vector<ItemWrite>{}`) the leak tests above would still pass
-  // while the optimization silently evaporated. Assert the mechanism
-  // directly.
+  // std::vector<ItemWrite>{}`) the leak tests in test_output_pool.cpp would
+  // still pass while the optimization silently evaporated. Assert the
+  // mechanism directly.
   //
   // Note `item_writes_ = {}` would NOT be such a regression: that binds
   // to operator=(initializer_list) and forwards to assign(), which never

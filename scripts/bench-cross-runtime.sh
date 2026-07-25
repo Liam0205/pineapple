@@ -312,8 +312,12 @@ get_storage_modes() {
 config_for_mode() {
   local config_file="$1" mode="$2"
   local declared
+  # No `|| echo "row"` fallback here: that would fold "parse failed" into
+  # "declares row", and an unreadable config whose target mode happened to be
+  # row would then be handed to the server as if nothing were wrong. Probe
+  # failure must reach the caller as a skip, same as rewrite failure.
   declared=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c.get('storage_mode','row'))" \
-    "$config_file" 2>/dev/null || echo "row")
+    "$config_file" 2>/dev/null) || return 0
   if [[ "$declared" == "$mode" ]]; then
     echo "$config_file"
     return
@@ -374,6 +378,8 @@ for fixture in "${FIXTURES[@]}"; do
 done
 
 RUN_IDX=0
+COMPLETED=0
+SKIPPED=()
 for fixture in "${FIXTURES[@]}"; do
   cfg="$FIXTURE_SRC/${fixture}_config.json"
   req="$FIXTURE_SRC/${fixture}_request.json"
@@ -396,10 +402,14 @@ for fixture in "${FIXTURES[@]}"; do
       mode_cfg=$(config_for_mode "$cfg" "$mode")
       if [[ -z "$mode_cfg" ]]; then
         err "skipping $rt | $fixture | $mode (could not pin storage_mode)"
+        SKIPPED+=("$rt|$fixture|$mode: could not pin storage_mode")
         continue
       fi
 
-      if ! start_server "$rt" "$port" "$mode_cfg"; then continue; fi
+      if ! start_server "$rt" "$port" "$mode_cfg"; then
+        SKIPPED+=("$rt|$fixture|$mode: server failed to start")
+        continue
+      fi
 
       # Warmup
       hey -n 100 -c 5 -m POST -H "Content-Type: application/json" \
@@ -413,6 +423,7 @@ for fixture in "${FIXTURES[@]}"; do
       IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
       printf "  %-8s %-35s %7s %10s %10s %10s %10s %10s %10s\n" \
         "$rt" "$fixture" "$mode" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
+      COMPLETED=$((COMPLETED + 1))
 
       stop_server "$rt"
       sleep 0.2
@@ -421,6 +432,19 @@ for fixture in "${FIXTURES[@]}"; do
 done
 
 echo >> "$REPORT"
+
+# Missing rows must announce themselves. A short report is otherwise
+# indistinguishable from a healthy one — the reader would have to count rows
+# by hand — and that is the same failure shape as the empty-artifact bug: the
+# job stays green while the data silently thins out. The Bark notification
+# only forwards the analysis Verdict section, so a warning that lives solely
+# in stderr never leaves CI.
+if (( COMPLETED != TOTAL_RUNS )); then
+  {
+    echo "WARNING: only $COMPLETED of $TOTAL_RUNS planned runs produced data."
+    for s in "${SKIPPED[@]}"; do echo "  skipped: $s"; done
+  } | tee -a "$REPORT" >&2
+fi
 
 # Copy rather than symlink: CI artifact upload follows the path but archives
 # the link target's name, and downstream `gh run download` then lands a
