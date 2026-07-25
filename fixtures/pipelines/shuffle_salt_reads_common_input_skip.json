@@ -1,6 +1,6 @@
 {
   "name": "shuffle_by_salt with skip field in metadata.common_input_skip bucket (issue #174 variant)",
-  "_comment": "Companion to shuffle_salt_reads_skip_field.json. The excluded_common set on pine-cpp merges three sources: config.skip, metadata.common_input_skip (#74 disjoint bucket layout), metadata.common_input_template. This variant routes the skip field through common_input_skip instead of the legacy common_input+skip pattern to prove the second source is also honored end to end. common_input_template already routes through templated_param and has separate coverage.",
+  "_comment": "Companion to shuffle_salt_reads_skip_field.json. The excluded_common set on pine-cpp merges three sources: config.skip, metadata.common_input_skip (#74 disjoint bucket layout), metadata.common_input_template. This variant uniquely pins the second source: _skip_branch is placed in metadata.common_input so shuffle actually invokes input.common('_skip_branch') and hits the excluded_common gate, while metadata.common_input_skip is the SOLE declaration marking it excluded (no top-level 'skip:' key, so source #1 is not involved). Commenting out the metadata.common_input_skip insertion in compute_input_field_spec flips this fixture's output, leaving the sister fixture unchanged — the source-pin holds. common_input_template already routes through templated_param and has separate coverage.",
   "config": {
     "_PINEAPPLE_VERSION": "0.10.15",
     "pipeline_config": {
