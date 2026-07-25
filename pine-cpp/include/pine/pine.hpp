@@ -471,6 +471,37 @@ class OperatorOutput {
     return has_warning_;
   }
 
+  // reset prepares this OperatorOutput for reuse across Execute calls
+  // (issue #122, mirroring pine-go's OperatorOutput.Reset from #119).
+  //
+  // LIFETIME CONTRACT: call reset() only AFTER apply_output has consumed
+  // every write. apply_output value-copies item / common writes into the
+  // frame and MOVE-EXTRACTS added_items_ / column_writes_ through their
+  // mutable accessors, so calling reset() before apply_output would drop
+  // the operator's output on the floor. snapshot_output (the debug trace
+  // path) deep-copies what it needs, so trace contents survive reset.
+  //
+  // Containers are cleared in place rather than reassigned so their heap
+  // capacity carries into the next Execute: vector::clear keeps the
+  // backing array (the point of the optimization — set_item's append no
+  // longer re-grows 0→1→2→4→…→N every op), and Variant::object_t /
+  // std::set clear keeps their node pools warm for the allocator.
+  //
+  // Elements are destroyed by clear(), so no stale Variant payload stays
+  // reachable — unlike Go, where slice truncation leaves the backing
+  // array pinning values and each element must be zeroed explicitly.
+  void reset() {
+    common_writes_.clear();
+    item_writes_.clear();
+    column_writes_.clear();
+    added_items_.clear();
+    removed_items_.clear();
+    item_order_.clear();
+    has_item_order_ = false;
+    warning_.clear();
+    has_warning_ = false;
+  }
+
  private:
   Variant::object_t common_writes_;
   std::vector<ItemWrite> item_writes_;

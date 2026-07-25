@@ -930,7 +930,37 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     }
     auto start = std::chrono::steady_clock::now();
 
-    OperatorOutput out;
+    // Reclaim the per-thread OperatorOutput instead of constructing a fresh
+    // one per Execute (issue #122; pine-go does the same with a sync.Pool in
+    // #119). The win is capacity reuse: set_item appends to item_writes_,
+    // which otherwise re-grows 0→1→2→4→…→N on every op — for a 1000-item
+    // LuaOp that is ~10 reallocs plus N element moves, paid again for every
+    // operator in the pipeline.
+    //
+    // thread_local rather than a shared pool: the ready-queue scheduler runs
+    // each node body on one worker thread start to finish and never migrates
+    // a half-finished node, so a per-thread buffer needs no locking. The
+    // buffer dies with its thread — ThreadPool workers live as long as the
+    // engine, the std::thread fallback for the duration of the request — so
+    // nothing leaks across engines in a multi-engine process.
+    //
+    // RESET ON ACQUIRE, not on release. Two reasons:
+    //  1. apply_output MOVE-EXTRACTS added_items_ / column_writes_ through
+    //     their mutable accessors, and a moved-from vector keeps its size
+    //     (every element is left an empty husk). Clearing before the next
+    //     operator's execute is what stops those husks from being replayed
+    //     as ghost items — see OperatorOutput::reset's contract.
+    //  2. A node that throws mid-execute leaves debris behind; clearing on
+    //     the acquiring side means the failure path needs no unwind handling.
+    //
+    // Nesting safety: propagate_and_signal may invoke node_body synchronously
+    // on this same thread (the dag_pool-unavailable fallback), which would
+    // reset this buffer underneath us — but that call sits after apply_output
+    // and after the last `out` read in this body, so a nested reset can only
+    // touch a buffer this frame is already done with.
+    thread_local OperatorOutput tls_out;
+    tls_out.reset();
+    OperatorOutput& out = tls_out;
 
     try {
       bool skip = should_skip(frame, op);
