@@ -68,3 +68,64 @@ TEST_CASE("OperatorOutput: set_warning is first-wins") {
   CHECK(out.has_warning());
   CHECK(out.warning() == "first");
 }
+
+// --- reset() lifetime contract (issue #122) ---
+// Engine-level reuse / leakage coverage lives in test_output_pool.cpp;
+// these two cases pin the value semantics of reset() itself.
+
+TEST_CASE("OperatorOutput::reset retains container capacity") {
+  // Capacity retention is the entire benefit of reusing the buffer — if
+  // reset() ever regressed to move-assignment (`item_writes_ =
+  // std::vector<ItemWrite>{}`) the leak tests above would still pass
+  // while the optimization silently evaporated. Assert the mechanism
+  // directly.
+  //
+  // Note `item_writes_ = {}` would NOT be such a regression: that binds
+  // to operator=(initializer_list) and forwards to assign(), which never
+  // shrinks the buffer. Only a genuine move-assign from a fresh
+  // container swaps the heap block away.
+  OperatorOutput out;
+  for (int i = 0; i < 256; ++i) {
+    out.set_item(i, "f", Variant(static_cast<double>(i)));
+    Variant::object_t row;
+    row["k"] = Variant(static_cast<double>(i));
+    out.add_item(std::move(row));
+  }
+  out.set_common("c", Variant(true));
+  out.remove_item(3);
+  out.set_item_order({1, 0});
+  out.set_warning("w");
+
+  const std::size_t writes_cap = out.item_writes().capacity();
+  const std::size_t added_cap = out.added_items().capacity();
+  REQUIRE(writes_cap >= 256);
+  REQUIRE(added_cap >= 256);
+
+  out.reset();
+
+  // Emptied...
+  CHECK(out.item_writes().empty());
+  CHECK(out.added_items().empty());
+  CHECK(out.common_writes().empty());
+  CHECK(out.removed_items().empty());
+  CHECK(out.item_order().empty());
+  CHECK(out.has_item_order() == false);
+  CHECK(out.has_warning() == false);
+  CHECK(out.warning().empty());
+  // ...but the heap blocks stay, so the next Execute's appends are
+  // amortized-free.
+  CHECK(out.item_writes().capacity() == writes_cap);
+  CHECK(out.added_items().capacity() == added_cap);
+}
+
+TEST_CASE("OperatorOutput::reset is idempotent and safe on a fresh object") {
+  OperatorOutput out;
+  out.reset();
+  out.reset();
+  CHECK(out.item_writes().empty());
+  CHECK(out.has_warning() == false);
+  // A reset object is fully usable again.
+  out.set_common("after", Variant(std::string("ok")));
+  REQUIRE(out.common_writes().count("after") == 1);
+  CHECK(out.common_writes().at("after").as_string() == "ok");
+}
