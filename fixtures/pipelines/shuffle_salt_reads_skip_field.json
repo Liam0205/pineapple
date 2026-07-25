@@ -2,7 +2,7 @@
   "name": "shuffle_by_salt with skip field in common_input (issue #174)",
   "_comment": "reorder_shuffle_by_salt lists a skip control field in its metadata.common_input and reads it directly via input.common(field) to build the salt. pine-go/pine-java exclude skip fields at buildInput time so their input sees nil for the skip slot; pre-#174 pine-cpp's lazy OperatorInput::common transparently returned the underlying frame value, producing a different salt, different shuffle order, and cascading downstream divergence. This fixture pins the byte-exact three-runtime output on that shape via cross-validate sections 3/9.",
   "config": {
-    "_PINEAPPLE_VERSION": "0.10.15",
+    "_PINEAPPLE_VERSION": "0.10.16",
     "pipeline_config": {
       "operators": {
         "recall": {
