@@ -276,6 +276,16 @@ struct InputFieldSpec {
   std::vector<std::string> strict_item;
   std::vector<DefaultedField> defaulted_item;
   std::vector<std::string> nullable_item;
+
+  // Engine-internal fields hidden from operator-visible input: skip control
+  // fields (e.g. _if_*, _skip_branch) and common_input_template source
+  // fields (#74). Populated by compute_input_field_spec — kept as a distinct
+  // exclusion set (not merged into nullable_common) so OperatorInput::common
+  // can return null for them regardless of the underlying frame's value.
+  // pine-go's OperatorInput.Common hides these by never copying them into
+  // in.common at build time; pine-cpp's is a lazy proxy over the frame, so
+  // this set is the equivalent gate (issue #174).
+  std::set<std::string> excluded_common;
 };
 
 // compute_input_field_spec derives the InputFieldSpec from an OperatorConfig.
