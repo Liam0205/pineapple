@@ -355,6 +355,28 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
                           op_cfg.type_name + "\"");
     }
     auto instance = entry->factory();
+    // Filter skip control fields out of metadata.common_input before init,
+    // matching pine-go's SetMetadata (pine.go: commonIn = filterOutField
+    // over opCfg.Skip). Operators reading cfg.metadata.common_input (e.g.
+    // reorder_shuffle_by_salt building its salt) must see only the
+    // business fields; the skip control field's value is still gated to
+    // nil at read time via OperatorInput::common (issue #174), but the
+    // field NAME must not appear in the list either — otherwise ops that
+    // iterate the list to build a salt/hash produce an extra "|" slot on
+    // C++ where Go emits nothing, diverging the resulting order across
+    // runtimes. DAG dependency inference already sees the unfiltered
+    // read set via Metadata::CommonReadFields at plan time.
+    if (!op_cfg.skip.empty()) {
+      std::set<std::string> skip_set(op_cfg.skip.begin(), op_cfg.skip.end());
+      std::vector<std::string> filtered;
+      filtered.reserve(op_cfg.metadata.common_input.size());
+      for (const auto& f : op_cfg.metadata.common_input) {
+        if (!skip_set.count(f)) {
+          filtered.push_back(f);
+        }
+      }
+      op_cfg.metadata.common_input = std::move(filtered);
+    }
     instance->init(op_cfg);
     // Optional-interface injection. Cross-runtime relative order (see
     // llmdoc/architecture/dag-engine.md invariant 11): Logger -> Metrics ->
