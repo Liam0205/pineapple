@@ -210,6 +210,7 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 - 跨运行时数量（"三运行时"、"四运行时"）→ 改为"各运行时"或显式列出
 - cross-validate 层数 → 直接引用 `scripts/cross-validate/` 目录
 - CI job 数量 → 引用 `.github/workflows/ci.yml` 而非硬编码
+- 用户可见文档（`README.md` / `doc/guide_*.md`）中的性能倍数、百分比、毫秒绝对值 → 只写定性判据 + 指向可复现的 benchmark 入口，见 `memory/decisions/user-docs-no-perf-multipliers.md`
 
 定量数字若必须出现，应放在有维护责任人的表格内并与代码处于同一文档目录，便于一同更新。
 

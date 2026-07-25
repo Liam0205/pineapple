@@ -100,6 +100,30 @@
 - **逐步验证**：每步改完跑测试，不要攒到最后一起验证
 - **文档跟随代码**：design_doc、README、llmdoc 都要同步更新
 
+## 临时改动的恢复：禁用 git，只用文件级备份
+
+**mutation 验证或任何"临时改坏再恢复"期间，禁止用任何 git 命令做恢复**（`git checkout -- <file>`、`git checkout <base> -- <file>`、`git stash`、`git restore` 一律不行）。唯一允许的手段是动手前 `cp <file> /tmp/<tag>-backup.<ext>`、验证完 `cp` 回来。
+
+根因：这类操作的形状是"在**已有未提交改动**的工作区上临时改一个文件，再恢复"。git 的恢复语义单位是 HEAD/index，它不区分「我刚加的 mutation」和「我还没提交的正经改动」——两者在工作区里没有边界，任何 git 恢复都会连带作用。
+
+这条**取代并加强**了 `memory/reflections/lua-type-tag-dispatch-and-fuzz-blindspot.md`（issue #175 时期，对已提交文件用 `git stash` 得到 no-op、实际跑的是修好的代码）给出的旧建议「改用 `git checkout <base> -- <file>`」。旧建议只解决「取到的是不是基线」，没解决「恢复会不会连带 revert 未提交改动」，因此不够安全。
+
+同型事故已发生两次：issue #122 用 `git checkout -- pine-cpp/src/runtime/engine.cpp` 恢复 mutation，连带 revert 掉尚未提交的 `thread_local` 改动，后续「mutation 没抓到」的结论全建立在假基线上。判据：只要工作区不干净，就不要碰 git 做恢复。
+
+## Commit 单域隔离与 `git add` 的粒度错位
+
+单域隔离纪律的执行单位是 commit，但 `git add` 的操作单位是**文件**。同一文件承载两个不相干域的改动时，`git add <file>` 就是纪律的漏洞。
+
+规则：动手前先识别「这个文件我要改两件不相干的事」，先做完一件、提交，再做下一件。已经混在一起时的补救是 `git reset --soft HEAD~1` + 文件级备份逐次施加（先把文件恢复到 HEAD 状态、只重新施加第一件事、提交、再从备份恢复完整版本）。
+
+历史案例：`scripts/bench-cross-runtime.sh` 同时承载「nightly 报表路径修正」与「`--modes` 空转修复」两件不相干的事，第一次提交就混进去了，事后才拆开。
+
+## 动老文件要预期承担既存 lint 债
+
+`pre-commit` hook 检查**整个 staged 文件**而不是你的 diff（见 `guides/ci-quality-baseline.md` 的本地 git hooks 节，这是刻意设计，避免历史污染逐点漏过）。因此首次触碰长期无人维护的文件，会被一次性要求还清该文件的全部既存 lint 债——这是预期行为，不是意外，应预留时间并把清理单独走一个 commit。
+
+历史案例：为加 fixture 改了 `scripts/bench-generate-fixtures.py`，暴露 11 个既存 ruff 违规（unused import + 10 处 E501）；`scripts/bench-compare.py` 另有 2 个 unused import。清理独立提交（`5b4a8be7`）。
+
 ## Review-driven scope expansion 接受
 
 Review feedback 不是简单"修缺陷"——它常带新的 scope 增长信号，把 PR 推向更高价值终点。被 review 反馈推动 scope 增长是正反馈，而非"偏离原计划"。原则：
@@ -124,7 +148,7 @@ Review feedback 不是简单"修缺陷"——它常带新的 scope 增长信号�
 
 示例（`examples/`）受全部生产契约约束，"演示用"不是豁免理由——示例被 README 推荐为标准模式，读者会原样复制，契约缺口会成倍复制到下游。写嵌入示例前把该语言 bundled server 的 handler 逐行过一遍，把每个防御点显式搬过来或注释说明为何不需要：错误映射（Java 抛/返回二分）、请求体上限（#169 共享分发层安全契约）、精确路由（Java `createContext` 最长前缀陷阱）、SIGPIPE 抑制（C++ 裸 socket 写必须 `MSG_NOSIGNAL`）、错误 JSON 转义（禁止手拼外部文本）。另外：
 
-- 文档里的编译/运行命令必须在干净 shell 从仓库根逐条真实执行过——"看起来对"的命令等价于没有文档
+- 文档里的编译/运行命令必须在干净 shell 从仓库根逐条真实执行过——"看起来对"的命令等价于没有文档。正面案例（issue #160）：用户文档里的 benchmark 复现命令第一版写成 `cd pine-go && go test -tags pine_bench -bench=BenchmarkStorageAB ./benchmarks/`，实测报 `main module does not contain package .../benchmarks`——`pine-go/benchmarks/` 是**独立 module**，必须 `cd pine-go/benchmarks` 再跑，实测才拦住这个错误命令
 - 冒烟验证要覆盖负空间（超大 body、子路径、算子失败、客户端断连、含引号的错误消息），不能只验 happy path
 - 示例纳入默认构建防 rot——三运行时各自的接法：C++ 默认 CMake target、Go 被 `go test ./...` 编译、Java 用 `build-helper-maven-plugin:add-test-source` 把 `examples/` 挂为 test-source root（test scope 不进库 jar）
 

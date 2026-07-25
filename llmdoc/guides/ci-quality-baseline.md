@@ -93,11 +93,13 @@ CI 的多个 job 直接调用这些 make target（如 `make go-cover` / `make cp
 
 ## C++ lint
 
-工具：`clang-format`，配置位于 `pine-cpp/.clang-format`（基于 Google style）。
+CI `cpp-lint` job（`.github/workflows/ci.yml`）实际只做三件事，**不跑 clang-format**：
 
-- CI `cpp-lint` job 包含 `-Werror` 严格构建 + 基础卫生检查
-- `clang-format` 应用于所有 `pine-cpp/` 源文件（`include/`、`src/`、`cmd/`、`operators/`、`tests/`）
-- 本地开发可通过 `clang-format -i` 或编辑器集成自动格式化
+- `-Werror` 严格构建（`cmake -DPINE_CPP_WERROR=ON` + 全量 build）
+- 卫生检查：对 `pine-cpp` 下所有非 build 目录的 `*.cpp` / `*.hpp` 检查 trailing whitespace、tab 字符、缺失结尾换行
+- 相邻字符串字面量拼接排查（typo guard）：捕获 `"" + var + ""` 形状——作者本意是把变量嵌进引号，编译器却静默拼接相邻字面量把引号丢掉（P0-1，五轮 code review 才抓到 `config.cpp` 一处）
+
+**clang-format 是本地/人工约定，没有 CI 覆盖**：配置位于 `pine-cpp/.clang-format`（基于 Google style），约定应用于所有 `pine-cpp/` 源文件（`include/`、`src/`、`cmd/`、`operators/`、`tests/`），本地通过 `clang-format -i`、编辑器集成或 `pre-commit` hook（staged 文件、可绕过）执行。`grep -rn "clang-format\|fmt-check" .github/workflows/` **零命中**——`make fmt-check` 里的 clang-format 检查在 CI 里没有任何对应 job。副作用：本机若未安装 clang-format，`make all` 会在 `fmt-check` 处以 Error 127 中止，这不是代码问题。是否给 CI 补 fmt-check job 记在 `llmdoc/memory/doc-gaps.md`。
 
 ## 本地 git hooks
 
@@ -167,6 +169,19 @@ CI 中 fuzz 运行时间为 30s/入口，并使用 `-run=^$ -parallel=4` 固定�
 
 - 度量**有效可见率**（危险值出现在被投影、被差分比对实际读取的输出里），不是**形状出现率**（危险值仅在某处被生成）——两个指标会因投影类盲区完全脱节
 - 端到端验证探测能力：red-before（pre-fix 二进制 + 新生成器在真实生成轮上复现分歧）→ green-after（fixed 二进制通过同一轮）→ N 轮新鲜 fuzz 零假阳性
+
+### Mutation 验证的两步判据
+
+用 mutation（故意改坏被测代码）验证一个测试"有牙"时，必须分两步，不能合并：
+
+1. **先证明 mutation 真的改变了被测语义**。mutation testing 的隐含前提从不被自动检查——一段看起来更激烈的改写可能与原代码语义完全等价。
+2. **再判断测试有没有牙**。只有第 1 步成立时，"测试没红"才等于"测试没牙"。
+
+因此「测试没红」的第一解释应当是**mutation 无效**，而不是「测试没牙」。顺序颠倒会把一个本来正确的断言改坏。
+
+具体反例（issue #122 实际踩到）：为验证 `OperatorOutput::reset()`（`pine-cpp/include/pine/pine.hpp`）的容量保持断言有牙，把 `item_writes_.clear()` 改成 `item_writes_ = {}`，测试仍全绿。原因是 `= {}` 绑定 `operator=(std::initializer_list)` 并转发到 `assign()`，而标准库的 `assign` **从不缩减 capacity**——它与 `clear()` 在容量语义上完全等价，语义 delta 为零。改成真正的移动赋值 `item_writes_ = std::vector<ItemWrite>{}` 后立刻变红（`0 == 256`）。
+
+推论：容量类断言的有效 mutation 必须是真移动赋值或 `shrink_to_fit`，不是 `= {}`。
 
 ### Artifact triage playbook（分歧定位顺序）
 
@@ -330,6 +345,6 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Cross-validate pine-cpp 预构建：`scripts/cross-validate/_prebuild.sh`
 - 跨引擎 benchmark：`scripts/cross-engine-bench.py`、`scripts/cross-engine-bench-cli.sh`、`scripts/bench-generate-fixtures.py`
 - 跨运行时 benchmark（nightly）：`scripts/bench-cross-runtime.sh`、`scripts/bench-compare.py`、`scripts/bench-analyze.py`、`scripts/bench-dag-scheduler.sh`、`scripts/bench-profile.sh`（perf/gprof profiling）
-- Benchmark fixtures：`fixtures/benchmarks/realistic_for_you.json`、`fixtures/benchmarks/realistic_for_you_calibrated.json`（iteration-based 校准）
+- Benchmark fixtures：`fixtures/benchmarks/realistic_for_you.json`、`fixtures/benchmarks/realistic_for_you_calibrated.json`（iteration-based 校准）、`fixtures/benchmarks/transform_heavy_1000_config.json`（合成列存 guardrail，见 `guides/benchmark-hygiene.md`）
 - Tag release：`scripts/tag-release.sh`
 - Server stress 入口：`pine-go/pkg/server/server_test.go`

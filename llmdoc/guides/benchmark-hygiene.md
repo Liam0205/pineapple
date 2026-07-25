@@ -44,6 +44,31 @@
 - `fixtures/benchmarks/realistic_for_you_calibrated*` 是生产 proxy（按真实流量 calibrate，N≈10 行），是**性能决策的唯一裁判**
 - `large_*` / `small_*` / `medium_*` 是合成压测，只用于定位算法级 bug（如 O(N²) 增长曲线），其增幅数字**不得作为优化收益声明**
 
+### 合成 guardrail fixture 与 calibrated fixture 的分工
+
+两者是不同种类，不可互换：
+
+- **calibrated**（`realistic_for_you_calibrated*`）：实质特征是每个算子带 `bench_profile`（真实流量画像 + 依赖 bench stub 算子）。它是生产性能决策的唯一裁判
+- **合成 guardrail**：职责是守护某条代码路径不静默整体退化，**不是生产代理**。其上测出的 delta **不得作为优化收益声明**
+
+现有 guardrail：`fixtures/benchmarks/transform_heavy_1000_{config,request}.json`（一个 `recall_static` + 8 个链式 `transform_normalize`，`storage_mode: column` 钉死，N=1000）。补的缺口是——所有 calibrated fixture 都声明 `storage_mode: row`（对它们 N≈10 的生产形状是正确选择），导致列存批量列访问路径此前没有任何 nightly 守护者。受 ±5-7% 二进制布局噪声限制，它只能守住"列存路径整体崩了"（~20-35% 量级），细粒度回归仍归 `pine-go/benchmarks/bench_storage_ab_test.go` 的 `BenchmarkStorageAB_TransformHeavy_*`。
+
+写新合成 fixture 时，根级 `_comment` 应明写"synthetic, not a performance verdict"及其守护范围。
+
+另注意 issue 措辞陷阱：#160 标题写 "column-favorable **calibrated** fixture"，但合成 fixture 没有 `bench_profile`、不依赖 bench stub 算子，从构造上不可能是 calibrated（issue body 自己纠正为 "synthetic guardrail"）。按标题做会污染"calibrated 是唯一裁判"的判据——issue 标题不是规格。
+
+### 把 in-process microbench 的形状搬成 e2e fixture 时要重查投影/序列化段
+
+搬形状不等于搬负载。microbench 刻意不关心的那一段，恰好可能是 e2e 的主要成本，必须逐段重新检查。
+
+反例（issue #160）：pine-go 的 `transformHeavyConfig` 用空 `flow_contract`（它测引擎内部，这是合理的）。同一形状作为 HTTP e2e fixture 时，空 `item_output` 会让 `ToResult` 把每个 item 投影成 `{}`——`projectMap` 只拷列出的字段，空列表就是空输出，**不回退成"返回全部字段"**（该语义见 `memory/reflections/fix-output-projection-semantics.md`）。结果是序列化成本被完全抹掉，整条 transform 链变成没人读的死写入。新 fixture 因此显式声明 `{"item_output": ["item_id", "item_score_n7"]}`，把链尾字段投影出去。
+
+规则：搬运前逐段问"这段成本在两个测量路径里各占多少"，重点是投影、序列化、请求/响应编解码这些 microbench 天然跳过的段。
+
+### 用户可见文档不写性能倍数
+
+面向用户的文档（`README.md`、`doc/guide_*.md`）写 `storage_mode` 之类性能相关选择时，**只写定性判据 + 指向可复现入口**（如 `pine-go/benchmarks/bench_storage_ab_test.go`），不写倍数或百分比。理由与完整论证见 `llmdoc/memory/decisions/user-docs-no-perf-multipliers.md`；它是 `must/conventions.md`"禁止硬编码定量描述"的一个具体应用。
+
 ## Microbench 戒律
 
 - microbench 的访问模式必须与生产一致才有预测力
