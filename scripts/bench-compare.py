@@ -1,36 +1,46 @@
 #!/usr/bin/env python3
 """Compare two cross-runtime benchmark reports and output a delta summary."""
 import argparse
-import re
-import sys
 from pathlib import Path
 
 
 def parse_report(text: str) -> dict[tuple, dict[str, float]]:
-    """Parse report into {(runtime, nodes, storage, par, op): {metric: value}}."""
+    """Parse report into {(runtime, fixture, storage): {metric: value}}.
+
+    Handles both the current 9-column layout emitted by
+    bench-cross-runtime.sh and the legacy 11-column layout, normalizing the
+    legacy (nodes, par, op) triple into a single synthetic fixture name so a
+    report from either era compares against the other. This mirrors
+    bench-analyze.py's parse_report; the two must stay in sync, since a
+    format the analyzer accepts but the comparer silently drops looks
+    exactly like "no regressions" in CI.
+    """
     data: dict[tuple, dict[str, float]] = {}
 
     for line in text.splitlines():
         parts = line.split()
-        if len(parts) == 11:
-            runtime = parts[0]
-            try:
-                nodes = int(parts[1])
-                storage = parts[2]
-                par = int(parts[3])
-                op = parts[4]
-                qps = float(parts[5])
-                mean = float(parts[6])
-                stddev = float(parts[7])
-                p50 = float(parts[8])
-                p90 = float(parts[9])
-                p99 = float(parts[10])
-            except (ValueError, IndexError):
-                continue
-            data[(runtime, nodes, storage, par, op)] = {
-                "qps": qps, "mean": mean, "stddev": stddev,
-                "p50": p50, "p90": p90, "p99": p99,
-            }
+        if not parts:
+            continue
+        # Skip header/separator lines
+        if parts[0] in ("Runtime", "-------", "═══"):
+            continue
+        if len(parts) == 9:
+            runtime, fixture, storage = parts[0], parts[1], parts[2]
+            metrics = parts[3:]
+        elif len(parts) == 11:
+            runtime, storage = parts[0], parts[2]
+            fixture = f"{parts[4]}_n{parts[1]}"
+            metrics = parts[5:]
+        else:
+            continue
+        try:
+            qps, mean, stddev, p50, p90, p99 = (float(v) for v in metrics)
+        except ValueError:
+            continue
+        data[(runtime, fixture, storage)] = {
+            "qps": qps, "mean": mean, "stddev": stddev,
+            "p50": p50, "p90": p90, "p99": p99,
+        }
 
     return data
 
@@ -47,7 +57,7 @@ def format_comparison(prev: dict, curr: dict) -> str:
     lines = []
     common_keys = sorted(
         set(prev.keys()) & set(curr.keys()),
-        key=lambda k: (k[4], k[1], k[3], k[2], k[0]),  # op, nodes, par, storage, runtime
+        key=lambda k: (k[1], k[2], k[0]),  # fixture, storage, runtime
     )
 
     if not common_keys:
@@ -55,16 +65,16 @@ def format_comparison(prev: dict, curr: dict) -> str:
 
     lines.append("── Delta: current vs previous (QPS: higher=better, latency: lower=better) ──")
     lines.append(
-        f"  {'Runtime':<8} {'Nodes':>5} {'Stor':>6} {'Par':>4} {'Op':>6}"
+        f"  {'Runtime':<8} {'Fixture':<35} {'Stor':>7}"
         f"  {'QPS Δ':>10}  {'Mean Δ':>10}  {'P50 Δ':>10}  {'P99 Δ':>10}"
     )
     lines.append(
-        f"  {'-------':<8} {'-----':>5} {'------':>6} {'---':>4} {'------':>6}"
+        f"  {'-------':<8} {'-' * 35:<35} {'-------':>7}"
         f"  {'----------':>10}  {'----------':>10}  {'----------':>10}  {'----------':>10}"
     )
 
     for key in common_keys:
-        runtime, nodes, storage, par, op = key
+        runtime, fixture, storage = key
         p = prev[key]
         c = curr[key]
         qps_d = pct_change(p["qps"], c["qps"])
@@ -72,7 +82,7 @@ def format_comparison(prev: dict, curr: dict) -> str:
         p50_d = pct_change(p["p50"], c["p50"])
         p99_d = pct_change(p["p99"], c["p99"])
         lines.append(
-            f"  {runtime:<8} {nodes:>5} {storage:>6} {par:>4} {op:>6}"
+            f"  {runtime:<8} {fixture:<35} {storage:>7}"
             f"  {qps_d:>10}  {mean_d:>10}  {p50_d:>10}  {p99_d:>10}"
         )
 
