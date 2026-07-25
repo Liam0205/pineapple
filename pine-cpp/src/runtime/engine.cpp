@@ -112,7 +112,13 @@ void validate_request(const Request& request, const FlowContract& contract) {
 // fields, polluting trace output relative to Go.
 Variant snapshot_input(const Frame& frame, const OperatorConfig& op) {
   Variant::object_t snap;
+  // Same three-source exclusion set OperatorInput::common uses (issue #174):
+  // debug's operator-visible-input snapshot must hide the exact same fields
+  // the operator itself cannot see, or [pine-debug] stderr / _return_trace
+  // diverges from pine-go which reads the projected map.
   std::set<std::string> skip_set(op.skip.begin(), op.skip.end());
+  skip_set.insert(op.metadata.common_input_skip.begin(), op.metadata.common_input_skip.end());
+  skip_set.insert(op.metadata.common_input_template.begin(), op.metadata.common_input_template.end());
 
   Variant::object_t common;
   for (const auto& field : op.metadata.common_input) {
