@@ -1,6 +1,6 @@
 # 用户可见文档不写性能倍数
 
-记录 issue #160（`storage_mode` 用户文档落地）时确定的文档口径决策。适用层：面向用户的 `README.md` 与 `doc/guide_*.md`；不约束 llmdoc、PR 描述、reflection 里的实验记录。
+记录 issue #160（`storage_mode` 用户文档）时确定的文档口径决策。适用层：面向用户的 `README.md` 与 `doc/guide_*.md`；不约束 llmdoc、PR 描述、reflection 里的实验记录。
 
 ## 决策
 

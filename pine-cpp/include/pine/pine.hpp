@@ -517,9 +517,14 @@ class OperatorOutput {
     clear_or_release(item_writes_);
     clear_or_release(added_items_);
     clear_or_release(column_writes_);
+    // item_order_ is capacity-bearing too — reorder_sort and
+    // reorder_shuffle_by_salt both fill it to the item count. It gets the same
+    // ceiling, but note that retaining it was never even a win: set_item_order
+    // move-assigns, so the next call discards whatever block reset() kept.
+    // Retention here was pure cost, and before the ceiling it was unbounded.
+    clear_or_release(item_order_);
     common_writes_.clear();
     removed_items_.clear();
-    item_order_.clear();
     has_item_order_ = false;
     warning_.clear();
     has_warning_ = false;
@@ -533,11 +538,14 @@ class OperatorOutput {
   // request can pin — see reset()'s comment for the per-worker byte figures.
   static constexpr std::size_t kRetainLimit = 65536;
 
-  // Shared by every capacity-bearing vector in reset(). Factored out so the
-  // decision lives in one place: with the branch written out per container it
-  // was possible to gate only one of them and still see a green suite, while
-  // a recall-heavy load reproduced the full unbounded-retention regression
-  // through added_items_.
+  // Applied to all four capacity-bearing vectors in reset(): item_writes_,
+  // added_items_, column_writes_, item_order_. Factored out so the decision
+  // lives in one place — with the branch written out per container it was
+  // possible to gate only some of them and still see a green suite, while a
+  // recall-heavy load reproduced the full unbounded-retention regression
+  // through added_items_. std::set removed_items_ is deliberately not routed
+  // here: clearing it returns nodes to the allocator's free list rather than
+  // holding one contiguous block, so there is no single capacity to cap.
   template <typename T>
   static void clear_or_release(std::vector<T>& v) {
     if (v.capacity() > kRetainLimit) {
