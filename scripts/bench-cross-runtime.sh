@@ -15,7 +15,10 @@
 #
 # Options:
 #   --skip               Runtimes to skip (comma-separated)
-#   --modes              Override storage_mode for fixtures that support it (comma-separated)
+#   --modes              Run every fixture once per storage_mode (comma-separated),
+#                        overriding whatever the fixture config declares. Each
+#                        run gets a config copy with the field rewritten, so
+#                        "row,column" is a genuine A/B on the same shape.
 #   --requests           Number of requests per benchmark run (default: 1000)
 #   --concurrency        Concurrent connections (default: 20)
 #   --generate           Also generate synthetic fixtures via bench-generate-fixtures.py
@@ -98,6 +101,7 @@ mkdir -p "$WORK_DIR" "$RESULTS_DIR"
 # Clean up any leftover artifacts from a previous run
 rm -f "$WORK_DIR"/*.csv "$WORK_DIR"/*.log "$WORK_DIR"/*.pid
 rm -f "$WORK_DIR"/server-go "$WORK_DIR"/server-cpp
+rm -f "$WORK_DIR"/*.row.json "$WORK_DIR"/*.column.json
 
 # ─── Colors ───────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -248,6 +252,8 @@ cleanup() {
   rm -f "$WORK_DIR"/server-go "$WORK_DIR"/server-cpp
   rm -f "$WORK_DIR"/*.log "$WORK_DIR"/*.pid
   rm -f "$WORK_DIR"/*.csv
+  # storage-mode-pinned config copies written by config_for_mode
+  rm -f "$WORK_DIR"/*.row.json "$WORK_DIR"/*.column.json
 }
 trap cleanup EXIT INT TERM
 
@@ -287,6 +293,42 @@ get_storage_modes() {
   local mode
   mode=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c.get('storage_mode','row'))" "$config_file" 2>/dev/null || echo "row")
   echo "$mode"
+}
+
+# ─── Materialize a config pinned to one storage mode ─────────────────
+# storage_mode is a root-level config field, not a server flag — none of the
+# runtimes accept it on the command line. So honouring --modes means writing
+# a copy of the config with the field rewritten and pointing the server at
+# that. Runtime-agnostic, and the same trick benchStorageAB uses in
+# pine-go/benchmarks/bench_storage_ab_test.go (cfg["storage_mode"] = mode).
+#
+# Before this existed, $mode reached only the report column: --modes
+# "row,column" ran the same config twice and labelled the two identical runs
+# differently, so the column row of every such report was really row-mode
+# numbers.
+#
+# Echoes the path to use. When the fixture already declares the mode we want
+# there is nothing to rewrite, so the original is returned untouched.
+config_for_mode() {
+  local config_file="$1" mode="$2"
+  local declared
+  declared=$(python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(c.get('storage_mode','row'))" \
+    "$config_file" 2>/dev/null || echo "row")
+  if [[ "$declared" == "$mode" ]]; then
+    echo "$config_file"
+    return
+  fi
+  local out="$WORK_DIR/$(basename "$config_file" .json).$mode.json"
+  # On failure emit nothing: the caller treats an unreadable path as "skip
+  # this run". Falling back to the original config would silently reintroduce
+  # exactly the mislabelled-numbers bug this function exists to fix.
+  python3 -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+cfg['storage_mode'] = sys.argv[3]
+json.dump(cfg, open(sys.argv[2], 'w'))
+" "$config_file" "$out" "$mode" >&2 || return 0
+  echo "$out"
 }
 
 # ─── Report header ────────────────────────────────────────────────────
@@ -351,7 +393,13 @@ for fixture in "${FIXTURES[@]}"; do
       port=$(next_port)
       info "[$RUN_IDX/$TOTAL_RUNS] $rt | $fixture | $mode on :$port"
 
-      if ! start_server "$rt" "$port" "$cfg"; then continue; fi
+      mode_cfg=$(config_for_mode "$cfg" "$mode")
+      if [[ -z "$mode_cfg" ]]; then
+        err "skipping $rt | $fixture | $mode (could not pin storage_mode)"
+        continue
+      fi
+
+      if ! start_server "$rt" "$port" "$mode_cfg"; then continue; fi
 
       # Warmup
       hey -n 100 -c 5 -m POST -H "Content-Type: application/json" \
