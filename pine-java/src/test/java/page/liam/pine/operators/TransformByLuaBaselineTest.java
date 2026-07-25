@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *    reappears on the second call);
  *  - reverting snapshotKeys back to the coercion predicate
  *    k.isstring() (issue #177's pre-fix code) fails
- *    numericGlobalPollutesTheCorrespondingStringSlotWithCoercionPredicate
+ *    numericKeyIsIgnoredByBaselineSnapshotRegardlessOfPredicate
  *    (the string slot _G["42"] is spuriously touched by baseline reset).
  */
 public class TransformByLuaBaselineTest {
