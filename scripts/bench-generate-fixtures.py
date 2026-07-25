@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -17,6 +16,9 @@ BENCH_DIR = REPO_ROOT / "fixtures" / "benchmarks"
 _version_file = REPO_ROOT / "pine-go" / "version.go"
 _match = __import__("re").search(r'const Version = "([^"]+)"', _version_file.read_text())
 VERSION = _match.group(1) if _match else "0.0.0"
+
+
+ITEM_FIELDS = ["item_id", "item_score", "item_status", "item_category", "item_price"]
 
 
 def make_items(n: int, *, offset: int = 0) -> list[dict]:
@@ -46,7 +48,7 @@ def small_config(num_items: int) -> dict:
                     "recall": True,
                     "items": make_items(num_items),
                     "$metadata": {
-                        "item_output": ["item_id", "item_score", "item_status", "item_category", "item_price"],
+                        "item_output": ITEM_FIELDS,
                     },
                 },
                 "filter": {
@@ -84,7 +86,9 @@ def small_request() -> dict:
 # ─── Medium pipeline: recall_a + recall_b → merge → dispatch → normalize → sort (6 ops) ──
 
 def medium_config(num_items: int) -> dict:
-    """中管道：两路 recall → merge_dedup → transform_dispatch → transform_normalize → reorder_sort"""
+    """中管道：两路 recall → merge_dedup → transform_dispatch → transform_normalize
+    → reorder_sort
+    """
     half = num_items // 2
     return {
         "_PINEAPPLE_VERSION": VERSION,
@@ -95,7 +99,7 @@ def medium_config(num_items: int) -> dict:
                     "recall": True,
                     "items": make_items(half, offset=0),
                     "$metadata": {
-                        "item_output": ["item_id", "item_score", "item_status", "item_category", "item_price"],
+                        "item_output": ITEM_FIELDS,
                     },
                 },
                 "recall_b": {
@@ -103,7 +107,7 @@ def medium_config(num_items: int) -> dict:
                     "recall": True,
                     "items": make_items(num_items - half, offset=half),
                     "$metadata": {
-                        "item_output": ["item_id", "item_score", "item_status", "item_category", "item_price"],
+                        "item_output": ITEM_FIELDS,
                     },
                 },
                 "merge": {
@@ -111,7 +115,7 @@ def medium_config(num_items: int) -> dict:
                     "sources": ["recall_a", "recall_b"],
                     "$metadata": {
                         "item_input": ["item_id", "_source"],
-                        "item_output": ["item_id", "item_score", "item_status", "item_category", "item_price"],
+                        "item_output": ITEM_FIELDS,
                     },
                 },
                 "dispatch": {
@@ -138,7 +142,9 @@ def medium_config(num_items: int) -> dict:
                 },
             },
             "pipeline_map": {
-                "stage1": {"pipeline": ["recall_a", "recall_b", "merge", "dispatch", "normalize", "sort"]},
+                "stage1": {"pipeline": [
+                    "recall_a", "recall_b", "merge", "dispatch", "normalize", "sort",
+                ]},
             },
         },
         "pipeline_group": {
@@ -163,7 +169,9 @@ end
 
 
 def large_config(num_items: int) -> dict:
-    """大管道：recall_a + recall_b → merge → copy → dispatch → lua_transform → normalize → filter → sort → truncate"""
+    """大管道：recall_a + recall_b → merge → copy → dispatch → lua_transform
+    → normalize → filter → sort → truncate
+    """
     half = num_items // 2
     items_a = make_items(half, offset=0)
     items_b = make_items(num_items - half, offset=half)
@@ -177,7 +185,7 @@ def large_config(num_items: int) -> dict:
                     "recall": True,
                     "items": items_a,
                     "$metadata": {
-                        "item_output": ["item_id", "item_score", "item_status", "item_category", "item_price"],
+                        "item_output": ITEM_FIELDS,
                     },
                 },
                 "recall_b": {
@@ -185,7 +193,7 @@ def large_config(num_items: int) -> dict:
                     "recall": True,
                     "items": items_b,
                     "$metadata": {
-                        "item_output": ["item_id", "item_score", "item_status", "item_category", "item_price"],
+                        "item_output": ITEM_FIELDS,
                     },
                 },
                 "merge": {
@@ -193,7 +201,7 @@ def large_config(num_items: int) -> dict:
                     "sources": ["recall_a", "recall_b"],
                     "$metadata": {
                         "item_input": ["item_id", "_source"],
-                        "item_output": ["item_id", "item_score", "item_status", "item_category", "item_price"],
+                        "item_output": ITEM_FIELDS,
                     },
                 },
                 "copy": {
