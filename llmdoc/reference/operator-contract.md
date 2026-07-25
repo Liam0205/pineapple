@@ -526,7 +526,15 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - **Sequence 检测严格性**（pine-go）：`fromLua` 要求 `1..N` 严格连续才识别为 array，遇到 `nil` 中断即降级为 map（避免误判稀疏数组）。
 - **错误前缀去重**（pine-go）：`fromLua` 的内部错误已带 `lua:` 前缀，外层 `executeForItem` / `executeForCommon` 不再二次包裹。
 
-`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。标量类型身份路径由 `fixtures/pipelines/lua_string_number_identity.json` 与 fuzzer 的 `LUA_IDENTITY_ITEM_FUNCTION` + flow_contract 投影（使字段值进入差分比对面）覆盖。
+`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。标量类型身份路径由 `fixtures/pipelines/lua_string_number_identity.json` 与 fuzzer 的 `LUA_IDENTITY_ITEM_FUNCTION` + flow_contract 投影（使字段值进入差分比对面）覆盖。issue #174 的 skip-field-in-common_input 契约由 `fixtures/pipelines/shuffle_salt_reads_skip_field.json` 钉住：`reorder_shuffle_by_salt` 用 `metadata.common_input` 构 salt 时，`skip` 列表中的字段必须对算子的 `input.common(field)` 不可见，三运行时（pine-go / pine-java / pine-cpp）字节级一致输出。
+
+### Lua Pool Baseline 重置契约（仅覆盖字符串键 globals）
+
+三运行时的 Lua pool state 借还机制（`TransformByLua.LuaPool` / pine-go `statePool` / pine-cpp `StatePool` / wangshu `MarkGlobalsBaseline`+`ResetGlobalsToBaseline`）在初始化时快照 `_G` 作为 baseline，每次归还状态时重置——但**只覆盖字符串键 globals**，数字/表/函数等非典型键类型跨 borrow 保留。此为跨运行时一致契约，非 bug：wangshu godoc 已文档化「限定:仅快照字符串 key——stdlib 与宿主自己的全局都是字符串 key,数字/表/函数等 key 跳过(非典型,实际场景不存在)」，pine-go gopher-lua / pine-java / pine-cpp 的实际实现均匹配这一语义。
+
+正常算子路径不会触发泄漏：所有 host 侧写入的全局（函数名如 `compute` / `set_global(field, ...)` 的 field 参数）都是字符串标识符。只有脚本显式写 `_G[42] = ...` 之类非常规写法会命中此文档化负空间。
+
+**实现层判据必须用真实类型标签**：pine-java `snapshotKeys` 曾用 `k.isstring()` coercion 谓词（issue #177，与 #175 fromLua 同族陷阱：`LuaInteger.isstring()` 恒真，数字键 `_G[42]` 被 coerce 成幻影字符串 `"42"` 收进 baseline，`resetToBaseline` 清错槽 `_G["42"]` 而非 `_G[42]`——观察行为仍然是"数字键泄漏"，但机制上是双错，且是 `TransformByLua.java` 里最后一处 coercion 派发点）。修复后统一用 `k.type() == LuaValue.TSTRING`——所有三运行时 baseline 记账口径一致，行为符合上述契约。回归由 `TransformByLuaBaselineTest`（string-keyed 泄漏 → reset 后清除 + 基线 stdlib 存活）锁定。
 
 ### Lua 语言版本契约：脚本必须停留在 5.1 核心交集
 
