@@ -141,6 +141,63 @@ Each operator call must declare the fields it reads and writes:
 | `debug` | Enable debug snapshots for this operator |
 | `data_parallel` | Data-parallel shard count (Transform only, requires empty common_output) |
 
+## Flow-Level Configuration
+
+Beyond per-operator metadata, `Flow(...)` accepts a few parameters that apply
+to the whole pipeline:
+
+| Parameter | Meaning |
+|-----------|---------|
+| `storage_mode` | DataFrame physical storage: `"row"` (default) or `"column"` |
+| `log_prefix` | Engine-instance log prefix, scoped to that engine's private logger |
+| `debug` | When `True`, collect debug snapshots for every operator |
+| `skip_dead_code` | When `True`, allow dead code (unconsumed output fields stop being an error) |
+
+### Choosing a storage_mode
+
+Both modes produce identical results; the choice only affects performance. It
+depends on the shape of the workload — there is no general "column is faster":
+
+- **`column`**: transform-dominated, meaning repeated field-level scans and
+  computation over the same batch of items; large item counts; few structural
+  changes after the recall (adding/removing items, reordering).
+- **`row`** (default): recall / filter / sort dominated, or item counts that
+  are small to begin with.
+
+The two layouts are good at different things. Column storage keeps each field
+contiguous, which makes full-column scans and writes cheap and cuts
+allocations during construction and projection; the cost is that adding,
+removing or reordering items has to touch every column, where row storage only
+moves whole-row references. Real recommendation workloads often carry on the
+order of ten items with a DAG dominated by recall and sorting, which is why
+row is the default.
+
+To quantify it on your own workload, use the A/B entry points in
+`pine-go/benchmarks/bench_storage_ab_test.go`:
+
+```bash
+cd pine-go/benchmarks && go test -tags pine_bench -bench=BenchmarkStorageAB -run='^$' ./...
+```
+
+You can also hand two configs that differ only in `storage_mode` to the
+cross-runtime load script:
+
+```bash
+scripts/bench-cross-runtime.sh --filter <fixture name> --modes "row,column"
+```
+
+`storage_mode` accepts only `"row"` and `"column"`; anything else is rejected
+at compile time:
+
+```python
+flow = Flow(
+    name="my_pipeline",
+    common_input=["user_id"],
+    item_output=["item_id", "item_score"],
+    storage_mode="column",
+)
+```
+
 ## Compilation and Validation
 
 ```python

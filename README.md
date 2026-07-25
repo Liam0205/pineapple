@@ -44,7 +44,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **动态资源** — 双通道资源管理：**数据型**（如静态 dict / 实时 feature store，snapshot 导出后无锁读）+ **句柄型**（如 `redis_connection`，borrow 借用 + RAII 拆除）；后台定时刷新
 - **Redis cascade-safety** — `redis_connection` 资源暴露 `{dial,read,write,pool}_timeout_ms` + `pool_size` 五参数，per-command 指标 `pine_redis_command_*`（4-state status：ok / timeout / pool_timeout / error），fail-on-error 静默降级契约
 - **白盒可观测** — 算子级 trace；`/stats` 组合响应含 `/stats.http`（请求级 4-state 指标）+ `/stats.resources`（资源池连接池/探针/per-command 4 状态分类）；可插拔 Prometheus 接口
-- **行存/列存可切换** — DataFrame 支持两种存储模式
+- **行存/列存可切换** — DataFrame 支持两种存储模式，执行结果一致、只影响性能。transform 主导 + 大 N + 少结构变更选列存，recall/filter/sort 主导或小 N 用默认行存；判据与实测入口见 [`doc/guide_pipeline.md`](doc/guide_pipeline.md) 的「Flow 级配置」
 - **三引擎一致性** — Go/Java/C++ 引擎通过 CI 交叉验证保证 schema、DAG、执行结果、错误消息字节级一致（多 section cross-validate + 三引擎差分 fuzz + 每日 ASan/TSan sanitized fuzz，section 清单以 `scripts/cross-validate/` 为准）
 - **Pine-C++ 标杆运行时** — 完整第三运行时，内置算子与 Go/Java 完全对等、HTTP server（热加载/graceful shutdown）、ColumnFrame/RowFrame 双物理实现、OperatorInput lazy 投影、LuaJIT 集成、metrics/resource 对等
 

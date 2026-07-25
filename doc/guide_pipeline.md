@@ -141,6 +141,49 @@ flow.recall_feature_index(
 | `debug` | 启用此算子的调试快照 |
 | `data_parallel` | 数据并行分片数（仅 Transform，需空 common_output） |
 
+## Flow 级配置
+
+除算子级 metadata，`Flow(...)` 还接受几个作用于整条流水线的参数：
+
+| 参数 | 含义 |
+|------|------|
+| `storage_mode` | DataFrame 物理存储：`"row"`（默认）或 `"column"` |
+| `log_prefix` | 引擎实例级日志前缀，只作用于该引擎私有 logger |
+| `debug` | `True` 时对所有算子启用 debug 快照采集 |
+| `skip_dead_code` | `True` 时放过死代码校验（产出字段无人消费不再报错） |
+
+### 怎么选 storage_mode
+
+两种模式的执行结果完全一样，选哪个只影响性能。判据是负载形状，不存在「列存更快」这种普适结论：
+
+- **`column`**：transform 主导，即在同一批 item 上反复做字段级扫描和计算；item 数量大；recall 之后很少发生结构变更（增删 item、重排顺序）。
+- **`row`**（默认）：recall / filter / sort 主导，或者 item 数量本来就小。
+
+原因在于两种布局各自擅长的操作不同。列存把同名字段连续存放，所以整列扫描和整列写入很划算，构造和投影也更省分配；代价是增删 item 和重排顺序要动所有列，行存在这些操作上只需搬动整行引用。真实推荐场景里 item 数常在十几个量级、DAG 又以召回和排序为主，所以默认值是行存。
+
+想在自己的负载上量化，用 `pine-go/benchmarks/bench_storage_ab_test.go` 里的 A/B 入口：
+
+```bash
+cd pine-go/benchmarks && go test -tags pine_bench -bench=BenchmarkStorageAB -run='^$' ./...
+```
+
+也可以把两份只差 `storage_mode` 的配置交给跨引擎压测脚本对跑：
+
+```bash
+scripts/bench-cross-runtime.sh --filter <fixture 名> --modes "row,column"
+```
+
+`storage_mode` 只接受 `"row"` 和 `"column"`，其他值在编译期就会被拒绝：
+
+```python
+flow = Flow(
+    name="my_pipeline",
+    common_input=["user_id"],
+    item_output=["item_id", "item_score"],
+    storage_mode="column",
+)
+```
+
 ## 编译和校验
 
 ```python
