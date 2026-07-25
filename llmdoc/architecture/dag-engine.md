@@ -498,7 +498,13 @@ Operator-visible input 排除集合（skip 控制字段 + `common_input_template
 - pine-go / pine-java：`BuildInput` 阶段构建 `common` map 时**直接丢弃**排除字段（materialize-time exclusion），`input.Common(field)` 在字段名不在 map 中时返回 nil。
 - pine-cpp：`OperatorInput` 是懒代理，`common(field)` 直查 frame——**必须在读路径显式 gate** 排除集合（`InputFieldSpec::excluded_common`），否则算子看到 raw frame 值。issue #174 首次暴露该差异：`reorder_shuffle_by_salt` 以 `metadata.common_input` 构 salt，pine-cpp 未 gate 时读到 skip 字段 `_skip_branch=false` 而 pine-go/pine-java 读到 nil，salt 分歧 → 排序分歧 → 下游整链 cascading。
 
-**跨运行时不变量**：任何 op 通过 `input.common(field)` 访问排除集合内的字段名，都必须收到 nil。materialize 侧靠 build-time 剔除保证，proxy 侧靠 spec.excluded_common gate 保证。给 spec 加新的排除维度时（新增 skip 桶、template 桶等）需逐一核对每种实现是否都把该维度带进 excluded_common。
+**跨运行时不变量**：排除字段不得通过三个消费面向算子泄漏：
+
+- 值访问：任何 op 通过 `input.common(field)` 访问排除集合内的字段名，都必须收到 nil。materialize 侧靠 build-time 剔除保证，proxy 侧靠 `spec.excluded_common` gate 保证。
+- 字段名元数据：传给算子 init 的 `metadata.common_input` 不得包含顶层 `skip` 控制字段。pine-cpp 在实例 init 前过滤字段名，但 DAG 依赖推导仍读取过滤前 metadata，避免改变调度边。
+- 观测快照：debug/trace 输入快照必须使用与算子值访问相同的三桶并集；`[pine-debug]` 与 `_return_trace` 不得显示算子本身不可见的 raw frame 字段。
+
+给 spec 加新的排除维度时（新增 skip 桶、template 桶等），需逐一核对值访问、字段名元数据和观测快照，而非只验证 `OperatorInput` 的读取结果。
 
 #### BuildInput 错误消息约定
 

@@ -526,7 +526,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - **Sequence 检测严格性**（pine-go）：`fromLua` 要求 `1..N` 严格连续才识别为 array，遇到 `nil` 中断即降级为 map（避免误判稀疏数组）。
 - **错误前缀去重**（pine-go）：`fromLua` 的内部错误已带 `lua:` 前缀，外层 `executeForItem` / `executeForCommon` 不再二次包裹。
 
-`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。标量类型身份路径由 `fixtures/pipelines/lua_string_number_identity.json` 与 fuzzer 的 `LUA_IDENTITY_ITEM_FUNCTION` + flow_contract 投影（使字段值进入差分比对面）覆盖。issue #174 的 skip-field-in-common_input 契约由 `fixtures/pipelines/shuffle_salt_reads_skip_field.json` 钉住：`reorder_shuffle_by_salt` 用 `metadata.common_input` 构 salt 时，`skip` 列表中的字段必须对算子的 `input.common(field)` 不可见，三运行时（pine-go / pine-java / pine-cpp）字节级一致输出。
+`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。标量类型身份路径由 `fixtures/pipelines/lua_string_number_identity.json` 与 fuzzer 的 `LUA_IDENTITY_ITEM_FUNCTION` + flow_contract 投影（使字段值进入差分比对面）覆盖。issue #174 的排除契约由 `fixtures/pipelines/shuffle_salt_reads_skip_field.json` 与 `fixtures/pipelines/shuffle_salt_reads_common_input_skip.json` 钉住：`reorder_shuffle_by_salt` 用 `metadata.common_input` 构 salt 时，排除字段的值和顶层 `skip` 字段名都不得进入算子可见输入；debug/trace 快照也不得泄漏同一排除集合。
 
 ### Lua Pool Baseline 重置契约（仅覆盖字符串键 globals）
 

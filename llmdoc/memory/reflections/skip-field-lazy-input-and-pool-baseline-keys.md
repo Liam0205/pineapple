@@ -41,3 +41,9 @@
 - 由 recorder 把前三条 promotion 写进对应稳定文档并同步 `index.md`；lazy proxy 实现差异那条建议放在 `architecture/dag-engine.md` "BuildInput 语义"节，与现有 lazy proxy 描述并列一段"实现差异清单"。
 - 下次 nightly artifact 复现走弯路超过 30 分钟时，条件反射式切"从末端逐算子截断"策略，不要继续深挖末端错误路径。
 - pine-java `TransformByLua.java` 的 `is*()` 派发点现已全部为 type-tag 派发（table-key check / fromLua / snapshotKeys），三处闭环；下次再触碰该文件时不需要额外扫。若 pine-java 后续加新 Lua bridge 代码，仍需 grep 全部 `is*()` 调用逐个判定 coercion-or-tag（与 #175 反思同款要求）。
+
+## Review Follow-up
+
+- 后续 CI differential fuzz 再次命中同族分歧：只在 `OperatorInput::common` 隐藏排除字段的值还不够。算子若遍历 init 时收到的 `metadata.common_input`，仍会看到 skip 字段名并改变 salt/hash 形状。pine-cpp 因此在 `Engine` 构造、调用 `instance->init(op_cfg)` 前过滤顶层 `skip` 字段名；DAG 仍使用过滤前 metadata 推导依赖。
+- debug/trace 是第二个独立消费面。pine-cpp `snapshot_input` 必须使用 `skip ∪ common_input_skip ∪ common_input_template`，否则算子虽然读不到排除字段，`[pine-debug]` 和 `_return_trace` 仍会泄漏 raw frame 值。
+- 可复用教训：输入排除契约要沿“值访问、传给算子的字段名元数据、观测快照”三个消费面逐一验证；只修首个暴露分歧的读路径会留下同族旁路。
