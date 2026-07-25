@@ -35,10 +35,8 @@
         },
         "shuffle": {
           "type_name": "reorder_shuffle_by_salt",
-          "skip": "_skip_branch",
-          "for_branch_control": true,
           "$metadata": {
-            "common_input": [],
+            "common_input": ["_skip_branch"],
             "common_input_skip": ["_skip_branch"],
             "common_output": [],
             "item_input": ["item_tag"],
