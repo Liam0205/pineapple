@@ -28,7 +28,9 @@
 # so it does not steal CPU from the runtime under test. Override via env:
 #   BENCH_RESOURCE_LIMIT=0 BENCH_CPU_LIST=0,1,2,3 BENCH_MEM_MAX=8G ./...
 #
-# Output: bench-results/report-<timestamp>.txt (in repo root, not /tmp)
+# Output: bench-results/report-<timestamp>.txt (in repo root, not /tmp), plus
+# bench-results/report.txt as a stable alias to the run just finished — that is
+# the name CI consumes.
 
 set -euo pipefail
 # Run in its own process group so cleanup can kill the whole group
@@ -40,6 +42,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="/tmp/bench_cross_runtime"
 RESULTS_DIR="$REPO_ROOT/bench-results"
 REPORT="$RESULTS_DIR/report-$(date +%Y%m%d-%H%M%S).txt"
+# Stable alias to the run just finished. The timestamped file is the archive
+# (local runs accumulate a history); this fixed name is the machine-readable
+# entry point so CI and tooling never have to guess a timestamp. Without it
+# the nightly workflow globbed a hardcoded /tmp path that stopped matching
+# when reports moved to the repo root, and uploaded empty artifacts for
+# months while the job stayed green.
+REPORT_LATEST="$RESULTS_DIR/report.txt"
 FIXTURE_SRC="$REPO_ROOT/fixtures/benchmarks"
 
 NPROC=$(nproc)
@@ -365,4 +374,9 @@ done
 
 echo >> "$REPORT"
 
-info "Done. Report: $REPORT"
+# Copy rather than symlink: CI artifact upload follows the path but archives
+# the link target's name, and downstream `gh run download` then lands a
+# timestamped file the consumer cannot predict.
+cp "$REPORT" "$REPORT_LATEST"
+
+info "Done. Report: $REPORT (also: $REPORT_LATEST)"
