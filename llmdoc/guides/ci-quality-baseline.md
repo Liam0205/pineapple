@@ -168,6 +168,12 @@ CI 中 fuzz 运行时间为 30s/入口，并使用 `-run=^$ -parallel=4` 固定�
 - 度量**有效可见率**（危险值出现在被投影、被差分比对实际读取的输出里），不是**形状出现率**（危险值仅在某处被生成）——两个指标会因投影类盲区完全脱节
 - 端到端验证探测能力：red-before（pre-fix 二进制 + 新生成器在真实生成轮上复现分歧）→ green-after（fixed 二进制通过同一轮）→ N 轮新鲜 fuzz 零假阳性
 
+### Artifact triage playbook（分歧定位顺序）
+
+Nightly diff-fuzz artifact 分歧定位顺序：(a) 下载 artifact，解压 `divergence_NNNNNN/`，读 `info.txt` 确定 `divergent_pair` + 各方 rc；(b) 本地跑各引擎复现，对齐输出；(c) **末端错误文案往往误导**——报错的 op 常是"下游第一个观察到分歧的"，不是"真正产生分歧的"。若 rc/文案不一致但输出结构类似（如 items 顺序不同却都为空投影），从 pipeline 末端**逐算子向前截断**（保留 `flow_contract.item_output` 揭示中间字段），找到第一个 frame 内容开始分歧的 op。issue #174 就是 op_3 的 `transform_resource_lookup` 报错分散了排查方向，实际根因是 op_1 `reorder_shuffle_by_salt` 的 shuffle 顺序不同。
+
+判据：本地复现走弯路超过 30 分钟时，条件反射式切"从末端逐算子截断"策略，不要继续深挖末端错误路径。
+
 ### Daily sanitized-fuzz（ASan/TSan 深度诊断）
 
 `.github/workflows/daily-sanitized-fuzz.yml` 每日 schedule 运行 pine-cpp 的 ASan+UBSan 与 TSan 两个 sanitizer-instrumented differential-fuzz pass，复用同一份 `scripts/differential-fuzz.py`：

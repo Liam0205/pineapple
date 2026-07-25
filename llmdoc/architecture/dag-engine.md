@@ -491,6 +491,15 @@ Frame 实现内部自行保证并发安全，调度器不持有外部 frame 锁�
 
 这意味着算子行为取决于其元数据契约，而非对完整 frame 的无限制访问。`BuildInput` 与 `ToResult` 都必须区分“字段缺失”和“字段显式存在但值为 nil”，不能把两者折叠为同一种 `nil` 语义。
 
+#### Operator-visible input 排除集合的跨运行时对齐
+
+Operator-visible input 排除集合（skip 控制字段 + `common_input_template` 源字段 + `common_input_skip`）在三运行时里通过**不同实现路径**兑现同一契约：
+
+- pine-go / pine-java：`BuildInput` 阶段构建 `common` map 时**直接丢弃**排除字段（materialize-time exclusion），`input.Common(field)` 在字段名不在 map 中时返回 nil。
+- pine-cpp：`OperatorInput` 是懒代理，`common(field)` 直查 frame——**必须在读路径显式 gate** 排除集合（`InputFieldSpec::excluded_common`），否则算子看到 raw frame 值。issue #174 首次暴露该差异：`reorder_shuffle_by_salt` 以 `metadata.common_input` 构 salt，pine-cpp 未 gate 时读到 skip 字段 `_skip_branch=false` 而 pine-go/pine-java 读到 nil，salt 分歧 → 排序分歧 → 下游整链 cascading。
+
+**跨运行时不变量**：任何 op 通过 `input.common(field)` 访问排除集合内的字段名，都必须收到 nil。materialize 侧靠 build-time 剔除保证，proxy 侧靠 spec.excluded_common gate 保证。给 spec 加新的排除维度时（新增 skip 桶、template 桶等）需逐一核对每种实现是否都把该维度带进 excluded_common。
+
 #### BuildInput 错误消息约定
 
 `BuildInput` 抛出的字段缺失/nil 错误**不应自带 `operator "X":` 前缀**——调度器/引擎在捕获后会包装为 `ExecutionError`（前缀 `pine: execution error in operator "X": ...`），算子名只在外层出现一次。各运行时的 BuildInput 错误文案统一为：
