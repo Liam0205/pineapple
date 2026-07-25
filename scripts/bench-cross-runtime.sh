@@ -415,15 +415,32 @@ for fixture in "${FIXTURES[@]}"; do
       hey -n 100 -c 5 -m POST -H "Content-Type: application/json" \
         -d "$req_body" -o csv "http://localhost:$port/execute" > /dev/null 2>&1
 
-      # Benchmark — pipe directly to parse_hey, no temp file
+      # Benchmark — pipe directly to parse_hey, no temp file.
+      # `|| true`: hey exits 0 on connection failures but 1 on argument errors
+      # (e.g. -c greater than -n). Under set -e that would abort the whole run
+      # right here, before the shortfall warning and the report.txt copy — the
+      # script would die quietly having written a partial report and no stable
+      # alias. parse_hey already yields an all-N/A row for that case, which is
+      # now counted as a skip.
       METRICS=$(hey -n "$NUM_REQUESTS" -c "$CONCURRENCY" -m POST \
         -H "Content-Type: application/json" \
         -d "$req_body" -o csv \
-        "http://localhost:$port/execute" 2>/dev/null | parse_hey)
+        "http://localhost:$port/execute" 2>/dev/null | parse_hey || true)
       IFS='|' read -r qps mean stddev p50 p90 p99 <<< "$METRICS"
       printf "  %-8s %-35s %7s %10s %10s %10s %10s %10s %10s\n" \
         "$rt" "$fixture" "$mode" "$qps" "$mean" "$stddev" "$p50" "$p90" "$p99" | tee -a "$REPORT"
-      COMPLETED=$((COMPLETED + 1))
+      # An all-N/A row is not a completed run: parse_hey emits it when hey
+      # collected no samples at all, and both report parsers discard the row.
+      # Counting it would make COMPLETED == TOTAL_RUNS and silence the
+      # shortfall warning in the most likely failure mode of all — a server
+      # that answers /health and then dies under load. hey exits 0 when it
+      # cannot connect, so neither set -e nor pipefail catches this.
+      if [[ "$qps" == "N/A" ]]; then
+        err "no samples for $rt | $fixture | $mode"
+        SKIPPED+=("$rt|$fixture|$mode: benchmark produced no samples")
+      else
+        COMPLETED=$((COMPLETED + 1))
+      fi
 
       stop_server "$rt"
       sleep 0.2
