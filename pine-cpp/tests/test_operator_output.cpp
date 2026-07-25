@@ -177,6 +177,25 @@ TEST_CASE("OperatorOutput::reset releases capacity above the retain limit") {
     out.set_item_column_double("f", std::vector<double>{1.0});
     REQUIRE(out.column_writes().size() == 1);
   }
+
+  SUBCASE("item_order (set_item_order) — the reorder path") {
+    // reorder_sort / reorder_shuffle_by_salt fill this to the item count.
+    // Retaining it was never a win in the first place: set_item_order
+    // move-assigns, so the next call throws away whatever reset() kept.
+    OperatorOutput out;
+    std::vector<int> order(kHuge);
+    for (int i = 0; i < kHuge; ++i) {
+      order[static_cast<std::size_t>(i)] = i;
+    }
+    out.set_item_order(std::move(order));
+    REQUIRE(out.item_order().capacity() > kLimit);
+    out.reset();
+    CHECK(out.item_order().empty());
+    CHECK(out.item_order().capacity() <= kLimit);
+    CHECK(out.has_item_order() == false);
+    out.set_item_order(std::vector<int>{1, 0});
+    REQUIRE(out.item_order().size() == 2);
+  }
 }
 
 TEST_CASE("OperatorOutput::reset is idempotent and safe on a fresh object") {

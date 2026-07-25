@@ -309,6 +309,11 @@ get_storage_modes() {
 #
 # Echoes the path to use. When the fixture already declares the mode we want
 # there is nothing to rewrite, so the original is returned untouched.
+# CONTRACT: echoes the config path to use, or echoes NOTHING on failure. The
+# caller treats empty output as "skip this run"; the exit status is always 0
+# so a failure here cannot trip the caller's `set -e`. Hence the `return 0`s
+# below on error paths — they mean "give up without printing a path", not
+# "succeeded".
 config_for_mode() {
   local config_file="$1" mode="$2"
   local declared
