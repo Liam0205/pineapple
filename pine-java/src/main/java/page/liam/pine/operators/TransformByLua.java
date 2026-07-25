@@ -421,12 +421,22 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
 
         private Set<String> snapshotKeys(Globals g) {
+            // Filter on the real type tag, not luaj's coercion predicate:
+            // LuaInteger.isstring() is unconditionally true, so k.isstring()
+            // would collect numeric keys like _G[42] as the phantom string
+            // "42". resetToBaseline then does g.set("42", NIL), which
+            // touches the STRING slot _G["42"] — the numeric slot _G[42]
+            // survives. Aligning the predicate makes the intent explicit
+            // (baseline reset covers string-keyed globals only, per the
+            // cross-runtime pool baseline contract in operator-contract.md)
+            // and closes the last coercion-dispatch site around fromLua
+            // (issue #177, sibling of #175's fromLua fix).
             Set<String> keys = new HashSet<>();
             LuaValue k = LuaValue.NIL;
             while (true) {
                 Varargs n = g.next(k);
                 if ((k = n.arg1()).isnil()) break;
-                if (k.isstring()) keys.add(k.tojstring());
+                if (k.type() == LuaValue.TSTRING) keys.add(k.tojstring());
             }
             return keys;
         }
