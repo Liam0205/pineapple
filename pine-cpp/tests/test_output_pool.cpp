@@ -152,7 +152,18 @@ TEST_CASE("OperatorOutput reuse: no state leakage across repeated runs") {
   register_pool_test_ops();
   inspect_state() = InspectState{};
 
-  Engine engine(load_config_from_json(kInspectOnlyConfig));
+  // dag_pool_size = 1 is load-bearing, not tuning. The buffer is
+  // thread_local, so a leak from run i is only observable on run i+1 if both
+  // runs land on the SAME worker. This pipeline submits one task per request
+  // and the pool hands it to any idle worker, so at the default size
+  // (nproc * 4) 32 requests spread across 32 distinct threads and every run
+  // gets a pristine buffer — the test would pass no matter what reset() did.
+  // Pinning the pool to a single worker makes same-thread reuse certain
+  // instead of probabilistic. Verified: with the acquire-side reset() removed
+  // this fails 20/20 at pool size 1, and passes 20/20 at the default size.
+  EngineOptions opts;
+  opts.dag_pool_size = 1;
+  Engine engine(load_config_from_json(kInspectOnlyConfig), opts);
   constexpr int kRuns = 32;
   for (int i = 0; i < kRuns; ++i) {
     Request req;

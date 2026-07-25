@@ -23,8 +23,10 @@ def parse_report(text: str) -> list[dict]:
         parts = line.split()
         if not parts:
             continue
-        # Skip header/separator lines
-        if parts[0] in ("Runtime", "-------", "═══"):
+        # Skip header/separator lines. startswith, not equality: the banner
+        # rule is one long run of box characters, so `parts[0] == "═══"` never
+        # matched. Kept in sync with bench-compare.py's parse_report.
+        if parts[0] in ("Runtime", "-------") or parts[0].startswith("═"):
             continue
         # Current format: 9 columns
         if len(parts) == 9:
