@@ -482,19 +482,45 @@ class OperatorOutput {
   // path) deep-copies what it needs, so trace contents survive reset.
   //
   // Containers are cleared in place rather than reassigned so their heap
-  // capacity carries into the next Execute: vector::clear keeps the
-  // backing array (the point of the optimization — set_item's append no
-  // longer re-grows 0→1→2→4→…→N every op), and Variant::object_t /
-  // std::set clear keeps their node pools warm for the allocator.
+  // capacity carries into the next Execute. vector::clear keeps the backing
+  // array — the point of the optimization, since set_item's append no longer
+  // re-grows 0→1→2→4→…→N on every op. Variant::object_t is FlatMap, itself a
+  // sorted std::vector, so it retains contiguous array capacity the same way.
+  // std::set is the only node-based container here; clearing it returns its
+  // nodes to the allocator's free list rather than to the OS.
   //
   // Elements are destroyed by clear(), so no stale Variant payload stays
   // reachable — unlike Go, where slice truncation leaves the backing
   // array pinning values and each element must be zeroed explicitly.
+  //
+  // CAPACITY IS RELEASED ABOVE kRetainLimit. Retaining without a ceiling is
+  // not equivalent to pine-go: the buffers there live in a sync.Pool, which
+  // the GC empties, so Go's high-water mark is reclaimed (measured: a pooled
+  // output with cap 554598 comes back with cap 0 after two GC cycles). A
+  // thread_local has no such reclamation point, and because the DAG pool
+  // defaults to nproc*4 workers that each keep whatever the largest request
+  // they served needed, one big recall would pin that peak on every worker
+  // for the engine's lifetime. Dropping oversized buffers bounds the
+  // retained footprint while keeping the reuse win for every realistic size
+  // — the production calibrated shape is N≈10, and even the largest
+  // synthetic fixture is N=5000, all far below the limit.
   void reset() {
+    if (item_writes_.capacity() > kRetainLimit) {
+      std::vector<ItemWrite>{}.swap(item_writes_);
+    } else {
+      item_writes_.clear();
+    }
+    if (added_items_.capacity() > kRetainLimit) {
+      std::vector<Variant::object_t>{}.swap(added_items_);
+    } else {
+      added_items_.clear();
+    }
+    if (column_writes_.capacity() > kRetainLimit) {
+      std::vector<DoubleColumnWrite>{}.swap(column_writes_);
+    } else {
+      column_writes_.clear();
+    }
     common_writes_.clear();
-    item_writes_.clear();
-    column_writes_.clear();
-    added_items_.clear();
     removed_items_.clear();
     item_order_.clear();
     has_item_order_ = false;
@@ -503,6 +529,14 @@ class OperatorOutput {
   }
 
  private:
+  // Element count above which reset() gives the backing array back instead of
+  // retaining it. 65536 sits far above every shape this engine is built for
+  // (calibrated production N≈10, largest synthetic fixture N=5000) so normal
+  // traffic never trips it, while bounding a single outlier request's
+  // footprint to roughly a megabyte per worker rather than however much that
+  // request happened to need.
+  static constexpr std::size_t kRetainLimit = 65536;
+
   Variant::object_t common_writes_;
   std::vector<ItemWrite> item_writes_;
   std::vector<DoubleColumnWrite> column_writes_;

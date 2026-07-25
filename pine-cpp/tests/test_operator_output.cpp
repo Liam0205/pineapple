@@ -118,6 +118,29 @@ TEST_CASE("OperatorOutput::reset retains container capacity") {
   CHECK(out.added_items().capacity() == added_cap);
 }
 
+TEST_CASE("OperatorOutput::reset releases capacity above the retain limit") {
+  // The buffer is thread_local and the DAG pool keeps its workers for the
+  // engine's lifetime, so unbounded retention would let one outsized request
+  // pin its peak on every worker forever — pine-go avoids that because the
+  // GC empties its sync.Pool. reset() therefore drops buffers grown past
+  // kRetainLimit (65536) instead of keeping them. This asserts the release
+  // half; the case above asserts that ordinary sizes are still retained.
+  OperatorOutput out;
+  constexpr int kHuge = 70000;
+  for (int i = 0; i < kHuge; ++i) {
+    out.set_item(i, "f", Variant(static_cast<double>(i)));
+  }
+  REQUIRE(out.item_writes().capacity() > 65536);
+
+  out.reset();
+
+  CHECK(out.item_writes().empty());
+  CHECK(out.item_writes().capacity() <= 65536);
+  // Still fully usable after the release.
+  out.set_item(0, "f", Variant(1.0));
+  REQUIRE(out.item_writes().size() == 1);
+}
+
 TEST_CASE("OperatorOutput::reset is idempotent and safe on a fresh object") {
   OperatorOutput out;
   out.reset();
