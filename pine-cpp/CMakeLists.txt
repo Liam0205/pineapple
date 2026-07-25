@@ -233,6 +233,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_parallel.cpp
         tests/test_panic.cpp
         tests/test_operator_output.cpp
+        tests/test_output_pool.cpp
         tests/test_trace.cpp
         tests/test_column.cpp
         tests/test_format_g.cpp
