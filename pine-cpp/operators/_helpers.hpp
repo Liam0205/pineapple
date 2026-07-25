@@ -52,8 +52,16 @@ std::string go_format_lookup_key(double d);
 std::string sprint_value(const Variant& v);
 std::string any_to_string(const Variant& v);
 std::string dedup_key(const Variant& v);
-std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields);
+// Preferred: build the key suffix from OperatorInput, which honors
+// the input's excluded_common gate (issue #174). New operator code
+// should always use this overload.
 std::string build_key_suffix(const OperatorInput& input, const std::vector<std::string>& fields);
+// Deprecated: reads Frame::common directly, bypassing skip / template
+// field exclusion. All in-tree redis operators moved to the OperatorInput
+// overload. Kept for source compatibility with out-of-tree callers only.
+[[deprecated("prefer build_key_suffix(OperatorInput&) — the Frame overload "
+             "bypasses skip / template field exclusion (issue #174)")]]
+std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields);
 std::vector<std::string> json_to_string_slice(const Variant& v);
 
 }  // namespace operators
