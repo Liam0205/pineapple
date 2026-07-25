@@ -1,0 +1,84 @@
+{
+  "name": "shuffle_by_salt with skip field in common_input (issue #174)",
+  "_comment": "reorder_shuffle_by_salt lists a skip control field in its metadata.common_input and reads it directly via input.common(field) to build the salt. pine-go/pine-java exclude skip fields at buildInput time so their input sees nil for the skip slot; pre-#174 pine-cpp's lazy OperatorInput::common transparently returned the underlying frame value, producing a different salt, different shuffle order, and cascading downstream divergence. This fixture pins the byte-exact three-runtime output on that shape via cross-validate sections 3/9.",
+  "config": {
+    "_PINEAPPLE_VERSION": "0.10.15",
+    "pipeline_config": {
+      "operators": {
+        "recall": {
+          "type_name": "recall_static",
+          "recall": true,
+          "items": [
+            {"item_id": "a", "item_tag": "x"},
+            {"item_id": "b", "item_tag": "y"},
+            {"item_id": "c", "item_tag": "z"},
+            {"item_id": "d", "item_tag": "x"}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id", "item_tag"]
+          }
+        },
+        "set_skip": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function check()\n  return false\nend",
+          "function_for_item": "",
+          "function_for_common": "check",
+          "$metadata": {
+            "common_input": [],
+            "common_output": ["_skip_branch"],
+            "item_input": [],
+            "item_output": []
+          }
+        },
+        "shuffle": {
+          "type_name": "reorder_shuffle_by_salt",
+          "skip": "_skip_branch",
+          "for_branch_control": true,
+          "$metadata": {
+            "common_input": ["_skip_branch"],
+            "common_output": [],
+            "item_input": ["item_tag"],
+            "item_output": []
+          }
+        }
+      },
+      "pipeline_map": {
+        "main_stage": {
+          "pipeline": ["recall", "set_skip", "shuffle"]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": ["main_stage"]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id", "item_tag"]
+    }
+  },
+  "cases": [
+    {
+      "name": "skip field is hidden from shuffle salt across all runtimes",
+      "request": {
+        "common": {},
+        "items": []
+      },
+      "expected": {
+        "common": {},
+        "items": [
+          {"item_id": "c", "item_tag": "z"},
+          {"item_id": "b", "item_tag": "y"},
+          {"item_id": "a", "item_tag": "x"},
+          {"item_id": "d", "item_tag": "x"}
+        ]
+      }
+    }
+  ]
+}
