@@ -504,22 +504,19 @@ class OperatorOutput {
   // retained footprint while keeping the reuse win for every realistic size
   // — the production calibrated shape is N≈10, and even the largest
   // synthetic fixture is N=5000, all far below the limit.
+  //
+  // What the ceiling actually costs, at kRetainLimit elements each
+  // (sizeof: ItemWrite 80, Variant::object_t 24, DoubleColumnWrite 56):
+  // item_writes_ 5.00 MiB, added_items_ 1.50 MiB, column_writes_ 3.50 MiB
+  // — 10.00 MiB per worker if a single request drives all three to the
+  // limit, so about 960 MiB across the default 96 workers. That is a
+  // synthetic worst case (every worker must have served a ~65536-element
+  // request, and anything larger gets released), but it is the number to
+  // reason with when changing the limit.
   void reset() {
-    if (item_writes_.capacity() > kRetainLimit) {
-      std::vector<ItemWrite>{}.swap(item_writes_);
-    } else {
-      item_writes_.clear();
-    }
-    if (added_items_.capacity() > kRetainLimit) {
-      std::vector<Variant::object_t>{}.swap(added_items_);
-    } else {
-      added_items_.clear();
-    }
-    if (column_writes_.capacity() > kRetainLimit) {
-      std::vector<DoubleColumnWrite>{}.swap(column_writes_);
-    } else {
-      column_writes_.clear();
-    }
+    clear_or_release(item_writes_);
+    clear_or_release(added_items_);
+    clear_or_release(column_writes_);
     common_writes_.clear();
     removed_items_.clear();
     item_order_.clear();
@@ -532,10 +529,23 @@ class OperatorOutput {
   // Element count above which reset() gives the backing array back instead of
   // retaining it. 65536 sits far above every shape this engine is built for
   // (calibrated production N≈10, largest synthetic fixture N=5000) so normal
-  // traffic never trips it, while bounding a single outlier request's
-  // footprint to roughly a megabyte per worker rather than however much that
-  // request happened to need.
+  // traffic never trips it, while putting a ceiling on what one outlier
+  // request can pin — see reset()'s comment for the per-worker byte figures.
   static constexpr std::size_t kRetainLimit = 65536;
+
+  // Shared by every capacity-bearing vector in reset(). Factored out so the
+  // decision lives in one place: with the branch written out per container it
+  // was possible to gate only one of them and still see a green suite, while
+  // a recall-heavy load reproduced the full unbounded-retention regression
+  // through added_items_.
+  template <typename T>
+  static void clear_or_release(std::vector<T>& v) {
+    if (v.capacity() > kRetainLimit) {
+      std::vector<T>{}.swap(v);
+    } else {
+      v.clear();
+    }
+  }
 
   Variant::object_t common_writes_;
   std::vector<ItemWrite> item_writes_;
