@@ -125,20 +125,58 @@ TEST_CASE("OperatorOutput::reset releases capacity above the retain limit") {
   // GC empties its sync.Pool. reset() therefore drops buffers grown past
   // kRetainLimit (65536) instead of keeping them. This asserts the release
   // half; the case above asserts that ordinary sizes are still retained.
-  OperatorOutput out;
+  //
+  // EVERY capacity-bearing container is driven here, not just item_writes_.
+  // An earlier version of this test exercised set_item alone, which left the
+  // added_items_ and column_writes_ release branches unguarded: deleting them
+  // kept the suite fully green while a recall-heavy load still pinned ~478 MB
+  // permanently, since recall operators grow added_items_, not item_writes_.
+  constexpr std::size_t kLimit = 65536;
   constexpr int kHuge = 70000;
-  for (int i = 0; i < kHuge; ++i) {
-    out.set_item(i, "f", Variant(static_cast<double>(i)));
+
+  SUBCASE("item_writes (set_item)") {
+    OperatorOutput out;
+    for (int i = 0; i < kHuge; ++i) {
+      out.set_item(i, "f", Variant(static_cast<double>(i)));
+    }
+    REQUIRE(out.item_writes().capacity() > kLimit);
+    out.reset();
+    CHECK(out.item_writes().empty());
+    CHECK(out.item_writes().capacity() <= kLimit);
+    // Still fully usable after the release.
+    out.set_item(0, "f", Variant(1.0));
+    REQUIRE(out.item_writes().size() == 1);
   }
-  REQUIRE(out.item_writes().capacity() > 65536);
 
-  out.reset();
+  SUBCASE("added_items (add_item) — the recall path") {
+    OperatorOutput out;
+    for (int i = 0; i < kHuge; ++i) {
+      Variant::object_t row;
+      row["k"] = Variant(static_cast<double>(i));
+      out.add_item(std::move(row));
+    }
+    REQUIRE(out.added_items().capacity() > kLimit);
+    out.reset();
+    CHECK(out.added_items().empty());
+    CHECK(out.added_items().capacity() <= kLimit);
+    Variant::object_t row;
+    row["k"] = Variant(1.0);
+    out.add_item(std::move(row));
+    REQUIRE(out.added_items().size() == 1);
+  }
 
-  CHECK(out.item_writes().empty());
-  CHECK(out.item_writes().capacity() <= 65536);
-  // Still fully usable after the release.
-  out.set_item(0, "f", Variant(1.0));
-  REQUIRE(out.item_writes().size() == 1);
+  SUBCASE("column_writes (set_item_column_double)") {
+    OperatorOutput out;
+    for (int i = 0; i < kHuge; ++i) {
+      out.set_item_column_double("f", std::vector<double>{static_cast<double>(i)});
+    }
+    REQUIRE(out.column_writes().capacity() > kLimit);
+    out.reset();
+    CHECK(out.column_writes().empty());
+    CHECK(out.column_writes().capacity() <= kLimit);
+    out.set_item_column_double("f", std::vector<double>{1.0});
+    REQUIRE(out.column_writes().size() == 1);
+  }
 }
 
 TEST_CASE("OperatorOutput::reset is idempotent and safe on a fresh object") {
