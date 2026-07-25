@@ -25,8 +25,11 @@ def parse_report(text: str) -> list[dict]:
             continue
         # Skip header/separator lines. startswith, not equality: the banner
         # rule is one long run of box characters, so `parts[0] == "═══"` never
-        # matched. Kept in sync with bench-compare.py's parse_report.
-        if parts[0] in ("Runtime", "-------") or parts[0].startswith("═"):
+        # matched. WARNING:/skipped: are the shortfall notice appended by
+        # bench-cross-runtime.sh, which splits into exactly 9 fields — the same
+        # width as a data row — and is currently rejected only because field 4
+        # is not a float. Kept in sync with bench-compare.py's parse_report.
+        if parts[0] in ("Runtime", "-------", "WARNING:", "skipped:") or parts[0].startswith("═"):
             continue
         # Current format: 9 columns
         if len(parts) == 9:

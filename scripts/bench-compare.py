@@ -26,7 +26,12 @@ def parse_report(text: str) -> dict[tuple, dict[str, float]]:
         # characters, so `parts[0] == "═══"` never matched. Harmless before
         # (the line has neither 9 nor 11 fields and fell through) but it read
         # like a working guard.
-        if parts[0] in ("Runtime", "-------") or parts[0].startswith("═"):
+        #
+        # WARNING: is listed explicitly because the shortfall notice
+        # bench-cross-runtime.sh appends splits into exactly 9 fields, the same
+        # width as a data row. Today it is rejected only because field 4 is not
+        # a float; rewording it could silently turn it into a data row.
+        if parts[0] in ("Runtime", "-------", "WARNING:", "skipped:") or parts[0].startswith("═"):
             continue
         if len(parts) == 9:
             runtime, fixture, storage = parts[0], parts[1], parts[2]
