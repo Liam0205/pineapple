@@ -165,6 +165,39 @@ constexpr const char* kRecallThenInspectConfig = R"({
   }
 })";
 
+// Same pipeline pinned to column storage. ColumnFrame::apply_output value-copies
+// added_items_ where RowFrame moves it, so the two modes leave the buffer in
+// different states and the reuse contract has to hold for both.
+constexpr const char* kRecallThenInspectColumnConfig = R"({
+  "_PINEAPPLE_VERSION": "0.10.16",
+  "storage_mode": "column",
+  "pipeline_config": {
+    "operators": {
+      "recall": {
+        "type_name": "pool_test_recall",
+        "recall": true,
+        "$metadata": {"item_output": ["id"]}
+      },
+      "mark": {
+        "type_name": "pool_test_mark",
+        "$metadata": {"item_input": ["id"], "item_output": ["marked"]}
+      },
+      "inspect": {
+        "type_name": "pool_test_inspect",
+        "$metadata": {"common_output": ["inspect_ok"]}
+      }
+    },
+    "pipeline_map": {"stage": {"pipeline": ["recall", "mark", "inspect"]}}
+  },
+  "pipeline_group": {"main": {"pipeline": ["stage"]}},
+  "flow_contract": {
+    "common_input": [],
+    "item_input": [],
+    "common_output": ["inspect_ok"],
+    "item_output": ["id", "marked"]
+  }
+})";
+
 }  // namespace
 
 TEST_CASE("OperatorOutput reuse: no state leakage across repeated runs") {
@@ -317,4 +350,29 @@ TEST_CASE("OperatorOutput reuse: a failed request's items never reach a later re
     REQUIRE(item.count("id") == 1);
     CHECK(item.at("id").as_string().rfind("leak", 0) != 0);
   }
+}
+
+TEST_CASE("OperatorOutput reuse: no leakage across operators in column storage") {
+  // The row-mode twin of this case is above. Both modes are needed because
+  // apply_output consumes added_items_ differently: RowFrame moves it out,
+  // ColumnFrame value-copies it and leaves the original intact. Whatever the
+  // mode leaves behind must not reach the next operator, and the benchmark
+  // fixture added in this range pins column, so this is the mode that actually
+  // ships in the guardrail.
+  register_pool_test_ops();
+  inspect_state() = InspectState{};
+
+  Engine engine(load_config_from_json(kRecallThenInspectColumnConfig));
+  constexpr int kRuns = 16;
+  for (int i = 0; i < kRuns; ++i) {
+    Request req;
+    auto resp = engine.execute(req);
+    REQUIRE(resp.items.size() == 3);
+  }
+
+  const InspectState& st = inspect_state();
+  CHECK(st.executes == kRuns);
+  CHECK(st.saw_common_fields.empty());
+  CHECK(st.saw_added == 0);
+  CHECK(st.saw_item_writes == 0);
 }
