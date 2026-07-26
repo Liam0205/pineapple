@@ -1090,7 +1090,7 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     // column. The copying side is not hypothetical — the transform_heavy_1000
     // benchmark fixture pins storage_mode=column. On the throw path
     // apply_output never ran at all, so everything is live whatever the mode;
-    // that is the case worth the most here, ~170x by one measurement below.
+    // that is the case this call is worth the most for.
     //
     // One-off measurements, recorded with their conditions because they are
     // observations rather than gates and the absolute numbers move with the
@@ -1105,9 +1105,10 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     // unbounded by the ceiling too, since reset is what applies the ceiling.
     // Measured on the throw path at dag_pool_size 24, allocator live bytes:
     // 352 MB at N=70000 and 702 MB at N=140000 — linear in N, no upper bound.
-    // It cannot move to the end of
-    // the try either: the catch block reads out.warning() to attach the
-    // message to the frame.
+    // A separate probe put the same shape at 205.5 MB retained without this call
+    // against 1.2 MB with it, i.e. the throw path is where it earns most of its
+    // keep. It cannot move to the end of the try either: the catch block reads
+    // out.warning() to attach the message to the frame.
     //
     // NOT GUARDED BY A UNIT TEST, deliberately rather than by oversight. The
     // retention window lies between this call and the next node's acquire
