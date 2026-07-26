@@ -81,8 +81,8 @@ struct ItemWritingOp : public Operator {
 };
 
 // ThrowingRecallOp adds items then throws. apply_output never runs, so what it
-// added stays in the worker's buffer — the exception path the release-side
-// reset (which is inside the try block) cannot cover.
+// added is still fully live when the node body unwinds — the largest payload
+// any single node can be holding.
 struct ThrowingRecallOp : public Operator {
   void init(const OperatorConfig&) override {
   }
@@ -213,10 +213,11 @@ TEST_CASE("OperatorOutput reuse: no leakage across operators within one run") {
   // Three operators run back to back on (very likely) the same thread and
   // therefore the same thread_local buffer. recall fills added_items_,
   // mark fills item_writes_, inspect asserts it sees neither. This is the
-  // intra-request half of the contract — distinct from the cross-request
-  // case above, and the one that would break if the acquire-side reset were
-  // dropped in favour of the release-side one alone: the release-side reset
-  // runs only on the success path, so a throwing node would leave husks.
+  // intra-request half of the contract, distinct from the cross-request case
+  // above. Either reset satisfies it: the release-side call runs after the
+  // try/catch and so covers the throw path too, which means dropping the
+  // acquire-side call alone leaves this green. It is a behaviour assertion
+  // about what an operator may observe, not a gate on one line.
   register_pool_test_ops();
   inspect_state() = InspectState{};
 

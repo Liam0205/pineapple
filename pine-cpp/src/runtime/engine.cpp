@@ -1079,8 +1079,13 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     // capacity() measures. An ItemWrite owns a std::string and a Variant, every
     // added_items_ row is its own heap block, and a DoubleColumnWrite owns a
     // vector<double> — none of that payload is counted, so none of it was
-    // bounded. Left to acquire-time reset alone, every idle worker holds the
-    // full payload of whatever request it last served.
+    // bounded. Left to acquire-time reset alone, an idle worker holds whatever
+    // of that payload survived the node body. On the success path that is
+    // item_writes_ and column_writes_, which apply_output value-copies —
+    // added_items_ is move-extracted, so it is already empty (measured: no
+    // difference either way). On the throw path apply_output never ran, so all
+    // of it is live; that is the case worth the most here, ~170x by one
+    // measurement below.
     //
     // One-off measurements, recorded with their conditions because they are
     // observations rather than gates and the absolute numbers move with the
@@ -1107,9 +1112,11 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     // this line deleted; leaving them would have implied coverage that does not
     // exist. Confirming a change here needs an allocator live-bytes probe — RSS
     // is not sufficient, since the allocator caches the freed blocks and the
-    // two variants read within 0.1% of each other. What the suite does guard is
-    // the acquire-side reset, via the failed-request case in
-    // test_output_pool.cpp.
+    // two variants read within 0.1% of each other. Note the failed-request case
+    // in test_output_pool.cpp does not guard the acquire-side reset either:
+    // this call already covers the throw path, so that case passes with the
+    // acquire-side call deleted. Nothing has mutation coverage on it — see its
+    // own comment, which says as much.
     out.reset();
     // Decrement active ops BEFORE signaling completion — after
     // propagate_and_signal, run_dag may return and destroy locals.

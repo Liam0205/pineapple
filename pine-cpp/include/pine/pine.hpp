@@ -505,15 +505,19 @@ class OperatorOutput {
   // for the engine's lifetime. Dropping oversized buffers bounds the
   // retained footprint while keeping the reuse win for every realistic size
   // — the production calibrated shape is N≈10, and even the largest
-  // synthetic fixture is N=5000, all far below the limit.
+  // benchmark fixture is N=5000, all far below the limit (unit tests and probes
+  // do drive larger N deliberately, to exercise the release branch).
   //
   // What the ceiling costs, at kRetainLimit elements in every routed member
-  // (sizeof: ItemWrite 80, DoubleColumnWrite 56, Variant::object_t 24, int 4,
-  // char 1): item_writes_ 5.00 MiB, column_writes_ 3.50 MiB, added_items_
-  // 1.50 MiB, item_order_ 0.25 MiB, warning_ 0.06 MiB — 10.31 MiB per worker
-  // if one request drives them all to the limit, so about 990 MiB across the
-  // default 96 workers. Synthetic worst case: every worker must have served a
+  // (sizeof: ItemWrite 80, pair<string,Variant> 72, DoubleColumnWrite 56,
+  // Variant::object_t 24, int 4, char 1): item_writes_ 5.00 MiB,
+  // common_writes_ 4.50 MiB, column_writes_ 3.50 MiB, added_items_ 1.50 MiB,
+  // item_order_ 0.25 MiB, warning_ 0.06 MiB — 14.81 MiB per worker if one
+  // request drives them all to the limit, so about 1422 MiB across the default
+  // 96 workers. Synthetic worst case: every worker must have served a
   // ~65536-element request, and anything larger is released outright.
+  // common_writes_ is capped on size rather than capacity (see
+  // clear_or_release below) but budgets the same.
   //
   // THIS IS THE SPINE BUDGET ONLY. capacity() counts slots, and the elements
   // own heap of their own — the strings and Variants inside ItemWrite, a block
@@ -521,7 +525,7 @@ class OperatorOutput {
   // footprint runs well above these figures whenever items carry payload
   // (measured 210 MB at N=32000 / pool=96 with only 20-byte values). The
   // trailing reset() in node_body is what bounds payload; see its comment. Do
-  // not use 990 MiB as a capacity-planning number.
+  // not use 1422 MiB as a capacity-planning number.
   void reset() {
     clear_or_release(item_writes_);
     clear_or_release(added_items_);
@@ -543,7 +547,7 @@ class OperatorOutput {
  private:
   // Element count above which reset() gives the backing array back instead of
   // retaining it. 65536 sits far above every shape this engine is built for
-  // (calibrated production N≈10, largest synthetic fixture N=5000) so normal
+  // (calibrated production N≈10, largest benchmark fixture N=5000) so normal
   // traffic never trips it, while putting a ceiling on what one outlier
   // request can pin — see reset()'s comment for the per-worker byte figures.
   static constexpr std::size_t kRetainLimit = 65536;
