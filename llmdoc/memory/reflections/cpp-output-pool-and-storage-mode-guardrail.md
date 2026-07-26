@@ -3,7 +3,7 @@
 ## Task
 
 - 分支 `feat/122-160-cpp-output-pool-storage-docs`（基于 `origin/master` = `7612e185`），8 个 commit 收两个 issue，外加三个途中发现的 nightly benchmark 接线缺陷：
-- **issue #122** — 把 pine-go #119 的 `OperatorOutput` 池化收益移植到 pine-cpp（`8a955816`）。`node_body` 原来每个节点 `OperatorOutput out;` 新建，改为 `thread_local OperatorOutput tls_out; tls_out.reset(); OperatorOutput& out = tls_out;`，配套新增 `OperatorOutput::reset()`（`pine-cpp/include/pine/pine.hpp:493`，清九个成员 + 两个 has_ 标志）。回归门两个（`4d9cd374`）：新文件 `pine-cpp/tests/test_output_pool.cpp` 是引擎级跨算子泄漏测试（仿 pine-go `scheduler_test.go` 的 `inspectOutputOp` 模式），`test_operator_output.cpp` 追加容量保持测试。
+- **issue #122** — 把 pine-go #119 的 `OperatorOutput` 池化收益移植到 pine-cpp（`8a955816`）。`node_body` 原来每个节点 `OperatorOutput out;` 新建，改为 `thread_local OperatorOutput tls_out; tls_out.reset(); OperatorOutput& out = tls_out;`，配套新增 `OperatorOutput::reset()`（`pine-cpp/include/pine/pine.hpp`，逐项处理九个数据成员）。回归门两个（`4d9cd374`）：新文件 `pine-cpp/tests/test_output_pool.cpp` 是引擎级跨算子泄漏测试（仿 pine-go `scheduler_test.go` 的 `inspectOutputOp` 模式），`test_operator_output.cpp` 追加容量保持测试。
 - **issue #160** — 第一部分文档（`74a677dc`）：`doc/guide_pipeline.md` / `-en.md` 新增「Flow 级配置」节 + README 指针；第二部分 fixture（`25fd80a6`）：新增 `transform_heavy_1000` 合成列存护栏 fixture（1 个 `recall_static` + 8 个链式 `transform_normalize`，钉 `storage_mode=column`）。所有 calibrated fixture 都声明 `storage_mode=row`，列存批量列访问路径此前没有任何 fixture 看着。
 - **途中缺陷**：nightly benchmark 报表路径不匹配致 artifact 长期为空但 job 全绿（`e3cb34b3`）、`--modes` 是空转开关（`cd42dd4d`）、`bench-compare.py` 只认 11 列 legacy 格式（`61f27647`）、`bench-generate-fixtures.py` 既存 ruff 违规清理（`5b4a8be7`）。
 - 另开 issue **#179** 记录 `storage_mode` 非法值兜底的跨运行时分歧——**只是记录，本次未修**。
