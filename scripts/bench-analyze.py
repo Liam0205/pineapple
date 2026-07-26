@@ -4,9 +4,9 @@
 Supports both the current 9-column format (runtime, fixture, storage, qps, mean,
 stddev, p50, p90, p99) and the legacy 11-column format. Lines starting with '#'
 are comments and are skipped — bench-cross-runtime.sh writes its shortfall notice
-that way precisely so it cannot be mistaken for a data row, since it happens to
-split into 9 fields as well. Outputs plain text suitable for CI logs and Bark
-notifications.
+that way precisely so it cannot be mistaken for a data row: strip the '#' and the
+notice splits into exactly 9 whitespace fields, the same width as a data row.
+Outputs plain text suitable for CI logs and Bark notifications.
 
 Usage:
   python3 scripts/bench-analyze.py bench-results/report.txt

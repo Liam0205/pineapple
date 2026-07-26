@@ -12,17 +12,13 @@ def parse_report(text: str) -> dict[tuple, dict[str, float]]:
     the analyzer ignores but the comparer parses (or vice versa) looks exactly
     like "no regressions" in CI.
 
-    Column handling is deliberately NOT symmetric: bench-analyze.py still
-    accepts the legacy 11-column layout because it is run by hand on archived
-    reports, whereas this script only ever compares two runs and so can never
-    receive one.
-
-    The 11-column layout this used to also accept is gone: nothing has emitted
-    it since 2026-05-28, the nightly workflow only ever diffs against the
-    previous run's artifact, and artifacts are kept 30 days — so no comparison
-    could reach that branch. It was also untested and would have rotted
-    silently. Old reports can still be read with the script version from that
-    era via git history.
+    Column handling is deliberately NOT symmetric with bench-analyze.py, which
+    still accepts the legacy 11-column layout because it gets run by hand on
+    archived reports. This script only ever compares two runs, and nothing has
+    emitted 11 columns since 2026-05-28 while artifacts live 30 days, so no
+    input could reach such a branch — it was dropped rather than left untested
+    to rot. Old reports stay readable via the script version from that era in
+    git history.
     """
     data: dict[tuple, dict[str, float]] = {}
 

@@ -1081,11 +1081,16 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     // vector<double> — none of that payload is counted, so none of it was
     // bounded. Left to acquire-time reset alone, an idle worker holds whatever
     // of that payload survived the node body. On the success path that is
-    // item_writes_ and column_writes_, which apply_output value-copies —
-    // added_items_ is move-extracted, so it is already empty (measured: no
-    // difference either way). On the throw path apply_output never ran, so all
-    // of it is live; that is the case worth the most here, ~170x by one
-    // measurement below.
+    // whichever containers the storage mode did not move out of. Do not count
+    // on any particular one being pre-emptied: RowFrame::apply_output
+    // move-extracts added_items_ (row_frame.cpp:269, `auto&`) whereas
+    // ColumnFrame value-copies it (column_frame.cpp:418, `const auto&`), and
+    // column_writes_ goes the other way about. Measured at N=2000 with 4 KiB
+    // items, added_items_ right after apply_output: 0 KiB on row, 8003 KiB on
+    // column. The copying side is not hypothetical — the transform_heavy_1000
+    // benchmark fixture pins storage_mode=column. On the throw path
+    // apply_output never ran at all, so everything is live whatever the mode;
+    // that is the case worth the most here, ~170x by one measurement below.
     //
     // One-off measurements, recorded with their conditions because they are
     // observations rather than gates and the absolute numbers move with the
