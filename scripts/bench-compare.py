@@ -7,20 +7,22 @@ from pathlib import Path
 def parse_report(text: str) -> dict[tuple, dict[str, float]]:
     """Parse report into {(runtime, fixture, storage): {metric: value}}.
 
-    Handles both the current 9-column layout emitted by
-    bench-cross-runtime.sh and the legacy 11-column layout, normalizing the
-    legacy (nodes, par, op) triple into a single synthetic fixture name. This
-    mirrors bench-analyze.py's parse_report; the two must stay in sync, since a
-    format the analyzer accepts but the comparer silently drops looks exactly
+    Reads the 9-column layout emitted by bench-cross-runtime.sh. The line-skip
+    rules must stay in sync with bench-analyze.py's parse_report, since a line
+    the analyzer ignores but the comparer parses (or vice versa) looks exactly
     like "no regressions" in CI.
 
-    The legacy branch is kept for symmetry with bench-analyze.py and for
-    hand-inspecting archived reports, not because a comparison will hit it: the
-    nightly workflow diffs against the previous run's artifact, artifacts are
-    retained 30 days, and nothing has emitted 11 columns since 2026-05-28. Note
-    also that the synthetic name means legacy and current keys can never
-    intersect, so a cross-era comparison reports no comparable data rather than
-    a bogus delta.
+    Column handling is deliberately NOT symmetric: bench-analyze.py still
+    accepts the legacy 11-column layout because it is run by hand on archived
+    reports, whereas this script only ever compares two runs and so can never
+    receive one.
+
+    The 11-column layout this used to also accept is gone: nothing has emitted
+    it since 2026-05-28, the nightly workflow only ever diffs against the
+    previous run's artifact, and artifacts are kept 30 days — so no comparison
+    could reach that branch. It was also untested and would have rotted
+    silently. Old reports can still be read with the script version from that
+    era via git history.
     """
     data: dict[tuple, dict[str, float]] = {}
 
@@ -29,26 +31,20 @@ def parse_report(text: str) -> dict[tuple, dict[str, float]]:
         if not parts:
             continue
         # Skip header/separator lines
-        # startswith, not equality: the banner rule is one long run of box
-        # characters, so `parts[0] == "═══"` never matched. Harmless before
-        # (the line has neither 9 nor 11 fields and fell through) but it read
-        # like a working guard.
-        #
-        # WARNING: is listed explicitly because the shortfall notice
-        # bench-cross-runtime.sh appends splits into exactly 9 fields, the same
-        # width as a data row. Today it is rejected only because field 4 is not
-        # a float; rewording it could silently turn it into a data row.
-        if parts[0] in ("Runtime", "-------", "WARNING:", "skipped:") or parts[0].startswith("═"):
+        # '#' covers the shortfall notice bench-cross-runtime.sh appends: it
+        # splits into exactly 9 fields, the same width as a data row, so it has
+        # to be excluded structurally, not by matching its wording. startswith
+        # for the banner because that rule is one long run of box characters
+        # (`parts[0] == "═══"` never matched). Kept in sync with
+        # bench-analyze.py's parse_report.
+        if parts[0].startswith("#") or parts[0].startswith("═"):
             continue
-        if len(parts) == 9:
-            runtime, fixture, storage = parts[0], parts[1], parts[2]
-            metrics = parts[3:]
-        elif len(parts) == 11:
-            runtime, storage = parts[0], parts[2]
-            fixture = f"{parts[4]}_n{parts[1]}"
-            metrics = parts[5:]
-        else:
+        if parts[0] in ("Runtime", "-------"):
             continue
+        if len(parts) != 9:
+            continue
+        runtime, fixture, storage = parts[0], parts[1], parts[2]
+        metrics = parts[3:]
         try:
             qps, mean, stddev, p50, p90, p99 = (float(v) for v in metrics)
         except ValueError:
