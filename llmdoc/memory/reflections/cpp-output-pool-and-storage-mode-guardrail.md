@@ -58,7 +58,7 @@
 
 ## 验证情况
 
-- 242 个 C++ doctest / 110557 assertions 全过。
+- C++ doctest 全过（计数以 `make cpp-test` 实际输出为准——本文写作时是 242 个用例，此后审查轮次陆续追加了 SUBCASE 与新用例，硬编码的数字很快就会过期；这正是 `must/conventions.md`「禁止硬编码定量描述」要防的情况，而本文第一版就踩了）。
 - 两个 mutation 都确认能抓到：删 `reset()` → 跨算子泄漏测试红；`reset()` 改成真移动赋值 → 容量测试红（`0 == 256`）。
 - 新 fixture 在 go / java / cpp 三运行时输出**字节一致**（md5 相同），且 row vs column 输出也字节一致。
 - `make lint` / `make test`（Java 315 tests）/ `make codegen-check` / `make cpp-test` 全过。

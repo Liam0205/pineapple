@@ -495,8 +495,10 @@ class OperatorOutput {
   //
   // CAPACITY IS RELEASED ABOVE kRetainLimit. Retaining without a ceiling is
   // not equivalent to pine-go: the buffers there live in a sync.Pool, which
-  // the GC empties, so Go's high-water mark is reclaimed (measured: a pooled
-  // output with cap 554598 comes back with cap 0 after two GC cycles). A
+  // the GC empties, so Go's high-water mark is reclaimed. (One-off
+  // observation, not a regression gate and not reproducible from this repo: a
+  // temporary probe in pine-go/internal/runtime put back an output with
+  // cap 554598, ran runtime.GC() twice, and got cap 0 from the next Get.) A
   // thread_local has no such reclamation point, and because the DAG pool
   // defaults to nproc*4 workers that each keep whatever the largest request
   // they served needed, one big recall would pin that peak on every worker
@@ -505,14 +507,21 @@ class OperatorOutput {
   // — the production calibrated shape is N≈10, and even the largest
   // synthetic fixture is N=5000, all far below the limit.
   //
-  // What the ceiling actually costs, at kRetainLimit elements each
-  // (sizeof: ItemWrite 80, Variant::object_t 24, DoubleColumnWrite 56):
-  // item_writes_ 5.00 MiB, added_items_ 1.50 MiB, column_writes_ 3.50 MiB
-  // — 10.00 MiB per worker if a single request drives all three to the
-  // limit, so about 960 MiB across the default 96 workers. That is a
-  // synthetic worst case (every worker must have served a ~65536-element
-  // request, and anything larger gets released), but it is the number to
-  // reason with when changing the limit.
+  // What the ceiling costs, at kRetainLimit elements in every routed member
+  // (sizeof: ItemWrite 80, DoubleColumnWrite 56, Variant::object_t 24, int 4,
+  // char 1): item_writes_ 5.00 MiB, column_writes_ 3.50 MiB, added_items_
+  // 1.50 MiB, item_order_ 0.25 MiB, warning_ 0.06 MiB — 10.31 MiB per worker
+  // if one request drives them all to the limit, so about 990 MiB across the
+  // default 96 workers. Synthetic worst case: every worker must have served a
+  // ~65536-element request, and anything larger is released outright.
+  //
+  // THIS IS THE SPINE BUDGET ONLY. capacity() counts slots, and the elements
+  // own heap of their own — the strings and Variants inside ItemWrite, a block
+  // per added_items_ row, the vector<double> in DoubleColumnWrite. Real
+  // footprint runs well above these figures whenever items carry payload
+  // (measured 210 MB at N=32000 / pool=96 with only 20-byte values). The
+  // trailing reset() in node_body is what bounds payload; see its comment. Do
+  // not use 990 MiB as a capacity-planning number.
   void reset() {
     clear_or_release(item_writes_);
     clear_or_release(added_items_);
@@ -585,9 +594,11 @@ class OperatorOutput {
   static void clear_or_release(Variant::object_t& m) {
     // FlatMap is a sorted std::vector underneath, so it does hold one
     // contiguous block, but it exposes size()/clear()/reserve() and neither
-    // capacity() nor swap(). Capping on size is the available proxy: a FlatMap
-    // only grows by insertion, so a size past the limit means the block is
-    // past it too.
+    // capacity() nor swap(). So the cap goes on size, which is a one-way
+    // proxy: size past the limit does imply the block is past it, but not the
+    // reverse — reserve(200000) followed by one insert leaves size 1 and a
+    // large block, and this lets that through. Acceptable because nothing
+    // reserves this map.
     //
     // Deliberately untested, unlike the other five: with no capacity()
     // accessor the release is not observable through FlatMap's API, so no

@@ -476,9 +476,16 @@ echo >> "$REPORT"
 # only forwards the analysis Verdict section, so a warning that lives solely
 # in stderr never leaves CI.
 if (( COMPLETED != TOTAL_RUNS )); then
+  # '#' prefix so the parsers can skip these structurally. Without it the
+  # notice splits into exactly nine whitespace fields — the same width as a
+  # data row — and survives only because field 4 happens not to parse as a
+  # float. Rewording it could then have turned it into a phantom data row with
+  # runtime "WARNING:", i.e. the same silently-wrong-data-behind-a-green-job
+  # shape this script was fixed for twice already. Defend on structure, not on
+  # wording.
   {
-    echo "WARNING: only $COMPLETED of $TOTAL_RUNS planned runs produced data."
-    for s in "${SKIPPED[@]}"; do echo "  skipped: $s"; done
+    echo "# WARNING: only $COMPLETED of $TOTAL_RUNS planned runs produced data."
+    for s in "${SKIPPED[@]}"; do echo "#   skipped: $s"; done
   } | tee -a "$REPORT" >&2
 fi
 

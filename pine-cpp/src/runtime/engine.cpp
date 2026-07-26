@@ -1080,16 +1080,22 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     // added_items_ row is its own heap block, and a DoubleColumnWrite owns a
     // vector<double> — none of that payload is counted, so none of it was
     // bounded. Left to acquire-time reset alone, every idle worker holds the
-    // full payload of whatever request it last served. Measured on the success
-    // path at N=2000, an item count far below the ceiling: 806 MB retained
-    // across the default 96 workers versus 34 MB with this call.
+    // full payload of whatever request it last served.
+    //
+    // One-off measurements, recorded with their conditions because they are
+    // observations rather than gates and the absolute numbers move with the
+    // machine: on the success path at N=2000 items, ~4 KB payload per item,
+    // dag_pool_size 96, reading allocator live bytes (not RSS), retention went
+    // from ~806 MB to ~34 MB with this call. An independent probe at the same
+    // N and pool measured 756 MB vs 28 MB — same order, same direction.
     //
     // OUTSIDE the try/catch on purpose. A node that throws holds the largest
     // payload of all, because apply_output never consumed it — so resetting
     // only on the success path left precisely the worst case unbounded, and
     // unbounded by the ceiling too, since reset is what applies the ceiling.
-    // Measured on the throw path at pool=24: 352 MB at N=70000 and 702 MB at
-    // N=140000, linear in N with no upper bound. It cannot move to the end of
+    // Measured on the throw path at dag_pool_size 24, allocator live bytes:
+    // 352 MB at N=70000 and 702 MB at N=140000 — linear in N, no upper bound.
+    // It cannot move to the end of
     // the try either: the catch block reads out.warning() to attach the
     // message to the frame.
     //
