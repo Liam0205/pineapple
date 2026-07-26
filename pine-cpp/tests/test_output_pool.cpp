@@ -187,8 +187,9 @@ TEST_CASE("OperatorOutput reuse: no leakage across operators within one run") {
   // therefore the same thread_local buffer. recall fills added_items_,
   // mark fills item_writes_, inspect asserts it sees neither. This is the
   // intra-request half of the contract — distinct from the cross-request
-  // case above, and the one that would break if reset moved from acquire
-  // to release.
+  // case above, and the one that would break if the acquire-side reset were
+  // dropped in favour of the release-side one alone: the release-side reset
+  // runs only on the success path, so a throwing node would leave husks.
   register_pool_test_ops();
   inspect_state() = InspectState{};
 

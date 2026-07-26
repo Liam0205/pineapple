@@ -43,7 +43,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Dynamic resources** — Two-channel resource manager: **data-typed** (e.g. static dict / real-time feature store, snapshot-exported lock-free reads) + **handle-typed** (e.g. `redis_connection`, borrow lease + RAII teardown); background-refreshed
 - **Redis cascade-safety** — The `redis_connection` resource exposes 5 cascade params (`{dial,read,write,pool}_timeout_ms` + `pool_size`); per-command metrics `pine_redis_command_*` with 4-state status (ok / timeout / pool_timeout / error), fail-on-error silent-degradation contract
 - **White-box observability** — Operator-level traces; the `/stats` composite response includes `/stats.http` (request-level 4-state metrics) + `/stats.resources` (resource pool / probe / per-command 4-state categories); pluggable Prometheus interface
-- **Row/Column storage** — DataFrame supports both storage modes
+- **Row/Column storage** — DataFrame supports both storage modes; results are identical, only performance differs. Choose column for transform-dominated pipelines with large N and few structural changes, keep the row default for recall/filter/sort or small N. Criteria and a measurement entry point live in the "Flow-Level Configuration" section of [`doc/guide_pipeline-en.md`](doc/guide_pipeline-en.md)
 - **Tri-engine consistency** — Go/Java/C++ engines verified byte-exactly via CI cross-validation (19 sections + tri-engine differential fuzz + daily ASan/TSan sanitized fuzz)
 - **Pine-C++ benchmark runtime** — Complete third runtime with operator parity, HTTP server (hot reload / graceful shutdown), ColumnFrame/RowFrame dual physical layouts, lazy OperatorInput projection, LuaJIT integration, metrics/resource parity
 
