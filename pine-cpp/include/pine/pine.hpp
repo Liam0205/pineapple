@@ -523,10 +523,11 @@ class OperatorOutput {
     // move-assigns, so the next call discards whatever block reset() kept.
     // Retention here was pure cost, and before the ceiling it was unbounded.
     clear_or_release(item_order_);
-    common_writes_.clear();
+    clear_or_release(common_writes_);
+    clear_or_release(warning_);
+    // std::set: no single contiguous block to cap — see clear_or_release.
     removed_items_.clear();
     has_item_order_ = false;
-    warning_.clear();
     has_warning_ = false;
   }
 
@@ -538,20 +539,64 @@ class OperatorOutput {
   // request can pin — see reset()'s comment for the per-worker byte figures.
   static constexpr std::size_t kRetainLimit = 65536;
 
-  // Applied to all four capacity-bearing vectors in reset(): item_writes_,
-  // added_items_, column_writes_, item_order_. Factored out so the decision
-  // lives in one place — with the branch written out per container it was
-  // possible to gate only some of them and still see a green suite, while a
-  // recall-heavy load reproduced the full unbounded-retention regression
-  // through added_items_. std::set removed_items_ is deliberately not routed
-  // here: clearing it returns nodes to the allocator's free list rather than
-  // holding one contiguous block, so there is no single capacity to cap.
+  // THE RULE FOR reset(): every member holding a growable, request-driven
+  // buffer goes through clear_or_release. Do not read this as a list of
+  // containers to remember — read it as a question to answer for each of the
+  // nine data members below. Three review rounds each found one more member
+  // missing from an ad-hoc list (item_writes_ only; then added_items_ and
+  // column_writes_; then item_order_; then warning_), because the criterion
+  // was "which containers did we add a branch for" instead of "which members
+  // can grow with request size".
+  //
+  // Answering it for all nine: common_writes_, item_writes_, column_writes_,
+  // added_items_, item_order_ and warning_ all grow with the request and are
+  // routed here. removed_items_ (std::set) is deliberately not: clearing it
+  // hands nodes back to the allocator's free list instead of holding one
+  // contiguous block, so there is no single capacity to cap. has_item_order_
+  // and has_warning_ are bools and hold nothing.
+  //
+  // Overloaded on the container's own capacity()/clear() rather than templated
+  // on std::vector alone: restricting it to std::vector<T>& is exactly what
+  // kept std::string warning_ out of the discussion until the third round.
   template <typename T>
   static void clear_or_release(std::vector<T>& v) {
     if (v.capacity() > kRetainLimit) {
       std::vector<T>{}.swap(v);
     } else {
       v.clear();
+    }
+  }
+
+  static void clear_or_release(std::string& s) {
+    // A warning is built from operator messages that can embed request data,
+    // so its high-water mark is request-driven like the vectors'. Measured
+    // 4 MiB surviving reset() on a real thread_local buffer before this.
+    if (s.capacity() > kRetainLimit) {
+      std::string{}.swap(s);
+    } else {
+      s.clear();
+    }
+  }
+
+  static void clear_or_release(Variant::object_t& m) {
+    // FlatMap is a sorted std::vector underneath, so it does hold one
+    // contiguous block, but it exposes size()/clear()/reserve() and neither
+    // capacity() nor swap(). Capping on size is the available proxy: a FlatMap
+    // only grows by insertion, so a size past the limit means the block is
+    // past it too.
+    //
+    // Deliberately untested, unlike the other five: with no capacity()
+    // accessor the release is not observable through FlatMap's API, so no
+    // assertion can distinguish this from a plain clear(). It is here for
+    // consistency with the rule above rather than because it carries real
+    // risk — common_writes_ holds request-level fields, whose count is bounded
+    // by the pipeline config, not by item count, so it cannot be driven to
+    // 65536 by request size the way the item-indexed buffers can. If FlatMap
+    // ever grows a capacity() accessor, add the sixth SUBCASE.
+    if (m.size() > kRetainLimit) {
+      m = Variant::object_t{};
+    } else {
+      m.clear();
     }
   }
 

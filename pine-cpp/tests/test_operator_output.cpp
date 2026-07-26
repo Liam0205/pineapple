@@ -178,6 +178,28 @@ TEST_CASE("OperatorOutput::reset releases capacity above the retain limit") {
     REQUIRE(out.column_writes().size() == 1);
   }
 
+  SUBCASE("warning (set_warning) — a std::string, not a vector") {
+    // Warnings embed operator messages that can carry request data, so this
+    // grows with the request like the vectors do. It went unnoticed for three
+    // review rounds because clear_or_release only accepted std::vector<T>&,
+    // which excluded std::string from the discussion by type.
+    OperatorOutput out;
+    out.set_warning(std::string(4 * 1024 * 1024, 'x'));
+    REQUIRE(out.warning().capacity() > kLimit);
+    out.reset();
+    CHECK(out.warning().empty());
+    CHECK(out.warning().capacity() <= kLimit);
+    CHECK(out.has_warning() == false);
+    out.set_warning("small");
+    REQUIRE(out.warning() == "small");
+  }
+
+  // No SUBCASE for common_writes_: FlatMap exposes no capacity(), so its
+  // release is not observable and any assertion here would pass equally
+  // against a plain clear(). See clear_or_release(Variant::object_t&) for why
+  // that is acceptable — its size is bounded by the pipeline config rather
+  // than by request size.
+
   SUBCASE("item_order (set_item_order) — the reorder path") {
     // reorder_sort / reorder_shuffle_by_salt fill this to the item count.
     // Retaining it was never a win in the first place: set_item_order
