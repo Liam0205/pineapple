@@ -951,14 +951,26 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     // — so the null-pool synchronous fallback below is reachable only when
     // run_dag is called directly.
     //
-    // RESET ON ACQUIRE, not on release. Two reasons:
-    //  1. apply_output MOVE-EXTRACTS added_items_ / column_writes_ through
-    //     their mutable accessors, and a moved-from vector keeps its size
-    //     (every element is left an empty husk). Clearing before the next
-    //     operator's execute is what stops those husks from being replayed
-    //     as ghost items — see OperatorOutput::reset's contract.
-    //  2. A node that throws mid-execute leaves debris behind; clearing on
-    //     the acquiring side means the failure path needs no unwind handling.
+    // RESET ON BOTH SIDES. The load-bearing one is at the end of the node body
+    // (after the try/catch, see there for why) — it runs on the success and the
+    // throw path alike, so by the time any node acquires this buffer it is
+    // already empty. What the acquire-side call below buys is that the
+    // invariant "execute() sees a clean buffer" holds locally, instead of
+    // depending on every exit path in the body staying correct forever. It is a
+    // no-op clear on empty containers, so the cost is nil.
+    //
+    // Why it must not be the ONLY reset: apply_output MOVE-EXTRACTS
+    // added_items_ / column_writes_ through their mutable accessors, and a
+    // moved-from vector keeps its size (every element left an empty husk).
+    // Something has to clear those before the next operator runs or they get
+    // replayed as ghost items — see OperatorOutput::reset's contract. And a
+    // node that throws never reaches apply_output at all, so its full payload
+    // is still live; releasing that is the trailing reset's job.
+    //
+    // Note this call is currently redundant in the strict sense: mutate it away
+    // and the suite stays green, because the trailing reset already left the
+    // buffer clean. Kept deliberately — the honest reading is "defence in
+    // depth", not "guarded by a test".
     //
     // Nesting safety: propagate_and_signal may invoke node_body synchronously
     // on this same thread (the dag_pool-unavailable fallback), which would
@@ -1048,35 +1060,6 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
         trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         traces[i] = std::move(trace);
       }
-      // Release the payload now that apply_output has consumed it, instead of
-      // waiting for the next node on this worker to reset on acquire.
-      //
-      // kRetainLimit bounds each container's SPINE, which is all capacity()
-      // measures — but an ItemWrite owns a std::string and a Variant, every
-      // added_items_ element is its own heap block, and a DoubleColumnWrite
-      // owns a vector<double>. None of that payload is counted or bounded. So
-      // with reset only on acquire, an idle worker keeps the entire last
-      // request's payload until it happens to run another node: measured
-      // 806 MB retained across the default 96 workers at N=2000, an item count
-      // far below the ceiling, versus 34 MB with this line. That is ordinary
-      // traffic reaching the figure the ceiling was supposed to be the
-      // synthetic worst case for.
-      //
-      // The acquire-side reset stays. It is not redundant: it is what upholds
-      // the moved-from-husk contract when a node throws (the catch below reads
-      // out.warning(), so this line is deliberately on the success path only)
-      // and it costs nothing on an already-empty buffer.
-      //
-      // NO UNIT TEST GUARDS THIS LINE, deliberately rather than by oversight.
-      // The retention window is between one node's apply_output and the next
-      // node's acquire reset, and every in-engine observation point sits after
-      // an acquire reset — so an operator that probes the buffer reads zero
-      // whether or not this line exists. A test was written and then removed
-      // once it passed against a mutant with this line deleted; leaving it in
-      // would have implied coverage that does not exist. Confirming this
-      // requires an external RSS measurement, which is how the retention was
-      // found in the first place. Delete this line and the suite stays green.
-      out.reset();
     } catch (...) {
       if (em && em->op_error_total) {
         em->op_error_total->with({op.name})->inc();
@@ -1089,6 +1072,39 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
       }
       fail(std::current_exception());
     }
+    // Release the buffer as soon as this node is done with it, rather than
+    // leaving it for whenever the next node on this worker acquires.
+    //
+    // Why it matters: kRetainLimit bounds each container's SPINE, which is all
+    // capacity() measures. An ItemWrite owns a std::string and a Variant, every
+    // added_items_ row is its own heap block, and a DoubleColumnWrite owns a
+    // vector<double> — none of that payload is counted, so none of it was
+    // bounded. Left to acquire-time reset alone, every idle worker holds the
+    // full payload of whatever request it last served. Measured on the success
+    // path at N=2000, an item count far below the ceiling: 806 MB retained
+    // across the default 96 workers versus 34 MB with this call.
+    //
+    // OUTSIDE the try/catch on purpose. A node that throws holds the largest
+    // payload of all, because apply_output never consumed it — so resetting
+    // only on the success path left precisely the worst case unbounded, and
+    // unbounded by the ceiling too, since reset is what applies the ceiling.
+    // Measured on the throw path at pool=24: 352 MB at N=70000 and 702 MB at
+    // N=140000, linear in N with no upper bound. It cannot move to the end of
+    // the try either: the catch block reads out.warning() to attach the
+    // message to the frame.
+    //
+    // NOT GUARDED BY A UNIT TEST, deliberately rather than by oversight. The
+    // retention window lies between this call and the next node's acquire
+    // reset, and every in-engine observation point sits after an acquire reset,
+    // so an operator probing the buffer reads zero either way. Two such tests
+    // were written and removed once each proved green against a mutant with
+    // this line deleted; leaving them would have implied coverage that does not
+    // exist. Confirming a change here needs an allocator live-bytes probe — RSS
+    // is not sufficient, since the allocator caches the freed blocks and the
+    // two variants read within 0.1% of each other. What the suite does guard is
+    // the acquire-side reset, via the failed-request case in
+    // test_output_pool.cpp.
+    out.reset();
     // Decrement active ops BEFORE signaling completion — after
     // propagate_and_signal, run_dag may return and destroy locals.
     {

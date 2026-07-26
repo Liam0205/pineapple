@@ -80,6 +80,22 @@ struct ItemWritingOp : public Operator {
   }
 };
 
+// ThrowingRecallOp adds items then throws. apply_output never runs, so what it
+// added stays in the worker's buffer — the exception path the release-side
+// reset (which is inside the try block) cannot cover.
+struct ThrowingRecallOp : public Operator {
+  void init(const OperatorConfig&) override {
+  }
+  void execute(const OperatorInput&, OperatorOutput& out) override {
+    for (int i = 0; i < 5; ++i) {
+      Variant::object_t row;
+      row["id"] = Variant(std::string("leak") + std::to_string(i));
+      out.add_item(std::move(row));
+    }
+    throw std::runtime_error("deliberate failure after adding items");
+  }
+};
+
 void register_pool_test_ops() {
   static bool registered = false;
   if (registered) {
@@ -94,6 +110,9 @@ void register_pool_test_ops() {
   register_operator_typed<InspectOutputOp>(inspect_schema);
   register_operator_typed<AddingRecallOp>(recall_schema);
   register_operator_typed<ItemWritingOp>(mark_schema);
+  static const OperatorSchema throw_schema{
+      "pool_test_throwing_recall", OpType::Recall, "adds items then throws", {}};
+  register_operator_typed<ThrowingRecallOp>(throw_schema);
   registered = true;
 }
 
@@ -159,8 +178,16 @@ TEST_CASE("OperatorOutput reuse: no state leakage across repeated runs") {
   // (nproc * 4) 32 requests spread across 32 distinct threads and every run
   // gets a pristine buffer — the test would pass no matter what reset() did.
   // Pinning the pool to a single worker makes same-thread reuse certain
-  // instead of probabilistic. Verified: with the acquire-side reset() removed
-  // this fails 20/20 at pool size 1, and passes 20/20 at the default size.
+  // instead of probabilistic.
+  //
+  // Historical note, because the obvious mutation no longer bites: when this
+  // was written, deleting the acquire-side reset() failed this case 20/20 at
+  // pool size 1 and passed 20/20 at the default size. A release-side reset()
+  // was added afterwards, so the buffer is already empty when the next request
+  // acquires it, and deleting the acquire-side call alone now leaves this
+  // green. What guards the acquire-side reset today is the failed-request case
+  // further down, where a throwing node skips the release. Pool size 1 stays
+  // regardless: it costs nothing and keeps the case deterministic.
   EngineOptions opts;
   opts.dag_pool_size = 1;
   Engine engine(load_config_from_json(kInspectOnlyConfig), opts);
@@ -213,4 +240,80 @@ TEST_CASE("OperatorOutput reuse: no leakage across operators within one run") {
   CHECK(st.saw_common_fields.empty());
   CHECK(st.saw_added == 0);
   CHECK(st.saw_item_writes == 0);
+}
+
+namespace {
+
+// One pipeline, two entry stages: a failing branch and a good branch, both in
+// the same engine so they share the same single worker and therefore the same
+// thread_local buffer. Selected per request via `skip`.
+constexpr const char* kThrowThenGoodConfig = R"({
+  "_PINEAPPLE_VERSION": "0.10.16",
+  "pipeline_config": {
+    "operators": {
+      "bad_recall": {
+        "type_name": "pool_test_throwing_recall",
+        "recall": true,
+        "skip": ["_run_bad"],
+        "$metadata": {"common_input": ["_run_bad"], "item_output": ["id"]}
+      },
+      "good_recall": {
+        "type_name": "pool_test_recall",
+        "recall": true,
+        "skip": ["_run_good"],
+        "$metadata": {"common_input": ["_run_good"], "item_output": ["id"]}
+      }
+    },
+    "pipeline_map": {"stage": {"pipeline": ["bad_recall", "good_recall"]}}
+  },
+  "pipeline_group": {"main": {"pipeline": ["stage"]}},
+  "flow_contract": {"common_input": ["_run_bad", "_run_good"], "item_output": ["id"]}
+})";
+
+}  // namespace
+
+TEST_CASE("OperatorOutput reuse: a failed request's items never reach a later response") {
+  // A recall that adds items and then throws never reaches apply_output, so
+  // its rows are still sitting in the worker's thread_local buffer. Something
+  // has to clear them before the next request lands on that worker, or they
+  // surface as ghost items in an unrelated successful response — which is
+  // exactly what this asserts does not happen.
+  //
+  // Both resets can satisfy it, so this is a behaviour test rather than a gate
+  // on one specific line: with the trailing reset running after the try/catch,
+  // deleting the acquire-side call alone leaves this green. Remove both and it
+  // fails with 8 items instead of 3, five of them named "leak*".
+  //
+  // Both requests must run on the SAME engine: a second Engine gets its own
+  // dag_pool and therefore its own worker threads, so the buffer would not be
+  // shared and the leak would be invisible. pool_size = 1 then pins both
+  // requests to one worker.
+  register_pool_test_ops();
+
+  EngineOptions opts;
+  opts.dag_pool_size = 1;
+  Engine engine(load_config_from_json(kThrowThenGoodConfig), opts);
+
+  Request bad;
+  bad.common["_run_bad"] = Variant(false);   // false => bad_recall runs
+  bad.common["_run_good"] = Variant(true);   // true  => good_recall skipped
+  bool threw = false;
+  try {
+    (void)engine.execute(bad);
+  } catch (...) {
+    threw = true;
+  }
+  REQUIRE(threw);
+
+  Request good;
+  good.common["_run_bad"] = Variant(true);   // true  => bad_recall skipped
+  good.common["_run_good"] = Variant(false); // false => good_recall runs
+  auto resp = engine.execute(good);
+
+  // AddingRecallOp emits exactly 3 items; anything more came from the failure.
+  CHECK(resp.items.size() == 3);
+  for (const auto& item : resp.items) {
+    REQUIRE(item.count("id") == 1);
+    CHECK(item.at("id").as_string().rfind("leak", 0) != 0);
+  }
 }
