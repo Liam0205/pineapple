@@ -218,9 +218,12 @@ TEST_CASE("OperatorOutput reuse: no state leakage across repeated runs") {
   // pool size 1 and passed 20/20 at the default size. A release-side reset()
   // was added afterwards, so the buffer is already empty when the next request
   // acquires it, and deleting the acquire-side call alone now leaves this
-  // green. What guards the acquire-side reset today is the failed-request case
-  // further down, where a throwing node skips the release. Pool size 1 stays
-  // regardless: it costs nothing and keeps the case deterministic.
+  // green. Nothing in this file guards the acquire-side reset now: the
+  // release-side call sits outside the try/catch, so it covers the throw path
+  // too and no case goes red when the acquire-side line alone is deleted
+  // (verified: 245/245 green, and the failed-request case below passes 20/20).
+  // It is kept as defence in depth, which engine.cpp states at the call site.
+  // Pool size 1 stays regardless: it costs nothing and keeps this deterministic.
   EngineOptions opts;
   opts.dag_pool_size = 1;
   Engine engine(load_config_from_json(kInspectOnlyConfig), opts);
