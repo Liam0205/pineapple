@@ -568,9 +568,13 @@ class OperatorOutput {
   }
 
   static void clear_or_release(std::string& s) {
-    // A warning is built from operator messages that can embed request data,
-    // so its high-water mark is request-driven like the vectors'. Measured
-    // 4 MiB surviving reset() on a real thread_local buffer before this.
+    // Routed here because the rule above covers every member that can grow,
+    // not because a built-in operator gets anywhere near the limit today: all
+    // three set_warning call sites are key- or error-message sized, and
+    // transform_remote_pineapple truncates at kErrorBodyMax = 1024. The 4 MiB
+    // figure in the test is constructed by calling set_warning directly, not
+    // observed from a real pipeline. A custom operator embedding request data
+    // in a warning is what this guards against.
     if (s.capacity() > kRetainLimit) {
       std::string{}.swap(s);
     } else {
@@ -589,10 +593,12 @@ class OperatorOutput {
     // accessor the release is not observable through FlatMap's API, so no
     // assertion can distinguish this from a plain clear(). It is here for
     // consistency with the rule above rather than because it carries real
-    // risk — common_writes_ holds request-level fields, whose count is bounded
-    // by the pipeline config, not by item count, so it cannot be driven to
-    // 65536 by request size the way the item-indexed buffers can. If FlatMap
-    // ever grows a capacity() accessor, add the sixth SUBCASE.
+    // risk — request size cannot drive it. Both routes into it are
+    // config-bounded, though by different config: operators writing declared
+    // metadata.common_output fields, and recall_static's set_common, whose key
+    // set comes from its own params. Neither scales with item count the way
+    // the item-indexed buffers do. If FlatMap ever grows a capacity()
+    // accessor, add the sixth SUBCASE.
     if (m.size() > kRetainLimit) {
       m = Variant::object_t{};
     } else {

@@ -1048,6 +1048,35 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
         trace.duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         traces[i] = std::move(trace);
       }
+      // Release the payload now that apply_output has consumed it, instead of
+      // waiting for the next node on this worker to reset on acquire.
+      //
+      // kRetainLimit bounds each container's SPINE, which is all capacity()
+      // measures — but an ItemWrite owns a std::string and a Variant, every
+      // added_items_ element is its own heap block, and a DoubleColumnWrite
+      // owns a vector<double>. None of that payload is counted or bounded. So
+      // with reset only on acquire, an idle worker keeps the entire last
+      // request's payload until it happens to run another node: measured
+      // 806 MB retained across the default 96 workers at N=2000, an item count
+      // far below the ceiling, versus 34 MB with this line. That is ordinary
+      // traffic reaching the figure the ceiling was supposed to be the
+      // synthetic worst case for.
+      //
+      // The acquire-side reset stays. It is not redundant: it is what upholds
+      // the moved-from-husk contract when a node throws (the catch below reads
+      // out.warning(), so this line is deliberately on the success path only)
+      // and it costs nothing on an already-empty buffer.
+      //
+      // NO UNIT TEST GUARDS THIS LINE, deliberately rather than by oversight.
+      // The retention window is between one node's apply_output and the next
+      // node's acquire reset, and every in-engine observation point sits after
+      // an acquire reset — so an operator that probes the buffer reads zero
+      // whether or not this line exists. A test was written and then removed
+      // once it passed against a mutant with this line deleted; leaving it in
+      // would have implied coverage that does not exist. Confirming this
+      // requires an external RSS measurement, which is how the retention was
+      // found in the first place. Delete this line and the suite stays green.
+      out.reset();
     } catch (...) {
       if (em && em->op_error_total) {
         em->op_error_total->with({op.name})->inc();

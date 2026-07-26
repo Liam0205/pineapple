@@ -9,11 +9,18 @@ def parse_report(text: str) -> dict[tuple, dict[str, float]]:
 
     Handles both the current 9-column layout emitted by
     bench-cross-runtime.sh and the legacy 11-column layout, normalizing the
-    legacy (nodes, par, op) triple into a single synthetic fixture name so a
-    report from either era compares against the other. This mirrors
-    bench-analyze.py's parse_report; the two must stay in sync, since a
-    format the analyzer accepts but the comparer silently drops looks
-    exactly like "no regressions" in CI.
+    legacy (nodes, par, op) triple into a single synthetic fixture name. This
+    mirrors bench-analyze.py's parse_report; the two must stay in sync, since a
+    format the analyzer accepts but the comparer silently drops looks exactly
+    like "no regressions" in CI.
+
+    The legacy branch is kept for symmetry with bench-analyze.py and for
+    hand-inspecting archived reports, not because a comparison will hit it: the
+    nightly workflow diffs against the previous run's artifact, artifacts are
+    retained 30 days, and nothing has emitted 11 columns since 2026-05-28. Note
+    also that the synthetic name means legacy and current keys can never
+    intersect, so a cross-era comparison reports no comparable data rather than
+    a bogus delta.
     """
     data: dict[tuple, dict[str, float]] = {}
 

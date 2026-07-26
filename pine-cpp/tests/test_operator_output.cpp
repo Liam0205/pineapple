@@ -179,10 +179,12 @@ TEST_CASE("OperatorOutput::reset releases capacity above the retain limit") {
   }
 
   SUBCASE("warning (set_warning) — a std::string, not a vector") {
-    // Warnings embed operator messages that can carry request data, so this
-    // grows with the request like the vectors do. It went unnoticed for three
-    // review rounds because clear_or_release only accepted std::vector<T>&,
-    // which excluded std::string from the discussion by type.
+    // 4 MiB here is constructed, not representative: every built-in operator
+    // writes a key- or error-sized warning, and transform_remote_pineapple
+    // truncates at 1024 bytes. The branch exists because the rule covers every
+    // growable member, and a custom operator could embed request data. It went
+    // unnoticed for three review rounds because clear_or_release accepted only
+    // std::vector<T>&, which excluded std::string from the discussion by type.
     OperatorOutput out;
     out.set_warning(std::string(4 * 1024 * 1024, 'x'));
     REQUIRE(out.warning().capacity() > kLimit);

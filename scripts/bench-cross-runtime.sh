@@ -81,6 +81,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Reject unknown --modes values up front. The runtimes silently fall back on an
+# unrecognized storage_mode, and they do not even agree on the direction
+# (pine-cpp treats non-"row" as column, pine-go/pine-java treat non-"column" as
+# row — issue #179), so a typo like --modes "colunm" would produce a full report
+# labelled with a mode nothing actually ran. That is the same
+# mislabelled-numbers failure this script was just fixed for.
+for _m in "${STORAGE_MODES[@]}"; do
+  if [[ "$_m" != "row" && "$_m" != "column" ]]; then
+    echo "Error: --modes accepts only 'row' and 'column' (got '$_m')" >&2
+    exit 1
+  fi
+done
+unset _m
+
 # When RESOURCE_LIMIT=1 (default), each server is launched inside a transient
 # user-scope cgroup with `MemoryMax=$MEM_MAX` (no swap) and `taskset -c $CPU_LIST`,
 # so the runtime under test sees a uniform constrained env and the hey client

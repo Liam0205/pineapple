@@ -6,9 +6,9 @@ stddev, p50, p90, p99) and the legacy 11-column format. Outputs plain text suita
 for CI logs and Bark notifications.
 
 Usage:
-  python3 scripts/bench-analyze.py /tmp/bench_cross_runtime/report.txt
-  python3 scripts/bench-analyze.py /tmp/bench_cross_runtime/report.txt --json
-  python3 scripts/bench-analyze.py /tmp/bench_cross_runtime/report.txt -o analysis.txt
+  python3 scripts/bench-analyze.py bench-results/report.txt
+  python3 scripts/bench-analyze.py bench-results/report.txt --json
+  python3 scripts/bench-analyze.py bench-results/report.txt -o analysis.txt
 """
 import argparse
 import json as json_mod
