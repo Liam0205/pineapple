@@ -37,7 +37,7 @@
 
 `memory/` 下有 `reflections/` 与 `decisions/` 两个子目录（各自分节列在下方），以及下列直接位于顶层的文件：
 
-- `llmdoc/memory/doc-gaps.md` — 跨任务累积的文档与守门缺口跟踪（已确认存在、不属任何单次任务、需单独排期决策的条目；与 reflections「单次任务教训」和 decisions「已定下的取舍」分工）：clang-format 无 CI job（`cpp-lint` 只做 `-Werror` + 卫生检查 + 字面量拼接排查，格式仅由可绕过的本地 pre-commit hook 守，待决策是否加 fmt-check job 并锁版本）、`projectMap` 空列表投影语义在 fixture 编写视角无落点（同一陷阱已三次现身，待决策是否给 `reference/` 加独立契约条目）、issue #179 `storage_mode` 非法值兜底跨运行时分歧（已知分歧，未修，待决策修还是归档为 accepted difference）。
+- `llmdoc/memory/doc-gaps.md` — 跨任务累积的文档与质量检查缺口跟踪（已确认存在、不属任何单次任务、需单独排期决策的条目；与 reflections「单次任务教训」和 decisions「已定下的取舍」分工）：clang-format 无 CI job（`cpp-lint` 只做 `-Werror` + 卫生检查 + 字面量拼接排查，格式仅由可绕过的本地 pre-commit hook 守，待决策是否加 fmt-check job 并锁版本）、`projectMap` 空列表投影语义在 fixture 编写视角无落点（同一陷阱已三次现身，待决策是否给 `reference/` 加独立契约条目）、issue #179 `storage_mode` 非法值兜底跨运行时分歧（已知分歧，未修，待决策修还是归档为 accepted difference）。
 
 ## memory/reflections/
 
