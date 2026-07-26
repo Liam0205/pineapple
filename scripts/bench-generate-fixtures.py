@@ -333,10 +333,12 @@ def transform_heavy_config(num_items: int) -> dict:
             "leaving the column batch-access path with no nightly guardian. Per "
             "llmdoc/guides/benchmark-hygiene.md, realistic_for_you_calibrated* "
             "remains the sole referee for production performance decisions: deltas "
-            "measured here must not be quoted as optimization gains. Fresh builds "
-            "carry +-5-7% binary layout noise, so this guards against the column "
-            "path collapsing wholesale, not against fine-grained regressions — "
-            "those belong to BenchmarkStorageAB_TransformHeavy_*."
+            "measured here must not be quoted as optimization gains. Binary layout "
+            "noise between fresh builds means this guards against the column path "
+            "collapsing wholesale, not against fine-grained regressions — those "
+            "belong to BenchmarkStorageAB_TransformHeavy_*. The noise figure and "
+            "thresholds stay in benchmark-hygiene.md, which has a maintainer; this "
+            "file is generated, so nobody would come back to update them here."
         ),
         # 护栏的核心：把这个 fixture 钉在列存上。想在同一份报表里读出行列比值，
         # 跑 scripts/bench-cross-runtime.sh --modes "row,column"。
