@@ -162,10 +162,23 @@ class GoJsonNumberParityTest {
         // rather than an absolute microsecond figure, so this does not become a
         // machine-speed tripwire. The regressed version was ~90x; correct is
         // well under 40x, so 60x separates them with room for noise.
+        // The sample must span the intervals that render differently, not just
+        // one of them. An earlier version used nextDouble()*1000, which lands
+        // 99.9% of its values at |d| >= 1 — the interval where the fast path
+        // already fired — so it reported 20x while [0.001, 1) was silently
+        // running at 144x. Mixing the shapes is what makes this assertion mean
+        // what its name says.
         java.util.Random r = new java.util.Random(180);
-        double[] vals = new double[50000];
+        double[] vals = new double[60000];
         for (int i = 0; i < vals.length; i++) {
-            vals[i] = r.nextDouble() * 1000.0;
+            int shape = i % 3;
+            if (shape == 0) {
+                vals[i] = r.nextDouble() * 1000.0;          // |d| >= 1 mostly
+            } else if (shape == 1) {
+                vals[i] = 0.001 + r.nextDouble() * 0.999;   // [0.001, 1)
+            } else {
+                vals[i] = Math.floor(r.nextDouble() * 10000);  // integer-valued
+            }
         }
         for (int i = 0; i < 10000; i++) {
             GoFormat.formatJsonNumber(vals[i]);

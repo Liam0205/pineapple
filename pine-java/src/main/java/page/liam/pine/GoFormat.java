@@ -69,27 +69,6 @@ public final class GoFormat {
     }
 
     /**
-     * Replicates Go's encoding/json number output for a float64, byte for byte.
-     *
-     * <p>Go's rule (encoding/json/encode.go floatEncoder): render with
-     * strconv.FormatFloat(d, fmt, -1, 64), choosing 'e' when the magnitude is
-     * below 1e-6 or at/above 1e21 and 'f' otherwise. Precision -1 means the
-     * fewest digits that round-trip. Double.toString is that for normal
-     * doubles but NOT for subnormals, so the digits come from
-     * {@link #shortestRoundTrip} and only their placement differs here.
-     *
-     * <p>This is deliberately separate from {@link #formatFloatF} (always
-     * decimal, used for Lua/field formatting) and from the %g emulation. The
-     * three have different thresholds and are not interchangeable — conflating
-     * the JSON path with the others is how issue #180 arose.
-     *
-     * <p>One quirk is load-bearing and was verified against encoding/json
-     * rather than inferred: strconv pads exponents to two digits ("1e-07"),
-     * and json then strips a single leading zero from NEGATIVE exponents only.
-     * So 1e-7 prints as "1e-7", while 1e+21 keeps "+21" and 1e-100 keeps all
-     * three digits.
-     */
-    /**
      * Shortest decimal string that round-trips to {@code d}, which is what Go's
      * precision -1 means.
      *
@@ -166,24 +145,56 @@ public final class GoFormat {
                 && repr.charAt(mantissaEnd - 2) == '.') {
             mantissaEnd -= 2;
         }
+        // Leading zeros are placeholders, not significant digits: "0.001234"
+        // has 4, and "0.5" has 1. Excluding them does not change the RESULT —
+        // shortestRoundTrip returns the shortest round-tripping candidate
+        // either way — but it decides whether the fast path fires at all, and
+        // getting that wrong is expensive rather than merely untidy.
+        //
+        // Every double below 1.0 renders with at least the "0." prefix, so
+        // counting those zeros inflated the count by one or more, the
+        // one-fewer-digit probe in shortestRoundTrip then succeeded, and the
+        // whole interval fell through to the search loop: measured 8065 ns per
+        // value over [0.001, 1) against 1104 over [1, 1000). That interval is
+        // the natural range of scores and probabilities, so it is hot on the
+        // /execute response path.
         int count = 0;
+        boolean seenNonZero = false;
         for (int i = 0; i < mantissaEnd; i++) {
             char c = repr.charAt(i);
-            if (c >= '0' && c <= '9') {
-                count++;
+            if (c < '0' || c > '9') {
+                continue;
             }
+            if (c == '0' && !seenNonZero) {
+                continue;
+            }
+            seenNonZero = true;
+            count++;
         }
-        // Leading placeholder zeros ("0.001234" has 4 significant digits, not 7)
-        // are deliberately NOT excluded. An over-count only widens the search
-        // range in shortestRoundTrip, which still returns the shortest
-        // round-tripping candidate, so the result is identical either way —
-        // verified by flipping this branch and re-running the 1e6-subnormal and
-        // 200k-random sweeps: zero output differences. Skipping them was dead
-        // code that no test could pin, so it is gone rather than guarded by an
-        // assertion that would pass regardless.
         return Math.max(count, 1);
     }
 
+    /**
+     * Replicates Go's encoding/json number output for a float64, byte for byte.
+     *
+     * <p>Go's rule (encoding/json/encode.go floatEncoder): render with
+     * strconv.FormatFloat(d, fmt, -1, 64), choosing 'e' when the magnitude is
+     * below 1e-6 or at/above 1e21 and 'f' otherwise. Precision -1 means the
+     * fewest digits that round-trip. Double.toString is that for normal
+     * doubles but NOT for subnormals, so the digits come from
+     * {@link #shortestRoundTrip} and only their placement differs here.
+     *
+     * <p>This is deliberately separate from {@link #formatFloatF} (always
+     * decimal, used for Lua/field formatting) and from the %g emulation. The
+     * three have different thresholds and are not interchangeable — conflating
+     * the JSON path with the others is how issue #180 arose.
+     *
+     * <p>One quirk is load-bearing and was verified against encoding/json
+     * rather than inferred: strconv pads exponents to two digits ("1e-07"),
+     * and json then strips a single leading zero from NEGATIVE exponents only.
+     * So 1e-7 prints as "1e-7", while 1e+21 keeps "+21" and 1e-100 keeps all
+     * three digits.
+     */
     public static String formatJsonNumber(double d) {
         if (Double.isNaN(d) || Double.isInfinite(d)) {
             // Go's encoding/json refuses these outright (UnsupportedValueError),

@@ -493,20 +493,20 @@ std::string go_json_to_scientific(const std::string& shortest) {
     out.push_back('.');
     out.append(p.digits, 1, std::string::npos);
   }
-  int e = p.exp10 - 1;  // 0.<digits> * 10^exp10 == <d0>.<rest> * 10^(exp10-1)
+  // 0.<digits> * 10^exp10 == <d0>.<rest> * 10^(exp10-1)
+  const int e = p.exp10 - 1;
+  const bool negative_exponent = e < 0;
   out.push_back('e');
-  if (e < 0) {
-    out.push_back('-');
-    e = -e;
-  } else {
-    out.push_back('+');
-  }
-  std::string es = std::to_string(e);
-  if (es.size() < 2) {
-    es.insert(es.begin(), '0');  // strconv pads to at least two digits
-  }
-  if (p.exp10 - 1 < 0 && es.size() == 2 && es[0] == '0') {
-    es.erase(es.begin());  // json trims that pad back off for negatives only
+  out.push_back(negative_exponent ? '-' : '+');
+
+  std::string es = std::to_string(negative_exponent ? -e : e);
+  // strconv pads the exponent to at least two digits ("1e-07"), and
+  // encoding/json then strips one leading zero back off — but only for negative
+  // exponents. So "1e-7" is trimmed while "1e+21" keeps "+21" and three-digit
+  // exponents are untouched either way. Verified against encoding/json rather
+  // than inferred; the asymmetry is easy to get wrong in both directions.
+  if (es.size() < 2 && !negative_exponent) {
+    es.insert(es.begin(), '0');
   }
   out += es;
   return out;
