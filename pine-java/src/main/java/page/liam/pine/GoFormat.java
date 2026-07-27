@@ -132,7 +132,10 @@ public final class GoFormat {
      * <p>Float.toString supplies the digits, but is not shortest for subnormals
      * — the same defect the double path has with Double.toString. It renders
      * Float.MIN_VALUE as "1.4E-45" when "1E-45" round-trips, and Go emits the
-     * latter; 11 low subnormals diverged that way. So the digits go through
+     * latter. Exhaustively over the float32 subnormals (bits 1..0x7FFFFF), nine
+     * bit patterns render with more digits than needed — 1, 2, 3, 4, 6, 7, 21,
+     * 29 and 71 — counted by output bytes changing, the same convention the
+     * double figure above uses. So the digits go through
      * shortestRoundTrip(float) first, which shortens against float precision.
      * Placement and thresholds are then identical to the double case, which is
      * why this delegates rather than duplicating them.
@@ -197,7 +200,10 @@ public final class GoFormat {
         // different last digit for some values, because MathContext rounds
         // HALF_UP on the true expansion while Go's shortest algorithm reports
         // the digit nearest the double: 2209012388886329.2 in Go against
-        // ...329.3 that way, over 50 such divergences in a 200k random sweep.
+        // ...329.3 that way. The count depends entirely on how you sample:
+        // 11-13 over 200k uniform random bit patterns, and far more when drawing
+        // by magnitude. The mechanism does not depend on the draw; see
+        // llmdoc/reference/number-formatting-parity.md.
         // Double.toString's digits are already the correct ones; the only thing
         // wrong with them is that there can be too many.
         java.math.BigDecimal exact = new java.math.BigDecimal(repr);

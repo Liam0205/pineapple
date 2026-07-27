@@ -272,7 +272,11 @@ class GoJsonNumberParityTest {
         String json = MAPPER.writeValueAsString(new FloatHolder());
         org.junit.jupiter.api.Assertions.assertTrue(
                 json.contains("\"boxed\":100000000000000000000"), json);
-        org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"primitive\":0.1"), json);
+        // 1e-7f, not 0.1f: Jackson's default writeNumber(float) also emits "0.1",
+        // so that value cannot tell the registered path from the default one and
+        // the assertion had no teeth. Go renders float32 1e-7 as "1e-7" while
+        // Jackson gives "1.0E-7".
+        org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"primitive\":1e-7"), json);
         org.junit.jupiter.api.Assertions.assertTrue(
                 json.contains("\"array\":[100000000000000000000,1e-7]"), json);
     }
@@ -284,7 +288,7 @@ class GoJsonNumberParityTest {
         }
 
         public float getPrimitive() {
-            return 0.1f;
+            return 1e-7f;
         }
 
         public float[] getArray() {
