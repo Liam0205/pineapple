@@ -56,3 +56,36 @@ strconv 'e': 1e-100 -> json: 1e-100    三位数，不动
 - 格式化入口划分与消费链：`llmdoc/architecture/dag-engine.md`「跨运行时格式兼容（GoFormat）」节
 - 哪条校验通道能钉住字节级数字格式：`llmdoc/guides/ci-quality-baseline.md`「校验通道能钉住的属性」节
 - 完整过程记录：`llmdoc/memory/reflections/json-number-format-parity-180.md`
+
+## 非有限值（NaN / ±Inf）：刻意不对等，记为 accepted difference
+
+Go 的 `encoding/json` 对非有限 float64 直接报 `UnsupportedValueError`，**根本不产出字节**。
+所以这里没有"与 Go 一致"这个选项，三运行时各自的取舍如下：
+
+| 运行时 | 输出 | 是否合法 JSON |
+|---|---|---|
+| pine-go | 拒绝序列化（error） | — |
+| pine-cpp | `inf` / `-inf` / `nan`（裸 token） | 否 |
+| pine-java | `"Infinity"` / `"-Infinity"` / `"NaN"`（带引号字符串） | 是 |
+
+**为什么不统一**：正常路径上三者都不会走到这里——写入侧有 NaN/Inf 校验
+（pine-cpp 在 `engine.cpp` 的 `validate_output`、pine-go 在 `row_frame.go`）。
+唯一能绕过校验的入口是**请求里直接带非有限数值**，而这条路上 pine-go 与
+pine-cpp 都在解析阶段就拒绝整个请求（C++ 的 `from_chars` 返回
+`result_out_of_range`），只有 Jackson 会把 `1e400` 静默 coerce 成 `Infinity`。
+也就是说分歧的成因在**请求解析层**，不在数字格式化层，修格式化不能消除它。
+
+**pine-java 选带引号字符串**的理由是：那条路上已经不可能与 Go 字节对等
+（Go 会拒绝请求），剩下唯一可争取的属性是"响应仍是可解析的 JSON"。曾经有一版让
+序列化器无条件走 `formatJsonNumber` 的输出，结果写出裸 `+Inf`，把整份响应变成
+不可解析——比不对等更糟。`GoFormat.formatJsonNumber` 现在对非有限输入直接抛
+`IllegalArgumentException`，逼调用方自己决定，而不是编造一个"看起来像 Go"的表示。
+
+**pine-cpp 保留 `inf` / `nan`** 是为了不在修 #180 时顺带改动既有行为——它与
+`ab2dfd5f` 之前逐字节一致。修复只解决了一个真实缺陷：`to_chars` 对非有限输入
+**返回成功**并写出 `inf`，导致这些字母流进 decompose 逻辑被当成尾数/指数数字，
+输出 `i.nfe+02`（既不合法也不是原来的 `inf`）。
+
+**若要真正统一**，得先解决请求解析层的分歧（让 pine-java 也拒绝非有限请求），
+那是独立议题，不在 #180 范围内。潜在暴露面：`metrics_collector.cpp` 的 `/stats`
+路径理论上可以序列化非有限指标值，未实测。
