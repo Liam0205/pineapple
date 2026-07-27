@@ -246,6 +246,53 @@ class GoJsonNumberParityTest {
     }
 
     @Test
+    void float32UsesThirtyTwoBitShortestRoundTrip() throws Exception {
+        // Go formats float32 with bitSize=32, so the digits are shortest for
+        // FLOAT, not for double. Widening first surfaces the binary noise the
+        // narrower type was hiding: (double) 0.1f is 0.10000000149011612 and
+        // 1e20f widens to 100000002004087730000, where Go emits 0.1 and
+        // 100000000000000000000.
+        assertEquals("0.1", GoFormat.formatJsonNumber(0.1f));
+        assertEquals("100000000000000000000", GoFormat.formatJsonNumber(1e20f));
+        assertEquals("1e-7", GoFormat.formatJsonNumber(1e-7f));
+        assertEquals("3.4e+38", GoFormat.formatJsonNumber(3.4e38f));
+        assertEquals("-0", GoFormat.formatJsonNumber(-0.0f));
+        // Float.toString is not shortest for subnormals either: it renders
+        // MIN_VALUE as "1.4E-45" where "1E-45" round-trips through float.
+        assertEquals("1e-45", GoFormat.formatJsonNumber(Float.MIN_VALUE));
+        assertEquals("3e-45", GoFormat.formatJsonNumber(Float.intBitsToFloat(2)));
+        // The 1e-6 threshold is applied to the SHORTENED decimal, not the
+        // widened double: this value widens to 9.999999974752427e-07 (below the
+        // threshold) but shortens to 1e-06 (not below), and Go prints plain.
+        assertEquals("0.000001", GoFormat.formatJsonNumber(Float.intBitsToFloat(897988541)));
+    }
+
+    @Test
+    void floatShapesAllUseTheGoFormatter() throws Exception {
+        String json = MAPPER.writeValueAsString(new FloatHolder());
+        org.junit.jupiter.api.Assertions.assertTrue(
+                json.contains("\"boxed\":100000000000000000000"), json);
+        org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"primitive\":0.1"), json);
+        org.junit.jupiter.api.Assertions.assertTrue(
+                json.contains("\"array\":[100000000000000000000,1e-7]"), json);
+    }
+
+    /** float counterpart of PrimitiveHolder. */
+    public static final class FloatHolder {
+        public Float getBoxed() {
+            return 1e20f;
+        }
+
+        public float getPrimitive() {
+            return 0.1f;
+        }
+
+        public float[] getArray() {
+            return new float[] {1e20f, 1e-7f};
+        }
+    }
+
+    @Test
     void formatJsonNumberMatchesTheSerializer() throws Exception {
         // The serializer must not carry its own second copy of the rule.
         double[] vals = {
