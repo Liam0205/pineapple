@@ -221,6 +221,9 @@ TEST_CASE("dump_json: numbers match Go encoding/json byte for byte (#180)") {
     CHECK(emit(inf) == "inf");
     CHECK(emit(-inf) == "-inf");
     CHECK(emit(std::numeric_limits<double>::quiet_NaN()) == "nan");
+    // The isnan guard's only observable effect is normalizing the sign: without
+    // it, -NaN reaches to_chars and comes back as "-nan".
+    CHECK(emit(-std::numeric_limits<double>::quiet_NaN()) == "nan");
   }
 
   SUBCASE("subnormals render shortest, matching Go") {

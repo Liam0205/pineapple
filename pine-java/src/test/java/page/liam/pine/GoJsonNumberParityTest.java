@@ -188,13 +188,69 @@ class GoJsonNumberParityTest {
     }
 
     @Test
-    void leadingZerosAreNotCountedAsSignificantDigits() throws Exception {
-        // 0.001234 has 4 significant digits, not 7. Double.toString emits as
-        // many placeholder zeros as the exponent needs before switching to
-        // scientific notation, so this is not a single-zero case.
+    void integerValuedDoublesTakeTheFastPath() throws Exception {
+        // Double.toString writes "1.0" for 1.0, and counting that trailing zero
+        // as significant made the one-fewer-digit probe succeed, sending every
+        // integer-valued double into the search loop. Values must be unchanged;
+        // the cost is covered by normalDoublesDoNotPayForTheSubnormalSearch.
+        assertEquals("1", emit(1.0));
+        assertEquals("42", emit(42.0));
+        assertEquals("100", emit(100.0));
+        assertEquals("100000000000000000000", emit(1e20));
+        assertEquals("-42", emit(-42.0));
+    }
+
+    @Test
+    void integerValuedLoadIsNotSlowerThanFractional() throws Exception {
+        // The fast path must actually cover integer-valued doubles. Before the
+        // trailing-".0" fix they were ~60% SLOWER than 17-digit fractional
+        // values; correct behaviour makes them faster, since they need fewer
+        // digits. Compared against fractional values in the same JVM so this is
+        // a shape assertion, not a machine-speed one.
+        java.util.Random r = new java.util.Random(180);
+        double[] ints = new double[50000];
+        double[] frac = new double[50000];
+        for (int i = 0; i < ints.length; i++) {
+            ints[i] = Math.floor(r.nextDouble() * 10000);
+            frac[i] = r.nextDouble() * 1000;
+        }
+        for (int i = 0; i < 10000; i++) {
+            GoFormat.formatJsonNumber(ints[i]);
+            GoFormat.formatJsonNumber(frac[i]);
+        }
+        long t0 = System.nanoTime();
+        for (double d : ints) {
+            GoFormat.formatJsonNumber(d);
+        }
+        long intNanos = System.nanoTime() - t0;
+        t0 = System.nanoTime();
+        for (double d : frac) {
+            GoFormat.formatJsonNumber(d);
+        }
+        long fracNanos = Math.max(System.nanoTime() - t0, 1L);
+        org.junit.jupiter.api.Assertions.assertTrue(intNanos < fracNanos,
+                "integer-valued doubles took " + intNanos + "ns vs " + fracNanos
+                        + "ns for fractional; they should be the cheaper class");
+    }
+
+    @Test
+    void negativeNaNNormalizesLikePositiveNaN() throws Exception {
+        // The isNaN guard's only observable effect: without it -NaN renders as
+        // "-nan" in C++ and would diverge here too.
+        assertEquals("\"NaN\"", emit(Double.longBitsToDouble(0xFFF8000000000000L)));
+    }
+
+    @Test
+    void smallPlainDecimalsRenderExactly() throws Exception {
+        // Values just above the 1e-6 threshold, where Double.toString writes
+        // placeholder zeros. This asserts the rendered bytes, not the internal
+        // digit count: over-counting significant digits only widens
+        // shortestRoundTrip's search and yields the same result, so there is no
+        // observable property to assert about the count itself.
         assertEquals("0.001234", emit(0.001234));
         assertEquals("0.0001", emit(0.0001));
         assertEquals("0.001", emit(0.001));
+        assertEquals("0.000001", emit(1e-6));
     }
 
     @Test
