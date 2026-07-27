@@ -189,6 +189,34 @@ Nightly diff-fuzz artifact 分歧定位顺序：(a) 下载 artifact，解压 `di
 
 判据：本地复现走弯路超过 30 分钟时，条件反射式切"从末端逐算子截断"策略，不要继续深挖末端错误路径。
 
+### 校验通道能钉住的属性（归一化 vs 字节级）
+
+差分 fuzz 与 cross-validate 大部分通道在比对前做**归一化**，因此有整类属性对它们结构上不可见。新增契约时必须先问「哪条通道会红」，而不是「测试是否全绿」。issue #180（JSON 数字格式跨运行时分歧）暴露的通道能力如下。
+
+**differential-fuzz：归一化抹掉 key 顺序与绝大多数数字字面量差异。** `scripts/differential-fuzz.py` 的 `normalize_json` 做 `json.loads` → `_normalize_value` → `json.dumps(sort_keys=True)`。`sort_keys=True` 使 key 顺序整个维度不可见（issue #183 因此从未被抓到）；`_normalize_value` 只对 `float` 分支做 `round(v, 10)` 与小量级归零，`int` 分支原样穿过。
+
+**#180 能被 fuzz 报出来靠的是 Python 的 int/float 类型分裂，不是设计出来的检出能力**：Go 输出 `100000000000000000000` 被 `json.loads` 解析成 `int`（原样穿过），Java 输出 `1.0E20` 解析成 `float` 再 re-dump 成 `1e+20`，两串才不相等。推论：**只有至少一侧输出整数形状字面量（无小数点无指数）时，数字格式分歧才可见**。实测的可见性分档：
+
+| 分歧 | 归一化后可见 |
+|------|------|
+| Go `100000000000000000000` vs Java `1.0E20` | 可见 |
+| Go `100000000000000020000` vs C++ `100000000000000016384` | 可见 |
+| Go `9007199254740992` vs Java `9.007199254740992E15` | 可见 |
+| Go `0.0000001` vs Java `1.0E-7` | 不可见 |
+| Go `1e+21` vs Java `1.0E21` | 不可见 |
+| C++ `1e-07` vs Go `1e-7` | 不可见 |
+| 第 11 位起的精度差（`1.2345678901234567` vs `...68`） | 不可见（`round(v,10)` 抹掉） |
+
+#180 实际有 15 个分歧，fuzz 结构上只能看见其中一部分。
+
+**`scripts/cross-validate/09-raw-byte.sh` 标题写 "no normalization"，实际有回落。** 字节比较失败后会用 `normalize_json` 再比一次，相等就打 `[W]` 警告并**计为 pass**（`09-raw-byte.sh:115-126`）。这是 key 顺序差异被有意容忍的地方，同时也意味着它不能钉住字节级数字格式。
+
+**`scripts/cross-validate/14-byte-exact-execute.sh` 是唯一真字节通道**：curl 响应体直接 `==`，无任何回落。#180 给它补了 `fixtures/server_byte_exact/06_number_format_regimes.json`，覆盖 Go 各个格式化区间（输入 doubled 后分别落在 1e20 / 1e21 / 1.5e21 / 1e-7 / 1e-6 / 最短往返差异 / 1e16 / -1e20）。双向 mutation 验证过有牙：Java 序列化器改回 `writeNumber` → Go-vs-Java 变红；C++ 改回 `chars_format::fixed` → Go-vs-C++ 变红。
+
+**原有的 `04_number_precision.json` 名字看起来正好覆盖数字精度，实际不可能抓到 #180**：输入 `100000 / 1000001 / 0.5`，×2 后全部落在 ±2^53 内的整数值区间——恰好是 Java 旧代码唯一处理对的区间。一个名叫 `number_precision` 却漏掉所有真正分歧量级的 gate，比没有 gate 更糟：它读起来像已覆盖。
+
+**纪律：声称「字节级对等」的属性，必须有一条不做任何归一化的通道覆盖。** 归一化通道只能证明「语义等价」，不能证明字节等价。这与 `guides/cross-layer-validation.md` 的「fixture 比对器语义决定该层能钉住的属性」是同一条原则。当前字节通道覆盖面窄的待决策项记在 `llmdoc/memory/doc-gaps.md`。
+
 ### Daily sanitized-fuzz（ASan/TSan 深度诊断）
 
 `.github/workflows/daily-sanitized-fuzz.yml` 每日 schedule 运行 pine-cpp 的 ASan+UBSan 与 TSan 两个 sanitizer-instrumented differential-fuzz pass，复用同一份 `scripts/differential-fuzz.py`：
@@ -341,6 +369,8 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Differential-fuzz 脚本：`scripts/differential-fuzz.py`、`scripts/differential-fuzz.sh`
 - DAG differential-fuzz 脚本：`scripts/dag-differential-fuzz.py`
 - Cross-validate section 列表：`scripts/cross-validate/`
+- Cross-validate raw-byte（带归一化回落）：`scripts/cross-validate/09-raw-byte.sh`
+- Cross-validate 唯一真字节通道：`scripts/cross-validate/14-byte-exact-execute.sh`、`fixtures/server_byte_exact/`
 - Cross-validate metrics-parity section：`scripts/cross-validate/13-metrics-parity.sh`
 - Cross-validate pine-cpp 预构建：`scripts/cross-validate/_prebuild.sh`
 - 跨引擎 benchmark：`scripts/cross-engine-bench.py`、`scripts/cross-engine-bench-cli.sh`、`scripts/bench-generate-fixtures.py`

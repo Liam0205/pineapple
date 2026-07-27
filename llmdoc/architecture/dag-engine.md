@@ -812,18 +812,27 @@ Pine-Java 注册全部内置算子（`AllOperators.java`），与 Pine-Go `pine-
 
 ### 跨运行时格式兼容（GoFormat）
 
-`GoFormat.java` 提供静态方法复制 Go 标准库数值格式化行为：
+`GoFormat.java` 提供静态方法复制 Go 标准库数值格式化行为。它有**四个**格式化入口，各自对应 Go 侧不同的函数、阈值不同、**不可互换**：
 
 - `sprint(Object)` — 等效 Go `fmt.Sprint`；nil → `"<nil>"`，magnitude < 1e6 的整数值 float → 无小数点（阈值 1e6 匹配 Go 切换科学计数法的边界）
 - `formatFloatF(double)` — 等效 Go `strconv.FormatFloat(d, 'f', -1, 64)`
 - `formatG(double)` — 等效 Go `fmt.Sprintf("%g", d)`；保留完整精度
+- `formatJsonNumber(double)` — 等效 Go `encoding/json` 对 float64 的输出，即 `strconv.FormatFloat(d, 'e'|'f', -1, 64)`：`|x| < 1e-6` 或 `|x| >= 1e21` 走 `'e'`（科学计数），否则走 `'f'`（平铺小数）；precision `-1` 表示最短往返表示。这条路径**只服务 JSON 序列化**，与上面三个入口没有调用关系
 - magnitude ∈ [1e6, 1e7) 时 `formatG` 将科学计数法表示转换为定点表示，匹配 Go `%g` 在该区间的输出
 - `sprint` 支持 `List<?>` 和数组类型，输出 `"[a b c]"` 空格分隔格式（匹配 Go `fmt.Sprint` 对 slice 的行为）
 - `formatG` 将 `Infinity` / `-Infinity` 输出为 `"+Inf"` / `"-Inf"`（Go 惯例）
 - `formatG` 对 magnitude ∈ [1e-4, 1e-3) 的小数通过 `BigDecimal.toPlainString()` 转换为定点表示
 - `sprint`、`formatFloatF`、`formatG` 均保留 `-0.0` 的符号位（输出 `"-0"` 而非 `"0"`），通过 `Double.doubleToRawLongBits` 在各自的整数快捷路径前检测
 
-消费者：`TransformResourceLookup`（key coerce）、`TransformRedisGet`（key 拼接）、`FilterCondition`（条件比较值格式化，替代旧的 `formatValue` 方法）、`ReorderShuffle`（salt 格式化，替代旧的 `formatFloatG` 方法）。第六轮 parity 审计中移除了 `FilterCondition.formatValue` 和 `ReorderShuffle.formatFloatG`，统一使用 `GoFormat` 作为跨算子格式化单一事实源。
+前三个入口的消费者：`TransformResourceLookup`（key coerce）、`TransformRedisGet`（key 拼接）、`FilterCondition`（条件比较值格式化，替代旧的 `formatValue` 方法）、`ReorderShuffle`（salt 格式化，替代旧的 `formatFloatG` 方法）。第六轮 parity 审计中移除了 `FilterCondition.formatValue` 和 `ReorderShuffle.formatFloatG`，统一使用 `GoFormat` 作为跨算子格式化单一事实源。
+
+`formatJsonNumber` 的消费链是**独立的一条**：`GoFormat.createGoCompatMapper()` 里注册的 Jackson `Double` 序列化器调用它，该 mapper 的消费者是 `RunCli`（CLI 输出）、`PineServer`（HTTP `/execute` 等响应体）与 `MetricsCollectorTest`（测试侧）。也就是说 `/execute` 响应里的数字字面量**一条都不经过 `sprint` / `formatFloatF` / `formatG`**。
+
+这个分裂正是 issue #180 能长期存在的条件：读文档的人会以为 GoFormat 是格式化的单一事实源，而 JSON 数字实际走的是序列化器自带的一套 double 逻辑；讽刺之处在于 `formatFloatF` 对 1e20 本来就给出正确答案（内部有 `BigDecimal.toPlainString` 平铺），只是 JSON 路径从来没调它。修复后的契约：
+
+- 序列化器对**所有** `Double` 值（含 `0` 与 `-0.0`）都走 `writeRawValue(formatJsonNumber(...))`，不再有任何一条分支落回 Jackson `writeNumber`
+- 测试 `GoJsonNumberParityTest.formatJsonNumberMatchesTheSerializer` 钉住「序列化器不得持有格式化规则的第二份拷贝」
+- 跨语言等价实现见 `pine-cpp/src/config/json.cpp`（`go_format_json_number`）；两处实现共同依赖的实测事实见 `llmdoc/reference/number-formatting-parity.md`
 
 ### 资源管理
 
