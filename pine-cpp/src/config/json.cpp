@@ -549,7 +549,7 @@ std::string go_format_json_number(double d) {
   // down: to_chars SUCCEEDS on these inputs and writes "inf" / "-inf" / "nan",
   // so the error path never fires. Those letters then reached
   // go_json_decompose, which read 'i' as a mantissa digit and 'f' as an
-  // exponent digit and emitted "i.nfe+02" — still invalid JSON, but now
+  // exponent digit and emitted "i.nfe+2" — still invalid JSON, but now
   // corrupted rather than merely non-standard.
   if (std::isnan(d)) {
     return "nan";

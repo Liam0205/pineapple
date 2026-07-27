@@ -216,7 +216,7 @@ TEST_CASE("dump_json: numbers match Go encoding/json byte for byte (#180)") {
     // What matters is that they are not silently corrupted. to_chars SUCCEEDS
     // on non-finite input and writes "inf"/"nan", so the errc fallback never
     // fires; those letters used to reach the decompose helper, which read 'i'
-    // as a mantissa digit and 'f' as an exponent digit and emitted "i.nfe+02".
+    // as a mantissa digit and 'f' as an exponent digit and emitted "i.nfe+2".
     const double inf = std::numeric_limits<double>::infinity();
     CHECK(emit(inf) == "inf");
     CHECK(emit(-inf) == "-inf");

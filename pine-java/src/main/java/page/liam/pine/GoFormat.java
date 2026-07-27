@@ -463,15 +463,24 @@ public final class GoFormat {
             }
         });
         SimpleModule module = new SimpleModule();
-        // Registered for BOTH the boxed and primitive types. Jackson dispatches
-        // on the declared type, so a Double.class-only registration leaves
-        // primitive `double` fields and double[] on Jackson's default path,
-        // which emits "1.0E20" — the exact shape of issue #180. Nothing on
-        // /execute or /stats hits that today because every number is boxed into
-        // Double on the way through Variant, so this is closing a hole rather
-        // than fixing a live defect; it is registered anyway because "everything
-        // goes through formatJsonNumber" should be true of the mapper rather
-        // than true only of the paths that happen to exist now.
+        // Registered for the boxed, primitive and array forms of both widths.
+        // Jackson dispatches on the declared type, so a Double.class-only
+        // registration left primitive `double`, double[], and every float form
+        // on Jackson's default path emitting "1.0E20" — the shape of issue #180.
+        //
+        // Scope of this claim, stated precisely because earlier versions of this
+        // comment overreached: these six registrations cover every carrier that
+        // a frame value can take on a response path. Frame values are Double or
+        // Float (pine-go row_frame.go, pine-java DataFrame/ColumnFrame), and
+        // arrays and primitives are covered so the mapper does not depend on
+        // which of those forms a caller happens to declare.
+        //
+        // NOT covered, deliberately: JsonNode carriers (DoubleNode, FloatNode,
+        // DecimalNode) and BigDecimal, which still emit Jackson's default form.
+        // Checked rather than assumed — readTree appears only in Config and
+        // ResourceManager, both parsing configuration on the way IN, and no
+        // response is assembled from a JsonNode. If a future change serializes a
+        // JsonNode outward, these need registering too.
         StdSerializer<Double> goDoubleSerializer = new StdSerializer<Double>(Double.class) {
             @Override
             public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
