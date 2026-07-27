@@ -293,6 +293,23 @@ class GoJsonNumberParityTest {
     }
 
     @Test
+    void jsonNodeCarriersAreDocumentedAsUncovered() throws Exception {
+        // Pins the boundary of the type coverage rather than the coverage
+        // itself. DoubleNode and BigDecimal bypass the registered serializers,
+        // which is acceptable only because no response is assembled from a
+        // JsonNode (readTree appears only in Config and ResourceManager, both
+        // parsing input). This asserts the current uncovered behaviour so that
+        // if someone later serializes a JsonNode outward, they meet a failing
+        // test that points at the comment explaining what to register.
+        com.fasterxml.jackson.databind.node.DoubleNode node =
+                com.fasterxml.jackson.databind.node.DoubleNode.valueOf(1e20);
+        assertEquals("1.0E20", MAPPER.writeValueAsString(node));
+        assertEquals("1E+20", MAPPER.writeValueAsString(new java.math.BigDecimal("1e20")));
+        // The covered carriers, for contrast.
+        assertEquals("100000000000000000000", emit(1e20));
+    }
+
+    @Test
     void formatJsonNumberMatchesTheSerializer() throws Exception {
         // The serializer must not carry its own second copy of the rule.
         double[] vals = {
