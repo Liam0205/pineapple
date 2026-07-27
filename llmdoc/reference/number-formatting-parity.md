@@ -87,8 +87,7 @@ pine-cpp 都在解析阶段就拒绝整个请求（C++ 的 `from_chars` 返回
 输出 `i.nfe+02`（既不合法也不是原来的 `inf`）。
 
 **若要真正统一**，得先解决请求解析层的分歧（让 pine-java 也拒绝非有限请求），
-那是独立议题，不在 #180 范围内。潜在暴露面：`metrics_collector.cpp` 的 `/stats`
-路径理论上可以序列化非有限指标值，未实测。
+那是独立议题，不在 #180 范围内。`metrics_collector.cpp` 的 `/stats` 路径曾被标为「理论上可序列化非有限指标值、未实测」——现已查清：那两处调用点（`metrics_collector.cpp:195,208`）走的就是 `go_format_json_number`，而该函数现在对非有限输入前置返回 `nan` / `inf`，与上表 pine-cpp 一行一致。也就是说 `/stats` 不构成额外暴露面，行为与 `/execute` 相同。
 
 ## Java 侧最短往返：为什么最终选了「不优化」的实现
 

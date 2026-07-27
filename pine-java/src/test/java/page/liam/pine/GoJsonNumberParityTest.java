@@ -175,7 +175,9 @@ class GoJsonNumberParityTest {
         // MathContext) selects a different final digit for some values, because
         // MathContext rounds HALF_UP on the true value while Go reports the
         // digit nearest the double. These four all came out one ulp-of-the-last
-        // -digit high that way; a 200k random sweep found over 50 such cases.
+        // -digit high that way. The count depends on how you sample: 13 over
+        // 200k uniform random bit patterns, 50+ when sampling by magnitude.
+        // The mechanism and these four values do not depend on the draw.
         assertEquals("2209012388886329.2", emit(Double.longBitsToDouble(0x431f64571af9dce5L)));
         assertEquals("-1300666636127457.2", emit(Double.longBitsToDouble(0xc3127bcc33453385L)));
         assertEquals("897344844809170.2", emit(Double.longBitsToDouble(0x4309810b05ba1e92L)));
@@ -207,6 +209,40 @@ class GoJsonNumberParityTest {
         assertEquals("0.0001", emit(0.0001));
         assertEquals("0.001", emit(0.001));
         assertEquals("0.000001", emit(1e-6));
+    }
+
+    @Test
+    void boxedPrimitiveAndArrayDoublesAllUseTheGoFormatter() throws Exception {
+        // Jackson dispatches on the declared type. A Double.class-only
+        // registration left primitive double fields and double[] on Jackson's
+        // default path, emitting "1.0E20" — the exact shape of issue #180.
+        // Nothing on /execute reaches those today (Variant boxes everything),
+        // but the mapper should be right regardless of which paths exist.
+        // Asserted per field rather than as a whole document: Jackson's key
+        // order is not Go's (issue #183), which is a separate matter from the
+        // number bytes under test here.
+        String json = MAPPER.writeValueAsString(new PrimitiveHolder());
+        org.junit.jupiter.api.Assertions.assertTrue(
+                json.contains("\"boxed\":100000000000000000000"), json);
+        org.junit.jupiter.api.Assertions.assertTrue(
+                json.contains("\"primitive\":100000000000000000000"), json);
+        org.junit.jupiter.api.Assertions.assertTrue(
+                json.contains("\"array\":[100000000000000000000,1e+21]"), json);
+    }
+
+    /** Exercises all three declared shapes Jackson dispatches on separately. */
+    public static final class PrimitiveHolder {
+        public Double getBoxed() {
+            return 1e20;
+        }
+
+        public double getPrimitive() {
+            return 1e20;
+        }
+
+        public double[] getArray() {
+            return new double[] {1e20, 1e21};
+        }
     }
 
     @Test
