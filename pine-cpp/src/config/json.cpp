@@ -520,6 +520,26 @@ std::string go_json_to_scientific(const std::string& shortest) {
 // shortest). Both with precision=-1 (shortest representation). Diverges from
 // Go's fmt.Sprintf("%g") which uses different thresholds — keep them separate.
 std::string go_format_json_number(double d) {
+  // Non-finite first, before to_chars. There is no Go byte sequence to match:
+  // encoding/json errors out on NaN/Inf, so no choice here is "correct" and the
+  // aim is only to avoid making things worse. These are the exact strings the
+  // pre-#180 implementation produced (raw to_chars output), kept verbatim so
+  // this change does not alter behaviour beyond fixing the corruption below.
+  // Callers are expected to reject non-finite before serializing — engine.cpp
+  // validates on the write path — so reaching here means that guard was bypassed.
+  //
+  // The check must be here rather than relying on the `ec` fallback further
+  // down: to_chars SUCCEEDS on these inputs and writes "inf" / "-inf" / "nan",
+  // so the error path never fires. Those letters then reached
+  // go_json_decompose, which read 'i' as a mantissa digit and 'f' as an
+  // exponent digit and emitted "i.nfe+02" — still invalid JSON, but now
+  // corrupted rather than merely non-standard.
+  if (std::isnan(d)) {
+    return "nan";
+  }
+  if (std::isinf(d)) {
+    return d < 0 ? "-inf" : "inf";
+  }
   if (d == 0.0) {
     return std::signbit(d) ? "-0" : "0";
   }

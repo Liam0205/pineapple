@@ -87,6 +87,33 @@ class GoJsonNumberParityTest {
     }
 
     @Test
+    void subnormalsUseShortestRoundTripNotDoubleToString() throws Exception {
+        // Double.toString is documented as emitting enough digits to uniquely
+        // identify the value, and for normal doubles it is also the shortest
+        // such rendering. For subnormals it is not: MIN_VALUE comes out as
+        // "4.9E-324" when "5E-324" already round-trips, and Go emits 5e-324.
+        // Building the BigDecimal straight from Double.toString inherited that.
+        assertEquals("5e-324", emit(Double.MIN_VALUE));
+        assertEquals("-5e-324", emit(-Double.MIN_VALUE));
+        assertEquals("1e-323", emit(Double.longBitsToDouble(2L)));
+        assertEquals("5e-323", emit(Double.longBitsToDouble(10L)));
+        // Values Double.toString already renders shortest must not change.
+        assertEquals("1.5e-323", emit(Double.longBitsToDouble(3L)));
+        assertEquals("4.4e-323", emit(Double.longBitsToDouble(9L)));
+    }
+
+    @Test
+    void shortestRoundTripHoldsAcrossTheSubnormalRange() throws Exception {
+        // Every candidate must parse back to the identical double, and must be
+        // no longer than what Double.toString would have produced.
+        for (long bits = 1; bits <= 20000; bits++) {
+            double d = Double.longBitsToDouble(bits);
+            String s = GoFormat.formatJsonNumber(d);
+            assertEquals(d, Double.parseDouble(s), "round-trip failed for bits " + bits);
+        }
+    }
+
+    @Test
     void nonFiniteStaysQuotedSoTheResponseRemainsParseable() throws Exception {
         // Go's encoding/json refuses NaN/Infinity, so there is no byte sequence
         // to match here and byte parity is not the goal — valid JSON is. This

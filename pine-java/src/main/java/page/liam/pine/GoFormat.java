@@ -74,8 +74,9 @@ public final class GoFormat {
      * <p>Go's rule (encoding/json/encode.go floatEncoder): render with
      * strconv.FormatFloat(d, fmt, -1, 64), choosing 'e' when the magnitude is
      * below 1e-6 or at/above 1e21 and 'f' otherwise. Precision -1 means the
-     * fewest digits that round-trip, which is exactly what Double.toString
-     * gives us, so the digits come from there and only their placement differs.
+     * fewest digits that round-trip. Double.toString is that for normal
+     * doubles but NOT for subnormals, so the digits come from
+     * {@link #shortestRoundTrip} and only their placement differs here.
      *
      * <p>This is deliberately separate from {@link #formatFloatF} (always
      * decimal, used for Lua/field formatting) and from the %g emulation. The
@@ -88,6 +89,53 @@ public final class GoFormat {
      * So 1e-7 prints as "1e-7", while 1e+21 keeps "+21" and 1e-100 keeps all
      * three digits.
      */
+    /**
+     * Shortest decimal string that round-trips to {@code d}, which is what Go's
+     * precision -1 means.
+     *
+     * <p>{@code Double.toString} is documented as producing "as many digits as
+     * are needed to uniquely distinguish the argument value", and for normal
+     * doubles it does. It is NOT shortest for subnormals: it renders
+     * {@code Double.MIN_VALUE} as "4.9E-324" when the single digit "5E-324"
+     * already round-trips to the same bits, and Go emits "5e-324". Eight
+     * subnormal values diverged this way before this method existed.
+     *
+     * <p>So shorten explicitly: try successively fewer significant digits and
+     * take the first that parses back to the identical double. Starts from
+     * Double.toString's digit count, so normal doubles settle on the first
+     * attempt and only subnormals do real work.
+     */
+    private static String shortestRoundTrip(double d) {
+        String repr = Double.toString(d);
+        int digits = countSignificantDigits(repr);
+        for (int precision = 1; precision < digits; precision++) {
+            String candidate = new java.math.BigDecimal(d)
+                    .round(new java.math.MathContext(precision))
+                    .toString();
+            if (Double.parseDouble(candidate) == d) {
+                return candidate;
+            }
+        }
+        return repr;
+    }
+
+    private static int countSignificantDigits(String repr) {
+        int count = 0;
+        for (int i = 0; i < repr.length(); i++) {
+            char c = repr.charAt(i);
+            if (c == 'E' || c == 'e') {
+                break;
+            }
+            if (c >= '0' && c <= '9') {
+                count++;
+            }
+        }
+        // Leading zeros of a "0.00x" rendering are not significant, but
+        // Double.toString only emits at most one, so an over-count here merely
+        // costs one extra loop iteration above.
+        return Math.max(count, 1);
+    }
+
     public static String formatJsonNumber(double d) {
         if (Double.isNaN(d) || Double.isInfinite(d)) {
             // Go's encoding/json refuses these outright (UnsupportedValueError),
@@ -112,7 +160,8 @@ public final class GoFormat {
         boolean scientific = abs < 1e-6 || abs >= 1e21;
         // new BigDecimal(String) is exact; new BigDecimal(double) would
         // reintroduce the full binary expansion we are trying to avoid.
-        java.math.BigDecimal bd = new java.math.BigDecimal(Double.toString(d)).stripTrailingZeros();
+        java.math.BigDecimal bd =
+                new java.math.BigDecimal(shortestRoundTrip(d)).stripTrailingZeros();
         if (!scientific) {
             return bd.toPlainString();
         }
@@ -144,7 +193,11 @@ public final class GoFormat {
     /**
      * Replicates Go's strconv.FormatFloat(d, 'f', -1, 64).
      * Always uses decimal notation (no scientific notation).
-     * Uses Double.toString for shortest round-trip representation.
+     * Uses Double.toString, which is shortest-round-trip for normal doubles.
+     * Note it is not shortest for subnormals (MIN_VALUE renders "4.9E-324"
+     * where "5E-324" round-trips); this method's callers are key/salt and
+     * condition formatting, which never see subnormals, so it is left alone.
+     * formatJsonNumber does need exactness and uses shortestRoundTrip instead.
      */
     public static String formatFloatF(double d) {
         if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
