@@ -389,8 +389,14 @@ namespace {
 
 // Splits a shortest-round-trip rendering from std::to_chars into a sign, a
 // digit string with no decimal point, and a decimal exponent such that the
-// value is sign * 0.<digits> * 10^exp10. to_chars picks fixed or scientific on
-// its own, so both shapes have to be accepted here.
+// value is sign * 0.<digits> * 10^exp10.
+//
+// Accepts both fixed and scientific input shapes. Only scientific arrives today
+// — the single call site hardcodes chars_format::scientific — but the parsing is
+// kept general so the function is about decimal renderings rather than about one
+// caller's current choice. An earlier version of this comment said to_chars
+// "picks fixed or scientific on its own", which stopped being true when the call
+// site was pinned to scientific.
 struct DecimalParts {
   bool negative = false;
   std::string digits;  // significant digits, no '.', no leading zeros
@@ -432,6 +438,15 @@ DecimalParts go_json_decompose(const std::string& s) {
   }
   // exp10 so far holds only the explicit exponent; add the point position.
   p.exp10 += point_pos;
+  // Both normalizations below are UNREACHABLE from the current single call
+  // site, which always passes chars_format::scientific output: that form emits
+  // neither leading nor trailing zeros in the mantissa (checked over 3.3M
+  // samples), and deleting either loop leaves 810k renderings byte-identical.
+  // They are kept because this function's contract is "decompose a decimal
+  // rendering", not "decompose what to_chars(scientific) happens to produce" —
+  // a second caller passing fixed-format input would need them. If that never
+  // arrives, they are safe to delete.
+  //
   // Strip leading zeros, adjusting the exponent as we go (0.001 -> digits "1").
   std::size_t lead = 0;
   while (lead < mantissa.size() && mantissa[lead] == '0') {

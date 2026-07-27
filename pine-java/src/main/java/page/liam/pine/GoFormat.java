@@ -391,7 +391,16 @@ public final class GoFormat {
             }
         });
         SimpleModule module = new SimpleModule();
-        module.addSerializer(Double.class, new StdSerializer<Double>(Double.class) {
+        // Registered for BOTH the boxed and primitive types. Jackson dispatches
+        // on the declared type, so a Double.class-only registration leaves
+        // primitive `double` fields and double[] on Jackson's default path,
+        // which emits "1.0E20" — the exact shape of issue #180. Nothing on
+        // /execute or /stats hits that today because every number is boxed into
+        // Double on the way through Variant, so this is closing a hole rather
+        // than fixing a live defect; it is registered anyway because "everything
+        // goes through formatJsonNumber" should be true of the mapper rather
+        // than true only of the paths that happen to exist now.
+        StdSerializer<Double> goDoubleSerializer = new StdSerializer<Double>(Double.class) {
             @Override
             public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
                 // Every FINITE value goes through formatJsonNumber. Delegating
@@ -416,6 +425,23 @@ public final class GoFormat {
                     return;
                 }
                 gen.writeRawValue(formatJsonNumber(d));
+            }
+        };
+        module.addSerializer(Double.class, goDoubleSerializer);
+        module.addSerializer(Double.TYPE, goDoubleSerializer);
+        // double[] needs its own registration: Jackson serializes primitive
+        // arrays with a dedicated ArraySerializer that writes elements directly
+        // rather than delegating to a per-element serializer, so neither of the
+        // registrations above reaches them.
+        module.addSerializer(double[].class, new StdSerializer<double[]>(double[].class) {
+            @Override
+            public void serialize(double[] values, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                gen.writeStartArray();
+                for (double v : values) {
+                    goDoubleSerializer.serialize(v, gen, provider);
+                }
+                gen.writeEndArray();
             }
         });
         m.registerModule(module);
