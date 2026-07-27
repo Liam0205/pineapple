@@ -69,6 +69,69 @@ public final class GoFormat {
     }
 
     /**
+     * Replicates Go's encoding/json number output for a float64, byte for byte.
+     *
+     * <p>Go's rule (encoding/json/encode.go floatEncoder): render with
+     * strconv.FormatFloat(d, fmt, -1, 64), choosing 'e' when the magnitude is
+     * below 1e-6 or at/above 1e21 and 'f' otherwise. Precision -1 means the
+     * fewest digits that round-trip, which is exactly what Double.toString
+     * gives us, so the digits come from there and only their placement differs.
+     *
+     * <p>This is deliberately separate from {@link #formatFloatF} (always
+     * decimal, used for Lua/field formatting) and from the %g emulation. The
+     * three have different thresholds and are not interchangeable — conflating
+     * the JSON path with the others is how issue #180 arose.
+     *
+     * <p>One quirk is load-bearing and was verified against encoding/json
+     * rather than inferred: strconv pads exponents to two digits ("1e-07"),
+     * and json then strips a single leading zero from NEGATIVE exponents only.
+     * So 1e-7 prints as "1e-7", while 1e+21 keeps "+21" and 1e-100 keeps all
+     * three digits.
+     */
+    public static String formatJsonNumber(double d) {
+        if (Double.isNaN(d) || Double.isInfinite(d)) {
+            // Go's encoding/json refuses these outright (UnsupportedValueError).
+            // Callers upstream validate, so reaching here means a bug; emit the
+            // Go %v spelling rather than invalid JSON so it is greppable.
+            return formatFloatF(d);
+        }
+        if (d == 0.0) {
+            return (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) ? "-0" : "0";
+        }
+        double abs = Math.abs(d);
+        boolean scientific = abs < 1e-6 || abs >= 1e21;
+        // new BigDecimal(String) is exact; new BigDecimal(double) would
+        // reintroduce the full binary expansion we are trying to avoid.
+        java.math.BigDecimal bd = new java.math.BigDecimal(Double.toString(d)).stripTrailingZeros();
+        if (!scientific) {
+            return bd.toPlainString();
+        }
+        String digits = bd.unscaledValue().abs().toString();
+        int exp10 = digits.length() - bd.scale() - 1;
+        StringBuilder sb = new StringBuilder();
+        if (d < 0) {
+            sb.append('-');
+        }
+        sb.append(digits.charAt(0));
+        if (digits.length() > 1) {
+            sb.append('.').append(digits, 1, digits.length());
+        }
+        sb.append('e');
+        if (exp10 < 0) {
+            sb.append('-');
+        } else {
+            sb.append('+');
+        }
+        int mag = Math.abs(exp10);
+        // strconv pads to >= 2 digits; json un-pads negatives back to 1 digit.
+        if (mag < 10 && exp10 >= 0) {
+            sb.append('0');
+        }
+        sb.append(mag);
+        return sb.toString();
+    }
+
+    /**
      * Replicates Go's strconv.FormatFloat(d, 'f', -1, 64).
      * Always uses decimal notation (no scientific notation).
      * Uses Double.toString for shortest round-trip representation.
@@ -246,23 +309,14 @@ public final class GoFormat {
         module.addSerializer(Double.class, new StdSerializer<Double>(Double.class) {
             @Override
             public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
-                if (Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0.0)) {
-                    // Go encoding/json preserves the sign bit on negative zero:
-                    // json.Marshal(math.Copysign(0, -1)) emits "-0".
-                    // Jackson's writeNumber(-0.0) emits "-0.0", so we have to
-                    // write the raw literal to match Go byte-for-byte.
-                    gen.writeRawValue("-0");
-                } else if (!Double.isNaN(value) && !Double.isInfinite(value)
-                        && value == Math.floor(value)
-                        && value >= -9.007199254740992e15
-                        && value <= 9.007199254740992e15) {
-                    // Go json.Encoder omits the trailing ".0" for integer-valued
-                    // doubles (e.g. 1.0 → "1") since it serializes via %g/strconv.
-                    // Match that exactly.
-                    gen.writeNumber((long) value.doubleValue());
-                } else {
-                    gen.writeNumber(value.doubleValue());
-                }
+                // Always the raw literal from formatJsonNumber. Delegating any
+                // case to Jackson's writeNumber is what caused issue #180: it
+                // formats via Double.toString, so everything the old guard did
+                // not catch fell out as "1.0E20" where Go emits
+                // "100000000000000000000". The guard only covered
+                // integer-valued doubles within +-2^53, i.e. a small slice of
+                // the range Go renders in plain decimal (up to 1e21).
+                gen.writeRawValue(formatJsonNumber(value.doubleValue()));
             }
         });
         m.registerModule(module);
