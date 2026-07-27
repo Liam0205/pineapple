@@ -499,16 +499,18 @@ std::string go_json_to_scientific(const std::string& shortest) {
   out.push_back('e');
   out.push_back(negative_exponent ? '-' : '+');
 
-  std::string es = std::to_string(negative_exponent ? -e : e);
   // strconv pads the exponent to at least two digits ("1e-07"), and
   // encoding/json then strips one leading zero back off — but only for negative
   // exponents. So "1e-7" is trimmed while "1e+21" keeps "+21" and three-digit
   // exponents are untouched either way. Verified against encoding/json rather
   // than inferred; the asymmetry is easy to get wrong in both directions.
-  if (es.size() < 2 && !negative_exponent) {
-    es.insert(es.begin(), '0');
-  }
-  out += es;
+  //
+  // No padding branch is needed for the positive side: this function is only
+  // reached when |d| >= 1e21 or |d| < 1e-6, so a positive exponent is never
+  // below 21 and is already two digits. A pad guarded on `!negative_exponent`
+  // was unreachable — confirmed by deleting it and diffing 688k renderings
+  // against Go byte for byte with no change.
+  out += std::to_string(negative_exponent ? -e : e);
   return out;
 }
 

@@ -126,3 +126,31 @@ bits=42e3866babcd3a24   go 171744423733713.12   舍入精确值 → ...713.13
 `Double.toString` 选的数字本来就是对的，唯一的问题是**可能太多**——所以正确做法是
 `new BigDecimal(Double.toString(d))` 再逐位缩短。由
 `digitsComeFromDoubleToStringNotFromRoundingTheExactValue` 钉住。
+
+## 另一条既存不对等：resource lookup key 上三个运行时互不相同
+
+`formatFloatF`（Java）/ `go_format_lookup_key`（C++）/ `strconv.FormatFloat(d,'f',-1,64)`（Go）
+是 `transform_resource_lookup` 的 key 派生函数，与 JSON 输出**是不同的路径**。对次正规值
+三者输出互不相同（实测 `Double.MIN_VALUE`）：
+
+| 运行时 | 输出 | 长度 |
+|---|---|---|
+| pine-go | `0.000...005`（完整平铺） | 326 |
+| pine-java | `0.000...049`（`Double.toString` 非最短，多一位） | 327 |
+| pine-cpp | `5e-324` | 6 |
+
+C++ 那支的成因单独说一下，因为不看代码想不到：`go_format_lookup_key` 用 `char buf[64]`
+配 `to_chars(chars_format::fixed)`，326 字符**装不下**，`to_chars` 返回
+`value_too_large`，于是走了 `go_format_g` 兜底——而那个兜底会输出科学计数法。也就是说
+它不是「少了几位」，是整个格式换了。
+
+**可达性**：请求里带 `5e-324` 能活着到这里（Jackson 解析出 bits=1），所以不是理论问题。
+
+**为什么不在 #180 里修**：#180 的范围是 JSON 输出字节；key 派生函数是另一条路径，
+且改它对任何已经按当前形式建过索引的数据是行为变更。现状由
+`formatFloatFSubnormalDivergenceIsPinnedNotFixed` 钉住 Java 侧的 327，
+使后续修它必须显式改掉一个失败断言。
+
+**后续要收这条时的注意点**：不要只改 Java 的位数——C++ 的 `buf[64]` 必须一起扩，
+否则「统一」之后 C++ 仍在输出 `5e-324`。这一点是第九轮审查提出的，它在自己的
+finding 之外额外查了 C++ 分支，而我之前的文档只写了 Java vs Go。

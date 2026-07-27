@@ -74,8 +74,13 @@ public final class GoFormat {
      *
      * <p>{@code Double.toString} is NOT that string in general: it renders
      * {@code Double.MIN_VALUE} as "4.9E-324" when the single digit "5E-324"
-     * already round-trips to the same bits, and Go emits the latter. Eight
-     * subnormal values diverged that way before this method existed.
+     * already round-trips to the same bits, and Go emits the latter.
+     *
+     * <p>Eight bit patterns in bits 1..200000 render with more digits than
+     * needed, producing eight distinct Double.toString strings (4.9E-324,
+     * 9.9E-324, 4.9E-323, 5.9E-323, 6.9E-323, 7.9E-323, 8.9E-323, 9.9E-323).
+     * The count is stated per bit pattern over that scan range, since counting
+     * by decimal target or over a wider enumeration gives a different number.
      *
      * <p>So search: try one significant digit, then two, and return the first
      * rendering that parses back to the identical double. The first hit is by
@@ -180,12 +185,13 @@ public final class GoFormat {
         } else {
             sb.append('+');
         }
-        int mag = Math.abs(exp10);
-        // strconv pads to >= 2 digits; json un-pads negatives back to 1 digit.
-        if (mag < 10 && exp10 >= 0) {
-            sb.append('0');
-        }
-        sb.append(mag);
+        // No zero-padding branch for positive exponents, deliberately. strconv
+        // pads exponents to two digits and encoding/json un-pads negatives back
+        // to one — but the scientific branch is only entered when |d| >= 1e21 or
+        // |d| < 1e-6, so a positive exponent is never below 21 and is already
+        // two digits. Verified: across 688k sampled doubles Go never emits a
+        // single-digit positive exponent, and adding the pad changes no output.
+        sb.append(Math.abs(exp10));
         return sb.toString();
     }
 
@@ -200,8 +206,12 @@ public final class GoFormat {
      * <p>KNOWN DIVERGENCE, deliberately not fixed here. The sole caller is
      * TransformResourceLookup's key coercion, and a request-supplied 5e-324 does
      * survive Jackson parsing and reach it, so this is reachable rather than
-     * theoretical — Java produces a different resource-lookup key than Go and
-     * C++ for that input. It is pre-existing and outside issue #180 (which is
+     * theoretical. All THREE runtimes disagree on that key, not just Java: Go
+     * emits 326 characters, Java 327, and pine-cpp emits "5e-324" because
+     * go_format_lookup_key's 64-byte to_chars buffer cannot hold a 326-character
+     * expansion, so it returns value_too_large and falls back to scientific
+     * notation. Whoever unifies this must fix the C++ buffer too, not only the
+     * Java digit count. It is pre-existing and outside issue #180 (which is
      * about JSON output bytes), and changing a key-derivation function is a
      * behaviour change for anything already keyed on the current form.
      *
