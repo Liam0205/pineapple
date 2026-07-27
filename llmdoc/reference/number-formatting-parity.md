@@ -153,3 +153,25 @@ C++ 那支的成因单独说一下，因为不看代码想不到：`go_format_lo
 **后续要收这条时的注意点**：不要只改 Java 的位数——C++ 的 `buf[64]` 必须一起扩，
 否则「统一」之后 C++ 仍在输出 `5e-324`。这一点是第九轮审查提出的，它在自己的
 finding 之外额外查了 C++ 分支，而我之前的文档只写了 Java vs Go。
+
+## 如果将来给 pine-cpp 加 float32 路径
+
+现在不存在这条路径——`Variant::value_t` 只有 `double`，所以 C++ 侧没有 float32 分歧，
+这一节是**给未来的警告**，不是待修项。
+
+真要加的时候，**不要把 float32 加宽成 double 再调 `go_format_json_number`**。Go 用
+`strconv.AppendFloat(..., 32)`，数字是「对 float32 最短往返」，加宽会把窄类型原本藏住的
+二进制噪声抖出来：
+
+```
+float32 0.1   Go: 0.1                      加宽后: 0.10000000149011612
+float32 1e20  Go: 100000000000000000000    加宽后: 100000002004087730000
+```
+
+pine-java 侧的 `formatJsonNumber(float)` 就是踩过这个坑之后的写法：单独一条
+`shortestRoundTrip(float)` 按 float 精度缩短，**且阈值要拿缩短后的十进制去比、不是拿加宽的
+double 去比**（`bits=897988541` 加宽是 `9.999999974752427e-07` 低于 1e-6，缩短后是 `1e-06`
+不低于，Go 输出 `0.000001`）。C++ 侧要加的话，同样两点都得照做。
+
+另外注意 `Float.toString` / `Double.toString` 都**不是**次正规的最短表示（float32 有 9 个
+bit pattern、double 有 8 个），这是两条 `shortestRoundTrip` 存在的唯一理由。
