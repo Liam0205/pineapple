@@ -192,11 +192,24 @@ public final class GoFormat {
     /**
      * Replicates Go's strconv.FormatFloat(d, 'f', -1, 64).
      * Always uses decimal notation (no scientific notation).
-     * Uses Double.toString, which is shortest-round-trip for normal doubles.
-     * Note it is not shortest for subnormals (MIN_VALUE renders "4.9E-324"
-     * where "5E-324" round-trips); this method's callers are key/salt and
-     * condition formatting, which never see subnormals, so it is left alone.
-     * formatJsonNumber does need exactness and uses shortestRoundTrip instead.
+     * Uses Double.toString, which is shortest-round-trip for normal doubles but
+     * NOT for subnormals: MIN_VALUE renders "4.9E-324" where "5E-324"
+     * round-trips, so the plain-decimal expansion here comes out one character
+     * longer than Go's (327 vs 326).
+     *
+     * <p>KNOWN DIVERGENCE, deliberately not fixed here. The sole caller is
+     * TransformResourceLookup's key coercion, and a request-supplied 5e-324 does
+     * survive Jackson parsing and reach it, so this is reachable rather than
+     * theoretical — Java produces a different resource-lookup key than Go and
+     * C++ for that input. It is pre-existing and outside issue #180 (which is
+     * about JSON output bytes), and changing a key-derivation function is a
+     * behaviour change for anything already keyed on the current form.
+     *
+     * <p>An earlier version of this comment claimed the callers "never see
+     * subnormals" and listed salt and condition formatting among them. Both were
+     * wrong: salt uses formatG, conditions use sprint, and the one real caller is
+     * reachable from a request. formatJsonNumber needs exact Go parity and uses
+     * shortestRoundTrip instead.
      */
     public static String formatFloatF(double d) {
         if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
