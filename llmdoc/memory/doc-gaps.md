@@ -23,3 +23,15 @@
 
 - **现状**：已知分歧，见 issue #179，**未修**。仅在 issue 中记录，无稳定文档条目
 - **待决策**：修（三方对齐兜底行为 + error fixture）还是归档为 accepted design difference（则需进 `architecture/dag-engine.md` 的接受差异段并给出理由）。在决定之前，稳定文档不得表述为已解决
+
+### 字节级对等的校验通道覆盖面太窄
+
+- **现状**：`scripts/cross-validate/14-byte-exact-execute.sh` 是唯一不做任何归一化的通道，但只有 5 个 fixture（`fixtures/server_byte_exact/`）；而「字节级对等」是全局契约，覆盖面与声明严重不匹配。`09-raw-byte.sh` 标题写 "no normalization"，实际在字节比较失败后回落到 `normalize_json` 再比一次，相等就打 `[W]` 并计为 pass（`09-raw-byte.sh:115-126`）；`scripts/differential-fuzz.py` 的 `normalize_json` 用 `sort_keys=True` + `round(v,10)`，key 顺序整维度与大部分数字拼写差异都不可见
+- **已做**：`guides/ci-quality-baseline.md` 新增「校验通道能钉住的属性（归一化 vs 字节级）」节，写清各通道的可见性边界与那条纪律；issue #180 给 14 号通道补了 `06_number_format_regimes.json`
+- **待决策**：两条路径任选或并行——(a) 继续扩 `fixtures/server_byte_exact/`，把「字节级」声明真正覆盖到主要响应形状；(b) 把 `09-raw-byte.sh` 的归一化回落改成硬失败。(b) 会立刻暴露 issue #183 的 key 顺序分歧，因此**它是 #183 的前置条件**：先决定通道方案，再修 #183，否则修完没有回归门
+
+### issue #183：Java object key 插入顺序 vs Go 排序（已记录、已开 issue、未修）
+
+- **现状**：Go `encoding/json` 对 map key 排序输出，pine-java Jackson 序列化 `LinkedHashMap` 保留插入顺序，两者 JSON key 顺序不一致。已在干净 master 的 worktree 上复现，确认既存且与数字格式无关，**未修**
+- **为何长期不可见**：见上一条——fuzz 的 `sort_keys=True` 与 09 号通道的 `[W]` 降级都把这个维度抹掉了
+- **待决策 / 前置**：修它之前必须先解决校验通道问题（上一条）。实现层已知陷阱：Go 的 sort 是 **UTF-8 字节序**，Java `String.compareTo` 是 **UTF-16 code unit 序**，对 BMP 外字符（surrogate pair）会分歧，必须显式给字节序 comparator，否则只是把分歧点从 ASCII 挪到 emoji。另外 pine-cpp 侧的 key 顺序尚未与另两方比对过（#180 期间只对了 go/java 这一对），需补三方比对
