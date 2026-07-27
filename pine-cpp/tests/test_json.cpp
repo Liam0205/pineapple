@@ -2,6 +2,8 @@
 
 #include <doctest/doctest.h>
 
+#include <limits>
+
 using namespace pine;
 
 TEST_CASE("parse_json: scalar values") {
@@ -204,5 +206,26 @@ TEST_CASE("dump_json: numbers match Go encoding/json byte for byte (#180)") {
 
   SUBCASE("negative zero keeps its sign bit") {
     CHECK(emit(-0.0) == "-0");
+  }
+
+  SUBCASE("non-finite is not mangled into a corrupt token") {
+    // Go's encoding/json refuses NaN/Inf, so there is no reference byte
+    // sequence; these are the strings the pre-#180 implementation produced and
+    // callers are expected to reject non-finite before serializing.
+    //
+    // What matters is that they are not silently corrupted. to_chars SUCCEEDS
+    // on non-finite input and writes "inf"/"nan", so the errc fallback never
+    // fires; those letters used to reach the decompose helper, which read 'i'
+    // as a mantissa digit and 'f' as an exponent digit and emitted "i.nfe+02".
+    const double inf = std::numeric_limits<double>::infinity();
+    CHECK(emit(inf) == "inf");
+    CHECK(emit(-inf) == "-inf");
+    CHECK(emit(std::numeric_limits<double>::quiet_NaN()) == "nan");
+  }
+
+  SUBCASE("subnormals render shortest, matching Go") {
+    // Verified against json.Marshal over the first 1e6 bit patterns.
+    CHECK(emit(std::numeric_limits<double>::denorm_min()) == "5e-324");
+    CHECK(emit(-std::numeric_limits<double>::denorm_min()) == "-5e-324");
   }
 }
