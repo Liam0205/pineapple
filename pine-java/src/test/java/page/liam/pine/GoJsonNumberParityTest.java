@@ -183,6 +183,20 @@ class GoJsonNumberParityTest {
     }
 
     @Test
+    void formatFloatFSubnormalDivergenceIsPinnedNotFixed() throws Exception {
+        // formatFloatF still uses Double.toString, so a subnormal expands one
+        // character longer than Go's (327 vs 326). Documented as a known
+        // divergence rather than fixed: its only caller is resource-lookup key
+        // coercion, and changing a key-derivation function is a behaviour change
+        // for anything already keyed on the current form. Pinned here so the
+        // number is a recorded fact rather than a surprise, and so that fixing
+        // it later is a deliberate act with a failing test to update.
+        assertEquals(327, GoFormat.formatFloatF(Double.MIN_VALUE).length());
+        // formatJsonNumber, which does need Go parity, is unaffected.
+        assertEquals("5e-324", emit(Double.MIN_VALUE));
+    }
+
+    @Test
     void smallPlainDecimalsRenderExactly() throws Exception {
         // Values just above the 1e-6 threshold, where Double.toString writes
         // placeholder zeros. This asserts the rendered bytes, not the internal
