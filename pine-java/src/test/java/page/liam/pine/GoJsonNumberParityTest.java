@@ -152,6 +152,52 @@ class GoJsonNumberParityTest {
     }
 
     @Test
+    void normalDoublesDoNotPayForTheSubnormalSearch() throws Exception {
+        // shortestRoundTrip must not walk precision upward from 1 for values
+        // Double.toString already renders minimally. An earlier version did,
+        // costing ~6.8us per value against ~0.08us for Double.toString, on the
+        // /execute response path for every double field.
+        //
+        // Asserted as a ratio against Double.toString measured in the same JVM
+        // rather than an absolute microsecond figure, so this does not become a
+        // machine-speed tripwire. The regressed version was ~90x; correct is
+        // well under 40x, so 60x separates them with room for noise.
+        java.util.Random r = new java.util.Random(180);
+        double[] vals = new double[50000];
+        for (int i = 0; i < vals.length; i++) {
+            vals[i] = r.nextDouble() * 1000.0;
+        }
+        for (int i = 0; i < 10000; i++) {
+            GoFormat.formatJsonNumber(vals[i]);
+            Double.toString(vals[i]);
+        }
+        long t0 = System.nanoTime();
+        for (double d : vals) {
+            GoFormat.formatJsonNumber(d);
+        }
+        long ours = System.nanoTime() - t0;
+        t0 = System.nanoTime();
+        for (double d : vals) {
+            Double.toString(d);
+        }
+        long baseline = Math.max(System.nanoTime() - t0, 1L);
+        double ratio = (double) ours / baseline;
+        org.junit.jupiter.api.Assertions.assertTrue(ratio < 60.0,
+                "formatJsonNumber is " + String.format("%.1f", ratio)
+                        + "x Double.toString; the upward-search regression measured ~90x");
+    }
+
+    @Test
+    void leadingZerosAreNotCountedAsSignificantDigits() throws Exception {
+        // 0.001234 has 4 significant digits, not 7. Double.toString emits as
+        // many placeholder zeros as the exponent needs before switching to
+        // scientific notation, so this is not a single-zero case.
+        assertEquals("0.001234", emit(0.001234));
+        assertEquals("0.0001", emit(0.0001));
+        assertEquals("0.001", emit(0.001));
+    }
+
+    @Test
     void formatJsonNumberMatchesTheSerializer() throws Exception {
         // The serializer must not carry its own second copy of the rule.
         double[] vals = {
