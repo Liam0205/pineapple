@@ -90,10 +90,20 @@ public final class GoFormat {
      */
     public static String formatJsonNumber(double d) {
         if (Double.isNaN(d) || Double.isInfinite(d)) {
-            // Go's encoding/json refuses these outright (UnsupportedValueError).
-            // Callers upstream validate, so reaching here means a bug; emit the
-            // Go %v spelling rather than invalid JSON so it is greppable.
-            return formatFloatF(d);
+            // Go's encoding/json refuses these outright (UnsupportedValueError),
+            // so there is no Go byte sequence to match and this method has no
+            // correct answer to give. It throws rather than inventing one: the
+            // caller decides, and the serializer keeps Jackson's quoted-string
+            // form because that is the only shape that stays parseable JSON.
+            //
+            // An earlier version returned formatFloatF(d) here, i.e. "+Inf",
+            // which the serializer then wrote as a bare token — invalid JSON.
+            // Reachable in practice: the write path validates NaN/Inf, but a
+            // request carrying 1e400 does not go through it, and Jackson
+            // silently coerces that to Infinity on parse where Go and C++ both
+            // reject it. See the isNonFinite tests.
+            throw new IllegalArgumentException(
+                    "NaN/Infinity has no Go encoding/json representation: " + d);
         }
         if (d == 0.0) {
             return (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) ? "-0" : "0";
@@ -309,14 +319,28 @@ public final class GoFormat {
         module.addSerializer(Double.class, new StdSerializer<Double>(Double.class) {
             @Override
             public void serialize(Double value, JsonGenerator gen, SerializerProvider provider) throws IOException {
-                // Always the raw literal from formatJsonNumber. Delegating any
-                // case to Jackson's writeNumber is what caused issue #180: it
-                // formats via Double.toString, so everything the old guard did
-                // not catch fell out as "1.0E20" where Go emits
+                // Every FINITE value goes through formatJsonNumber. Delegating
+                // any of those to Jackson's writeNumber is what caused issue
+                // #180: it formats via Double.toString, so everything the old
+                // guard did not catch fell out as "1.0E20" where Go emits
                 // "100000000000000000000". The guard only covered
                 // integer-valued doubles within +-2^53, i.e. a small slice of
                 // the range Go renders in plain decimal (up to 1e21).
-                gen.writeRawValue(formatJsonNumber(value.doubleValue()));
+                double d = value.doubleValue();
+                if (Double.isNaN(d) || Double.isInfinite(d)) {
+                    // No Go equivalent exists — encoding/json errors out on
+                    // these. Keep Jackson's quoted-string form ("Infinity",
+                    // "-Infinity", "NaN"): it is the only rendering that leaves
+                    // the response parseable, which matters because a request
+                    // carrying 1e400 reaches here without passing the write
+                    // path's NaN/Inf validation. Parity is already broken
+                    // upstream in that case (Go and C++ reject the request
+                    // outright), so the goal here is valid JSON, not byte
+                    // equality with a Go output that does not exist.
+                    gen.writeNumber(d);
+                    return;
+                }
+                gen.writeRawValue(formatJsonNumber(d));
             }
         });
         m.registerModule(module);
