@@ -148,3 +148,61 @@ TEST_CASE("FlatMap::reserve after partial insertion preserves entries (L6)") {
   Variant v(std::move(obj));
   CHECK(dump_json(v, 0) == R"({"alpha":1,"bravo":2,"charlie":3,"delta":4})");
 }
+
+TEST_CASE("dump_json: numbers match Go encoding/json byte for byte (#180)") {
+  // Every expected string below was produced by running json.Marshal on the
+  // same float64 in Go, not derived from the spec by hand. Go's rule is
+  // strconv.FormatFloat(d, 'f'|'e', -1, 64) with 'e' chosen when |x| < 1e-6 or
+  // |x| >= 1e21, and precision -1 meaning shortest round-trip.
+  auto emit = [](double d) { return dump_json(Variant(d), 0); };
+
+  SUBCASE("plain decimal range keeps every digit, no exponent") {
+    CHECK(emit(0.0) == "0");
+    CHECK(emit(1.0) == "1");
+    CHECK(emit(1.5) == "1.5");
+    CHECK(emit(1e6) == "1000000");
+    CHECK(emit(1e15) == "1000000000000000");
+    // Beyond 2^53 but still below 1e21: Go stays in plain decimal. An earlier
+    // Java guard stopped at 2^53 and fell back to "1.0E16" here, which is the
+    // divergence #180 reported.
+    CHECK(emit(1e16) == "10000000000000000");
+    CHECK(emit(1e18) == "1000000000000000000");
+    CHECK(emit(1e20) == "100000000000000000000");
+    CHECK(emit(-1e20) == "-100000000000000000000");
+  }
+
+  SUBCASE("shortest round-trip, not the exact binary expansion") {
+    // 1.0000000000000002e20 is exactly 100000000000000016384. Go prints the
+    // shortest digits that round-trip and zero-fills, so the trailing digits
+    // are 20000, not 16384. std::to_chars with chars_format::fixed prints the
+    // exact value and got this wrong before the fix.
+    CHECK(emit(1.0000000000000002e20) == "100000000000000020000");
+  }
+
+  SUBCASE("scientific above 1e21") {
+    CHECK(emit(1e21) == "1e+21");
+    CHECK(emit(1e22) == "1e+22");
+    CHECK(emit(1.5e21) == "1.5e+21");
+    CHECK(emit(-1e21) == "-1e+21");
+  }
+
+  SUBCASE("small magnitudes: 1e-6 is the boundary, and it is inclusive") {
+    CHECK(emit(1e-5) == "0.00001");
+    CHECK(emit(1e-6) == "0.000001");
+    // Below 1e-6 switches to scientific. Note the exponent: strconv pads to two
+    // digits ("1e-07") and encoding/json then strips one leading zero from
+    // NEGATIVE exponents only, so this is "1e-7" while 1e+21 above keeps "+21".
+    CHECK(emit(1e-7) == "1e-7");
+    CHECK(emit(1e-9) == "1e-9");
+    CHECK(emit(1e-10) == "1e-10");
+  }
+
+  SUBCASE("three-digit exponents keep all digits, no trimming") {
+    CHECK(emit(1e100) == "1e+100");
+    CHECK(emit(1e-100) == "1e-100");
+  }
+
+  SUBCASE("negative zero keeps its sign bit") {
+    CHECK(emit(-0.0) == "-0");
+  }
+}
