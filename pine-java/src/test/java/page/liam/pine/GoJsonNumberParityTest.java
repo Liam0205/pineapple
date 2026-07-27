@@ -87,6 +87,44 @@ class GoJsonNumberParityTest {
     }
 
     @Test
+    void nonFiniteStaysQuotedSoTheResponseRemainsParseable() throws Exception {
+        // Go's encoding/json refuses NaN/Infinity, so there is no byte sequence
+        // to match here and byte parity is not the goal — valid JSON is. This
+        // path is reachable: the write path validates NaN/Inf, but a request
+        // carrying 1e400 does not go through it, and Jackson coerces that to
+        // Infinity on parse (Go and C++ reject the request outright instead).
+        //
+        // An earlier version of the serializer wrote formatJsonNumber's output
+        // unconditionally, which emitted a bare +Inf token and made the whole
+        // response unparseable.
+        assertEquals("\"Infinity\"", emit(Double.POSITIVE_INFINITY));
+        assertEquals("\"-Infinity\"", emit(Double.NEGATIVE_INFINITY));
+        assertEquals("\"NaN\"", emit(Double.NaN));
+    }
+
+    @Test
+    void wholeDocumentStaysParseableWithNonFiniteValues() throws Exception {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("inf", Double.POSITIVE_INFINITY);
+        m.put("nan", Double.NaN);
+        m.put("ok", 1e20);
+        String json = MAPPER.writeValueAsString(m);
+        // Must round-trip through a strict parser.
+        new ObjectMapper().readTree(json);
+        org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"inf\":\"Infinity\""), json);
+        org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"ok\":100000000000000000000"), json);
+    }
+
+    @Test
+    void formatJsonNumberRefusesNonFiniteRatherThanInventingBytes() {
+        for (double d : new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY}) {
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> GoFormat.formatJsonNumber(d),
+                    "formatJsonNumber must not fabricate a representation for " + d);
+        }
+    }
+
+    @Test
     void formatJsonNumberMatchesTheSerializer() throws Exception {
         // The serializer must not carry its own second copy of the rule.
         double[] vals = {

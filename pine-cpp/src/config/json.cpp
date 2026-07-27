@@ -449,7 +449,7 @@ DecimalParts go_json_decompose(const std::string& s) {
 
 // Renders as Go's strconv.FormatFloat(d, 'f', -1, 64) does: plain decimal, no
 // exponent, shortest digits zero-filled out to the decimal point.
-std::string go_json_to_fixed(const std::string& shortest, double) {
+std::string go_json_to_fixed(const std::string& shortest) {
   DecimalParts p = go_json_decompose(shortest);
   if (p.digits.empty()) {
     return p.negative ? "-0" : "0";
@@ -479,7 +479,7 @@ std::string go_json_to_fixed(const std::string& shortest, double) {
 // exponent. Go's json does exactly that and nothing more, so 1e-7 prints as
 // "1e-7" while 1e+21 keeps its "+21" and 1e-100 keeps all three digits
 // (verified against encoding/json, not inferred).
-std::string go_json_to_scientific(const std::string& shortest, double) {
+std::string go_json_to_scientific(const std::string& shortest) {
   DecimalParts p = go_json_decompose(shortest);
   if (p.digits.empty()) {
     return p.negative ? "-0" : "0";
@@ -545,7 +545,7 @@ std::string go_format_json_number(double d) {
     return oss.str();
   }
   std::string shortest(buf, ptr);
-  return use_scientific ? go_json_to_scientific(shortest, d) : go_json_to_fixed(shortest, d);
+  return use_scientific ? go_json_to_scientific(shortest) : go_json_to_fixed(shortest);
 }
 
 namespace {
