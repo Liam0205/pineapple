@@ -120,7 +120,7 @@ cross-validate 侧的两条通道也都没拦住：
   失败后会回落到 `normalize_json` 再比一次，相等就**记 `[W]` 警告并计为 pass**。
   key 顺序差异因此被有意容忍——这就是 #183 长期不可见的直接原因。
 - `scripts/cross-validate/14-byte-exact-execute.sh` 是真正的字节通道（`curl` 响应
-  体直接 `==`），但只有 4 个 fixture。其中 `04_number_precision.json` 名字看起来
+  体直接 `==`），本任务前只有 4 个 fixture（本任务新增第 5 个）。其中 `04_number_precision.json` 名字看起来
   正好覆盖本缺陷，实际输入是 `100000 / 1000001 / 0.5`，×2 后全部落在
   ±2^53 内的整数值区间——**恰好是 Java 旧代码唯一处理对的那个区间**。
 
@@ -190,7 +190,7 @@ md5 不同。逐字段查完发现 **600 个数字字面量全部一致**，差�
 - **进 `guides/ci-quality-baseline.md`：校验通道能钉住的属性表**——differential-fuzz
   归一化抹掉 key 顺序与部分数字拼写（含 int/float 分裂导致的检出偏斜）；
   09-raw-byte 把 key-order-only 差异降级为警告；14-byte-exact 是唯一真字节通道但
-  只有 4 个 fixture。配一条纪律：**声称字节级对等的属性，必须有一条不归一化的
+  本任务前只有 4 个 fixture，新增后 5 个。配一条纪律：**声称字节级对等的属性，必须有一条不归一化的
   通道覆盖**。
 - **进 `memory/doc-gaps.md`：字节级对等校验缺口**——待决策项，是给 fuzz 加不归一化
   字节通道，还是扩 `fixtures/server_byte_exact/`，还是取消 09 的 `[W]` 降级。
