@@ -152,60 +152,8 @@ class GoJsonNumberParityTest {
     }
 
     @Test
-    void normalDoublesDoNotPayForTheSubnormalSearch() throws Exception {
-        // shortestRoundTrip must not walk precision upward from 1 for values
-        // Double.toString already renders minimally. An earlier version did,
-        // costing ~6.8us per value against ~0.08us for Double.toString, on the
-        // /execute response path for every double field.
-        //
-        // Asserted as a ratio against Double.toString measured in the same JVM
-        // rather than an absolute microsecond figure, so this does not become a
-        // machine-speed tripwire. The regressed version was ~90x; correct is
-        // well under 40x, so 60x separates them with room for noise.
-        // The sample must span the intervals that render differently, not just
-        // one of them. An earlier version used nextDouble()*1000, which lands
-        // 99.9% of its values at |d| >= 1 — the interval where the fast path
-        // already fired — so it reported 20x while [0.001, 1) was silently
-        // running at 144x. Mixing the shapes is what makes this assertion mean
-        // what its name says.
-        java.util.Random r = new java.util.Random(180);
-        double[] vals = new double[60000];
-        for (int i = 0; i < vals.length; i++) {
-            int shape = i % 3;
-            if (shape == 0) {
-                vals[i] = r.nextDouble() * 1000.0;          // |d| >= 1 mostly
-            } else if (shape == 1) {
-                vals[i] = 0.001 + r.nextDouble() * 0.999;   // [0.001, 1)
-            } else {
-                vals[i] = Math.floor(r.nextDouble() * 10000);  // integer-valued
-            }
-        }
-        for (int i = 0; i < 10000; i++) {
-            GoFormat.formatJsonNumber(vals[i]);
-            Double.toString(vals[i]);
-        }
-        long t0 = System.nanoTime();
-        for (double d : vals) {
-            GoFormat.formatJsonNumber(d);
-        }
-        long ours = System.nanoTime() - t0;
-        t0 = System.nanoTime();
-        for (double d : vals) {
-            Double.toString(d);
-        }
-        long baseline = Math.max(System.nanoTime() - t0, 1L);
-        double ratio = (double) ours / baseline;
-        org.junit.jupiter.api.Assertions.assertTrue(ratio < 60.0,
-                "formatJsonNumber is " + String.format("%.1f", ratio)
-                        + "x Double.toString; the upward-search regression measured ~90x");
-    }
-
-    @Test
-    void integerValuedDoublesTakeTheFastPath() throws Exception {
-        // Double.toString writes "1.0" for 1.0, and counting that trailing zero
-        // as significant made the one-fewer-digit probe succeed, sending every
-        // integer-valued double into the search loop. Values must be unchanged;
-        // the cost is covered by normalDoublesDoNotPayForTheSubnormalSearch.
+    void integerValuedDoublesDropTheFractionalPart() throws Exception {
+        // Double.toString writes "1.0"; Go writes "1".
         assertEquals("1", emit(1.0));
         assertEquals("42", emit(42.0));
         assertEquals("100", emit(100.0));
@@ -214,43 +162,24 @@ class GoJsonNumberParityTest {
     }
 
     @Test
-    void integerValuedLoadIsNotSlowerThanFractional() throws Exception {
-        // The fast path must actually cover integer-valued doubles. Before the
-        // trailing-".0" fix they were ~60% SLOWER than 17-digit fractional
-        // values; correct behaviour makes them faster, since they need fewer
-        // digits. Compared against fractional values in the same JVM so this is
-        // a shape assertion, not a machine-speed one.
-        java.util.Random r = new java.util.Random(180);
-        double[] ints = new double[50000];
-        double[] frac = new double[50000];
-        for (int i = 0; i < ints.length; i++) {
-            ints[i] = Math.floor(r.nextDouble() * 10000);
-            frac[i] = r.nextDouble() * 1000;
-        }
-        for (int i = 0; i < 10000; i++) {
-            GoFormat.formatJsonNumber(ints[i]);
-            GoFormat.formatJsonNumber(frac[i]);
-        }
-        long t0 = System.nanoTime();
-        for (double d : ints) {
-            GoFormat.formatJsonNumber(d);
-        }
-        long intNanos = System.nanoTime() - t0;
-        t0 = System.nanoTime();
-        for (double d : frac) {
-            GoFormat.formatJsonNumber(d);
-        }
-        long fracNanos = Math.max(System.nanoTime() - t0, 1L);
-        org.junit.jupiter.api.Assertions.assertTrue(intNanos < fracNanos,
-                "integer-valued doubles took " + intNanos + "ns vs " + fracNanos
-                        + "ns for fractional; they should be the cheaper class");
-    }
-
-    @Test
     void negativeNaNNormalizesLikePositiveNaN() throws Exception {
         // The isNaN guard's only observable effect: without it -NaN renders as
         // "-nan" in C++ and would diverge here too.
         assertEquals("\"NaN\"", emit(Double.longBitsToDouble(0xFFF8000000000000L)));
+    }
+
+    @Test
+    void digitsComeFromDoubleToStringNotFromRoundingTheExactValue() throws Exception {
+        // Shortening must operate on the digits Double.toString chose. Rounding
+        // the exact binary expansion instead (BigDecimal(double) plus a
+        // MathContext) selects a different final digit for some values, because
+        // MathContext rounds HALF_UP on the true value while Go reports the
+        // digit nearest the double. These four all came out one ulp-of-the-last
+        // -digit high that way; a 200k random sweep found over 50 such cases.
+        assertEquals("2209012388886329.2", emit(Double.longBitsToDouble(0x431f64571af9dce5L)));
+        assertEquals("-1300666636127457.2", emit(Double.longBitsToDouble(0xc3127bcc33453385L)));
+        assertEquals("897344844809170.2", emit(Double.longBitsToDouble(0x4309810b05ba1e92L)));
+        assertEquals("171744423733713.12", emit(Double.longBitsToDouble(0x42e3866babcd3a24L)));
     }
 
     @Test

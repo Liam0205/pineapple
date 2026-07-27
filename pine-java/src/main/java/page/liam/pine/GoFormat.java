@@ -72,106 +72,46 @@ public final class GoFormat {
      * Shortest decimal string that round-trips to {@code d}, which is what Go's
      * precision -1 means.
      *
-     * <p>{@code Double.toString} is documented as producing "as many digits as
-     * are needed to uniquely distinguish the argument value", and for normal
-     * doubles it does. It is NOT shortest for subnormals: it renders
+     * <p>{@code Double.toString} is NOT that string in general: it renders
      * {@code Double.MIN_VALUE} as "4.9E-324" when the single digit "5E-324"
-     * already round-trips to the same bits, and Go emits "5e-324". Eight
-     * subnormal values diverged this way before this method existed.
+     * already round-trips to the same bits, and Go emits the latter. Eight
+     * subnormal values diverged that way before this method existed.
      *
-     * <p>So: take Double.toString when it is already shortest, and only shorten
-     * when it is not. "Already shortest" is checked by asking whether one fewer
-     * significant digit still round-trips — if it does not, Double.toString's
-     * rendering is minimal and is returned as is. That check is a single
-     * BigDecimal round-trip and it succeeds for every normal double.
+     * <p>So search: try one significant digit, then two, and return the first
+     * rendering that parses back to the identical double. The first hit is by
+     * construction the shortest, since the candidates are generated in
+     * increasing length.
      *
-     * <p>The ordering matters for throughput, not correctness. An earlier
-     * version looped upward from precision 1 and returned the first candidate
-     * that round-tripped, which is the same answer but pays a failed
-     * BigDecimal-round-and-parse for every digit below the true minimum: 6.8
-     * microseconds per value against 0.076 for Double.toString, on the
-     * /execute response path for every double field. Its comment claimed
-     * normal doubles settled on the first attempt; they were in fact the slow
-     * case.
+     * <p>Deliberately unoptimized. Earlier versions added a fast path that
+     * skipped the search when Double.toString was already minimal, guarded by a
+     * digit count. Three review rounds each found a different input class that
+     * the guard silently excluded — integer-valued doubles, then everything
+     * below 1.0 — because the digit count and the benchmark sample disagreed
+     * about which values mattered. Each iteration was correct on output and
+     * wrong on the claim in its own comment. The loop below cannot be wrong
+     * about which inputs it covers, because it covers all of them the same way.
+     * If this ever needs to be faster, benchmark [0.001,1), [1,1000) and
+     * integer-valued separately: a sample drawn from any one of them will
+     * confirm whatever you already believe.
      */
     private static String shortestRoundTrip(double d) {
         String repr = Double.toString(d);
-        int digits = countSignificantDigits(repr);
-        if (digits <= 1) {
-            return repr;
-        }
-        // Fast path: if dropping one digit already fails to round-trip, then
-        // Double.toString is minimal and no search is needed. This holds for
-        // normal doubles once countSignificantDigits ignores the trailing ".0"
-        // that Double.toString always writes — before that it did not hold for
-        // integer-valued doubles, which became the slowest class rather than
-        // the fastest. Subnormals still fall through to the loop by design.
-        if (!roundTripsAt(d, digits - 1)) {
-            return repr;
-        }
-        for (int precision = 1; precision < digits; precision++) {
-            String candidate = renderAt(d, precision);
+        // Shorten only the digits Double.toString chose. Rounding the exact
+        // binary value instead (BigDecimal(double) with a MathContext) picks a
+        // different last digit for some values, because MathContext rounds
+        // HALF_UP on the true expansion while Go's shortest algorithm reports
+        // the digit nearest the double: 2209012388886329.2 in Go against
+        // ...329.3 that way, over 50 such divergences in a 200k random sweep.
+        // Double.toString's digits are already the correct ones; the only thing
+        // wrong with them is that there can be too many.
+        java.math.BigDecimal exact = new java.math.BigDecimal(repr);
+        for (int precision = 1; precision < 17; precision++) {
+            String candidate = exact.round(new java.math.MathContext(precision)).toString();
             if (Double.parseDouble(candidate) == d) {
                 return candidate;
             }
         }
         return repr;
-    }
-
-    private static String renderAt(double d, int precision) {
-        return new java.math.BigDecimal(d).round(new java.math.MathContext(precision)).toString();
-    }
-
-    private static boolean roundTripsAt(double d, int precision) {
-        return Double.parseDouble(renderAt(d, precision)) == d;
-    }
-
-    private static int countSignificantDigits(String repr) {
-        int mantissaEnd = repr.length();
-        for (int i = 0; i < repr.length(); i++) {
-            if (repr.charAt(i) == 'E' || repr.charAt(i) == 'e') {
-                mantissaEnd = i;
-                break;
-            }
-        }
-        // Double.toString always writes a fractional part, so an integer-valued
-        // double arrives as "1.0" / "1.0E20". That trailing zero is a syntax
-        // requirement, not a significant digit: counting it made digits=2 for
-        // 1.0, the one-fewer-digit probe in shortestRoundTrip then succeeded
-        // ("1" round-trips), and EVERY integer-valued double fell through to the
-        // search loop — the opposite of what the fast path is for, and measured
-        // as the slowest input class. Strip it before counting.
-        if (mantissaEnd >= 2 && repr.charAt(mantissaEnd - 1) == '0'
-                && repr.charAt(mantissaEnd - 2) == '.') {
-            mantissaEnd -= 2;
-        }
-        // Leading zeros are placeholders, not significant digits: "0.001234"
-        // has 4, and "0.5" has 1. Excluding them does not change the RESULT —
-        // shortestRoundTrip returns the shortest round-tripping candidate
-        // either way — but it decides whether the fast path fires at all, and
-        // getting that wrong is expensive rather than merely untidy.
-        //
-        // Every double below 1.0 renders with at least the "0." prefix, so
-        // counting those zeros inflated the count by one or more, the
-        // one-fewer-digit probe in shortestRoundTrip then succeeded, and the
-        // whole interval fell through to the search loop: measured 8065 ns per
-        // value over [0.001, 1) against 1104 over [1, 1000). That interval is
-        // the natural range of scores and probabilities, so it is hot on the
-        // /execute response path.
-        int count = 0;
-        boolean seenNonZero = false;
-        for (int i = 0; i < mantissaEnd; i++) {
-            char c = repr.charAt(i);
-            if (c < '0' || c > '9') {
-                continue;
-            }
-            if (c == '0' && !seenNonZero) {
-                continue;
-            }
-            seenNonZero = true;
-            count++;
-        }
-        return Math.max(count, 1);
     }
 
     /**
