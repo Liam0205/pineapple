@@ -385,6 +385,135 @@ class Parser {
 
 }  // namespace
 
+namespace {
+
+// Splits a shortest-round-trip rendering from std::to_chars into a sign, a
+// digit string with no decimal point, and a decimal exponent such that the
+// value is sign * 0.<digits> * 10^exp10. to_chars picks fixed or scientific on
+// its own, so both shapes have to be accepted here.
+struct DecimalParts {
+  bool negative = false;
+  std::string digits;  // significant digits, no '.', no leading zeros
+  int exp10 = 0;       // number of digits before the decimal point
+};
+
+DecimalParts go_json_decompose(const std::string& s) {
+  DecimalParts p;
+  std::size_t i = 0;
+  if (i < s.size() && (s[i] == '-' || s[i] == '+')) {
+    p.negative = (s[i] == '-');
+    ++i;
+  }
+  std::string mantissa;
+  int point_pos = -1;
+  for (; i < s.size(); ++i) {
+    if (s[i] == '.') {
+      point_pos = static_cast<int>(mantissa.size());
+      continue;
+    }
+    if (s[i] == 'e' || s[i] == 'E') {
+      ++i;
+      int sign = 1;
+      if (i < s.size() && (s[i] == '-' || s[i] == '+')) {
+        sign = (s[i] == '-') ? -1 : 1;
+        ++i;
+      }
+      int e = 0;
+      for (; i < s.size(); ++i) {
+        e = e * 10 + (s[i] - '0');
+      }
+      p.exp10 = sign * e;
+      break;
+    }
+    mantissa.push_back(s[i]);
+  }
+  if (point_pos < 0) {
+    point_pos = static_cast<int>(mantissa.size());
+  }
+  // exp10 so far holds only the explicit exponent; add the point position.
+  p.exp10 += point_pos;
+  // Strip leading zeros, adjusting the exponent as we go (0.001 -> digits "1").
+  std::size_t lead = 0;
+  while (lead < mantissa.size() && mantissa[lead] == '0') {
+    ++lead;
+    --p.exp10;
+  }
+  mantissa.erase(0, lead);
+  // Strip trailing zeros: they carry no information in this representation.
+  while (!mantissa.empty() && mantissa.back() == '0') {
+    mantissa.pop_back();
+  }
+  p.digits = mantissa;
+  return p;
+}
+
+// Renders as Go's strconv.FormatFloat(d, 'f', -1, 64) does: plain decimal, no
+// exponent, shortest digits zero-filled out to the decimal point.
+std::string go_json_to_fixed(const std::string& shortest, double) {
+  DecimalParts p = go_json_decompose(shortest);
+  if (p.digits.empty()) {
+    return p.negative ? "-0" : "0";
+  }
+  std::string out;
+  if (p.negative) {
+    out.push_back('-');
+  }
+  int nd = static_cast<int>(p.digits.size());
+  if (p.exp10 <= 0) {
+    out += "0.";
+    out.append(static_cast<std::size_t>(-p.exp10), '0');
+    out += p.digits;
+  } else if (p.exp10 >= nd) {
+    out += p.digits;
+    out.append(static_cast<std::size_t>(p.exp10 - nd), '0');
+  } else {
+    out.append(p.digits, 0, static_cast<std::size_t>(p.exp10));
+    out.push_back('.');
+    out.append(p.digits, static_cast<std::size_t>(p.exp10), std::string::npos);
+  }
+  return out;
+}
+
+// Renders as Go's encoding/json does for the scientific branch: strconv's
+// 'e' format, then ONE leading zero trimmed from a two-digit negative
+// exponent. Go's json does exactly that and nothing more, so 1e-7 prints as
+// "1e-7" while 1e+21 keeps its "+21" and 1e-100 keeps all three digits
+// (verified against encoding/json, not inferred).
+std::string go_json_to_scientific(const std::string& shortest, double) {
+  DecimalParts p = go_json_decompose(shortest);
+  if (p.digits.empty()) {
+    return p.negative ? "-0" : "0";
+  }
+  std::string out;
+  if (p.negative) {
+    out.push_back('-');
+  }
+  out.push_back(p.digits[0]);
+  if (p.digits.size() > 1) {
+    out.push_back('.');
+    out.append(p.digits, 1, std::string::npos);
+  }
+  int e = p.exp10 - 1;  // 0.<digits> * 10^exp10 == <d0>.<rest> * 10^(exp10-1)
+  out.push_back('e');
+  if (e < 0) {
+    out.push_back('-');
+    e = -e;
+  } else {
+    out.push_back('+');
+  }
+  std::string es = std::to_string(e);
+  if (es.size() < 2) {
+    es.insert(es.begin(), '0');  // strconv pads to at least two digits
+  }
+  if (p.exp10 - 1 < 0 && es.size() == 2 && es[0] == '0') {
+    es.erase(es.begin());  // json trims that pad back off for negatives only
+  }
+  out += es;
+  return out;
+}
+
+}  // namespace
+
 // go_format_json_number formats a double matching Go's encoding/json byte-for-byte.
 // Go rule (encoding/json/encode.go floatEncoder): for float64, use 'f' format
 // (fixed-point, shortest digits) when 1e-6 <= |x| < 1e21, else 'e' (scientific,
@@ -397,14 +526,26 @@ std::string go_format_json_number(double d) {
   double abs_d = std::abs(d);
   bool use_scientific = (abs_d < 1e-6) || (abs_d >= 1e21);
   char buf[64];
-  auto fmt = use_scientific ? std::chars_format::scientific : std::chars_format::fixed;
-  auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d, fmt);
+
+  // Always source the digits from chars_format::scientific, then reposition the
+  // decimal point ourselves. Go uses strconv.FormatFloat(d, 'f'|'e', -1, 64),
+  // where precision -1 means "fewest digits that round-trip".
+  //
+  // Neither of the other to_chars modes gives that. chars_format::fixed prints
+  // the value exactly, and so does the default overload once the magnitude is
+  // large enough to render without an exponent — both turn
+  // 1.0000000000000002e20 into 100000000000000016384 where Go emits
+  // 100000000000000020000. Same double, different bytes: that is issue #180.
+  // Only the scientific form is guaranteed shortest-round-trip, so it is the
+  // single source of digits for both output shapes.
+  auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d, std::chars_format::scientific);
   if (ec != std::errc()) {
     std::ostringstream oss;
     oss << std::setprecision(17) << d;
     return oss.str();
   }
-  return std::string(buf, ptr);
+  std::string shortest(buf, ptr);
+  return use_scientific ? go_json_to_scientific(shortest, d) : go_json_to_fixed(shortest, d);
 }
 
 namespace {
