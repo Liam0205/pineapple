@@ -68,6 +68,97 @@ public final class GoFormat {
         return v.toString();
     }
 
+
+
+    /**
+     * Replicates Go's encoding/json number output for a float64, byte for byte.
+     *
+     * <p>Go's rule (encoding/json/encode.go floatEncoder): render with
+     * strconv.FormatFloat(d, fmt, -1, 64), choosing 'e' when the magnitude is
+     * below 1e-6 or at/above 1e21 and 'f' otherwise. Precision -1 means the
+     * fewest digits that round-trip. Double.toString is that for normal
+     * doubles but NOT for subnormals, so the digits come from
+     * {@link #shortestRoundTrip} and only their placement differs here.
+     *
+     * <p>This is deliberately separate from {@link #formatFloatF} (always
+     * decimal, used for Lua/field formatting) and from the %g emulation. The
+     * three have different thresholds and are not interchangeable — conflating
+     * the JSON path with the others is how issue #180 arose.
+     *
+     * <p>One quirk is load-bearing and was verified against encoding/json
+     * rather than inferred: strconv pads exponents to two digits ("1e-07"),
+     * and json then strips a single leading zero from NEGATIVE exponents only.
+     * So 1e-7 prints as "1e-7", while 1e+21 keeps "+21" and 1e-100 keeps all
+     * three digits.
+     */
+
+
+    public static String formatJsonNumber(double d) {
+        if (Double.isNaN(d) || Double.isInfinite(d)) {
+            // Go's encoding/json refuses these outright (UnsupportedValueError),
+            // so there is no Go byte sequence to match and this method has no
+            // correct answer to give. It throws rather than inventing one: the
+            // caller decides, and the serializer keeps Jackson's quoted-string
+            // form because that is the only shape that stays parseable JSON.
+            //
+            // An earlier version returned formatFloatF(d) here, i.e. "+Inf",
+            // which the serializer then wrote as a bare token — invalid JSON.
+            // Reachable in practice: the write path validates NaN/Inf, but a
+            // request carrying 1e400 does not go through it, and Jackson
+            // silently coerces that to Infinity on parse where Go and C++ both
+            // reject it. See the isNonFinite tests.
+            throw new IllegalArgumentException(
+                    "NaN/Infinity has no Go encoding/json representation: " + d);
+        }
+        if (d == 0.0) {
+            return (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) ? "-0" : "0";
+        }
+        // new BigDecimal(String) is exact; new BigDecimal(double) would
+        // reintroduce the full binary expansion we are trying to avoid.
+        return formatDecimal(new java.math.BigDecimal(shortestRoundTrip(d)).stripTrailingZeros(),
+                Math.abs(d), d < 0);
+    }
+    /**
+     * Go's encoding/json output for a float32, byte for byte.
+     *
+     * <p>Go calls strconv.AppendFloat with bitSize=32, so the digits are the
+     * shortest that round-trip through a float32 — NOT through a double. That
+     * distinction is the whole reason this method exists: widening first and
+     * formatting as a double surfaces the binary noise the narrower type was
+     * hiding. float32 0.1 must print "0.1", but (double) 0.1f is
+     * 0.10000000149011612, and 1e20f widens to 100000002004087730000 where Go
+     * emits 100000000000000000000.
+     *
+     * <p>Float.toString supplies the digits, but is not shortest for subnormals
+     * — the same defect the double path has with Double.toString. It renders
+     * Float.MIN_VALUE as "1.4E-45" when "1E-45" round-trips, and Go emits the
+     * latter; 11 low subnormals diverged that way. So the digits go through
+     * shortestRoundTrip(float) first, which shortens against float precision.
+     * Placement and thresholds are then identical to the double case, which is
+     * why this delegates rather than duplicating them.
+     */
+    public static String formatJsonNumber(float f) {
+        if (Float.isNaN(f) || Float.isInfinite(f)) {
+            throw new IllegalArgumentException(
+                    "NaN/Infinity has no Go encoding/json representation: " + f);
+        }
+        if (f == 0.0f) {
+            return (Float.floatToRawIntBits(f) == Float.floatToRawIntBits(-0.0f)) ? "-0" : "0";
+        }
+        // Re-parse the shortest float digits as a decimal, then run the same
+        // placement rules as the double path over exactly those digits.
+        //
+        // The threshold is compared against the SHORTENED decimal, not against
+        // the widened double. Go's floatEncoder tests abs(float64(f)) — but it
+        // does so after strconv has already produced the 32-bit shortest form,
+        // and for one float32 near the boundary the two disagree: bits
+        // 897988541 widens to 9.999999974752427e-07, which is below 1e-6, while
+        // its shortest float rendering is 1e-06, which is not. Go prints
+        // 0.000001; comparing the widened double gives 1e-6.
+        java.math.BigDecimal shortened =
+                new java.math.BigDecimal(shortestRoundTrip(f)).stripTrailingZeros();
+        return formatDecimal(shortened, shortened.abs().doubleValue(), f < 0);
+    }
     /**
      * Shortest decimal string that round-trips to {@code d}, which is what Go's
      * precision -1 means.
@@ -118,61 +209,42 @@ public final class GoFormat {
         }
         return repr;
     }
-
     /**
-     * Replicates Go's encoding/json number output for a float64, byte for byte.
-     *
-     * <p>Go's rule (encoding/json/encode.go floatEncoder): render with
-     * strconv.FormatFloat(d, fmt, -1, 64), choosing 'e' when the magnitude is
-     * below 1e-6 or at/above 1e21 and 'f' otherwise. Precision -1 means the
-     * fewest digits that round-trip. Double.toString is that for normal
-     * doubles but NOT for subnormals, so the digits come from
-     * {@link #shortestRoundTrip} and only their placement differs here.
-     *
-     * <p>This is deliberately separate from {@link #formatFloatF} (always
-     * decimal, used for Lua/field formatting) and from the %g emulation. The
-     * three have different thresholds and are not interchangeable — conflating
-     * the JSON path with the others is how issue #180 arose.
-     *
-     * <p>One quirk is load-bearing and was verified against encoding/json
-     * rather than inferred: strconv pads exponents to two digits ("1e-07"),
-     * and json then strips a single leading zero from NEGATIVE exponents only.
-     * So 1e-7 prints as "1e-7", while 1e+21 keeps "+21" and 1e-100 keeps all
-     * three digits.
+     * Shortest decimal string that round-trips to {@code f} through FLOAT
+     * precision. Mirrors the double overload, including the reason it operates
+     * on Float.toString's digits rather than on the exact binary expansion.
      */
-    public static String formatJsonNumber(double d) {
-        if (Double.isNaN(d) || Double.isInfinite(d)) {
-            // Go's encoding/json refuses these outright (UnsupportedValueError),
-            // so there is no Go byte sequence to match and this method has no
-            // correct answer to give. It throws rather than inventing one: the
-            // caller decides, and the serializer keeps Jackson's quoted-string
-            // form because that is the only shape that stays parseable JSON.
-            //
-            // An earlier version returned formatFloatF(d) here, i.e. "+Inf",
-            // which the serializer then wrote as a bare token — invalid JSON.
-            // Reachable in practice: the write path validates NaN/Inf, but a
-            // request carrying 1e400 does not go through it, and Jackson
-            // silently coerces that to Infinity on parse where Go and C++ both
-            // reject it. See the isNonFinite tests.
-            throw new IllegalArgumentException(
-                    "NaN/Infinity has no Go encoding/json representation: " + d);
+    private static String shortestRoundTrip(float f) {
+        String repr = Float.toString(f);
+        java.math.BigDecimal exact = new java.math.BigDecimal(repr);
+        for (int precision = 1; precision < 9; precision++) {
+            String candidate = exact.round(new java.math.MathContext(precision)).toString();
+            if (Float.parseFloat(candidate) == f) {
+                return candidate;
+            }
         }
-        if (d == 0.0) {
-            return (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) ? "-0" : "0";
-        }
-        double abs = Math.abs(d);
+        return repr;
+    }
+    /**
+     * Places the decimal point for an already-shortest set of digits, applying
+     * Go's encoding/json thresholds. Shared by the double and float paths: the
+     * bit width only affects which digits are shortest, never where the point
+     * goes or how the exponent is spelled.
+     *
+     * @param bd shortest round-tripping digits for the value
+     * @param abs magnitude, deciding fixed versus scientific
+     * @param negative whether to emit a leading '-' (passed separately so -0.0
+     *     and negative zero-scale values are handled by the caller)
+     */
+    private static String formatDecimal(java.math.BigDecimal bd, double abs, boolean negative) {
         boolean scientific = abs < 1e-6 || abs >= 1e21;
-        // new BigDecimal(String) is exact; new BigDecimal(double) would
-        // reintroduce the full binary expansion we are trying to avoid.
-        java.math.BigDecimal bd =
-                new java.math.BigDecimal(shortestRoundTrip(d)).stripTrailingZeros();
         if (!scientific) {
             return bd.toPlainString();
         }
         String digits = bd.unscaledValue().abs().toString();
         int exp10 = digits.length() - bd.scale() - 1;
         StringBuilder sb = new StringBuilder();
-        if (d < 0) {
+        if (negative) {
             sb.append('-');
         }
         sb.append(digits.charAt(0));
@@ -433,6 +505,38 @@ public final class GoFormat {
         // arrays with a dedicated ArraySerializer that writes elements directly
         // rather than delegating to a per-element serializer, so neither of the
         // registrations above reaches them.
+        // Float gets the same three registrations. It is an accepted frame value
+        // type in all three runtimes (pine-go row_frame.go's `case float32`,
+        // pine-java DataFrame/ColumnFrame's `instanceof Float`), so a custom
+        // operator writing one reaches the serializer even though no built-in
+        // operator does today — the same "closing a hole" reasoning as
+        // Double.TYPE above, and the reason the type list has to be complete
+        // rather than just covering the paths that exist.
+        StdSerializer<Float> goFloatSerializer = new StdSerializer<Float>(Float.class) {
+            @Override
+            public void serialize(Float value, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                float f = value.floatValue();
+                if (Float.isNaN(f) || Float.isInfinite(f)) {
+                    gen.writeNumber(f);
+                    return;
+                }
+                gen.writeRawValue(formatJsonNumber(f));
+            }
+        };
+        module.addSerializer(Float.class, goFloatSerializer);
+        module.addSerializer(Float.TYPE, goFloatSerializer);
+        module.addSerializer(float[].class, new StdSerializer<float[]>(float[].class) {
+            @Override
+            public void serialize(float[] values, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                gen.writeStartArray();
+                for (float v : values) {
+                    goFloatSerializer.serialize(v, gen, provider);
+                }
+                gen.writeEndArray();
+            }
+        });
         module.addSerializer(double[].class, new StdSerializer<double[]>(double[].class) {
             @Override
             public void serialize(double[] values, JsonGenerator gen, SerializerProvider provider)

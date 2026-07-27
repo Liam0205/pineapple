@@ -1,8 +1,11 @@
 #include <doctest/doctest.h>
 
+#include <limits>
+
 #include "operators/_helpers.hpp"
 
 using pine::operators::go_format_g;
+using pine::operators::go_format_lookup_key;
 
 TEST_CASE("go_format_g matches Go strconv.FormatFloat('g', -1, 64) at long-integer boundaries") {
   // Each line below was captured from `strconv.FormatFloat(v, 'g', -1, 64)`
@@ -49,4 +52,18 @@ TEST_CASE("go_format_lookup_key matches Go FormatInt / FormatFloat('f', -1)") {
   CHECK(go_format_lookup_key(1e-5).find('e') == std::string::npos);
   CHECK(go_format_lookup_key(1e-5).find('E') == std::string::npos);
   CHECK(go_format_lookup_key(1e-5) == "0.00001");
+}
+
+TEST_CASE("go_format_lookup_key: subnormal falls back to scientific (known divergence)") {
+  // Pins the C++ half of the three-way resource-key divergence documented in
+  // llmdoc/reference/number-formatting-parity.md. Go emits 326 characters and
+  // pine-java 327; this returns "5e-324" because go_format_lookup_key's
+  // char buf[64] cannot hold a 326-character expansion, so to_chars reports
+  // value_too_large and the go_format_g fallback emits scientific notation.
+  //
+  // Asserted so that widening the buffer is a deliberate act with a failing
+  // test to update. Without this, someone unifying the key derivation could
+  // change the Java side, watch its pinned test go red, fix it, and never learn
+  // that C++ still disagrees.
+  CHECK(go_format_lookup_key(std::numeric_limits<double>::denorm_min()) == "5e-324");
 }
