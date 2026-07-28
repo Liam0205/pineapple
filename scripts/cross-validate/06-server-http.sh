@@ -40,7 +40,14 @@ pc = cfg.get('pipeline_config', {})
 ops = pc.get('operators', {})
 if ops:
     names = list(ops)
-    rename = {n: chr(122 - i) + 'zz_' + n for i, n in enumerate(names)}
+    # The prefix carries HTML-special characters on purpose. Operator names
+    # reach the response through trace[].name and /stats.operators keys, both
+    # of which go through the hand-written JSON path — a separate escaping
+    # implementation from the Variant writer, and one that lacked Go's
+    # HTML-safe escapes until issue #183. An all-ASCII-safe prefix could not
+    # detect that. chr(122-i) keeps declaration order reverse-alphabetical for
+    # the /stats.operators sort check.
+    rename = {n: chr(122 - i) + 'z<&>_' + n for i, n in enumerate(names)}
     pc['operators'] = {rename[n]: ops[n] for n in names}
     pm = pc.get('pipeline_map', {})
     for stage in pm.values():

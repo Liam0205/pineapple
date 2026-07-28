@@ -39,7 +39,7 @@
 
 `memory/` 下有 `reflections/` 与 `decisions/` 两个子目录（各自分节列在下方），以及下列直接位于顶层的文件：
 
-- `llmdoc/memory/doc-gaps.md` — 跨任务累积的文档与质量检查缺口跟踪（已确认存在、不属任何单次任务、需单独排期决策的条目；与 reflections「单次任务教训」和 decisions「已定下的取舍」分工）：clang-format 无 CI job（`cpp-lint` 只做 `-Werror` + 卫生检查 + 字面量拼接排查，格式仅由可绕过的本地 pre-commit hook 守，待决策是否加 fmt-check job 并锁版本）、`projectMap` 空列表投影语义在 fixture 编写视角无落点（同一陷阱已三次现身，待决策是否给 `reference/` 加独立契约条目）、issue #179 `storage_mode` 非法值兜底跨运行时分歧（已知分歧，未修，待决策修还是归档为 accepted difference）、字节级对等校验通道覆盖面太窄（(b) 取消 09 号通道归一化回落已由 issue #183 完成、14 号不再是唯一无归一化通道；(a) 扩 `fixtures/server_byte_exact/` 仍开放，目前 6 个 fixture）；另含「已关闭条目」节，当前一条为 issue #183 Java object key 顺序（已修，结论落 `reference/json-key-order-parity.md`，pine-cpp 的 `/execute` 无需改动、但 `/stats` 手写拼接 JSON 三处也错、已一并修）。
+- `llmdoc/memory/doc-gaps.md` — 跨任务累积的文档与质量检查缺口跟踪（已确认存在、不属任何单次任务、需单独排期决策的条目；与 reflections「单次任务教训」和 decisions「已定下的取舍」分工）：clang-format 无 CI job（`cpp-lint` 只做 `-Werror` + 卫生检查 + 字面量拼接排查，格式仅由可绕过的本地 pre-commit hook 守，待决策是否加 fmt-check job 并锁版本）、`projectMap` 空列表投影语义在 fixture 编写视角无落点（同一陷阱已三次现身，待决策是否给 `reference/` 加独立契约条目）、issue #179 `storage_mode` 非法值兜底跨运行时分歧（已知分歧，未修，待决策修还是归档为 accepted difference）、字节级对等校验通道覆盖面太窄（(b) 取消 09 号通道归一化回落已由 issue #183 完成、14 号不再是唯一无归一化通道；(a) 扩 `fixtures/server_byte_exact/` 仍开放，目前 7 个（数量以 `ls` 为准））；另含「已关闭条目」节，当前一条为 issue #183 Java object key 顺序（已修，结论落 `reference/json-key-order-parity.md`，pine-cpp 的 `/execute` 无需改动、但 `/stats` 手写拼接 JSON 三处也错、已一并修）。
 
 ## memory/reflections/
 

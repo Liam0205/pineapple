@@ -63,7 +63,7 @@ U+10000  UTF-16 d800 dc00   UTF-8 f0 90 80 80
 
 ## pine-cpp：走 Variant writer 的路径天然满足，手写 JSON 的路径不满足
 
-`pine-cpp/src/config/json_writer.cpp:33,54` 与 `json_writer.hpp:170`（递归那处，
+`pine-cpp/src/config/json_writer.cpp:33,54` 与 `json_writer.hpp` 里递归那处（
 「每一层都排」的实现点）的 `std::sort` 配 `std::string` 的 `<` 就是字节序，天然与 Go
 一致，含 BMP 之外的 key。`pine-cpp/tests/test_json.cpp` 的 "nested objects all sort
 keys (L5)" 用例钉着这条。**只要响应是由 `Variant` 经 writer 序列化出来的，key 顺序就不用管。**
@@ -72,6 +72,23 @@ keys (L5)" 用例钉着这条。**只要响应是由 `Variant` 经 writer 序列
 "object KEYS get Go's HTML-safe escaping" 用例双向钉住。
 
 这条是审计第八轮发现的，机制值得记：**同一个字符串属性（转义规则）在 key 与 value 两条路径上各实现一次，只有一条被审过。** 仓库里原有 `fixtures/pipelines/html_chars_passthrough.json` 只覆盖value 侧，key 侧无任何 fixture，且 fuzzer 的字段名池只有 `[a-z_]`，所以三条通道全都看不见。
+
+**第九轮又在同一形状上找到第二处，于是改成消除重复而不是补齐重复。** Go 的字符串转义规则在
+pine-cpp 里原本有**三份**独立实现：
+
+| 实现 | 服务的路径 | #183 前缺什么 |
+|---|---|---|
+| `detail::write_go_string` | `Variant` writer 的 value | （完整） |
+| `server.cpp` 的 `json_escape` | 手写 JSON：trace `name`、`/stats` 的 key、error/warning 文案 | HTML-safe、U+2028/U+2029 |
+| `metrics_collector.cpp` 的 `json_escape_str` | `/stats.resources` | HTML-safe、U+2028/U+2029、**以及所有控制字符** |
+
+第八轮修了 writer 的 key 分支，第九轮就在 `server.cpp` 那份上重现了同一个缺陷——算子名
+`a<b&c>d` 在 `trace[].name` 与 `/stats.operators` 的 key 上都出裸字节。**补齐第二份只会等第三份
+再犯**，所以后两份现在都改为委托 `write_go_string` 并剥掉它加的引号，仓库里只剩一份规则实现。
+
+纪律：**同一个字符串属性（转义、排序、数字拼写）在一个运行时里出现第二份实现时，第一反应应该是
+合并，而不是把规则抄一遍。** 抄一遍等于把「两处必须同步」这个约束交给未来的人记住，而本任务连续
+两轮证明了没人记得住。
 
 但 `/stats` 不走 writer：`server.cpp` 的 `handle_stats` 用字符串拼接手写 JSON，于是
 key 顺序就是源码里的书写顺序。issue #183 期间实测发现它顶层输出

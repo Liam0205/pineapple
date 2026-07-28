@@ -28,7 +28,7 @@
 
 ### 字节级对等的校验通道覆盖面太窄（(b) 已完成，(a) 仍开放）
 
-- **现状**：`scripts/cross-validate/14-byte-exact-execute.sh` 有 6 个 fixture（#180 加了 `06_number_format_regimes`，#183 加了 `07_non_bmp_keys`）（`fixtures/server_byte_exact/`），而「字节级对等」是全局契约，覆盖面与声明仍然不匹配。09 号通道的归一化回落已删（见「已做」），所以 14 号不再是唯一一条无归一化通道，但 fixture 数量这一半问题没动
+- **现状**：`scripts/cross-validate/14-byte-exact-execute.sh` 有 7 个 fixture（#180 加了 `06_number_format_regimes`，#183 加了 `07_non_bmp_keys` 与 `08_html_chars_in_keys`）。**数量以 `ls` 为准，不在文档里复述**——本行的数字已经过期两次（`fixtures/server_byte_exact/`），而「字节级对等」是全局契约，覆盖面与声明仍然不匹配。09 号通道的归一化回落已删（见「已做」），所以 14 号不再是唯一一条无归一化通道，但 fixture 数量这一半问题没动
 - **已做**：`guides/ci-quality-baseline.md` 有「校验通道能钉住的属性（归一化 vs 字节级）」节写清各通道可见性边界与那条纪律；issue #180 给 14 号通道补了 `06_number_format_regimes.json`；**(b) 已完成**——issue #183 删掉了 `09-raw-byte.sh` 的归一化回落（原先字节比较失败后回落 `normalize_json`、相等打 `[W]` 计 pass），现在字节不同即硬失败，仅 `strict_order: false` 的 fixture 仍走 set 归一化；同期 `scripts/differential-fuzz.py` 新增 `key_order_signature()`，key 顺序不再被 `normalize_json` 的 `sort_keys=True` 抹掉
 - **待决策**：(a) 继续扩 `fixtures/server_byte_exact/`，把「字节级」声明真正覆盖到主要响应形状。issue #183 没有新增 fixture，增强全部落在 09 号通道与 fuzz 上，所以这一半仍然开放。数字拼写在 `normalize_json` 下的可见性边界（`round(v,10)` + int/float 类型分裂）未变，仍需字节通道兜住。注：#183 已加 `07_non_bmp_keys.json`（BMP 外 key，钉住 `writeValueAsBytes` 的代理对转义与 UTF-8 比较器两处），但覆盖面仍远小于「字节级对等」这个全局声明，条目保持开放
 
