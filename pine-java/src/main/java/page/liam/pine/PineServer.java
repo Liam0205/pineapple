@@ -856,10 +856,23 @@ public class PineServer {
             //                                            structs (declaration order)
             //   scheduler  SchedulerStatsSnapshot      -> STRUCT, must not sort
             //   server     map[string]int64            -> sorts
-            //   http       map (nested maps)           -> sorts at every depth
+            //   http       map of map of HttpDurationBucket
+            //                                          -> the two map levels sort;
+            //                                             the bucket is a STRUCT
+            //   (see the caveat below)
             //   resources  map                         -> sorts at every depth
             // Sorting the whole tree would reorder `scheduler`; sorting nothing
             // leaves the rest in insertion order. Neither shortcut matches Go.
+            //
+            // CAVEAT on http: its innermost values are HttpDurationBucket structs
+            // (http_metrics.go:56), so Go keeps their FIELDS in declaration order
+            // while GoFormat.sorted descends and sorts them. That is currently
+            // invisible only because the struct has two fields whose declaration
+            // order already equals their sorted order (count, sum_ns). Adding a
+            // third field out of alphabetical order would diverge silently — the
+            // same trap this block calls out for `scheduler`, one level deeper. If
+            // that struct grows, wrap http with sortedShallow at the bucket level
+            // rather than relying on the coincidence.
             Map<String, Object> resp = new LinkedHashMap<>();
             resp.put("operators", GoFormat.sortedShallow(castMap(snap.engine.stats())));
             resp.put("scheduler", snap.engine.schedulerStats());
