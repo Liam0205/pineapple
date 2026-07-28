@@ -1,0 +1,119 @@
+{
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "cp": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": [
+              "b\bx",
+              "f\fx",
+              "t\tx",
+              "n\nx",
+              "r\rx",
+              "vt\u000bx",
+              "hi\u001fx",
+              "lo\u0001x",
+              "ls x",
+              "ps x",
+              "q\"x",
+              "bs\\x",
+              "plain"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "b\bx",
+              "f\fx",
+              "t\tx",
+              "n\nx",
+              "r\rx",
+              "vt\u000bx",
+              "hi\u001fx",
+              "lo\u0001x",
+              "ls x",
+              "ps x",
+              "q\"x",
+              "bs\\x",
+              "plain"
+            ]
+          }
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "cp"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "b\bx",
+        "f\fx",
+        "t\tx",
+        "n\nx",
+        "r\rx",
+        "vt\u000bx",
+        "hi\u001fx",
+        "lo\u0001x",
+        "ls x",
+        "ps x",
+        "q\"x",
+        "bs\\x",
+        "plain"
+      ],
+      "item_input": [
+        "id"
+      ],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "b\bx",
+        "f\fx",
+        "t\tx",
+        "n\nx",
+        "r\rx",
+        "vt\u000bx",
+        "hi\u001fx",
+        "lo\u0001x",
+        "ls x",
+        "ps x",
+        "q\"x",
+        "bs\\x",
+        "plain"
+      ]
+    }
+  },
+  "request": {
+    "common": {
+      "b\bx": "b\bx",
+      "f\fx": "f\fx",
+      "t\tx": "t\tx",
+      "n\nx": "n\nx",
+      "r\rx": "r\rx",
+      "vt\u000bx": "vt\u000bx",
+      "hi\u001fx": "hi\u001fx",
+      "lo\u0001x": "lo\u0001x",
+      "ls x": "ls x",
+      "ps x": "ps x",
+      "q\"x": "q\"x",
+      "bs\\x": "bs\\x",
+      "plain": "plain"
+    },
+    "items": [
+      {
+        "id": "a"
+      }
+    ]
+  }
+}
