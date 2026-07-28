@@ -60,6 +60,18 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
     } else if (ch == '\t') {
       esc = "\\t";
       esc_len = 2;
+    } else if (ch == '\b') {
+      // Go emits the two-character \b and \f forms, not \u0008 / \u000c.
+      // These were missing here while the generic ch < 0x20 branch below turned
+      // them into \u0008 / \u000c. That was invisible while only VALUES used
+      // this function and keys went through RapidJSON's Key(), whose escape
+      // table does handle both — so routing keys here (issue #183) REGRESSED
+      // them until this case existed.
+      esc = "\\b";
+      esc_len = 2;
+    } else if (ch == '\f') {
+      esc = "\\f";
+      esc_len = 2;
     } else if (ch == '<') {
       esc = "\\u003c";
       esc_len = 6;

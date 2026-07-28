@@ -582,6 +582,21 @@ public final class GoFormat {
                 e['<'] = ESCAPE_CUSTOM;
                 e['>'] = ESCAPE_CUSTOM;
                 e['&'] = ESCAPE_CUSTOM;
+                // Every control character Jackson would render as a 6-char hex escape has to
+                // be taken over too, because Jackson emits UPPERCASE hex digits
+                // and Go emits lowercase (000B versus 000b). Only the
+                // code points whose hex contains a digit above 9 actually differ
+                // (0x0B, 0x0E, 0x0F, 0x1A-0x1F), but claiming the whole range is
+                // simpler than enumerating them and cannot drift.
+                //
+                // Jackson's own two-character escapes (backspace, tab, newline,
+                // form feed, carriage return) match Go
+                // already and are left alone by standardAsciiEscapesForJSON.
+                for (int c = 0; c < 0x20; c++) {
+                    if (e[c] == ESCAPE_STANDARD) {
+                        e[c] = ESCAPE_CUSTOM;
+                    }
+                }
                 return e;
             }
             @Override public int[] getEscapeCodesForAscii() { return esc; }
@@ -592,7 +607,13 @@ public final class GoFormat {
                     case '&': return new SerializedString("\\u0026");
                     case 0x2028: return new SerializedString("\\u2028");
                     case 0x2029: return new SerializedString("\\u2029");
-                    default: return null;
+                    default:
+                        if (ch < 0x20) {
+                            // Lowercase, matching Go. String.format("%04x") is
+                            // lowercase by contract; %04X would reintroduce the bug.
+                            return new SerializedString(String.format("\\u%04x", ch));
+                        }
+                        return null;
                 }
             }
         });

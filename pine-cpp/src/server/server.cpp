@@ -351,55 +351,6 @@ std::string json_escape(const std::string& s) {
 }
 
 // Convert a Variant to its JSON string representation.
-std::string jsonvalue_to_string(const Variant& v) {
-  if (v.is_null()) {
-    return "null";
-  }
-  if (v.is_bool()) {
-    return v.as_bool() ? "true" : "false";
-  }
-  if (v.is_number()) {
-    double d = v.as_number();
-    // Match Go's json.Encoder behavior for numbers
-    if (d == static_cast<double>(static_cast<int64_t>(d)) && d >= -1e15 && d <= 1e15) {
-      // Integer-like
-      return std::to_string(static_cast<int64_t>(d));
-    }
-    char buf[64];
-    int n = snprintf(buf, sizeof(buf), "%.17g", d);
-    return std::string(buf, static_cast<size_t>(n));
-  }
-  if (v.is_string()) {
-    return "\"" + json_escape(v.as_string()) + "\"";
-  }
-  if (v.is_array()) {
-    std::string out = "[";
-    bool first = true;
-    for (const auto& item : v.as_array()) {
-      if (!first) {
-        out += ",";
-      }
-      first = false;
-      out += jsonvalue_to_string(item);
-    }
-    out += "]";
-    return out;
-  }
-  if (v.is_object()) {
-    std::string out = "{";
-    bool first = true;
-    for (const auto& [k, val] : v.as_object()) {
-      if (!first) {
-        out += ",";
-      }
-      first = false;
-      out += "\"" + json_escape(k) + "\":" + jsonvalue_to_string(val);
-    }
-    out += "}";
-    return out;
-  }
-  return "null";
-}
 
 }  // anonymous namespace
 
@@ -599,15 +550,15 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
         const auto& t = exec_result.trace[i];
         response += "{\"name\":\"" + json_escape(t.name) + "\"";
         response += ",\"duration_ms\":";
-        // Format duration_ms to match Go's encoding:
-        // Go uses float64 → json.Encoder which outputs minimal representation.
-        char dur_buf[64];
-        if (t.duration_ms == 0.0) {
-          response += "0";
-        } else {
-          int n = snprintf(dur_buf, sizeof(dur_buf), "%g", t.duration_ms);
-          response.append(dur_buf, static_cast<size_t>(n));
-        }
+        // go_format_json_number, not snprintf("%g"). Go marshals this float64
+        // with shortest-round-trip; "%g" is 6 significant digits, so any operator
+        // slower than about a millisecond produced different bytes: 1234.567 ms
+        // came out as 1234.57, and 1000.001 as 1000.
+        //
+        // This was the last numeric in the file not going through the shared
+        // formatter — the same one-rule-several-implementations shape as the
+        // escaping duplication (issue #183). It handles the zero case too.
+        response += go_format_json_number(t.duration_ms);
         if (t.skipped) {
           response += ",\"skipped\":true";
         }
