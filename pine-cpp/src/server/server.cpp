@@ -664,7 +664,7 @@ void Server::handle_stats(int client_fd, const std::string& method) {
       server_json += ",";
     }
     first_server_field = false;
-      // json_escape even though these three keys are source literals: every
+    // json_escape even though these three keys are source literals: every
     // other key in this function goes through it, and this is the line the next
     // person copies.
     server_json += "\"" + json_escape(key) + "\":" + std::to_string(val);

@@ -232,6 +232,13 @@ print(json.dumps(req))
   fi
 
   # Test 6: GET /stats → structure parity (compare after execute)
+  #
+  # This one sorts the key list before comparing, so it deliberately checks WHICH
+  # keys exist and not their order — the ordering dimension is covered by [14b],
+  # which compares the nested key SEQUENCE via object_pairs_hook. Kept as the
+  # cheaper "set of keys" assertion; if [14b] is ever removed, this is not a
+  # substitute for it. Test 7 below has the same relationship for the
+  # per-operator OpStatsSnapshot fields.
   srv_total=$((srv_total + 1))
   go_stats_keys=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
   java_stats_keys=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d.keys()))")
