@@ -1,6 +1,7 @@
 package page.liam.pine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -188,6 +189,51 @@ class GoJsonKeyOrderParityTest {
                         + "order while /stats.http is deep-sorted, so this must now wrap the "
                         + "bucket level with sortedShallow instead of relying on the two "
                         + "orders coinciding");
+    }
+
+    @Test
+    void stringEscapingMatchesGoInKeysAndValues() throws Exception {
+        // The symmetric counterpart to pine-cpp's "the two-character escape forms
+        // match Go exactly". Escaping is the property that produced regressions
+        // in this range, and on the Java side it was pinned only by fixture 09 via
+        // cross-validate — the slowest channel. Deleting the control-character
+        // takeover in createGoCompatMapper left all Java tests green while the
+        // output already diverged, so this puts the property in the fastest one.
+        //
+        // Go's rules, verified against encoding/json: five two-character forms
+        // (\b \t \n \f \r), quote and backslash, HTML-safe < > &, U+2028/U+2029,
+        // and LOWERCASE hex for every other control character. The lowercase part
+        // is what Jackson gets wrong: it emits uppercase, which differs for the
+        // nine code points whose hex contains a digit above 9.
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("b\bx", "v\bw");
+        m.put("f\fx", "v\fw");
+        m.put("t\tx", "v\tw");
+        m.put("n\nx", "v\nw");
+        m.put("r\rx", "v\rw");
+        m.put("vt\u000bx", "v\u000bw");
+        m.put("hi\u001fx", "v\u001fw");
+        m.put("lt<x", "v<w");
+        m.put("amp&x", "v&w");
+        m.put("q\"x", "v\"w");
+
+        String json = MAPPER.writeValueAsString(GoFormat.sorted(m));
+
+        // Two-character forms, not six-character hex.
+        assertTrue(json.contains("\"b\\bx\":\"v\\bw\""), json);
+        assertTrue(json.contains("\"f\\fx\":\"v\\fw\""), json);
+        assertTrue(json.contains("\"t\\tx\":\"v\\tw\""), json);
+        assertTrue(json.contains("\"n\\nx\":\"v\\nw\""), json);
+        assertTrue(json.contains("\"r\\rx\":\"v\\rw\""), json);
+        // Lowercase hex. Jackson's default is uppercase, which Go never emits.
+        assertTrue(json.contains("\"vt\\u000bx\":\"v\\u000bw\""), json);
+        assertTrue(json.contains("\"hi\\u001fx\":\"v\\u001fw\""), json);
+        assertFalse(json.contains("\\u000B"), "uppercase hex escape leaked: " + json);
+        assertFalse(json.contains("\\u001F"), "uppercase hex escape leaked: " + json);
+        // HTML-safe set, in keys and values alike.
+        assertTrue(json.contains("\"lt\\u003cx\":\"v\\u003cw\""), json);
+        assertTrue(json.contains("\"amp\\u0026x\":\"v\\u0026w\""), json);
+        assertTrue(json.contains("\"q\\\"x\":\"v\\\"w\""), json);
     }
 
     @Test
