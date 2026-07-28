@@ -123,6 +123,23 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
   sb.Put('"');
 }
 
+
+// write_go_key emits an object key with the same escaping Go's encoding/json
+// applies to strings, including the HTML-safe escapes for < > & and the
+// line/paragraph separators U+2028 / U+2029.
+//
+// RapidJSON's Key() does not apply those, so a key containing any of them
+// diverged from Go and pine-java while VALUES did not — those already went
+// through write_go_string. A key "a<b" came out raw where Go emits "a\u003cb".
+// Reachable through any request whose field names contain those characters.
+template <typename Writer>
+inline void write_go_key(Writer& w, const std::string& key) {
+  thread_local rapidjson::StringBuffer key_buf;
+  key_buf.Clear();
+  write_go_string(key_buf, key);
+  w.RawValue(key_buf.GetString(), key_buf.GetSize(), rapidjson::kStringType);
+}
+
 }  // namespace detail
 
 // Write a Variant into a RapidJSON Writer.
@@ -170,7 +187,7 @@ void write_json_value(Writer& w, const Variant& v) {
   std::sort(keys.begin(), keys.end(), [](const std::string* a, const std::string* b) { return *a < *b; });
   w.StartObject();
   for (const auto* key : keys) {
-    w.Key(key->c_str(), static_cast<rapidjson::SizeType>(key->size()));
+    detail::write_go_key(w, *key);
     write_json_value(w, obj.find(*key)->second);
   }
   w.EndObject();

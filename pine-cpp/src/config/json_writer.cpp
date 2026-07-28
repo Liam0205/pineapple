@@ -33,7 +33,7 @@ std::string result_common_to_json(const Variant::object_t& common) {
   std::sort(keys.begin(), keys.end(), [](const std::string* a, const std::string* b) { return *a < *b; });
   w.StartObject();
   for (const auto* key : keys) {
-    w.Key(key->c_str(), static_cast<rapidjson::SizeType>(key->size()));
+    detail::write_go_key(w, *key);
     write_json_value(w, common.find(*key)->second);
   }
   w.EndObject();
@@ -54,7 +54,7 @@ std::string result_items_to_json(const std::vector<Variant::object_t>& items) {
     std::sort(keys.begin(), keys.end(), [](const std::string* a, const std::string* b) { return *a < *b; });
     w.StartObject();
     for (const auto* key : keys) {
-      w.Key(key->c_str(), static_cast<rapidjson::SizeType>(key->size()));
+      detail::write_go_key(w, *key);
       write_json_value(w, row.find(*key)->second);
     }
     w.EndObject();
