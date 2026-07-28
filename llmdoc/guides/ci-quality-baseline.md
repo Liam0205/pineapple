@@ -207,6 +207,14 @@ Nightly diff-fuzz artifact 分歧定位顺序：(a) 下载 artifact，解压 `di
 
 ### 校验通道能钉住的属性（归一化 vs 字节级）
 
+**通道各自看得见响应的哪一部分，与它归一化什么同样重要。** issue #183 的 key 顺序修复
+第一版漏掉了 `/execute` 的 trace 快照与 `/stats`，而当时刚被加强的两条通道
+（09-raw-byte、differential-fuzz）**都走 CLI**，CLI 输出只有 common/items——既没有
+trace 也没有 `/stats`。唯一能看到那两处的 06-server-http 当时把 `trace[0].keys()`
+排序后再比，正好把待测维度排掉了。三条通道同时看不见同一处，不是巧合而是因为没人问过
+「哪条通道能看到这个字段」。判据：**新增契约时，先确认哪条通道能看到承载它的那个响应
+字段**，再看该通道对这个维度是否归一化。
+
 差分 fuzz 与 cross-validate 大部分通道在比对前做**归一化**，因此有整类属性对它们结构上不可见。新增契约时必须先问「哪条通道会红」，而不是「测试是否全绿」。issue #180（JSON 数字格式跨运行时分歧）暴露的通道能力如下，issue #183 之后 key 顺序一栏已经补上。
 
 **differential-fuzz 的 `normalize_json` 抹掉 key 顺序与绝大多数数字字面量差异，key 顺序另有专门比对面。** `scripts/differential-fuzz.py` 的 `normalize_json` 做 `json.loads` → `_normalize_value` → `json.dumps(sort_keys=True)`，`sort_keys=True` 使 key 顺序在这条比对面上不可见；`_normalize_value` 只对 `float` 分支做 `round(v, 10)` 与小量级归零，`int` 分支原样穿过。issue #183 因此长期没被这条比对面抓到。现状：另有 `key_order_signature()` 用 `object_pairs_hook` 从原文读出 key 顺序**单独比对**，与值比对并行，数值容差与 item 顺序归一化都保持不变；item 顺序不确定时把各 item 的 key 序列当 multiset 比，单个 item 内部的 key 顺序仍然精确比。数字字面量的可见性边界没有变化（见下表）。
