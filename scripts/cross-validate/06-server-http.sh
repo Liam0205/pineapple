@@ -708,6 +708,83 @@ print(json.dumps([shape(x) for x in snaps]))"
     fail "server HTTP: trace input_snapshot key order divergence (Go=$snap_go, Java=$snap_java)"
   fi
 
+  # Test 14d: trace duration_ms NUMBER FORMAT. The value is timing and therefore
+  # not comparable, but its spelling is: Go marshals float64 with
+  # shortest-round-trip, so it never uses exponent notation in this range and
+  # never truncates to 6 significant digits. snprintf("%g") does both — 1234.567
+  # became 1234.57 and 1234567 became 1.23457e+06 — and no channel could see it,
+  # because every one of them strips duration_ms as timing. This checks the shape
+  # instead of the number, which is deterministic.
+  srv_total=$((srv_total + 1))
+  dur_shape_cmd="import json, re, sys
+d = json.loads(sys.stdin.read())
+bad = []
+for t in d.get('trace', []):
+    raw = t.get('duration_ms')
+    txt = repr(raw)
+    if 'e' in txt.lower():
+        bad.append('exponent notation: ' + txt)
+    digits = re.sub(r'[^0-9]', '', txt).lstrip('0')
+    if len(digits) == 6 and float(raw) >= 1000:
+        bad.append('suspiciously exactly 6 significant digits: ' + txt)
+print('ok' if not bad else '; '.join(bad))"
+  # Uses its own config with transform_bench_cpu so the duration is non-trivial.
+  #
+  # Honest limit of this check: duration_ms has microsecond resolution (at most
+  # three decimals), so "%g" and shortest-round-trip only disagree once the value
+  # exceeds 1000 ms. A 400k-iteration bench operator measures about 4 ms, so this
+  # check confirms the shape is exponent-free and untruncated but does NOT go red
+  # against snprintf("%g") — verified by mutation. Making it discriminate would
+  # need a deliberately >1s operator, which is too slow for this suite. The
+  # formatter itself is pinned by test_json.cpp's
+  # "trace duration magnitudes match Go" case instead.
+  DUR_CONFIG="$WORK_DIR/dur_config.json"
+  python3 -c "
+import json
+cfg = {'pipeline_config': {'operators': {'slow': {'type_name': 'transform_bench_cpu',
+        'iterations': 400000, 'debug': True,
+        chr(36)+'metadata': {'item_input': [], 'item_output': []}}},
+       'pipeline_map': {'s': {'pipeline': ['slow']}}},
+       'pipeline_group': {'main': {'pipeline': ['s']}}}
+with open('$DUR_CONFIG', 'w') as f:
+    json.dump(cfg, f)
+"
+  DUR_GO_PORT=18031
+  DUR_JAVA_PORT=18032
+  DUR_CPP_PORT=18033
+  "$WORK_DIR/pineapple-server" -config "$DUR_CONFIG" -addr ":$DUR_GO_PORT" >/dev/null 2>&1 &
+  dur_go_pid=$!
+  java -cp "$JAVA_CP" -Dpine.config="$DUR_CONFIG" -Dpine.port=$DUR_JAVA_PORT page.liam.pine.PineServer >/dev/null 2>&1 &
+  dur_java_pid=$!
+  dur_cpp_pid=""
+  if [[ -n "${CPP_SERVER:-}" ]]; then
+    "$CPP_SERVER" -config "$DUR_CONFIG" -addr ":$DUR_CPP_PORT" >/dev/null 2>&1 &
+    dur_cpp_pid=$!
+  fi
+  srv_ready $DUR_GO_PORT || fail "server HTTP: 14d Go server not ready"
+  srv_ready $DUR_JAVA_PORT || fail "server HTTP: 14d Java server not ready"
+  DUR_REQ='{"common":{"_return_trace":true},"items":[{"id":"a"}]}'
+  go_dur=$(curl -s -X POST -H "Content-Type: application/json" -d "$DUR_REQ" "http://localhost:$DUR_GO_PORT/execute" | python3 -c "$dur_shape_cmd" || echo parse_error)
+  java_dur=$(curl -s -X POST -H "Content-Type: application/json" -d "$DUR_REQ" "http://localhost:$DUR_JAVA_PORT/execute" | python3 -c "$dur_shape_cmd" || echo parse_error)
+  if [[ "$go_dur" == "ok" && "$java_dur" == "ok" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [14d] POST /execute (trace) → duration_ms number format Go and Java both shortest-round-trip"
+  else
+    fail "server HTTP: duration_ms number format (Go=$go_dur, Java=$java_dur)"
+  fi
+  if [[ -n "${CPP_SERVER:-}" ]] && $cpp_srv_ready; then
+    cpp_srv_total=$((cpp_srv_total + 1))
+    cpp_dur=$(curl -s -X POST -H "Content-Type: application/json" -d "$DUR_REQ" "http://localhost:$DUR_CPP_PORT/execute" | python3 -c "$dur_shape_cmd" || echo parse_error)
+    if [[ "$cpp_dur" == "ok" ]]; then
+      cpp_srv_pass=$((cpp_srv_pass + 1))
+      echo "    [14d] POST /execute (trace) → duration_ms number format Go vs C++ match"
+    else
+      fail "server HTTP: duration_ms number format C++ (=$cpp_dur)"
+    fi
+  fi
+  kill $dur_go_pid $dur_java_pid ${dur_cpp_pid:-} 2>/dev/null || true
+  wait $dur_go_pid $dur_java_pid ${dur_cpp_pid:-} 2>/dev/null || true
+
   # Test 15: Content-Type header parity across endpoints
   srv_total=$((srv_total + 1))
   ct_java_pass=true

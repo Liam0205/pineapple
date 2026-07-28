@@ -551,9 +551,17 @@ void Server::handle_execute(int client_fd, const std::string& method, const std:
         response += "{\"name\":\"" + json_escape(t.name) + "\"";
         response += ",\"duration_ms\":";
         // go_format_json_number, not snprintf("%g"). Go marshals this float64
-        // with shortest-round-trip; "%g" is 6 significant digits, so any operator
-        // slower than about a millisecond produced different bytes: 1234.567 ms
-        // came out as 1234.57, and 1000.001 as 1000.
+        // with shortest-round-trip; "%g" is 6 significant digits.
+        //
+        // Reachability, measured rather than assumed: duration_us / 1000.0 gives
+        // microsecond resolution, so duration_ms carries at most three decimals.
+        // "%g" therefore only truncates once the integer part reaches four digits
+        // — i.e. operators slower than 1000 ms (1000.001 printed as "1000",
+        // 1234.567 as "1234.57"). Anything faster prints identically under both,
+        // which is why no channel and no realistic fixture ever caught it: a
+        // 400k-iteration bench operator measures 4.27 ms, three digits total.
+        // Real but hard to reach, not the sub-millisecond issue it first looked
+        // like.
         //
         // This was the last numeric in the file not going through the shared
         // formatter — the same one-rule-several-implementations shape as the
@@ -656,7 +664,10 @@ void Server::handle_stats(int client_fd, const std::string& method) {
       server_json += ",";
     }
     first_server_field = false;
-    server_json += "\"" + key + "\":" + std::to_string(val);
+      // json_escape even though these three keys are source literals: every
+    // other key in this function goes through it, and this is the line the next
+    // person copies.
+    server_json += "\"" + json_escape(key) + "\":" + std::to_string(val);
   }
   server_json += "}";
 
