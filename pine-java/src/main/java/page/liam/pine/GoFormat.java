@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -463,15 +464,57 @@ public final class GoFormat {
      */
     static final class SortedByUtf8 {
         final Map<String, Object> delegate;
+        /** When true, sort this map's own keys only and do not descend. */
+        final boolean shallow;
 
         SortedByUtf8(Map<String, Object> delegate) {
-            this.delegate = delegate;
+            this(delegate, false);
         }
+
+        SortedByUtf8(Map<String, Object> delegate, boolean shallow) {
+            this.delegate = delegate;
+            this.shallow = shallow;
+        }
+    }
+
+    /**
+     * Copies a map to String keys via String.valueOf, so non-String key types
+     * can be wrapped and sorted like Go does.
+     *
+     * <p>Needed because Go sorts map keys by their JSON representation whatever
+     * the Go key type is, including map[int]...: encoding/json renders int keys
+     * as strings and sorts those strings, so item index 10 sorts between 1 and 2
+     * rather than after 9. trace's output_snapshot.item_writes is exactly that
+     * shape — Map&lt;Integer, Map&lt;String, Object&gt;&gt; on the Java side — so
+     * casting its keys to String would throw at serialization time.
+     */
+    private static Map<String, Object> withStringKeys(Map<?, ?> m) {
+        Map<String, Object> out = new LinkedHashMap<>(Math.max(4, m.size() * 2));
+        for (Map.Entry<?, ?> e : m.entrySet()) {
+            out.put(String.valueOf(e.getKey()), e.getValue());
+        }
+        return out;
     }
 
     /** Wraps a payload map so its keys emit in Go's order. Null-safe. */
     static Object sorted(Map<String, Object> m) {
-        return m == null ? null : new SortedByUtf8(m);
+        return m == null ? null : new SortedByUtf8(withStringKeys(m));
+    }
+
+    /**
+     * Sorts only this map's own keys, leaving its values untouched.
+     *
+     * <p>For responses that mix the two Go rules at different depths. /stats is
+     * one: Go builds the top level as a map[string]any so it sorts, but
+     * `scheduler` beneath it is SchedulerStatsSnapshot, a STRUCT, so it keeps
+     * declaration order (run_count, peak_concurrency). Wrapping the whole tree
+     * would sort that struct too — which is what a first attempt here did.
+     *
+     * <p>Use {@link #sorted} when every level is a map; use this when only the
+     * level you name is.
+     */
+    static Object sortedShallow(Map<String, Object> m) {
+        return m == null ? null : new SortedByUtf8(withStringKeys(m), true);
     }
 
     /**
@@ -479,13 +522,13 @@ public final class GoFormat {
      * Go sorts at every depth, so a map nested inside a list inside a map must
      * sort too — the pine-cpp side has a test for exactly that (dump_json L5).
      */
-    @SuppressWarnings("unchecked")
     static Object wrapPayload(Object v) {
         if (v instanceof SortedByUtf8) {
             return v;
         }
         if (v instanceof Map) {
-            return new SortedByUtf8((Map<String, Object>) v);
+            // withStringKeys, not a cast: map keys are not always String here.
+            return new SortedByUtf8(withStringKeys((Map<?, ?>) v));
         }
         if (v instanceof List) {
             List<?> in = (List<?>) v;
@@ -667,7 +710,8 @@ public final class GoFormat {
                 gen.writeStartObject();
                 for (String k : keys) {
                     gen.writeFieldName(k);
-                    provider.defaultSerializeValue(wrapPayload(value.delegate.get(k)), gen);
+                    Object v = value.delegate.get(k);
+                    provider.defaultSerializeValue(value.shallow ? v : wrapPayload(v), gen);
                 }
                 gen.writeEndObject();
             }

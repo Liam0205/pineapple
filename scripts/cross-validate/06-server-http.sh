@@ -13,6 +13,13 @@ import json
 with open('$SRV_FIXTURE') as f:
     data = json.load(f)
 cfg = data.get('config', {})
+# Turn on debug for every operator so the _return_trace check below actually
+# receives input_snapshot / output_snapshot. Without it the trace entries carry
+# only name and duration_ms, so the snapshot key ordering that issue #183 is
+# about was never present in what this section compared.
+for op in cfg.get('pipeline_config', {}).get('operators', {}).values():
+    if isinstance(op, dict):
+        op['debug'] = True
 with open('$SRV_CONFIG', 'w') as cf:
     json.dump(cfg, cf)
 "
@@ -343,27 +350,61 @@ with open('$SRV_FIXTURE') as f:
     data = json.load(f)
 req = data['cases'][0]['request']
 req['common']['_return_trace'] = True
+# Add extra common keys in NON-sorted declaration order, and pad items past 10.
+# A single-key snapshot has no order to get wrong, so without this the check
+# passed even against an engine that emitted snapshots in insertion order. The
+# item padding matters because output_snapshot.item_writes has integer keys that
+# Go renders and sorts as strings, so index 10 must land between 1 and 2.
+for k, v in (('zz_probe', 1), ('aa_probe', 2), ('mm_probe', 3)):
+    req['common'][k] = v
+base_items = req.get('items') or []
+if base_items:
+    while len(req['items']) < 12:
+        clone = dict(base_items[len(req['items']) % len(base_items)])
+        req['items'].append(clone)
 print(json.dumps(req))
 ")
   go_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$GO_PORT/execute")
   java_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$JAVA_PORT/execute")
   go_trace_struct=$(echo "$go_trace_body" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
+import collections, json, sys
+# object_pairs_hook keeps key ORDER, which sorted(keys) used to discard. The
+# trace entry is a struct in Go (declaration order) while input_snapshot and
+# output_snapshot inside it are maps (sorted), and output_snapshot.item_writes
+# has int keys Go renders and sorts as strings. None of that was comparable
+# while this printed sorted(trace[0].keys()) - see issue #183.
+d = json.loads(sys.stdin.read(), object_pairs_hook=collections.OrderedDict)
 trace = d.get('trace', [])
 if trace:
-    keys = sorted(trace[0].keys())
-    print(f'count={len(trace)} keys={keys}')
+    def shape(node):
+        if isinstance(node, dict):
+            return [[k, shape(v)] for k, v in node.items()]
+        if isinstance(node, list):
+            return [shape(v) for v in node]
+        return None
+    # duration_ms is timing, so compare the key sequence and nested shape only.
+    print(f'count={len(trace)} order={json.dumps(shape(trace[0]))}')
 else:
     print('no_trace')
 ")
   java_trace_struct=$(echo "$java_trace_body" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
+import collections, json, sys
+# object_pairs_hook keeps key ORDER, which sorted(keys) used to discard. The
+# trace entry is a struct in Go (declaration order) while input_snapshot and
+# output_snapshot inside it are maps (sorted), and output_snapshot.item_writes
+# has int keys Go renders and sorts as strings. None of that was comparable
+# while this printed sorted(trace[0].keys()) - see issue #183.
+d = json.loads(sys.stdin.read(), object_pairs_hook=collections.OrderedDict)
 trace = d.get('trace', [])
 if trace:
-    keys = sorted(trace[0].keys())
-    print(f'count={len(trace)} keys={keys}')
+    def shape(node):
+        if isinstance(node, dict):
+            return [[k, shape(v)] for k, v in node.items()]
+        if isinstance(node, list):
+            return [shape(v) for v in node]
+        return None
+    # duration_ms is timing, so compare the key sequence and nested shape only.
+    print(f'count={len(trace)} order={json.dumps(shape(trace[0]))}')
 else:
     print('no_trace')
 ")
@@ -377,12 +418,23 @@ else:
     cpp_srv_total=$((cpp_srv_total + 1))
     cpp_trace_body=$(curl -s -X POST -H "Content-Type: application/json" -d "$TRACE_REQ" "http://localhost:$CPP_PORT/execute")
     cpp_trace_struct=$(echo "$cpp_trace_body" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
+import collections, json, sys
+# object_pairs_hook keeps key ORDER, which sorted(keys) used to discard. The
+# trace entry is a struct in Go (declaration order) while input_snapshot and
+# output_snapshot inside it are maps (sorted), and output_snapshot.item_writes
+# has int keys Go renders and sorts as strings. None of that was comparable
+# while this printed sorted(trace[0].keys()) - see issue #183.
+d = json.loads(sys.stdin.read(), object_pairs_hook=collections.OrderedDict)
 trace = d.get('trace', [])
 if trace:
-    keys = sorted(trace[0].keys())
-    print(f'count={len(trace)} keys={keys}')
+    def shape(node):
+        if isinstance(node, dict):
+            return [[k, shape(v)] for k, v in node.items()]
+        if isinstance(node, list):
+            return [shape(v) for v in node]
+        return None
+    # duration_ms is timing, so compare the key sequence and nested shape only.
+    print(f'count={len(trace)} order={json.dumps(shape(trace[0]))}')
 else:
     print('no_trace')
 ")
@@ -512,6 +564,37 @@ sys.stdout.write('{\"common\":{},\"items\":[' + items + ']}')
       echo "    [14] POST /execute (validation error) → body keys Go vs C++ match"
     else
       fail "server HTTP: validation error body keys (Go=$go_val_keys, C++=$cpp_val_keys)"
+    fi
+  fi
+
+  # Test 14b: /stats top-level key ORDER parity. Go builds this response as a
+  # map[string]any (server.go:760), not a struct, so encoding/json sorts its keys
+  # — unlike /execute, whose envelope is a struct and keeps declaration order.
+  # Values are runtime counters and timings so only the key sequence is compared.
+  srv_total=$((srv_total + 1))
+  stats_order_cmd="import collections, json, sys
+d = json.loads(sys.stdin.read(), object_pairs_hook=collections.OrderedDict)
+def shape(node):
+    if isinstance(node, dict):
+        return [[k, shape(v)] for k, v in node.items()]
+    return None
+print(json.dumps(shape(d)))"
+  go_stats_order=$(curl -s "http://localhost:$GO_PORT/stats" | python3 -c "$stats_order_cmd")
+  java_stats_order=$(curl -s "http://localhost:$JAVA_PORT/stats" | python3 -c "$stats_order_cmd")
+  if [[ "$go_stats_order" == "$java_stats_order" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [14b] GET /stats → key order Go vs Java match"
+  else
+    fail "server HTTP: /stats key order divergence (Go=$go_stats_order, Java=$java_stats_order)"
+  fi
+  if [[ -n "${CPP_SERVER:-}" ]] && $cpp_srv_ready; then
+    cpp_srv_total=$((cpp_srv_total + 1))
+    cpp_stats_order=$(curl -s "http://localhost:$CPP_PORT/stats" | python3 -c "$stats_order_cmd")
+    if [[ "$go_stats_order" == "$cpp_stats_order" ]]; then
+      cpp_srv_pass=$((cpp_srv_pass + 1))
+      echo "    [14b] GET /stats → key order Go vs C++ match"
+    else
+      fail "server HTTP: /stats key order divergence (Go=$go_stats_order, C++=$cpp_stats_order)"
     fi
   fi
 

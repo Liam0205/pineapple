@@ -693,17 +693,37 @@ void Server::handle_stats(int client_fd, const std::string& method) {
   sched_json += ",\"peak_concurrency\":" + std::to_string(peak);
   sched_json += "}";
 
-  // Build server JSON
+  // Build server JSON. Go's serverStats() returns map[string]int64
+  // (server.go:777), so encoding/json sorts these three keys —
+  // last_reload_duration_ns comes FIRST, ahead of reload_count. Writing them in
+  // declaration order diverged (issue #183). std::map iterates in byte order.
+  std::map<std::string, int64_t> server_fields{
+      {"reload_count", reload_count_.load(std::memory_order_relaxed)},
+      {"reload_error_count", reload_error_count_.load(std::memory_order_relaxed)},
+      {"last_reload_duration_ns", last_reload_duration_ns_.load(std::memory_order_relaxed)},
+  };
   std::string server_json = "{";
-  server_json += "\"reload_count\":" + std::to_string(reload_count_.load(std::memory_order_relaxed));
-  server_json +=
-      ",\"reload_error_count\":" + std::to_string(reload_error_count_.load(std::memory_order_relaxed));
-  server_json += ",\"last_reload_duration_ns\":" +
-                 std::to_string(last_reload_duration_ns_.load(std::memory_order_relaxed));
+  bool first_server_field = true;
+  for (const auto& [key, val] : server_fields) {
+    if (!first_server_field) {
+      server_json += ",";
+    }
+    first_server_field = false;
+    server_json += "\"" + key + "\":" + std::to_string(val);
+  }
   server_json += "}";
 
-  std::string body =
-      "{\"operators\":" + ops_json + ",\"scheduler\":" + sched_json + ",\"server\":" + server_json;
+  // Go builds this response as a map[string]any (server.go:760), so
+  // encoding/json SORTS its top-level keys — unlike /execute, whose envelope is
+  // the executeResponse struct and keeps declaration order. Concatenating in
+  // source order emitted operators, scheduler, server, http, resources where Go
+  // emits http, operators, resources, scheduler, server (issue #183). Since
+  // http / resources / operator_detail are all conditional, collect the members
+  // and emit them sorted rather than hand-ordering the concatenation.
+  std::map<std::string, std::string> stats_members;
+  stats_members["operators"] = ops_json;
+  stats_members["scheduler"] = sched_json;
+  stats_members["server"] = server_json;
 
   // Build http JSON (mirrors pine-go /stats.http subtree). Maps from
   // HttpStats are already lexicographically ordered (std::map) so iteration
@@ -734,7 +754,7 @@ void Server::handle_stats(int client_fd, const std::string& method) {
       http_json += "\"" + json_escape(key) + "\":" + std::to_string(count);
     }
     http_json += "}}";
-    body += ",\"http\":" + http_json;
+    stats_members["http"] = http_json;
   }
 
   // Build resources JSON (mirrors pine-go /stats.resources). The collector's
@@ -742,7 +762,7 @@ void Server::handle_stats(int client_fd, const std::string& method) {
   {
     std::shared_lock<std::shared_mutex> lock(engine_mu_);
     if (resource_metrics_) {
-      body += ",\"resources\":" + resource_metrics_->to_json();
+      stats_members["resources"] = resource_metrics_->to_json();
     }
   }
 
@@ -751,29 +771,40 @@ void Server::handle_stats(int client_fd, const std::string& method) {
     if (engine_) {
       auto custom_stats = engine_->operator_custom_stats();
       if (!custom_stats.empty()) {
-        body += ",\"operator_detail\":{";
+        std::string detail_json = "{";
         bool first_op = true;
         for (const auto& [op_name, stats] : custom_stats) {
           if (!first_op) {
-            body += ",";
+            detail_json += ",";
           }
           first_op = false;
-          body += "\"" + json_escape(op_name) + "\":{";
+          detail_json += "\"" + json_escape(op_name) + "\":{";
           bool first_stat = true;
           for (const auto& [stat_key, stat_val] : stats) {
             if (!first_stat) {
-              body += ",";
+              detail_json += ",";
             }
             first_stat = false;
-            body += "\"" + json_escape(stat_key) + "\":" + std::to_string(stat_val);
+            detail_json += "\"" + json_escape(stat_key) + "\":" + std::to_string(stat_val);
           }
-          body += "}";
+          detail_json += "}";
         }
-        body += "}";
+        detail_json += "}";
+        stats_members["operator_detail"] = detail_json;
       }
     }
   }
 
+  // std::map iterates in byte order, which is Go's map-key sort order.
+  std::string body = "{";
+  bool first_member = true;
+  for (const auto& [key, member_json] : stats_members) {
+    if (!first_member) {
+      body += ",";
+    }
+    first_member = false;
+    body += "\"" + json_escape(key) + "\":" + member_json;
+  }
   body += "}\n";
 
   send_json(client_fd, 200, body);
