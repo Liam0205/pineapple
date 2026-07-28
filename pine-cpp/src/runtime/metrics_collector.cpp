@@ -20,32 +20,21 @@ std::string label_key(const std::vector<std::string>& values) {
   return out;
 }
 
+// json_escape_str returns the escaped inner content of a JSON string, delegating
+// to pine::detail::write_go_string so there is exactly one implementation of Go's
+// escaping rules on this side.
+//
+// This was the third independent copy in the repository. Issue #183 found the
+// HTML-safe (< > &) and U+2028/U+2029 escapes missing from two of the three, and
+// this one additionally escaped no control characters at all — it would have
+// emitted raw bytes inside a JSON string. Both it and server.cpp's json_escape
+// now delegate, so the rules cannot drift apart again.
 std::string json_escape_str(const std::string& s) {
-  std::string out;
-  out.reserve(s.size() + 2);
-  for (char c : s) {
-    switch (c) {
-      case '"':
-        out += "\\\"";
-        break;
-      case '\\':
-        out += "\\\\";
-        break;
-      case '\n':
-        out += "\\n";
-        break;
-      case '\r':
-        out += "\\r";
-        break;
-      case '\t':
-        out += "\\t";
-        break;
-      default:
-        out += c;
-        break;
-    }
-  }
-  return out;
+  rapidjson::StringBuffer buf;
+  pine::detail::write_go_string(buf, s);
+  const char* out = buf.GetString();
+  const std::size_t len = buf.GetSize();
+  return (len >= 2) ? std::string(out + 1, len - 2) : std::string();
 }
 
 }  // namespace

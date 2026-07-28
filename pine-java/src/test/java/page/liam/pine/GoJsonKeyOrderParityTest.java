@@ -158,19 +158,36 @@ class GoJsonKeyOrderParityTest {
     }
 
     @Test
-    void httpDurationBucketFieldsAreOrderIndependentToday() {
-        // /stats.http's innermost values are HttpDurationBucket structs in Go, so
+    void httpDurationBucketFieldsAreOrderIndependentToday() throws Exception {
+        // /stats.http's innermost values are HttpDurationBucket STRUCTS in Go, so
         // Go keeps their fields in declaration order while the Java side sorts
         // them. That is safe only while declaration order equals sorted order.
-        // This asserts the coincidence explicitly, so adding a field that breaks
-        // it fails here rather than diverging silently at runtime.
-        List<String> declared = List.of("count", "sum_ns");
+        //
+        // Read from the REAL HttpStats.snapshot() rather than a hardcoded list.
+        // An earlier version of this test compared List.of("count","sum_ns")
+        // against itself sorted, which is a tautology: adding a third field to
+        // bucketView left it green, so it could not detect the very drift its
+        // message promised to catch.
+        HttpStats stats = new HttpStats();
+        stats.recordRequest("GET", "/probe", "2xx", 1234L);
+        Map<String, Object> snap = stats.snapshot();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> durations =
+                (Map<String, Object>) snap.get("request_duration_seconds");
+        assertTrue(durations != null && !durations.isEmpty(), "no duration buckets recorded");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> bucket =
+                (Map<String, Object>) durations.values().iterator().next();
+
+        List<String> declared = new ArrayList<>(bucket.keySet());
         List<String> sorted = new ArrayList<>(declared);
         sorted.sort(GoFormat::compareUtf8);
-        assertEquals(declared, sorted,
-                "HttpDurationBucket gained a field whose declaration order differs from UTF-8 "
-                        + "sorted order; /stats.http must now use sortedShallow at the bucket "
-                        + "level instead of relying on the two orders coinciding");
+        assertEquals(sorted, declared,
+                "HttpDurationBucket's field order " + declared + " no longer equals its UTF-8 "
+                        + "sorted order " + sorted + "; Go keeps struct fields in declaration "
+                        + "order while /stats.http is deep-sorted, so this must now wrap the "
+                        + "bucket level with sortedShallow instead of relying on the two "
+                        + "orders coinciding");
     }
 
     @Test

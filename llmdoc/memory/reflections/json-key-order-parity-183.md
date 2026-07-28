@@ -202,7 +202,7 @@ writer（`std::sort` + `std::string` 的 `<`，天然字节序），后者是手
 
 1. 调 `recorder` 落地上述稳定文档改动：GoFormat 节补 key 排序两条规则、
    ci-quality-baseline 更新通道表 + 补两条纪律、doc-gaps 关 #183 并改写通道条目。
-2. `fixtures/server_byte_exact/` 仍需按 doc-gap (a) 扩覆盖面。本次加了 `07_non_bmp_keys.json`（审计第四轮，为给 `writeValueAsBytes` 那处修复补回归门），从 5 个到 6 个，但离覆盖主要响应形状还很远，
+2. `fixtures/server_byte_exact/` 仍需按 doc-gap (a) 扩覆盖面。本次加了 `07_non_bmp_keys.json`（审计第四轮，为给 `writeValueAsBytes` 那处修复补回归门），数量以 `ls fixtures/server_byte_exact/` 为准（审计中又加了两个），但离覆盖主要响应形状还很远，
    守门增强全部落在 09 号通道与 fuzz 上。
 3. 检查 `differential-fuzz.py` 里是否还有其他「生成器只发期望形状」的维度（本次只查了
    flow_contract 的 key 顺序）。这条与 issue #175 记的「flow_contract 投影盲区」是同一
@@ -211,7 +211,7 @@ writer（`std::sort` + `std::string` 的 `<`，天然字节序），后者是手
 ## 验证情况（本次已完成）
 
 - 三方定向探针：`c1/c10/c2` 与 BMP 外 key 两组，go/java/cpp 输出逐字节相同
-- `make java-test` / `make cpp-test` 全过（**用例数同样不写死**——「346/新增 10」这个数字在写下它的那次提交里就已过期，因为同一 commit 又加了一个测试；数就跑命令）、`make cpp-test` 247 用例；`make lint`、
+- `make java-test` / `make cpp-test` 全过（**用例数同样不写死**——「346/新增 10」这个数字在写下它的那次提交里就已过期，因为同一 commit 又加了一个测试；数就跑命令）、`make cpp-test`（用例数以命令输出为准）；`make lint`、
   `make test`、`make codegen-check` 全过
 - `make cross-validate` 55/55（09 号通道 91/91，无归一化回落）；
   `make differential-fuzz` 1000/1000

@@ -329,37 +329,25 @@ std::string status_text(int code) {
 }
 
 // JSON helpers — build JSON strings without depending on nlohmann
+// json_escape returns the ESCAPED INNER CONTENT of a JSON string, using exactly
+// Go's encoding/json rules, by delegating to pine::detail::write_go_string —
+// the same function the Variant writer path uses — and stripping the quotes it
+// adds.
+//
+// It used to be a second, independent implementation, and issue #183 found it
+// missing Go's HTML-safe escapes (< > &) and the U+2028/U+2029 escapes that
+// write_go_string already had. An operator named "a<b&c>d" therefore came back
+// raw in /execute's trace[].name and in /stats.operators keys, where Go emits
+// "a\u003cb\u0026c\u003ed". Delegating rather than re-adding the missing cases
+// removes the possibility of the two drifting apart again, which is the actual
+// defect: one property, two implementations, only one audited.
 std::string json_escape(const std::string& s) {
-  std::string out;
-  out.reserve(s.size() + 8);
-  for (char c : s) {
-    switch (c) {
-      case '"':
-        out += "\\\"";
-        break;
-      case '\\':
-        out += "\\\\";
-        break;
-      case '\n':
-        out += "\\n";
-        break;
-      case '\r':
-        out += "\\r";
-        break;
-      case '\t':
-        out += "\\t";
-        break;
-      default:
-        if (static_cast<unsigned char>(c) < 0x20) {
-          char buf[8];
-          snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
-          out += buf;
-        } else {
-          out += c;
-        }
-    }
-  }
-  return out;
+  rapidjson::StringBuffer buf;
+  pine::detail::write_go_string(buf, s);
+  // write_go_string emits the surrounding quotes; callers here supply their own.
+  const char* out = buf.GetString();
+  const std::size_t len = buf.GetSize();
+  return (len >= 2) ? std::string(out + 1, len - 2) : std::string();
 }
 
 // Convert a Variant to its JSON string representation.
