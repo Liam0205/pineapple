@@ -77,7 +77,14 @@ key 顺序就是源码里的书写顺序。issue #183 期间实测发现它顶�
 `Stats::snapshot()` 返回的 vector 显式 `std::sort`（它的注释写着「ordered by the
 pre-init sequence」，即管道声明顺序）。
 
-教训：**「这个运行时天然满足」这句话只对某条代码路径成立，不对整个运行时成立。**
+教训一：**「这个运行时天然满足」这句话只对某条代码路径成立，不对整个运行时成立。**
+
+教训二（本任务里犯了**三次**）：**给 key 顺序写检查时，第一件事是确认所用 fixture 的声明顺序
+与字典序不同。** 三次分别是——fuzz 生成器发 `sorted(...)` 的 flow_contract；06 号的算子名
+`copy_score`/`truncate` 本就字典序，漏掉 `/stats.operators` 一整轮；14c 的 `common_input`
+`["event","expose_duration"]` 本就字典序，漏掉 `input_snapshot`。三次的形式不同（生成器 / 算子名 /
+字段声明），机制完全一样：**输入已经是期望的形状，于是检查对着错误实现也是绿的**。写完检查必须
+对着 mutant 验证它会红，绿色本身不构成证据。
 issue #183 的标题与最初的任务描述都说只有 pine-java 错——对 `/execute` 是对的，对
 `/stats` 不对，而这一点是加了校验检查之后才暴露的，不是读代码读出来的。
 
@@ -113,9 +120,12 @@ issue #183 的标题与最初的任务描述都说只有 pine-java 错——对 
   加非排序的额外 common key —— 其中**只有 12 个 item 的补齐是真有牙的**——它经由
   `output_snapshot.item_writes` 钉住 int key 的字符串排序。额外的 `*_probe` common key 实测**无效**：
   `snapshotInput` 只输出算子**声明的** `common_input`，请求里多加的 key 到不了 `input_snapshot`；
-  而把它们塞进 `common_input` 会破坏 `transform_copy` 的 arity。所以 `input_snapshot` 的包装由单测
-  `traceSnapshotsSortWhileTheTraceEntryKeepsDeclarationOrder` 钉，不由这条通道钉。
-  `debug` 开关是必要条件（不开就完全没有快照），但不充分
+  而把它们塞进 `common_input` 会破坏 `transform_copy` 的 arity。
+  `debug` 开关是必要条件（不开就完全没有快照），但不充分。
+  `input_snapshot` 由**另一条检查 [14c]** 钉：换用 `control_op_nil_field_no_crash.json`
+  （`ctrl_if` 声明 `["event","expose_duration"]`），并把每个算子的 `common_input` 声明**反转**——
+  原声明恰好已是字典序，不反转的话这条检查同样漏。单测
+  `traceSnapshotsSortWhileTheTraceEntryKeepsDeclarationOrder` 也覆盖同一属性
 - `scripts/cross-validate/14-byte-exact-execute.sh` — 直接 `==` 响应体
 - `scripts/differential-fuzz.py` 的 `key_order_signature()` — 用 `object_pairs_hook` 从原文读 key 顺序单独比对，绕开 `normalize_json` 的 `sort_keys=True`
 

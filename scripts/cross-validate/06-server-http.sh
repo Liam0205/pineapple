@@ -627,6 +627,72 @@ print(json.dumps(shape(d)))"
     fi
   fi
 
+  # Test 14c: trace input_snapshot key ORDER, on a second fixture whose
+  # common_input is declared non-alphabetically (control_op_nil_field_no_crash's
+  # ctrl_if declares ["event", "expose_duration"]). The main fixture above cannot
+  # pin this: snapshotInput only emits an operator's DECLARED common_input, and
+  # transform_copy's arity forbids adding keys to it, so an engine emitting
+  # snapshots in insertion order looked correct there.
+  srv_total=$((srv_total + 1))
+  SNAP_FIXTURE="$REPO_ROOT/fixtures/pipelines/control_op_nil_field_no_crash.json"
+  SNAP_CONFIG="$WORK_DIR/snap_config.json"
+  python3 -c "
+import json
+with open('$SNAP_FIXTURE') as f:
+    data = json.load(f)
+cfg = data['config']
+for op in cfg.get('pipeline_config', {}).get('operators', {}).values():
+    if isinstance(op, dict):
+        op['debug'] = True
+        # Reverse each declared common_input so declaration order is NOT sorted
+        # order. ctrl_if declares ["event", "expose_duration"], which is already
+        # alphabetical — so an engine emitting snapshots in insertion order
+        # produced identical bytes and this check passed against a real
+        # divergence. Reversing guarantees the two orders differ. The operator
+        # reads its inputs by name, so order here does not change behaviour.
+        meta = op.get(chr(36) + 'metadata') or {}
+        ci = meta.get('common_input')
+        if isinstance(ci, list) and len(ci) > 1:
+            meta['common_input'] = list(reversed(ci))
+with open('$SNAP_CONFIG', 'w') as cf:
+    json.dump(cfg, cf)
+"
+  SNAP_REQ=$(python3 -c "
+import json
+with open('$SNAP_FIXTURE') as f:
+    data = json.load(f)
+req = data['cases'][0]['request']
+req['common']['_return_trace'] = True
+print(json.dumps(req))
+")
+  snap_order_cmd="import collections, json, sys
+d = json.loads(sys.stdin.read(), object_pairs_hook=collections.OrderedDict)
+def shape(node):
+    if isinstance(node, dict):
+        return [[k, shape(v)] for k, v in node.items()]
+    if isinstance(node, list):
+        return [shape(v) for v in node]
+    return None
+snaps = [t.get('input_snapshot') for t in d.get('trace', []) if t.get('input_snapshot')]
+print(json.dumps([shape(x) for x in snaps]))"
+  SNAP_GO_PORT=18021
+  SNAP_JAVA_PORT=18022
+  "$WORK_DIR/pineapple-server" -config "$SNAP_CONFIG" -addr ":$SNAP_GO_PORT" >/dev/null 2>&1 &
+  snap_go_pid=$!
+  java -cp "$JAVA_CP" -Dpine.config="$SNAP_CONFIG" -Dpine.port=$SNAP_JAVA_PORT page.liam.pine.PineServer >/dev/null 2>&1 &
+  snap_java_pid=$!
+  sleep 4
+  snap_go=$(curl -s -X POST -H "Content-Type: application/json" -d "$SNAP_REQ" "http://localhost:$SNAP_GO_PORT/execute" | python3 -c "$snap_order_cmd")
+  snap_java=$(curl -s -X POST -H "Content-Type: application/json" -d "$SNAP_REQ" "http://localhost:$SNAP_JAVA_PORT/execute" | python3 -c "$snap_order_cmd")
+  kill $snap_go_pid $snap_java_pid 2>/dev/null || true
+  wait $snap_go_pid $snap_java_pid 2>/dev/null || true
+  if [[ "$snap_go" == "$snap_java" && "$snap_go" != "[]" ]]; then
+    srv_pass=$((srv_pass + 1))
+    echo "    [14c] POST /execute (trace input_snapshot) → key order Go vs Java match"
+  else
+    fail "server HTTP: trace input_snapshot key order divergence (Go=$snap_go, Java=$snap_java)"
+  fi
+
   # Test 15: Content-Type header parity across endpoints
   srv_total=$((srv_total + 1))
   ct_java_pass=true
