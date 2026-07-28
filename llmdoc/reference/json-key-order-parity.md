@@ -68,7 +68,7 @@ U+10000  UTF-16 d800 dc00   UTF-8 f0 90 80 80
 一致，含 BMP 之外的 key。`pine-cpp/tests/test_json.cpp` 的 "nested objects all sort
 keys (L5)" 用例钉着这条。**只要响应是由 `Variant` 经 writer 序列化出来的，key 顺序就不用管。**
 
-但 **key 的转义**曾是另一回事：`write_json_value` 的 value 分支走 `detail::write_go_string`（含 Go 的 HTML-safe 转义 `<` → `\u003c`、`>`、`&`，以及 U+2028/U+2029），而三处 key 是直接交给 RapidJSON 的 `Key()`，它不做这些转义。于是同一个字符出现在 **value** 里三方一致、出现在**key** 里就分歧（Go/Java 出 `a\u003cb`，C++ 出裸 `a<b`）。已改为 `detail::write_go_key`，由 `fixtures/server_byte_exact/08_html_chars_in_keys.json` 与 `test_json.cpp` 的
+但 **key 的转义**曾是另一回事：`write_json_value` 的 value 分支走 `detail::write_go_string`（含 Go 的 HTML-safe 转义 `<` → `\u003c`、`>`、`&`，以及 U+2028/U+2029），而三处 key 是直接交给 RapidJSON 的 `Key()`，它不做这些转义。于是同一个字符出现在 **value** 里三方一致、出现在**key** 里就分歧（Go/Java 出 `a\u003cb`，C++ 出裸 `a<b`）。已改为 `detail::write_go_key`，由 `fixtures/server_byte_exact/08_html_chars_in_keys.json`、`test_json.cpp` 的
 "object KEYS get Go's HTML-safe escaping" 用例双向钉住。
 
 这条是审计第八轮发现的，机制值得记：**同一个字符串属性（转义规则）在 key 与 value 两条路径上各实现一次，只有一条被审过。** 仓库里原有 `fixtures/pipelines/html_chars_passthrough.json` 只覆盖value 侧，key 侧无任何 fixture，且 fuzzer 的字段名池只有 `[a-z_]`，所以三条通道全都看不见。
@@ -158,6 +158,12 @@ issue #183 的标题与最初的任务描述都说只有 pine-java 错——对 
 
 - `scripts/cross-validate/09-raw-byte.sh` — 现在字节不等即失败（归一化回落已删），能钉住 key 顺序。
   但它走 CLI，**看不到 trace**（CLI 输出只有 common/items），也看不到 `/stats`
+- 单测是转义规则的**快通道**，两侧对称：C++ 由 `test_json.cpp` 的
+  "the two-character escape forms match Go exactly" 与 "trace duration magnitudes match Go" 钉；
+  Java 由 `GoJsonKeyOrderParityTest.stringEscapingMatchesGoInKeysAndValues` 钉（它是 Java 侧
+  唯一能抓住「控制字符大写十六进制」的检查——删掉 `createGoCompatMapper` 的控制字符接管后只有它变红）。
+  **转义类回归优先靠单测发现，fixture 是兜底**：只靠 fixture 意味着要跑完整套 cross-validate 才知道
+  坏了，而本任务第十轮的 `\b`/`\f` 事故正是这样发现的
 - `scripts/cross-validate/06-server-http.sh` — 走 HTTP，是唯一能钉住 `output_snapshot` 与 `/stats`
   key 顺序的通道。它使用的 fixture 算子名会被**重命名成非字典序**——原本是 `copy_score` / `truncate`，
   已经是字典序，于是 `/stats.operators` 按管道顺序输出的实现看起来也是对的，这条检查因此漏了一轮。它原先打印 `sorted(trace[0].keys())`，把待测维度本身排掉了；现已改为用
