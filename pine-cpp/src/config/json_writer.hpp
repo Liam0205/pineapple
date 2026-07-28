@@ -144,6 +144,12 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
 // diverged from Go and pine-java while VALUES did not — those already went
 // through write_go_string. A key "a<b" came out raw where Go emits "a\u003cb".
 // Reachable through any request whose field names contain those characters.
+// NOTE: write_json_value's string branch below repeats this same three-line
+// shape (clear a thread_local buffer, write_go_string into it, emit as
+// kStringType). That is boilerplate duplication, not a second copy of the
+// escaping RULES — those live only in write_go_string. The two buffers must stay
+// separate: a key and its value are both live within one write_json_value call,
+// so sharing one buffer would have the value overwrite the key.
 template <typename Writer>
 inline void write_go_key(Writer& w, const std::string& key) {
   thread_local rapidjson::StringBuffer key_buf;
