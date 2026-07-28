@@ -834,7 +834,7 @@ Pine-Java 注册全部内置算子（`AllOperators.java`），与 Pine-Go `pine-
 - 测试 `GoJsonNumberParityTest.formatJsonNumberMatchesTheSerializer` 钉住「序列化器不得持有格式化规则的第二份拷贝」
 - 跨语言等价实现见 `pine-cpp/src/config/json.cpp`（`go_format_json_number`）；两处实现共同依赖的实测事实见 `llmdoc/reference/number-formatting-parity.md`
 
-同一个 mapper 还承载 JSON **object key 顺序**对等（issue #183）：`GoFormat` 里的 `SortedByUtf8` / `sorted` / `wrapPayload` / `compareUtf8` 显式建模 Go「map 排序、struct 保持声明顺序」这条二分——payload 包 `SortedByUtf8`、envelope 保持 `LinkedHashMap`，`PineServer` 与 `RunCli` 两个入口共用同一 comparator（此前 `PineServer` 本地那套 `TreeMap` helper 已删）。key 顺序与数字格式是同一条序列化路径上**两组互不相干的规则**，改任一组时不要顺手动另一组。规则细节、Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 为何不可用、以及 pine-cpp 为何天然满足见 `llmdoc/reference/json-key-order-parity.md`。
+同一个 mapper 还承载 JSON **object key 顺序**对等（issue #183）：`GoFormat` 里的 `SortedByUtf8` / `sorted` / `wrapPayload` / `compareUtf8` 显式建模 Go「map 排序、struct 保持声明顺序」这条二分——payload 包 `SortedByUtf8`、envelope 保持 `LinkedHashMap`，`PineServer` 与 `RunCli` 两个入口共用同一 comparator（此前 `PineServer` 本地那套 `TreeMap` helper 已删）。key 顺序与数字格式是同一条序列化路径上**两组互不相干的规则**，改任一组时不要顺手动另一组。规则细节、Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 为何不可用、以及 pine-cpp 哪条路径天然满足、哪条（`/stats` 手写拼接）需要显式排序，见 `llmdoc/reference/json-key-order-parity.md`。
 
 ### 资源管理
 
