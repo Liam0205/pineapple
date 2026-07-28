@@ -1,6 +1,6 @@
 # [JSON object key 顺序跨运行时对等修复（issue #183）]
 
-分支 `fix/183-json-key-ordering-parity`（基于 `origin/master` = `75543a72`）。初版两个 commit（下列），审计过程中又加了 6 个修复/加固 commit，共 8 个：
+分支 `fix/183-json-key-ordering-parity`（基于 `origin/master` = `75543a72`）。初版两个 commit（下列），审计过程中又加了若干修复/加固 commit。**这里不再写具体数字**——本行先后被改过两次都是因为数字过期：第一次写「两个 commit」（漏掉审计产生的），第二次写「共 8 个」，而那次提交本身就是第 9 个，写下的瞬间就错了。commit 数随审计轮次增长，属于不该写进复盘的量；要数就 `git rev-list --count`：
 `3d92e968 fix(java)` 修实现 + `c1ae534c test(ci)` 补守门。本次同时关掉 `doc-gaps.md` 里
 「issue #183」条目与「字节级对等校验通道覆盖面太窄」条目的 (b) 分支。
 

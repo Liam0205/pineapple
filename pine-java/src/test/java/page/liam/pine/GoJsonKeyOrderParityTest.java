@@ -158,6 +158,22 @@ class GoJsonKeyOrderParityTest {
     }
 
     @Test
+    void httpDurationBucketFieldsAreOrderIndependentToday() {
+        // /stats.http's innermost values are HttpDurationBucket structs in Go, so
+        // Go keeps their fields in declaration order while the Java side sorts
+        // them. That is safe only while declaration order equals sorted order.
+        // This asserts the coincidence explicitly, so adding a field that breaks
+        // it fails here rather than diverging silently at runtime.
+        List<String> declared = List.of("count", "sum_ns");
+        List<String> sorted = new ArrayList<>(declared);
+        sorted.sort(GoFormat::compareUtf8);
+        assertEquals(declared, sorted,
+                "HttpDurationBucket gained a field whose declaration order differs from UTF-8 "
+                        + "sorted order; /stats.http must now use sortedShallow at the bucket "
+                        + "level instead of relying on the two orders coinciding");
+    }
+
+    @Test
     void compareUtf8AgreesWithAsciiOrderingAndHandlesPrefixes() {
         assertTrue(GoFormat.compareUtf8("a", "b") < 0);
         assertTrue(GoFormat.compareUtf8("b", "a") > 0);
