@@ -765,9 +765,10 @@ public class PineServer {
             Engine.Result result = snap.engine.execute(common, items);
 
             Map<String, Object> resp = new LinkedHashMap<>();
-            // Pre-sort data dict keys to mirror Go encoding/json behavior for
-            // `map[string]any` (which sorts alphabetically), while leaving the
-            // top-level response struct field order alone.
+            // Sort payload keys to mirror Go encoding/json for `map[string]any`
+            // — by UTF-8 BYTE order, not "alphabetically", which is the same
+            // thing only for ASCII — while leaving the top-level response struct
+            // field order alone.
             // GoFormat.sorted / wrapPayload replace the local sortMapKeys and
             // sortItemKeys helpers. Those used TreeMap, i.e. String.compareTo,
             // i.e. UTF-16 code-unit order — which disagrees with Go's UTF-8 byte
@@ -794,11 +795,20 @@ public class PineServer {
                     if (t.skipped) {
                         tm.put("skipped", true);
                     }
+                    // The trace ENTRY is a struct in Go (traceEntry: name,
+                    // duration_ms, skipped, input_snapshot, output_snapshot), so
+                    // tm itself keeps declaration order and must not be wrapped.
+                    // The two snapshots inside it are map[string]any
+                    // (server.go:667-668) and so do sort — including
+                    // output_snapshot.item_writes, whose Go type is
+                    // map[int]map[string]any: encoding/json renders int keys as
+                    // strings and sorts those, putting index 10 between 1 and 2.
+                    // wrapPayload handles that via withStringKeys.
                     if (t.inputSnapshot != null) {
-                        tm.put("input_snapshot", t.inputSnapshot);
+                        tm.put("input_snapshot", GoFormat.wrapPayload(t.inputSnapshot));
                     }
                     if (t.outputSnapshot != null) {
-                        tm.put("output_snapshot", t.outputSnapshot);
+                        tm.put("output_snapshot", GoFormat.wrapPayload(t.outputSnapshot));
                     }
                     traceList.add(tm);
                 }
@@ -840,22 +850,46 @@ public class PineServer {
             return;
         }
         try {
+            // Wrapped branch by branch, because /stats mixes Go's two rules at
+            // different depths and only the Go type decides which applies:
+            //   operators  map[string]OpStatsSnapshot  -> keys sort, values are
+            //                                            structs (declaration order)
+            //   scheduler  SchedulerStatsSnapshot      -> STRUCT, must not sort
+            //   server     map[string]int64            -> sorts
+            //   http       map (nested maps)           -> sorts at every depth
+            //   resources  map                         -> sorts at every depth
+            // Sorting the whole tree would reorder `scheduler`; sorting nothing
+            // leaves the rest in insertion order. Neither shortcut matches Go.
             Map<String, Object> resp = new LinkedHashMap<>();
-            resp.put("operators", snap.engine.stats());
+            resp.put("operators", GoFormat.sortedShallow(castMap(snap.engine.stats())));
             resp.put("scheduler", snap.engine.schedulerStats());
-            resp.put("server", serverStats());
-            resp.put("http", httpStats.snapshot());
+            resp.put("server", GoFormat.sorted(castMap(serverStats())));
+            resp.put("http", GoFormat.sorted(castMap(httpStats.snapshot())));
             if (snap.resourceMetrics != null) {
-                resp.put("resources", snap.resourceMetrics.snapshot());
+                resp.put("resources", GoFormat.sorted(castMap(snap.resourceMetrics.snapshot())));
             }
             Map<String, Map<String, Long>> custom = snap.engine.operatorCustomStats();
             if (custom != null) {
-                resp.put("operator_detail", custom);
+                resp.put("operator_detail", GoFormat.sorted(castMap(custom)));
             }
-            sendResponse(exchange, 200, resp);
+            // /stats is a map[string]any in Go (server.go:760), NOT a struct, so
+            // its top level sorts — unlike /execute, whose envelope is the
+            // executeResponse struct and keeps declaration order.
+            //
+            // sortedShallow, not sorted: the values beneath are a mix, and at
+            // least one is a struct. SchedulerStatsSnapshot keeps declaration
+            // order (run_count, peak_concurrency), so descending would sort a
+            // struct that Go leaves alone.
+            sendResponse(exchange, 200, GoFormat.sortedShallow(resp));
         } finally {
             snap.release();
         }
+    }
+
+    /** Widens a Map of any value type for GoFormat wrapping. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castMap(Map<String, ?> m) {
+        return (Map<String, Object>) m;
     }
 
     private void handleDAG(HttpExchange exchange) throws IOException {
@@ -921,7 +955,16 @@ public class PineServer {
     }
 
     private void sendResponse(HttpExchange exchange, int status, Object body) throws IOException {
-        byte[] responseBytes = mapper.writeValueAsBytes(body);
+        // writeValueAsString().getBytes(UTF_8), NOT writeValueAsBytes(). Jackson
+        // escapes characters above the BMP as surrogate pairs ("\uD83C\uDF89")
+        // when writing a byte stream but emits them raw when writing a String,
+        // while Go and pine-cpp both emit raw UTF-8. So the byte-oriented call
+        // diverged from Go on any emoji or other non-BMP character, in keys and
+        // values alike — and the unit tests could not see it because they assert
+        // against writeValueAsString, a different encoding path from the one the
+        // server used.
+        byte[] responseBytes = mapper.writeValueAsString(body)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(status, responseBytes.length + 1);
         try (OutputStream os = exchange.getResponseBody()) {
@@ -930,7 +973,6 @@ public class PineServer {
         }
     }
 
-    /** Recursively sort map keys alphabetically (mirrors Go encoding/json for map[string]any). */
 
 
 
