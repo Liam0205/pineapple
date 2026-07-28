@@ -103,6 +103,61 @@ class GoJsonKeyOrderParityTest {
     }
 
     @Test
+    void traceSnapshotsSortWhileTheTraceEntryKeepsDeclarationOrder() throws Exception {
+        // Go's traceEntry is a struct (name, duration_ms, skipped,
+        // input_snapshot, output_snapshot) so the entry keeps declaration order,
+        // while both snapshots are map[string]any and sort. Asserted here as a
+        // unit test because the cross-validate channel that sees trace can only
+        // pin output_snapshot: an input_snapshot only ever contains the
+        // operator's declared common_input, so no injected request key reaches it.
+        Map<String, Object> snapshotCommon = new LinkedHashMap<>();
+        snapshotCommon.put("zz", 1);
+        snapshotCommon.put("aa", 2);
+        Map<String, Object> inputSnapshot = new LinkedHashMap<>();
+        inputSnapshot.put("common", snapshotCommon);
+
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("name", "op");
+        entry.put("duration_ms", 0.5);
+        entry.put("input_snapshot", GoFormat.wrapPayload(inputSnapshot));
+
+        String json = MAPPER.writeValueAsString(entry);
+        assertEquals("{\"name\":\"op\",\"duration_ms\":0.5,"
+                + "\"input_snapshot\":{\"common\":{\"aa\":2,\"zz\":1}}}", json);
+    }
+
+    @Test
+    void integerKeyedMapsSortAsStringsLikeGo() throws Exception {
+        // output_snapshot.item_writes is map[int]map[string]any in Go, and
+        // encoding/json renders int keys as strings then sorts those — so index
+        // 10 lands between 1 and 2. wrapPayload must therefore stringify keys
+        // rather than cast them, which would also throw on Integer keys.
+        Map<Integer, Object> itemWrites = new LinkedHashMap<>();
+        for (int i = 0; i < 12; i++) {
+            itemWrites.put(i, i);
+        }
+        String json = MAPPER.writeValueAsString(GoFormat.wrapPayload(itemWrites));
+        assertEquals("{\"0\":0,\"1\":1,\"10\":10,\"11\":11,\"2\":2,\"3\":3,"
+                + "\"4\":4,\"5\":5,\"6\":6,\"7\":7,\"8\":8,\"9\":9}", json);
+    }
+
+    @Test
+    void sortedShallowSortsOnlyItsOwnLevel() throws Exception {
+        // For trees that mix Go's two rules, like /stats: the top level is a map
+        // and sorts, but `scheduler` beneath it is a struct and must not.
+        Map<String, Object> struct = new LinkedHashMap<>();
+        struct.put("run_count", 1);
+        struct.put("peak_concurrency", 2);
+        Map<String, Object> top = new LinkedHashMap<>();
+        top.put("server", struct);
+        top.put("operators", struct);
+        String json = MAPPER.writeValueAsString(GoFormat.sortedShallow(top));
+        // Top level sorted (operators before server); inner order preserved.
+        assertEquals("{\"operators\":{\"run_count\":1,\"peak_concurrency\":2},"
+                + "\"server\":{\"run_count\":1,\"peak_concurrency\":2}}", json);
+    }
+
+    @Test
     void compareUtf8AgreesWithAsciiOrderingAndHandlesPrefixes() {
         assertTrue(GoFormat.compareUtf8("a", "b") < 0);
         assertTrue(GoFormat.compareUtf8("b", "a") > 0);

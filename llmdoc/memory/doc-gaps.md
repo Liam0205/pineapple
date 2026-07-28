@@ -37,5 +37,5 @@
 ### issue #183：Java object key 插入顺序 vs Go 排序（已解决）
 
 - **结论**：已修，commit `3d92e968`（pine-java 实现）+ `c1ae534c`（校验通道）。规则已落 `reference/json-key-order-parity.md`：Go 对 map 排序、对 struct 保持声明顺序，Java 侧用 `GoFormat.SortedByUtf8` 显式建模这条二分；排序键是 UTF-8 字节序（`GoFormat.compareUtf8`），Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 与任何 `TreeMap` 写法都不能用
-- **原条目里那个未知项已查清**：pine-cpp 侧当时「尚未比对过」，本次补了三方比对，结论是**pine-cpp 本来就对、无需改动**（`json_writer.cpp` 的 `std::sort` 配 `std::string` 的 `<` 即字节序，含 BMP 外 key 逐字节相同），只有 pine-java 是错的
+- **原条目里那个未知项已查清，而且答案是两半**：pine-cpp 侧当时「尚未比对过」，本次补了三方比对。走 `Variant` writer 的响应（`/execute`，含 BMP 外 key）**本来就对**——`json_writer.cpp` 的 `std::sort` 配 `std::string` 的 `<` 即字节序。但 `/stats` 是**手写拼接 JSON、不走 writer**，顶层、`server` 与 `operators` 三处都按书写顺序输出，本次一并修了。教训：**「某个运行时天然满足」只对具体代码路径成立，不对整个运行时成立**；`operators` 那处是加了校验检查之后才暴露的，而且第一版检查用的 fixture 算子名恰好已是字典序，所以连新加的检查都漏了它一轮
 - **过程记录**：`memory/reflections/json-key-order-parity-183.md`

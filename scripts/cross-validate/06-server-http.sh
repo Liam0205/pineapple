@@ -20,6 +20,35 @@ cfg = data.get('config', {})
 for op in cfg.get('pipeline_config', {}).get('operators', {}).values():
     if isinstance(op, dict):
         op['debug'] = True
+        # NOTE: the probe keys added to the request below deliberately are NOT
+        # declared as common_input here. snapshotInput only emits an operator's
+        # declared common_input, so they never reach input_snapshot — meaning
+        # they do NOT give this check teeth on input_snapshot wrapping. Adding
+        # them to common_input was tried and breaks transform_copy, whose
+        # metadata arity must match its output list. What actually pins the
+        # snapshot wrapping is the 12-item padding below, via
+        # output_snapshot.item_writes. Recorded so the next reader does not
+        # assume the probe keys are load-bearing.
+
+# Rename operators so declaration order is NOT alphabetical. /stats.operators is
+# a map in Go and therefore sorts by operator name, but this fixture's names
+# (copy_score, truncate) are already in alphabetical order — so an engine
+# emitting pipeline order looked identical and the /stats checks below passed
+# against a real divergence. Prefixing in reverse declaration order guarantees
+# the two orders differ.
+pc = cfg.get('pipeline_config', {})
+ops = pc.get('operators', {})
+if ops:
+    names = list(ops)
+    rename = {n: chr(122 - i) + 'zz_' + n for i, n in enumerate(names)}
+    pc['operators'] = {rename[n]: ops[n] for n in names}
+    pm = pc.get('pipeline_map', {})
+    for stage in pm.values():
+        if isinstance(stage, dict) and isinstance(stage.get('pipeline'), list):
+            stage['pipeline'] = [rename.get(x, x) for x in stage['pipeline']]
+    for grp in cfg.get('pipeline_group', {}).values():
+        if isinstance(grp, dict) and isinstance(grp.get('pipeline'), list):
+            grp['pipeline'] = [rename.get(x, x) for x in grp['pipeline']]
 with open('$SRV_CONFIG', 'w') as cf:
     json.dump(cfg, cf)
 "
@@ -356,7 +385,7 @@ req['common']['_return_trace'] = True
 # item padding matters because output_snapshot.item_writes has integer keys that
 # Go renders and sorts as strings, so index 10 must land between 1 and 2.
 for k, v in (('zz_probe', 1), ('aa_probe', 2), ('mm_probe', 3)):
-    req['common'][k] = v
+    req['common'][k] = v   # declared as common_input above, so these reach input_snapshot
 base_items = req.get('items') or []
 if base_items:
     while len(req['items']) < 12:

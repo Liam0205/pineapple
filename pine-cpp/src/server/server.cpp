@@ -662,7 +662,15 @@ void Server::handle_stats(int client_fd, const std::string& method) {
 
   auto ops_snapshot = stats_->snapshot();
 
-  // Build operators JSON, preserving pipeline order
+  // Sorted by operator name, NOT pipeline order. Go's Stats() returns
+  // map[string]OpStatsSnapshot (pine.go:285) inside a map[string]any response,
+  // so encoding/json sorts the operator names; Stats::snapshot() here returns a
+  // vector in pre-init sequence, which matched Go only when the declared
+  // operator names happened to be alphabetical (issue #183). The values are
+  // OpStatsSnapshot structs, so the fields inside each stay in declaration order.
+  std::sort(ops_snapshot.begin(), ops_snapshot.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
+
   std::string ops_json = "{";
   for (size_t i = 0; i < ops_snapshot.size(); ++i) {
     if (i > 0) {

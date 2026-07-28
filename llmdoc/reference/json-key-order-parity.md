@@ -71,8 +71,11 @@ keys (L5)" 用例钉着这条。**只要响应是由 `Variant` 经 writer 序列
 但 `/stats` 不走 writer：`server.cpp` 的 `handle_stats` 用字符串拼接手写 JSON，于是
 key 顺序就是源码里的书写顺序。issue #183 期间实测发现它顶层输出
 `operators, scheduler, server, http, resources`，而 Go 排序后是
-`http, operators, resources, scheduler, server`；`server` 子树同样是书写顺序而 Go 排序。
-两处都已改为收集进 `std::map` 再按迭代序输出。
+`http, operators, resources, scheduler, server`；`server` 子树同样是书写顺序而 Go 排序；
+`operators` 按管道声明顺序而 Go 按算子名排序。
+三处都已修：顶层与 `server` 收集进 `std::map` 再按迭代序输出，`operators` 对
+`Stats::snapshot()` 返回的 vector 显式 `std::sort`（它的注释写着「ordered by the
+pre-init sequence」，即管道声明顺序）。
 
 教训：**「这个运行时天然满足」这句话只对某条代码路径成立，不对整个运行时成立。**
 issue #183 的标题与最初的任务描述都说只有 pine-java 错——对 `/execute` 是对的，对
@@ -92,6 +95,7 @@ issue #183 的标题与最初的任务描述都说只有 pine-java 错——对 
 | `output_snapshot.item_writes` | `map[int]map[string]any` | 按 key 的**字符串**形式排序（10 在 1 与 2 之间） | 是 |
 | `/stats` 顶层 | `map[string]any` | 排序 | 是 |
 | `/stats` `scheduler` | `SchedulerStatsSnapshot` struct | 保持声明顺序 | 是 |
+| `/stats` `operators` | `map[string]OpStatsSnapshot` | key 排序；值是 struct，字段保持声明顺序 | 是 |
 | `/stats` `server` / `http` / `resources` / `operator_detail` | map | 排序 | 是 |
 
 `/stats` 同一棵树里两条规则都出现，所以 Java 侧是**逐分支**按 Go 类型包装的，不是
@@ -102,11 +106,16 @@ issue #183 的标题与最初的任务描述都说只有 pine-java 错——对 
 
 - `scripts/cross-validate/09-raw-byte.sh` — 现在字节不等即失败（归一化回落已删），能钉住 key 顺序。
   但它走 CLI，**看不到 trace**（CLI 输出只有 common/items），也看不到 `/stats`
-- `scripts/cross-validate/06-server-http.sh` — 走 HTTP，是唯一能钉住 trace 快照与 `/stats`
-  key 顺序的通道。它原先打印 `sorted(trace[0].keys())`，把待测维度本身排掉了；现已改为用
+- `scripts/cross-validate/06-server-http.sh` — 走 HTTP，是唯一能钉住 `output_snapshot` 与 `/stats`
+  key 顺序的通道。它使用的 fixture 算子名会被**重命名成非字典序**——原本是 `copy_score` / `truncate`，
+  已经是字典序，于是 `/stats.operators` 按管道顺序输出的实现看起来也是对的，这条检查因此漏了一轮。它原先打印 `sorted(trace[0].keys())`，把待测维度本身排掉了；现已改为用
   `object_pairs_hook` 比 key 序列与嵌套结构，并给算子开 `debug`、把请求补到 12 个 item 且
-  加非排序的额外 common key —— 缺任何一项检查都会对着改坏的实现继续绿（单 key 的快照没有
-  顺序可错，<10 个 item 也测不出 int key 的字符串排序）
+  加非排序的额外 common key —— 其中**只有 12 个 item 的补齐是真有牙的**——它经由
+  `output_snapshot.item_writes` 钉住 int key 的字符串排序。额外的 `*_probe` common key 实测**无效**：
+  `snapshotInput` 只输出算子**声明的** `common_input`，请求里多加的 key 到不了 `input_snapshot`；
+  而把它们塞进 `common_input` 会破坏 `transform_copy` 的 arity。所以 `input_snapshot` 的包装由单测
+  `traceSnapshotsSortWhileTheTraceEntryKeepsDeclarationOrder` 钉，不由这条通道钉。
+  `debug` 开关是必要条件（不开就完全没有快照），但不充分
 - `scripts/cross-validate/14-byte-exact-execute.sh` — 直接 `==` 响应体
 - `scripts/differential-fuzz.py` 的 `key_order_signature()` — 用 `object_pairs_hook` 从原文读 key 顺序单独比对，绕开 `normalize_json` 的 `sort_keys=True`
 
