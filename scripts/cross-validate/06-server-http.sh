@@ -385,7 +385,7 @@ req['common']['_return_trace'] = True
 # item padding matters because output_snapshot.item_writes has integer keys that
 # Go renders and sorts as strings, so index 10 must land between 1 and 2.
 for k, v in (('zz_probe', 1), ('aa_probe', 2), ('mm_probe', 3)):
-    req['common'][k] = v   # declared as common_input above, so these reach input_snapshot
+    req['common'][k] = v   # inert for input_snapshot - see the NOTE above; kept only as request-shape noise
 base_items = req.get('items') or []
 if base_items:
     while len(req['items']) < 12:

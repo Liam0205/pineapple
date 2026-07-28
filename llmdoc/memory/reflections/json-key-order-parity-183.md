@@ -1,6 +1,6 @@
 # [JSON object key 顺序跨运行时对等修复（issue #183）]
 
-分支 `fix/183-json-key-ordering-parity`（基于 `origin/master` = `75543a72`），两个 commit：
+分支 `fix/183-json-key-ordering-parity`（基于 `origin/master` = `75543a72`）。初版两个 commit（下列），审计过程中又加了 6 个修复/加固 commit，共 8 个：
 `3d92e968 fix(java)` 修实现 + `c1ae534c test(ci)` 补守门。本次同时关掉 `doc-gaps.md` 里
 「issue #183」条目与「字节级对等校验通道覆盖面太窄」条目的 (b) 分支。
 
@@ -202,7 +202,7 @@ writer（`std::sort` + `std::string` 的 `<`，天然字节序），后者是手
 
 1. 调 `recorder` 落地上述稳定文档改动：GoFormat 节补 key 排序两条规则、
    ci-quality-baseline 更新通道表 + 补两条纪律、doc-gaps 关 #183 并改写通道条目。
-2. `fixtures/server_byte_exact/` 仍需按 doc-gap (a) 扩覆盖面；本次没有新增 fixture，
+2. `fixtures/server_byte_exact/` 仍需按 doc-gap (a) 扩覆盖面。本次加了 `07_non_bmp_keys.json`（审计第四轮，为给 `writeValueAsBytes` 那处修复补回归门），从 5 个到 6 个，但离覆盖主要响应形状还很远，
    守门增强全部落在 09 号通道与 fuzz 上。
 3. 检查 `differential-fuzz.py` 里是否还有其他「生成器只发期望形状」的维度（本次只查了
    flow_contract 的 key 顺序）。这条与 issue #175 记的「flow_contract 投影盲区」是同一
