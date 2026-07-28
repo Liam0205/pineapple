@@ -10,7 +10,9 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Replicates Go fmt.Sprint / strconv.FormatFloat / fmt.Sprintf("%g",...) formatting
@@ -445,6 +447,89 @@ public final class GoFormat {
      * Creates an ObjectMapper that escapes &lt;, &gt;, &amp;, U+2028, U+2029
      * to match Go encoding/json's default HTML-safe output.
      */
+    /**
+     * Marks a map whose keys must be emitted in Go's sorted order.
+     *
+     * <p>Go's encoding/json sorts map keys but leaves struct fields in
+     * declaration order. pine-go's response envelope is a struct
+     * (`executeResponse`: common, items, warnings, trace, error) while the
+     * common/items payloads inside it are maps. Java models both as Map, so
+     * without an explicit marker there is nothing to distinguish "sort this" from
+     * "keep declaration order" — and sorting everything reorders the envelope,
+     * which is what broke the partial-error byte-exact fixture on the first
+     * attempt at issue #183.
+     *
+     * <p>Wrap payloads with {@link #sorted}; leave the envelope unwrapped.
+     */
+    static final class SortedByUtf8 {
+        final Map<String, Object> delegate;
+
+        SortedByUtf8(Map<String, Object> delegate) {
+            this.delegate = delegate;
+        }
+    }
+
+    /** Wraps a payload map so its keys emit in Go's order. Null-safe. */
+    static Object sorted(Map<String, Object> m) {
+        return m == null ? null : new SortedByUtf8(m);
+    }
+
+    /**
+     * Recursively wraps nested maps found inside an already-wrapped payload.
+     * Go sorts at every depth, so a map nested inside a list inside a map must
+     * sort too — the pine-cpp side has a test for exactly that (dump_json L5).
+     */
+    @SuppressWarnings("unchecked")
+    static Object wrapPayload(Object v) {
+        if (v instanceof SortedByUtf8) {
+            return v;
+        }
+        if (v instanceof Map) {
+            return new SortedByUtf8((Map<String, Object>) v);
+        }
+        if (v instanceof List) {
+            List<?> in = (List<?>) v;
+            List<Object> out = new ArrayList<>(in.size());
+            for (Object e : in) {
+                out.add(wrapPayload(e));
+            }
+            return out;
+        }
+        return v;
+    }
+
+    /**
+     * Compares two strings by their UTF-8 byte sequences, unsigned, which is what
+     * Go's `<` on strings does and therefore what encoding/json's key sort does.
+     *
+     * <p>Not String.compareTo: that compares UTF-16 code units and disagrees with
+     * UTF-8 order for any key containing a character above the BMP. See the
+     * comment at the Map serializer registration for the worked example.
+     *
+     * <p>Fast path for the common case: while both strings are pure ASCII the two
+     * orders coincide, so the byte arrays are only materialized when a non-ASCII
+     * character is actually present.
+     */
+    static int compareUtf8(String a, String b) {
+        int n = Math.min(a.length(), b.length());
+        for (int i = 0; i < n; i++) {
+            char ca = a.charAt(i);
+            char cb = b.charAt(i);
+            if (ca == cb) {
+                continue;
+            }
+            if (ca < 0x80 && cb < 0x80) {
+                return ca - cb;
+            }
+            byte[] ba = a.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            byte[] bb = b.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            return java.util.Arrays.compareUnsigned(ba, bb);
+        }
+        // One is a prefix of the other, or they are equal. A shorter prefix sorts
+        // first under both encodings, so length comparison is safe here.
+        return Integer.compare(a.length(), b.length());
+    }
+
     static ObjectMapper createGoCompatMapper() {
         ObjectMapper m = new ObjectMapper();
         m.getFactory().setCharacterEscapes(new CharacterEscapes() {
@@ -561,6 +646,30 @@ public final class GoFormat {
                     goDoubleSerializer.serialize(v, gen, provider);
                 }
                 gen.writeEndArray();
+            }
+        });
+        // Go sorts MAP keys but not STRUCT fields, and pine-go models the
+        // response envelope as a struct (`executeResponse`) while common/items
+        // payloads are `map[string]any`. So `{"common":...,"items":...,"error":...}`
+        // keeps declaration order while the payloads inside it sort. An earlier
+        // version of this registration sorted every Map and moved "error" ahead
+        // of "items", breaking the byte-exact fixture that covers partial errors.
+        //
+        // Java has no struct/map distinction to key off, so the distinction is
+        // made explicit: payload maps are wrapped in SortedByUtf8 and the
+        // envelope is a plain LinkedHashMap whose order is the declaration order.
+        module.addSerializer(SortedByUtf8.class, new StdSerializer<SortedByUtf8>(SortedByUtf8.class) {
+            @Override
+            public void serialize(SortedByUtf8 value, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                List<String> keys = new ArrayList<>(value.delegate.keySet());
+                keys.sort(GoFormat::compareUtf8);
+                gen.writeStartObject();
+                for (String k : keys) {
+                    gen.writeFieldName(k);
+                    provider.defaultSerializeValue(wrapPayload(value.delegate.get(k)), gen);
+                }
+                gen.writeEndObject();
             }
         });
         m.registerModule(module);

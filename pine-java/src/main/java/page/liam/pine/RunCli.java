@@ -142,9 +142,12 @@ public class RunCli {
             System.exit(1);
         }
 
+        // Envelope stays a LinkedHashMap: its order is Go's struct declaration
+        // order (common, items), not sorted. Payloads are wrapped so their keys
+        // emit in Go's sorted order. See GoFormat.SortedByUtf8.
         Map<String, Object> output = new LinkedHashMap<>();
-        output.put("common", result.common);
-        output.put("items", result.items);
+        output.put("common", GoFormat.sorted(result.common));
+        output.put("items", GoFormat.wrapPayload(result.items));
 
         String json = prettyWriter.writeValueAsString(output);
         System.out.println(json);
