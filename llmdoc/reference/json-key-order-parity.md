@@ -66,7 +66,12 @@ U+10000  UTF-16 d800 dc00   UTF-8 f0 90 80 80
 `pine-cpp/src/config/json_writer.cpp:33,54` 与 `json_writer.hpp:170`（递归那处，
 「每一层都排」的实现点）的 `std::sort` 配 `std::string` 的 `<` 就是字节序，天然与 Go
 一致，含 BMP 之外的 key。`pine-cpp/tests/test_json.cpp` 的 "nested objects all sort
-keys (L5)" 用例钉着这条。**只要响应是由 `Variant` 经 writer 序列化出来的，就不用管。**
+keys (L5)" 用例钉着这条。**只要响应是由 `Variant` 经 writer 序列化出来的，key 顺序就不用管。**
+
+但 **key 的转义**曾是另一回事：`write_json_value` 的 value 分支走 `detail::write_go_string`（含 Go 的 HTML-safe 转义 `<` → `\u003c`、`>`、`&`，以及 U+2028/U+2029），而三处 key 是直接交给 RapidJSON 的 `Key()`，它不做这些转义。于是同一个字符出现在 **value** 里三方一致、出现在**key** 里就分歧（Go/Java 出 `a\u003cb`，C++ 出裸 `a<b`）。已改为 `detail::write_go_key`，由 `fixtures/server_byte_exact/08_html_chars_in_keys.json` 与 `test_json.cpp` 的
+"object KEYS get Go's HTML-safe escaping" 用例双向钉住。
+
+这条是审计第八轮发现的，机制值得记：**同一个字符串属性（转义规则）在 key 与 value 两条路径上各实现一次，只有一条被审过。** 仓库里原有 `fixtures/pipelines/html_chars_passthrough.json` 只覆盖value 侧，key 侧无任何 fixture，且 fuzzer 的字段名池只有 `[a-z_]`，所以三条通道全都看不见。
 
 但 `/stats` 不走 writer：`server.cpp` 的 `handle_stats` 用字符串拼接手写 JSON，于是
 key 顺序就是源码里的书写顺序。issue #183 期间实测发现它顶层输出

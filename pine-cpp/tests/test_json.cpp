@@ -232,3 +232,19 @@ TEST_CASE("dump_json: numbers match Go encoding/json byte for byte (#180)") {
     CHECK(emit(-std::numeric_limits<double>::denorm_min()) == "-5e-324");
   }
 }
+
+TEST_CASE("dump_json: object KEYS get Go's HTML-safe escaping, like values do") {
+  // Values already went through write_go_string; keys went straight to
+  // RapidJSON's Key(), which does not apply Go's escapes. So a key containing
+  // < > & or U+2028/U+2029 diverged from Go and pine-java while the same
+  // character in a VALUE did not. Reachable through any request whose field
+  // names contain them.
+  Variant::object_t o;
+  o.emplace("a<b", Variant(1.0));
+  o.emplace("c&d", Variant(2.0));
+  o.emplace("e>f", Variant(3.0));
+  o.emplace("g\xe2\x80\xa8h", Variant(4.0));
+  std::string out = dump_json(Variant(std::move(o)), 0);
+  CHECK(out ==
+        R"({"a\u003cb":1,"c\u0026d":2,"e\u003ef":3,"g\u2028h":4})");
+}
