@@ -1,4 +1,5 @@
 #include "pine/pine.hpp"
+#include "config/json_writer.hpp"  // go_format_json_number
 
 #include <doctest/doctest.h>
 
@@ -247,4 +248,48 @@ TEST_CASE("dump_json: object KEYS get Go's HTML-safe escaping, like values do") 
   std::string out = dump_json(Variant(std::move(o)), 0);
   CHECK(out ==
         R"({"a\u003cb":1,"c\u0026d":2,"e\u003ef":3,"g\u2028h":4})");
+}
+
+TEST_CASE("go_format_json_number: trace duration magnitudes match Go") {
+  // trace[].duration_ms used snprintf("%g"), which is 6 significant digits, so
+  // any operator slower than about a millisecond diverged from Go's
+  // shortest-round-trip. Pinned here rather than through a channel because no
+  // channel can see it: section 06 strips duration_ms as timing, section 14
+  // compares whole response bodies (so a real duration is never byte-stable),
+  // section 09 drives the CLI which emits no trace, and differential-fuzz's
+  // strip_trace removes it too. Reverting the fix left every one of them green.
+  CHECK(go_format_json_number(1234.567) == "1234.567");   // %g gave 1234.57
+  CHECK(go_format_json_number(1000.001) == "1000.001");   // %g gave 1000
+  CHECK(go_format_json_number(1.234567) == "1.234567");   // %g gave 1.23457
+  CHECK(go_format_json_number(1234567.0) == "1234567");   // %g gave 1.23457e+06
+  CHECK(go_format_json_number(0.0) == "0");
+}
+
+TEST_CASE("dump_json: the two-character escape forms match Go exactly") {
+  // Go emits \b and \f as two characters, not as  / , and uses
+  // LOWERCASE hex for the rest of the control range. write_go_string was missing
+  // the \b and \f cases: harmless while only values used it, but a regression
+  // once keys were routed through it, because RapidJSON's Key() had handled both.
+  //
+  // Only fixture 09 caught that, i.e. the slowest channel. These assertions put
+  // the same property in the fastest one. Characters are chosen from Go's escape
+  // table: the five two-character forms, plus hex digits above 9 where Jackson's
+  // uppercase output differed from Go's lowercase.
+  Variant::object_t o;
+  o.emplace(std::string("b\bx"), Variant(std::string("v\bw")));
+  o.emplace(std::string("f\fx"), Variant(std::string("v\fw")));
+  o.emplace(std::string("t\tx"), Variant(std::string("v\tw")));
+  o.emplace(std::string("n\nx"), Variant(std::string("v\nw")));
+  o.emplace(std::string("r\rx"), Variant(std::string("v\rw")));
+  o.emplace(std::string("v\x0bx"), Variant(std::string("v\x0bw")));
+  o.emplace(std::string("h\x1fx"), Variant(std::string("v\x1fw")));
+  std::string out = dump_json(Variant(std::move(o)), 0);
+  // Keys sort by UTF-8 byte, so the control characters decide the order. Note
+  // that \b and \f are two characters while 0x0b and 0x1f are LOWERCASE hex —
+  // exactly Go's split, and the reason the missing \b/\f cases mattered.
+  CHECK(out ==
+        "{\"b\\bx\":\"v\\bw\",\"f\\fx\":\"v\\fw\","
+        "\"h\\u001fx\":\"v\\u001fw\",\"n\\nx\":\"v\\nw\","
+        "\"r\\rx\":\"v\\rw\",\"t\\tx\":\"v\\tw\","
+        "\"v\\u000bx\":\"v\\u000bw\"}");
 }
