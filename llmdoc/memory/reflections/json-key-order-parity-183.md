@@ -211,7 +211,7 @@ writer（`std::sort` + `std::string` 的 `<`，天然字节序），后者是手
 ## 验证情况（本次已完成）
 
 - 三方定向探针：`c1/c10/c2` 与 BMP 外 key 两组，go/java/cpp 输出逐字节相同
-- `make java-test` 346 用例（新增 10：初版 7 + 审计第二轮补的 3）、`make cpp-test` 247 用例；`make lint`、
+- `make java-test` / `make cpp-test` 全过（**用例数同样不写死**——「346/新增 10」这个数字在写下它的那次提交里就已过期，因为同一 commit 又加了一个测试；数就跑命令）、`make cpp-test` 247 用例；`make lint`、
   `make test`、`make codegen-check` 全过
 - `make cross-validate` 55/55（09 号通道 91/91，无归一化回落）；
   `make differential-fuzz` 1000/1000
