@@ -170,6 +170,22 @@ CI 中 fuzz 运行时间为 30s/入口，并使用 `-run=^$ -parallel=4` 固定�
 - 度量**有效可见率**（危险值出现在被投影、被差分比对实际读取的输出里），不是**形状出现率**（危险值仅在某处被生成）——两个指标会因投影类盲区完全脱节
 - 端到端验证探测能力：red-before（pre-fix 二进制 + 新生成器在真实生成轮上复现分歧）→ green-after（fixed 二进制通过同一轮）→ N 轮新鲜 fuzz 零假阳性
 
+### 只生成「已经是期望形状」输入的生成器，检不出关于形状的 bug
+
+新加检查之后必须**对着 mutant 验证它真的会红**，不能只看它在正确代码上是绿的。绿了先怀疑生成器，而不是被测代码。
+
+issue #183 的实际经过：`key_order_signature` 加完之后，对着**故意改坏的** Java 序列化器仍然 1000/1000 全绿。根因不在检查，在生成器——`scripts/differential-fuzz.py` 生成 flow_contract 时写的是 `sorted(common_outputs)` / `sorted(item_outputs)`，声明顺序恒等于排序后顺序，于是「按插入顺序输出」的错误实现恰好与 Go 的排序输出一致，检查永远不触发。生成器改成 shuffle 之后，同一个 mutant 60 轮红 6 轮。
+
+这与 issue #180 的「benchmark 取样恰好避开会反驳注释的区间」、以及 `04_number_precision.json`「名字像覆盖精度、实则只覆盖已对区间」是同一个失败模式：**样本回避了反例**。检查的探测能力上限由输入分布决定；输入分布恰好落在期望形状里时，检查等于没加。
+
+### 新增的 gate 条件必须量化它为 true 的占比
+
+给一个检查加条件（只在某种轮次里启用）时，先测这个条件在真实轮次里有多少比例为 true。判据是「关掉这个条件后检查还会红吗 / 这个条件为 true 的轮次占多少」，不是「条件读起来是否合理」。
+
+issue #183 踩到的：`key_order_signature` 最初被 gate 在 `strict_order` 上，理由是「key 顺序只在 item 顺序确定时才有意义」。而 `strict_order` 只在管道以唯一键排序结尾时为 true，所以大部分轮次检查是关着的。理由本身也是错的——key 顺序与 item 顺序是**互相独立**的确定性维度。改成不 gate：item 顺序不确定时把各 item 的 key 序列当 multiset 比，每个 item 自己的 key 顺序仍然精确比。
+
+同类前例：issue #180 的「perf 快路径三次都漏掉一整类输入」。共同点是**新加的守卫条件本身从未被验证过覆盖面**。
+
 ### Mutation 验证的两步判据
 
 用 mutation（故意改坏被测代码）验证一个测试"有牙"时，必须分两步，不能合并：
@@ -191,9 +207,9 @@ Nightly diff-fuzz artifact 分歧定位顺序：(a) 下载 artifact，解压 `di
 
 ### 校验通道能钉住的属性（归一化 vs 字节级）
 
-差分 fuzz 与 cross-validate 大部分通道在比对前做**归一化**，因此有整类属性对它们结构上不可见。新增契约时必须先问「哪条通道会红」，而不是「测试是否全绿」。issue #180（JSON 数字格式跨运行时分歧）暴露的通道能力如下。
+差分 fuzz 与 cross-validate 大部分通道在比对前做**归一化**，因此有整类属性对它们结构上不可见。新增契约时必须先问「哪条通道会红」，而不是「测试是否全绿」。issue #180（JSON 数字格式跨运行时分歧）暴露的通道能力如下，issue #183 之后 key 顺序一栏已经补上。
 
-**differential-fuzz：归一化抹掉 key 顺序与绝大多数数字字面量差异。** `scripts/differential-fuzz.py` 的 `normalize_json` 做 `json.loads` → `_normalize_value` → `json.dumps(sort_keys=True)`。`sort_keys=True` 使 key 顺序整个维度不可见（issue #183 因此从未被抓到）；`_normalize_value` 只对 `float` 分支做 `round(v, 10)` 与小量级归零，`int` 分支原样穿过。
+**differential-fuzz 的 `normalize_json` 抹掉 key 顺序与绝大多数数字字面量差异，key 顺序另有专门比对面。** `scripts/differential-fuzz.py` 的 `normalize_json` 做 `json.loads` → `_normalize_value` → `json.dumps(sort_keys=True)`，`sort_keys=True` 使 key 顺序在这条比对面上不可见；`_normalize_value` 只对 `float` 分支做 `round(v, 10)` 与小量级归零，`int` 分支原样穿过。issue #183 因此长期没被这条比对面抓到。现状：另有 `key_order_signature()` 用 `object_pairs_hook` 从原文读出 key 顺序**单独比对**，与值比对并行，数值容差与 item 顺序归一化都保持不变；item 顺序不确定时把各 item 的 key 序列当 multiset 比，单个 item 内部的 key 顺序仍然精确比。数字字面量的可见性边界没有变化（见下表）。
 
 **#180 能被 fuzz 报出来靠的是 Python 的 int/float 类型分裂，不是设计出来的检出能力**：Go 输出 `100000000000000000000` 被 `json.loads` 解析成 `int`（原样穿过），Java 输出 `1.0E20` 解析成 `float` 再 re-dump 成 `1e+20`，两串才不相等。推论：**只有至少一侧输出整数形状字面量（无小数点无指数）时，数字格式分歧才可见**。实测的可见性分档：
 
@@ -209,9 +225,9 @@ Nightly diff-fuzz artifact 分歧定位顺序：(a) 下载 artifact，解压 `di
 
 #180 实际有 15 个分歧，fuzz 结构上只能看见其中一部分。
 
-**`scripts/cross-validate/09-raw-byte.sh` 标题写 "no normalization"，实际有回落。** 字节比较失败后会用 `normalize_json` 再比一次，相等就打 `[W]` 警告并**计为 pass**（`09-raw-byte.sh:115-126`）。这是 key 顺序差异被有意容忍的地方，同时也意味着它不能钉住字节级数字格式。
+**`scripts/cross-validate/09-raw-byte.sh` 现在是真字节通道。** 它曾经与标题 "no normalization" 不符：字节比较失败后会用 `normalize_json` 再比一次，相等就打 `[W]` 警告并**计为 pass**。那个回落**就是为容忍 issue #183 的 key 顺序分歧而存在的**，于是这条通道恰好检不出它唯一在容忍的那类字节差异。issue #183 已把回落删掉，字节不同即硬失败（91/91 两对全绿；把 Java 序列化器改回去立刻红）。剩下的唯一例外是 `strict_order: false` 的 fixture——item 顺序按设计不确定，那些 case 走 `normalize_json_set`，失败文案里显式写「values differ, not just key ordering」。
 
-**`scripts/cross-validate/14-byte-exact-execute.sh` 是唯一真字节通道**：curl 响应体直接 `==`，无任何回落。#180 给它补了 `fixtures/server_byte_exact/06_number_format_regimes.json`，覆盖 Go 各个格式化区间（输入 doubled 后分别落在 1e20 / 1e21 / 1.5e21 / 1e-7 / 1e-6 / 最短往返差异 / 1e16 / -1e20）。双向 mutation 验证过有牙：Java 序列化器改回 `writeNumber` → Go-vs-Java 变红；C++ 改回 `chars_format::fixed` → Go-vs-C++ 变红。
+**`scripts/cross-validate/14-byte-exact-execute.sh` 也是真字节通道**（09 号修复前它是唯一一条）：curl 响应体直接 `==`，无任何回落。#180 给它补了 `fixtures/server_byte_exact/06_number_format_regimes.json`，覆盖 Go 各个格式化区间（输入 doubled 后分别落在 1e20 / 1e21 / 1.5e21 / 1e-7 / 1e-6 / 最短往返差异 / 1e16 / -1e20）。双向 mutation 验证过有牙：Java 序列化器改回 `writeNumber` → Go-vs-Java 变红；C++ 改回 `chars_format::fixed` → Go-vs-C++ 变红。
 
 **原有的 `04_number_precision.json` 名字看起来正好覆盖数字精度，实际不可能抓到 #180**：输入 `100000 / 1000001 / 0.5`，×2 后全部落在 ±2^53 内的整数值区间——恰好是 Java 旧代码唯一处理对的区间。一个名叫 `number_precision` 却漏掉所有真正分歧量级的 gate，比没有 gate 更糟：它读起来像已覆盖。
 
@@ -369,8 +385,9 @@ Pine-Java 通过 Sonatype Central Portal 发布到 Maven Central（release profi
 - Differential-fuzz 脚本：`scripts/differential-fuzz.py`、`scripts/differential-fuzz.sh`
 - DAG differential-fuzz 脚本：`scripts/dag-differential-fuzz.py`
 - Cross-validate section 列表：`scripts/cross-validate/`
-- Cross-validate raw-byte（带归一化回落）：`scripts/cross-validate/09-raw-byte.sh`
-- Cross-validate 唯一真字节通道：`scripts/cross-validate/14-byte-exact-execute.sh`、`fixtures/server_byte_exact/`
+- Cross-validate raw-byte（真字节，仅 `strict_order: false` fixture 走 set 归一化）：`scripts/cross-validate/09-raw-byte.sh`
+- Cross-validate 真字节通道：`scripts/cross-validate/14-byte-exact-execute.sh`、`fixtures/server_byte_exact/`
+- JSON key 顺序对等规则：`llmdoc/reference/json-key-order-parity.md`
 - Cross-validate metrics-parity section：`scripts/cross-validate/13-metrics-parity.sh`
 - Cross-validate pine-cpp 预构建：`scripts/cross-validate/_prebuild.sh`
 - 跨引擎 benchmark：`scripts/cross-engine-bench.py`、`scripts/cross-engine-bench-cli.sh`、`scripts/bench-generate-fixtures.py`

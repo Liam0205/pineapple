@@ -1,5 +1,8 @@
 # 跨语言数值格式化实测事实
 
+本文件只管 `/execute` 输出里**数字怎么拼**。同属 JSON 字节级契约、但规则互不相干的
+另一半是 **object key 按什么顺序出**，见 `llmdoc/reference/json-key-order-parity.md`。
+
 本文件记录复刻 Go 数值格式化时**必须实测、不能靠推理**的两条事实。两条都是 issue #180 期间用探针实测得到的，各自让一轮实现失败过。
 
 适用场景：在 pine-cpp / pine-java（或任何第四运行时）里复刻 Go `strconv` / `encoding/json` 的 double 输出，或修改已有的格式化路径。
