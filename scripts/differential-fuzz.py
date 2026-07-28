@@ -960,11 +960,25 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
     # diff. Output-side only — leaving common_input/item_input empty
     # skips request validation, which dedicated error-path rounds cover.
     if rng.random() < 0.4:
+        # Declaration order is SHUFFLED, not sorted. It used to be sorted here,
+        # which made every engine's insertion order coincide with Go's sorted
+        # key order — so the key-ordering divergence of issue #183 was invisible
+        # to this fuzzer twice over: normalize_json erased key order, and even
+        # without that the generator never produced a document whose insertion
+        # order differed from sorted order. A generator that only emits inputs
+        # already in the expected shape cannot detect a bug about shape.
+        #
+        # Engines must sort the OUTPUT keys regardless of declaration order, so
+        # shuffling here is valid input, not a contract violation.
+        shuffled_common = sorted(common_outputs)
+        shuffled_item = sorted(item_outputs)
+        rng.shuffle(shuffled_common)
+        rng.shuffle(shuffled_item)
         config["flow_contract"] = {
             "common_input": [],
             "item_input": [],
-            "common_output": sorted(common_outputs),
-            "item_output": sorted(item_outputs),
+            "common_output": shuffled_common,
+            "item_output": shuffled_item,
         }
 
     if storage_mode == "column":
@@ -1252,6 +1266,48 @@ def _sort_items(items: list) -> list:
             return json.dumps(item, sort_keys=True, ensure_ascii=False)
         return str(item)
     return sorted(items, key=sort_key)
+
+
+def key_order_signature(data: str, items_as_set: bool = False) -> str | None:
+    """Object key order as it appears in the raw text, for parity checking.
+
+    normalize_json deliberately re-serializes with sort_keys=True so that float
+    tolerance and item-order normalization can be applied. That also erases key
+    ordering, which is why the divergence in issue #183 went undetected by this
+    fuzzer for as long as it existed: Go sorts map keys, pine-java emitted
+    insertion order, and both normalized to the same string.
+
+    This reads the key order out of the raw document instead, so it can be
+    compared separately without giving up the normalization the value comparison
+    needs. Returns None when the text does not parse, in which case the caller
+    falls back to the normalized comparison alone.
+
+    Ordering is compared as-emitted rather than against a sorted expectation:
+    the goal is that the engines agree with each other, and the reference engine
+    defines what correct is.
+    """
+    try:
+        obj = json.loads(data, object_pairs_hook=lambda pairs: ("__obj__", pairs))
+    except json.JSONDecodeError:
+        return None
+
+    def walk(node) -> object:
+        if isinstance(node, tuple) and len(node) == 2 and node[0] == "__obj__":
+            return [[k, walk(v)] for k, v in node[1]]
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return None
+
+    sig = walk(obj)
+    if items_as_set and isinstance(sig, list):
+        # Item order is non-deterministic for this pipeline, so sort the per-item
+        # key sequences before comparing. Each item's OWN key order is still
+        # compared exactly; only which item comes first is normalized away.
+        for entry in sig:
+            if isinstance(entry, list) and len(entry) == 2 and entry[0] == "items":
+                if isinstance(entry[1], list):
+                    entry[1] = sorted(entry[1], key=lambda v: json.dumps(v, ensure_ascii=False))
+    return json.dumps(sig, ensure_ascii=False)
 
 
 def normalize_json(data: str, sort_items: bool = False, strip_trace: bool = False) -> str:
@@ -1664,6 +1720,25 @@ def main():
                         strip_trace=has_trace,
                     )
                     if ref_norm != e_norm:
+                        all_match = False
+                        divergent_pair = (ref_name, engine.name)
+                        break
+
+                    # Key ORDER, checked separately because normalize_json
+                    # sorts keys away (see key_order_signature).
+                    #
+                    # Deliberately NOT gated on strict_order. An earlier version
+                    # was, on the theory that ordering is only meaningful when
+                    # item order is deterministic — wrong, and it silently
+                    # disabled the check for most rounds, since strict_order is
+                    # only true when the pipeline ends in a sort on a unique key.
+                    # Object key order is deterministic whatever order the items
+                    # arrive in, so the two are independent. When item order is
+                    # non-deterministic, compare only the common object plus the
+                    # per-item key sequences as a multiset.
+                    ref_keys = key_order_signature(ref_out, items_as_set=not strict_order)
+                    e_keys = key_order_signature(e_out, items_as_set=not strict_order)
+                    if ref_keys is not None and e_keys is not None and ref_keys != e_keys:
                         all_match = False
                         divergent_pair = (ref_name, engine.name)
                         break

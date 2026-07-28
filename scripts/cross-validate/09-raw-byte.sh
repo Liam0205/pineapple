@@ -115,14 +115,12 @@ print(len(cases))
     elif [[ "$go_raw" == "$java_raw" ]]; then
       raw_pass=$((raw_pass + 1))
     else
-      go_norm=$(echo "$go_raw" | normalize_json)
-      java_norm=$(echo "$java_raw" | normalize_json)
-      if [[ "$go_norm" == "$java_norm" ]]; then
-        raw_pass=$((raw_pass + 1))
-        echo "    [W] key ordering differs (Go vs Java): $fname case $i" >&2
-      else
-        fail "raw byte divergence (Go vs Java): $fname case $i (values differ, not just key ordering)"
-      fi
+      # No normalized fallback. This used to re-compare through normalize_json
+      # and count equality as a pass with a [W] line, which existed only to
+      # tolerate the key-ordering divergence fixed in issue #183. Keeping it
+      # would mean this section, titled "no normalization", could not actually
+      # detect a byte difference in key order — the property it is named for.
+      fail "raw byte divergence (Go vs Java): $fname case $i"
     fi
 
     # Go vs C++ raw byte
@@ -144,14 +142,8 @@ print(len(cases))
         elif [[ "$go_raw" == "$cpp_raw" ]]; then
           cpp_raw_pass=$((cpp_raw_pass + 1))
         else
-          go_norm=${go_norm:-$(echo "$go_raw" | normalize_json)}
-          cpp_norm=$(echo "$cpp_raw" | normalize_json)
-          if [[ "$go_norm" == "$cpp_norm" ]]; then
-            cpp_raw_pass=$((cpp_raw_pass + 1))
-            echo "    [W] key ordering differs (Go vs C++): $fname case $i" >&2
-          else
-            fail "raw byte divergence (Go vs C++): $fname case $i (values differ, not just key ordering)"
-          fi
+          # See the Go-vs-Java branch above: the normalized fallback is gone.
+          fail "raw byte divergence (Go vs C++): $fname case $i"
         fi
       fi
     fi
