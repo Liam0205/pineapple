@@ -15,8 +15,13 @@
 - Expected（来自 issue 标题与本任务的 goal 措辞）：pine-java 与 pine-cpp 两侧都要
   对齐 pine-go；实现上给 Jackson 装一个 Map 排序即可。
 - Actual：
-  - **只有 pine-java 错**，pine-cpp 本来就对（`std::string` 的 `<` 就是字节序，
-    连 BMP 外字符都天然与 Go 一致），**本次没有改 pine-cpp**。
+  - `/execute` 上**只有 pine-java 错**，pine-cpp 本来就对（`std::string` 的 `<` 就是字节序，
+    连 BMP 外字符都天然与 Go 一致）。
+  - **但 `/stats` 上 pine-cpp 也错，是审计第二、三轮才查出来的。** 那条路径是 `server.cpp`
+    手写字符串拼接、不走 `Variant` writer，顶层、`server` 子树、`operators` 三处都按书写顺序
+    输出，最终一并修了（`88ed6924` + `09c508cd`，`server.cpp` 净 +57/-18）。
+    **本节最初写的是「本次没有改 pine-cpp」——那是在修 `/stats` 之前写下的，事后没跟着更正，
+    直到第四轮审计把它连同 `index.md` 里复制的那份摘要一起抓出来。**
   - 实现不能「给所有 Map 排序」——Go 的规则是 map 排序、struct 保序，全排会弄坏
     响应外层（envelope），第一版就这么错了一次。
   - 排序 comparator 不能用 `String.compareTo`，也不能用 Jackson 自带的
@@ -159,6 +164,20 @@ key 顺序仍然精确比。
 - 通道能力那节只讲了「归一化会抹掉什么」，没有讲「生成器只发期望形状会抹掉什么」。
   这是第二类不可见性，缺一条并列纪律。
 
+## `/stats` 这条漏了两轮的路径，单独记一笔
+
+`/stats` 在本任务里被漏掉两次，而且两次原因不同：
+
+1. **第一版实现完全没想到它。** 我按 issue 标题理解成「JSON key 顺序」，动手只看了
+   `/execute`，而 `/stats` 是另一个 handler。教训：**契约是「响应字节」时，受影响面是
+   「所有产出 JSON 的端点」，不是「issue 里举例的那个端点」。**
+2. **加了 `/stats` 检查之后仍漏了 `operators` 一整轮。** 检查用的 fixture 算子名
+   `copy_score` / `truncate` 恰好已是字典序，于是按管道顺序输出的实现看起来也是对的。
+
+pine-cpp 在 `/execute` 对、`/stats` 错，是因为两条路径的序列化机制不同：前者走 `Variant`
+writer（`std::sort` + `std::string` 的 `<`，天然字节序），后者是手写拼接。**「这个运行时
+天然满足」只对具体代码路径成立，不对整个运行时成立**——已进 `reference/json-key-order-parity.md`。
+
 ## Promotion Candidates
 
 - **必须进稳定文档**：Go map 排序 vs struct 保序、Java 必须显式区分（`SortedByUtf8`
@@ -192,7 +211,7 @@ key 顺序仍然精确比。
 ## 验证情况（本次已完成）
 
 - 三方定向探针：`c1/c10/c2` 与 BMP 外 key 两组，go/java/cpp 输出逐字节相同
-- `make java-test` 343 用例（新增 7）、`make cpp-test` 247 用例；`make lint`、
+- `make java-test` 346 用例（新增 10：初版 7 + 审计第二轮补的 3）、`make cpp-test` 247 用例；`make lint`、
   `make test`、`make codegen-check` 全过
 - `make cross-validate` 55/55（09 号通道 91/91，无归一化回落）；
   `make differential-fuzz` 1000/1000

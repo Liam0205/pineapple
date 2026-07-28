@@ -681,12 +681,20 @@ print(json.dumps([shape(x) for x in snaps]))"
   snap_go_pid=$!
   java -cp "$JAVA_CP" -Dpine.config="$SNAP_CONFIG" -Dpine.port=$SNAP_JAVA_PORT page.liam.pine.PineServer >/dev/null 2>&1 &
   snap_java_pid=$!
-  sleep 4
-  snap_go=$(curl -s -X POST -H "Content-Type: application/json" -d "$SNAP_REQ" "http://localhost:$SNAP_GO_PORT/execute" | python3 -c "$snap_order_cmd")
-  snap_java=$(curl -s -X POST -H "Content-Type: application/json" -d "$SNAP_REQ" "http://localhost:$SNAP_JAVA_PORT/execute" | python3 -c "$snap_order_cmd")
+  # srv_ready, not a fixed sleep. Under set -euo pipefail an unready server makes
+  # curl return empty, python3 exit 1 on JSONDecodeError, and pipefail abort the
+  # whole section at this line — silently truncating every later check instead of
+  # printing one red. The `|| echo parse_error` keeps a slow start visible as a
+  # failure rather than a truncation. Note 14c compares Go and Java only: C++'s
+  # snapshot_input omits null values, a pre-existing value difference unrelated to
+  # key order, so including it here would fail for the wrong reason.
+  srv_ready $SNAP_GO_PORT || fail "server HTTP: 14c Go server not ready"
+  srv_ready $SNAP_JAVA_PORT || fail "server HTTP: 14c Java server not ready"
+  snap_go=$(curl -s -X POST -H "Content-Type: application/json" -d "$SNAP_REQ" "http://localhost:$SNAP_GO_PORT/execute" | python3 -c "$snap_order_cmd" || echo parse_error)
+  snap_java=$(curl -s -X POST -H "Content-Type: application/json" -d "$SNAP_REQ" "http://localhost:$SNAP_JAVA_PORT/execute" | python3 -c "$snap_order_cmd" || echo parse_error)
   kill $snap_go_pid $snap_java_pid 2>/dev/null || true
   wait $snap_go_pid $snap_java_pid 2>/dev/null || true
-  if [[ "$snap_go" == "$snap_java" && "$snap_go" != "[]" ]]; then
+  if [[ "$snap_go" == "$snap_java" && "$snap_go" != "[]" && "$snap_go" != "parse_error" ]]; then
     srv_pass=$((srv_pass + 1))
     echo "    [14c] POST /execute (trace input_snapshot) → key order Go vs Java match"
   else
