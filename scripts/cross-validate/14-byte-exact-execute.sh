@@ -7,6 +7,29 @@
 # response body byte-by-byte. This catches structural diffs the looser
 # 06-server-http checks would miss (e.g. partial-result on execution error,
 # omitempty boundaries, nil vs empty-map serialization).
+#
+# WHAT THIS CHANNEL COVERS, and what it structurally CANNOT (issue #188).
+#
+# The fixtures were chosen by enumerating response shapes rather than by waiting
+# for a bug: before #188 all eight existed because something had already broken
+# (#180 added the number-format one, #183 the three key-escaping ones), so the
+# "byte-exact" claim was much broader than the coverage behind it.
+#
+# Covered: success envelope, empty items, empty common, validation-error envelope,
+# partial-result-on-execution-error, number precision and format regimes, key
+# escaping (non-BMP / HTML-special / control chars), deep nesting, null values at
+# every position, and a filtered multi-item projection.
+#
+# CANNOT be covered here, and this is a property of the response rather than a
+# gap to fill later:
+#   - anything containing `trace`  — trace[].duration_ms is a real measured
+#     duration, so the body is never byte-stable. Attempted during #183 and
+#     abandoned for exactly this reason.
+#   - anything from /stats         — counters and timings, same problem.
+# Those are pinned instead by structural comparison in 06-server-http (which
+# compares key SEQUENCE via object_pairs_hook while ignoring values) and by unit
+# tests on the formatter. Adding a trace fixture here would produce a check that
+# fails on correct code, which is worse than no check.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
 
 echo

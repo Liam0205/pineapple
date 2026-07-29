@@ -1,0 +1,86 @@
+{
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "cp": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": [
+              "zz",
+              "aa"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "zz",
+              "aa"
+            ]
+          }
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "cp"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "zz",
+        "aa"
+      ],
+      "item_input": [
+        "id"
+      ],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "zz",
+        "aa"
+      ]
+    }
+  },
+  "request": {
+    "common": {
+      "zz": {
+        "b": [
+          1,
+          {
+            "inner_z": "v",
+            "inner_a": [
+              2,
+              3
+            ]
+          }
+        ],
+        "a": null
+      },
+      "aa": [
+        [
+          {
+            "deep": {
+              "deeper": {
+                "deepest": 1
+              }
+            }
+          }
+        ]
+      ]
+    },
+    "items": [
+      {
+        "id": "a"
+      }
+    ]
+  }
+}

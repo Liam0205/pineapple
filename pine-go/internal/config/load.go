@@ -177,6 +177,25 @@ func expandEntries(
 
 // validate checks structural integrity of the config.
 func validate(cfg *RootConfig) error {
+	// storage_mode accepts exactly "row", "column", or absent/empty. Anything
+	// else is rejected rather than silently falling back (issue #187).
+	//
+	// This is the reference for the other two runtimes, and it has to live here
+	// rather than in NewFrame: NewFrame's `default: newRowFrame` branch is what
+	// makes an unrecognised value silently become row storage, and every runtime
+	// mirrors that branch. Rejecting at config load keeps the dispatch rule
+	// unchanged while making the invalid value unreachable.
+	//
+	// The empty string is allowed because it is the Go zero value: a config that
+	// omits the key, and one that sets it to JSON null, both arrive here as "".
+	switch cfg.StorageMode {
+	case "", StorageModeRow, StorageModeColumn:
+	default:
+		return &types.ConfigError{
+			Message: fmt.Sprintf("storage_mode %q is invalid, must be %q or %q",
+				cfg.StorageMode, StorageModeRow, StorageModeColumn),
+		}
+	}
 	if len(cfg.PipelineConfig.Operators) == 0 {
 		return &types.ConfigError{Message: "pipeline_config.operators is empty"}
 	}

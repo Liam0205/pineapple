@@ -1006,6 +1006,18 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     exec_result.has_error = true;
     exec_result.is_validation_error = true;
     exec_result.error = e.what();
+    // A validation error is raised BEFORE any operator runs, so there is no
+    // projected result to report. Go returns `nil, &ValidationError{}` from
+    // Execute, leaving resp.Common/Items nil, which marshals to `null`.
+    //
+    // has_result was being left true from the assignment above, so this runtime
+    // emitted {"common":{},"items":[]} where Go and pine-java emit nulls
+    // (issue #188). Clearing it here rather than moving the assignment keeps the
+    // partial-execution path untouched: an ExecutionError mid-pipeline DOES carry
+    // the fields written up to the failure, and fixture
+    // 02_partial_error_keeps_partial_result pins that.
+    exec_result.has_result = false;
+    exec_result.result = {};
   } catch (const ExecutionError& e) {
     exec_result.has_error = true;
     exec_result.error = e.what();
