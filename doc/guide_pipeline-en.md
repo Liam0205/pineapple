@@ -190,10 +190,12 @@ scripts/bench-cross-runtime.sh --filter <fixture name> --modes "row,column"
 anything else is rejected at compile time (`_VALID_STORAGE_MODES` in
 `apple/flow.py`); **hand-written JSON configs do not go through that check**: an invalid
 STRING value — a misspelling or a different casing — is silently accepted by all
-three runtimes and falls back to row storage. Non-string values (a number, a
-boolean, `null`) are NOT consistent: pine-go and pine-cpp reject them in the
-config parsing layer while pine-java coerces and accepts. See the open item on
-issue #179:
+three runtimes and falls back to row storage. NON-STRING values are not consistent, and the
+distribution differs per type: a number or boolean is rejected by pine-go and
+pine-cpp in the config parsing layer and accepted by pine-java, while `null` is
+rejected only by pine-cpp — pine-go and pine-java both accept it and fall back to
+row. The full table is in `llmdoc/architecture/dag-engine.md`; it is not restated
+here. See the open item on issue #179:
 
 ```python
 flow = Flow(

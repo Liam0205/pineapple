@@ -25,7 +25,7 @@
 
 - **现状**：三方分派已对齐（非法值一律静默落行存，见下方已关闭条目），但**没有任何运行时在配置加载层拒绝非法值**。issue #179 自己倾向 fail-fast，本次没做
 - **待决策**：是否加运行时层 fail-fast。要求三方同时改（含 pine-go——它的 `default` 分支现在接受一切，只改另两侧就是引入新的跨运行时分歧），因此属于独立决策而非对齐任务的一部分
-- **决策输入**：(a) Apple DSL 侧 `apple/flow.py` 的 `_VALID_STORAGE_MODES` 已在编译期拒绝非法值，运行时层是第二道防线而非唯一防线，分歧只对手写 JSON 成立；(b) cross-validate section 21 断言「非法值被静默接受」，只改一侧会立刻变红，等于已经把这条负空间钉住了；(c) 改了就是用户可见契约变更，`doc/guide_pipeline{,-en}.md` 现在写的是「走 Apple DSL 时编译期拒绝、手写 JSON 静默落行存」，需一并更新；**另一条实测输入**：`storage_mode` 的配置**解析**层三方对非字符串值（数字/布尔/`null`）本来就不一致（pine-go 与 pine-cpp 报错、pine-java 宽松强转），所以 fail-fast 不只是「加一个值白名单」，还要先统一类型处理，详见 `architecture/dag-engine.md` 的六个解释点表
+- **决策输入**：(a) Apple DSL 侧 `apple/flow.py` 的 `_VALID_STORAGE_MODES` 已在编译期拒绝非法值，运行时层是第二道防线而非唯一防线，分歧只对手写 JSON 成立；(b) cross-validate section 21 断言「非法值被静默接受」，只改一侧会立刻变红，等于已经把这条负空间钉住了；(c) 改了就是用户可见契约变更，`doc/guide_pipeline{,-en}.md` 现在写的是「走 Apple DSL 时编译期拒绝、手写 JSON 静默落行存」，需一并更新；**另一条实测输入**：`storage_mode` 的配置**解析**层三方对非字符串值本来就不一致，且每种类型分布不同（数字/布尔：pine-go 与 pine-cpp 报错、pine-java 静默接受；`null`：只有 pine-cpp 报错），所以 fail-fast 不只是「加一个值白名单」，还要先统一类型处理，详见 `architecture/dag-engine.md` 的六个解释点表
 
 ### 字节级对等的校验通道覆盖面太窄（(b) 已完成，(a) 仍开放）
 
