@@ -1,6 +1,6 @@
 {
   "name": "Config error: storage_mode 'Column' is not a valid value",
-  "description": "storage_mode differing only in case must be rejected (issue #187). This value is one of the two that diverged across runtimes before #179: pine-java matched with equalsIgnoreCase so it selected column storage, while pine-go selected row.",
+  "description": "storage_mode differing only in case must be rejected (issue #187). This value is one of the two that diverged across runtimes before #179: pine-java matched with equalsIgnoreCase so it selected column storage, while pine-go selected row. The byte-identical claim is pinned by wrapping_exact rather than only asserted in prose: with message_contains alone, rewording one runtime's message left section 05 green, so the claim had no gate at all.",
   "config": {
     "pipeline_config": {
       "operators": {
@@ -55,6 +55,12 @@
   },
   "expected_error": {
     "type": "ConfigError",
-    "message_contains": "is invalid, must be"
+    "message_contains": "is invalid, must be",
+    "wrapping_exact": "pine: config error: storage_mode \"Column\" is invalid, must be \"row\" or \"column\"",
+    "wrapping_exact_engines": [
+      "go",
+      "java",
+      "cpp"
+    ]
   }
 }

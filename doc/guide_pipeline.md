@@ -180,6 +180,8 @@ scripts/bench-cross-runtime.sh --filter <fixture 名> --modes "row,column"
   `storage_mode "colunm" is invalid, must be "row" or "column"`
 
 非字符串值（数字、布尔、数组、对象）同样被三方一律拒绝。`null` 与省略该键等价，得到默认值。
+注意上面那句「文案三方相同」只对**值**层（白名单）成立；**类型**层的文案 pine-go 与另两方不同
+（pine-go 走 `encoding/json` 的 `JSON parse error: ...`，另两方是 `config field "X" must be a string`）。
 
 issue #187 之前不是这样：非法字符串值会被三方**静默接受**并落到行存（方向由 issue #179 对齐），
 非字符串值则三方行为各不相同。拼错字段值却得到一个能跑、但内存与性能特征与预期相反的引擎，
