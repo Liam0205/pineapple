@@ -1,5 +1,14 @@
 package config
 
+// Valid storage_mode values. Duplicated from internal/dataframe rather than
+// imported because internal/dataframe imports this package — importing back
+// would be a cycle. dataframe.StorageMode is the dispatch-side type; these two
+// literals are the config-side whitelist, and they must stay in sync.
+const (
+	StorageModeRow    = "row"
+	StorageModeColumn = "column"
+)
+
 // RootConfig is the top-level JSON config structure.
 type RootConfig struct {
 	PineappleVersion    string                   `json:"_PINEAPPLE_VERSION"`

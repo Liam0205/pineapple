@@ -1,0 +1,103 @@
+{
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "cp": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": [
+              "tag"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "tag"
+            ]
+          }
+        },
+        "trunc": {
+          "type_name": "filter_truncate",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": []
+          },
+          "top_n": 7
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "cp",
+            "trunc"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "tag"
+      ],
+      "item_input": [
+        "id"
+      ],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "tag"
+      ]
+    }
+  },
+  "request": {
+    "common": {
+      "tag": "t"
+    },
+    "items": [
+      {
+        "id": "i0"
+      },
+      {
+        "id": "i1"
+      },
+      {
+        "id": "i2"
+      },
+      {
+        "id": "i3"
+      },
+      {
+        "id": "i4"
+      },
+      {
+        "id": "i5"
+      },
+      {
+        "id": "i6"
+      },
+      {
+        "id": "i7"
+      },
+      {
+        "id": "i8"
+      },
+      {
+        "id": "i9"
+      },
+      {
+        "id": "i10"
+      },
+      {
+        "id": "i11"
+      }
+    ]
+  }
+}

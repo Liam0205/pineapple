@@ -129,6 +129,22 @@ OperatorConfig parse_operator(const std::string& name, const Variant& value) {
 }
 
 void validate_config(const Config& config) {
+  // storage_mode accepts exactly "row", "column", or empty; anything else is
+  // rejected rather than silently becoming row storage (issue #187).
+  //
+  // Rejecting here rather than in make_frame keeps the dispatch rule untouched:
+  // that rule is deliberately "only the exact literal column selects column
+  // storage, everything else is row", mirroring pine-go's NewFrame default
+  // branch (issue #179). Validation makes the invalid value unreachable rather
+  // than changing what dispatch does with it.
+  //
+  // Empty is allowed because it is pine-go's zero value: an omitted key and a
+  // JSON null both arrive as "" there, so all three runtimes accept both.
+  if (!config.storage_mode.empty() && config.storage_mode != "row"
+      && config.storage_mode != "column") {
+    throw ConfigError("storage_mode \"" + config.storage_mode
+                      + "\" is invalid, must be \"row\" or \"column\"");
+  }
   if (config.operators.empty()) {
     throw ConfigError("pipeline_config.operators is empty");
   }
@@ -284,21 +300,45 @@ Config load_config_from_json(const std::string& text) {
     }
     return it->second.as_object();
   };
+  // require_string rejects a present-but-wrong-typed root string field, matching
+  // pine-go, where every RootConfig string field is a `string` struct field and
+  // encoding/json fails the whole unmarshal on a number, bool, array or object.
+  //
+  // Before issue #187 these four fields behaved three different ways here: only
+  // storage_mode called the throwing as_string(), while log_prefix and the two
+  // _PINEAPPLE_* fields were guarded with is_string() and SILENTLY IGNORED a
+  // wrong type — so `"log_prefix": 123` was rejected by pine-go, coerced by
+  // pine-java, and dropped on the floor here. The divergence was never specific
+  // to storage_mode; it was a property of how each runtime decodes root strings.
+  //
+  // JSON null is accepted and leaves the default, matching Go: decoding a null
+  // into a string field is a no-op there, so the zero value survives.
+  auto require_string = [](const Variant::object_t& parent,
+                           const std::string& key) -> const std::string* {
+    auto it = parent.find(key);
+    if (it == parent.end() || it->second.is_null()) {
+      return nullptr;
+    }
+    if (!it->second.is_string()) {
+      throw ConfigError("config field \"" + key + "\" must be a string");
+    }
+    return &it->second.as_string();
+  };
   Config config;
-  if (auto it = root.find("storage_mode"); it != root.end()) {
-    config.storage_mode = it->second.as_string();
+  if (const std::string* v = require_string(root, "storage_mode")) {
+    config.storage_mode = *v;
   }
   if (auto it = root.find("debug"); it != root.end() && it->second.is_bool()) {
     config.debug = it->second.as_bool();
   }
-  if (auto it = root.find("log_prefix"); it != root.end() && it->second.is_string()) {
-    config.log_prefix = it->second.as_string();
+  if (const std::string* v = require_string(root, "log_prefix")) {
+    config.log_prefix = *v;
   }
-  if (auto it = root.find("_PINEAPPLE_VERSION"); it != root.end() && it->second.is_string()) {
-    config.pineapple_version = it->second.as_string();
+  if (const std::string* v = require_string(root, "_PINEAPPLE_VERSION")) {
+    config.pineapple_version = *v;
   }
-  if (auto it = root.find("_PINEAPPLE_CREATE_TIME"); it != root.end() && it->second.is_string()) {
-    config.pineapple_create_time = it->second.as_string();
+  if (const std::string* v = require_string(root, "_PINEAPPLE_CREATE_TIME")) {
+    config.pineapple_create_time = *v;
   }
   if (auto it = root.find("resource_config"); it != root.end() && it->second.is_object()) {
     for (const auto& [name, entry] : it->second.as_object()) {

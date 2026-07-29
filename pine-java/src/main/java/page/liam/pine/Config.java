@@ -17,6 +17,14 @@ public class Config {
     ));
 
     public String pineappleVersion;
+    /**
+     * Metadata only, never read for behaviour — but parsed so that a wrong TYPE
+     * is rejected here exactly as pine-go and pine-cpp reject it. Before issue
+     * #187 this field was absent from this runtime entirely, so
+     * {@code "_PINEAPPLE_CREATE_TIME": 123} failed the whole config load in
+     * pine-go and was silently ignored here.
+     */
+    public String pineappleCreateTime;
     public String logPrefix = "";
     public boolean debug;
     public String storageMode = "row";
@@ -41,12 +49,46 @@ public class Config {
         return cfg;
     }
 
-    private static Config parseRoot(JsonNode root) {
+    /**
+     * Reads a root-level string field, rejecting a present-but-wrong-typed value.
+     *
+     * <p>Mirrors pine-go, where every RootConfig string field is declared
+     * {@code string} and {@code encoding/json} fails the entire unmarshal when
+     * the JSON value is a number, boolean, array or object.
+     *
+     * <p>These fields used to go through {@code asText()}, which coerces
+     * anything: {@code 123} became {@code "123"}, {@code true} became
+     * {@code "true"}, and an array or object became the empty string. So a
+     * config that pine-go rejected outright ran here with a silently invented
+     * value (issue #187). The divergence was never specific to
+     * {@code storage_mode} — it applied to every root string field, and the
+     * three runtimes disagreed three different ways.
+     *
+     * <p>JSON null is accepted and yields the default, matching Go: decoding a
+     * null into a string field is a no-op there, leaving the zero value.
+     */
+    private static String rootString(JsonNode root, String field, String fallback)
+            throws PineErrors.ConfigError {
+        if (!root.has(field)) {
+            return fallback;
+        }
+        JsonNode node = root.get(field);
+        if (node.isNull()) {
+            return fallback;
+        }
+        if (!node.isTextual()) {
+            throw new PineErrors.ConfigError("config field \"" + field + "\" must be a string");
+        }
+        return node.asText();
+    }
+
+    private static Config parseRoot(JsonNode root) throws PineErrors.ConfigError {
         Config cfg = new Config();
-        cfg.pineappleVersion = root.has("_PINEAPPLE_VERSION") ? root.get("_PINEAPPLE_VERSION").asText() : "";
-        cfg.logPrefix = root.has("log_prefix") ? root.get("log_prefix").asText() : "";
+        cfg.pineappleVersion = rootString(root, "_PINEAPPLE_VERSION", "");
+        cfg.pineappleCreateTime = rootString(root, "_PINEAPPLE_CREATE_TIME", "");
+        cfg.logPrefix = rootString(root, "log_prefix", "");
         cfg.debug = root.has("debug") && root.get("debug").asBoolean();
-        cfg.storageMode = root.has("storage_mode") ? root.get("storage_mode").asText() : "row";
+        cfg.storageMode = rootString(root, "storage_mode", "row");
 
         // Parse flow_contract
         cfg.flowContract = new FlowContract();
@@ -234,6 +276,23 @@ public class Config {
     }
 
     private static void validate(Config cfg) throws ConfigException {
+        // storage_mode accepts exactly "row", "column", or absent/empty; anything
+        // else is rejected rather than silently becoming row storage (issue #187).
+        //
+        // Rejecting here rather than in Frame.create keeps the dispatch rule
+        // untouched — that rule is deliberately "only the exact literal column
+        // selects column storage, everything else is row", mirroring pine-go's
+        // NewFrame default branch (issue #179). Validation makes the invalid
+        // value unreachable instead of changing what dispatch does with it.
+        //
+        // Empty is allowed because it is pine-go's zero value: an omitted key and
+        // a JSON null both arrive as "" there, so all three runtimes accept both.
+        if (!cfg.storageMode.isEmpty()
+                && !"row".equals(cfg.storageMode)
+                && !"column".equals(cfg.storageMode)) {
+            throw new ConfigException("storage_mode \"" + cfg.storageMode
+                    + "\" is invalid, must be \"row\" or \"column\"");
+        }
         if (cfg.pipelineConfig.operators.isEmpty()) {
             throw new ConfigException("pipeline_config.operators is empty");
         }

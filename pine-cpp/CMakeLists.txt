@@ -226,6 +226,7 @@ if(PINE_CPP_BUILD_TESTS)
     add_executable(pine_cpp_tests
         tests/test_main.cpp
         tests/test_json.cpp
+        tests/test_storage_mode_validation.cpp
         tests/test_config.cpp
         tests/test_dag.cpp
         tests/test_engine.cpp
