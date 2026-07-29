@@ -477,11 +477,13 @@ HTTP `GET /stats` 返回组合观测视图：
 但 `storage_mode` 实际有**六个**解释点：上面三处分派之外，配置**解析**层还有三处，而且这三处
 对**非字符串** JSON 值互不一致（实测）：
 
-| 解析点 | `123` / `true` | `null` |
+| 解析点 | `123` / `true` / `[..]` / `{..}` | `null` |
 |---|---|---|
 | `pine-go/internal/config/types.go`（struct tag，类型强制） | 解析报错 | 静默 → 行存 |
-| `pine-java/.../Config.java`（`asText()` 宽松强转） | 静默 → 行存 | 静默（得到字符串 `"null"`）→ 行存 |
+| `pine-java/.../Config.java`（`asText()` 宽松强转） | 静默 → 行存（数字/布尔得到其字面量、数组/对象得到 `""`） | 静默（得到字符串 `"null"`）→ 行存 |
 | `pine-cpp/src/config/config.cpp`（`as_string()` 抛 `ConfigError`） | 解析报错 | 解析报错 |
+
+这张表覆盖全部 JSON 类型：数组与对象与数字/布尔同档（pine-go 与 pine-cpp 解析报错、pine-java 静默接受，实测确认）。
 
 **上面「精确匹配」那条规则只覆盖字符串输入。** 非字符串输入的分歧在解析层、先于分派，issue #179
 没有动它（属基线既存）。做运行时层 fail-fast 时必须连这三处一起考虑，否则「拒绝非法值」只在字符串

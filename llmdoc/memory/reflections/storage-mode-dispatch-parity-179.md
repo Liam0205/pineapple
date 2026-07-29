@@ -85,8 +85,11 @@ CHECK(dynamic_cast<RowFrame*>(fallback.get()) == nullptr);  // defaults to colum
 `column` — mirrors pine-go NewFrame behavior"，而 pine-go 的兜底是 **row**。这条注释既与
 自己实现的意图相反，也与它引用的那个运行时相反——是一条双向错的注释，本次都改了。
 
-**但 `frame.hpp:24-25` 的类文件头注释里还有第三份同样的错误表述**（"storage_mode falls。**已完成**：与本篇同一次提交（`0ac95035`）就改掉了，HEAD 上 `frame.hpp` 已是正确表述；这条 follow-up 写下时就已经过时，第二轮审计抓出来的
-back to `column` when unrecognised"），本次没改到，而它就在被修的同一个文件里、只差 90 行。
+**但 `frame.hpp:24-25` 的类文件头注释里还有第三份同样的错误表述**（"storage_mode falls
+back to `column` when unrecognised"）——初版没改到，而它就在被修的同一个文件里、只差 90 行。
+
+**已由 `0ac95035`（与本篇同一次提交）修掉**，HEAD 上 `frame.hpp` 已是正确表述。补注是审计第三轮
+要求的：第二轮曾把这条说明插进上面那句引文的中间，导致同一句话里「已修」与「未改」并存、引文被腰斩。
 根因是按 grep 命中的「分派点附近注释」清理，没有对同一文件通读一遍。
 
 教训：**修一条错误表述时，先在同文件内搜完这条表述的所有拷贝再收工**——同一个错误声明
@@ -170,8 +173,9 @@ Go 的 `default` 分支接受一切，只在 Java/C++ 侧拒绝就是引入一�
 
 ## Follow-up
 
-1. 修掉 `pine-cpp/include/pine/frame.hpp:24-25` 残留的第三份反向表述（"falls back to
-   `column` when unrecognised"）。这是本次已确认但未改的缺陷。
+1. ~~修掉 `pine-cpp/include/pine/frame.hpp:24-25` 残留的第三份反向表述（"falls back to
+   `column` when unrecognised"）。~~ **已完成**（`0ac95035`，与本篇同一次提交）。这条 follow-up
+   写下时就已经过时——审计第二、三轮各抓了它一次，第一次的修法还把说明插进了引文中间。
 2. 调 `recorder` 落地上述稳定文档改动：dag-engine.md 分派规则、ci-quality-baseline 两条纪律、
    doc-gaps 关 #179 并写入 fail-fast 残留项。
 3. 评估 `doc/guide_pipeline{,-en}.md` 那句「其他值在编译期就会被拒绝」是否要补一句手写 JSON

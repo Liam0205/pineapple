@@ -245,6 +245,8 @@ CI runs automatically on every push/PR:
 17. **Templated params** — `{{field}}` template parameter resolution must match
 18. **SubFlow contract stderr** — Apple compile-time SubFlow contract error wording stays stable
 19. **Bench-stub parity** — `reorder_topn_boost` matches byte-for-byte under bench builds
+20. **Custom routes parity** — custom routes (Route/Ingress/Egress), the watch toggle, and bounded metric path-label cardinality agree
+21. **storage_mode fallback parity** — an invalid `storage_mode` is accepted silently by all three runtimes with byte-identical output (the dispatch direction itself is pinned by each runtime's factory unit test; see `llmdoc/architecture/dag-engine.md`)
 
 ### Building Cross-Validation for Downstream Projects
 
