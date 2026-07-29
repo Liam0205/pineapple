@@ -78,3 +78,26 @@ TEST_CASE("config: root string fields reject a non-string value") {
     CHECK_NOTHROW(load_config_from_json(null_cfg));
   }
 }
+
+// Pins the check ORDER, which is observable once more than one root field is
+// wrong-typed: pine-java's Config.parseRoot uses the same order, so the two always
+// name the same field.
+//
+// pine-go is deliberately outside this contract — encoding/json names whichever
+// wrong-typed field comes first IN THE JSON DOCUMENT, so its answer moves with the
+// input's key order and no fixed sequence reproduces it. Measured during issue
+// #187's audit and recorded in llmdoc/memory/doc-gaps.md. That asymmetry is also
+// why this is a unit test rather than a cross-validate error fixture: section 05
+// requires all three engines to match the same substring.
+TEST_CASE("config: with several wrong-typed root fields, the first in check order is named") {
+  const std::string cfg = minimal_config(
+      R"("log_prefix": 1, "storage_mode": 2, "_PINEAPPLE_VERSION": 3,)");
+  try {
+    load_config_from_json(cfg);
+    FAIL("expected ConfigError");
+  } catch (const ConfigError& e) {
+    const std::string msg = e.what();
+    CHECK_MESSAGE(msg.find("_PINEAPPLE_VERSION") != std::string::npos,
+                  "expected the first field in check order to be named, got: " << msg);
+  }
+}
