@@ -82,9 +82,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Reject unknown --modes values up front. The runtimes silently fall back on an
-# unrecognized storage_mode — all three now fall back to row storage, aligned in
-# issue #179 (before that they disagreed on the direction, which is why this
-# check was added) — so a typo like --modes "colunm" would produce a full report
+# unrecognized storage_mode. Since issue #187 all three REJECT it at config load
+# (before #179 they disagreed on the fallback direction, and between #179 and #187
+# they all silently fell back to row — which is why this check was added) — so a
+# typo like --modes "colunm" would now fail every engine, and before that would
+# have produced a full report
 # labelled with a mode nothing actually ran. That is the same
 # mislabelled-numbers failure this script was just fixed for.
 for _m in "${STORAGE_MODES[@]}"; do
