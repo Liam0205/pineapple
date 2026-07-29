@@ -2,8 +2,9 @@
 
 每次 Pineapple 任务开始前，按顺序阅读以下文档：
 
-1. `llmdoc/must/conventions.md` — 跨代码库约定：JSON 边界、各运行时副作用注册（含 C++ `PINE_REGISTER_OPERATOR_T`）、命名规范、版本同步、codegen 新鲜度、测试规范、各运行时对等约束、禁止硬编码定量描述。
+1. `llmdoc/must/conventions.md` — 跨代码库约定：JSON 边界、各运行时副作用注册（含 C++ `PINE_REGISTER_OPERATOR_T`）、命名规范、版本同步、codegen 新鲜度、测试规范、各运行时对等约束、动手前实测受影响面、禁止硬编码定量描述。
    - 深入阅读场景：涉及发布/版本、生成文件、算子命名、全仓贡献模式、跨运行时对齐的任务。
+   - 跨运行时缺陷修复的入口动作在这里：**先实测受影响面再动手**，issue 的范围描述只作为症状线索。
 
 2. `llmdoc/overview/project-overview.md` — 项目定位、系统边界，以及为何 Pineapple 拆分为 Apple DSL 声明 + Go / Java / C++ 三运行时执行。
    - 深入阅读场景：涉及入口点、包分发、公共 API 或变更归属判断的任务。

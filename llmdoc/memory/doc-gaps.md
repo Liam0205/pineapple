@@ -21,24 +21,32 @@
 - **已做**：`guides/benchmark-hygiene.md` 补了"搬 microbench 形状要重查投影/序列化段"，覆盖了 benchmark 场景
 - **待决策**：是否在 `reference/` 层给 `flow_contract` / `item_output` 投影语义一个独立的契约条目，使非 benchmark 场景（写 cross-validate fixture、写 fuzz 生成器）也能检索到。issue #175 的 fuzzer flow_contract 投影盲区是同一语义的第三次现身，倾向于值得做
 
-### 运行时层 fail-fast 拒绝非法 `storage_mode`（issue #179 的残留项）
+### 审计 scratch 副本的磁盘成本没有归属
 
-- **现状**：三方分派已对齐（非法值一律静默落行存，见下方已关闭条目），但**没有任何运行时在配置加载层拒绝非法值**。issue #179 自己倾向 fail-fast，本次没做
-- **待决策**：是否加运行时层 fail-fast。要求三方同时改（含 pine-go——它的 `default` 分支现在接受一切，只改另两侧就是引入新的跨运行时分歧），因此属于独立决策而非对齐任务的一部分
-- **决策输入**：(a) Apple DSL 侧 `apple/flow.py` 的 `_VALID_STORAGE_MODES` 已在编译期拒绝非法值，运行时层是第二道防线而非唯一防线，分歧只对手写 JSON 成立；(b) cross-validate section 21 断言「非法值被静默接受」，只改一侧会立刻变红，等于已经把这条负空间钉住了；(c) 改了就是用户可见契约变更，`doc/guide_pipeline{,-en}.md` 现在写的是「走 Apple DSL 时编译期拒绝、手写 JSON 静默落行存」，需一并更新；**另一条实测输入**：`storage_mode` 的配置**解析**层三方对非字符串值本来就不一致，且每种类型分布不同（数字/布尔：pine-go 与 pine-cpp 报错、pine-java 静默接受；`null`：只有 pine-cpp 报错），所以 fail-fast 不只是「加一个值白名单」，还要先统一类型处理，详见 `architecture/dag-engine.md` 的六个解释点表
-
-### 字节级对等的校验通道覆盖面太窄（(b) 已完成，(a) 仍开放）
-
-- **现状**：`scripts/cross-validate/14-byte-exact-execute.sh` 有若干 fixture（#180 加了 `06_number_format_regimes`，#183 加了 `07_non_bmp_keys` 与 `08_html_chars_in_keys`）。**数量以 `ls` 为准，不在文档里复述**——本行的数字已经过期两次（`fixtures/server_byte_exact/`），而「字节级对等」是全局契约，覆盖面与声明仍然不匹配。09 号通道的归一化回落已删（见「已做」），所以 14 号不再是唯一一条无归一化通道，但 fixture 数量这一半问题没动
-- **已做**：`guides/ci-quality-baseline.md` 有「校验通道能钉住的属性（归一化 vs 字节级）」节写清各通道可见性边界与那条纪律；issue #180 给 14 号通道补了 `06_number_format_regimes.json`；**(b) 已完成**——issue #183 删掉了 `09-raw-byte.sh` 的归一化回落（原先字节比较失败后回落 `normalize_json`、相等打 `[W]` 计 pass），现在字节不同即硬失败，仅 `strict_order: false` 的 fixture 仍走 set 归一化；同期 `scripts/differential-fuzz.py` 新增 `key_order_signature()`，key 顺序不再被 `normalize_json` 的 `sort_keys=True` 抹掉
-- **待决策**：(a) 继续扩 `fixtures/server_byte_exact/`，把「字节级」声明真正覆盖到主要响应形状。数字拼写在 `normalize_json` 下的可见性边界（`round(v,10)` + int/float 类型分裂）未变，仍需字节通道兜住。注：#183 已加 `07_non_bmp_keys.json`（BMP 外 key，钉住 `writeValueAsBytes` 的代理对转义与 UTF-8 比较器两处），但覆盖面仍远小于「字节级对等」这个全局声明，条目保持开放
+- **现状**：`close-local-code-review` 工作流每轮 blind review 都指示 reviewer `cp -a` 一份仓库快照到自己的 scratch 目录（因为外部清理进程会删原快照）。单份副本 1–1.7GB，**创建有明确指令、销毁没有归属**，所以副本只累积不清理。issue #187/#188 跑测试时 `Disk quota exceeded`，清掉 #180/#183/#179 三轮遗留的 17GB 才跑得动
+- **待决策**：清理责任放哪一层。两个候选：(a) 每轮审计闭环后由 reviewer 清理自己那轮的副本；(b) 任务结束时由主 agent 统一清一次。(a) 更及时但要改 reviewer 指令且每轮都可能漏，(b) 更容易保证执行但审计跨度内配额仍可能被打爆
+- **判据**：这不是偶发事故——N 轮审计之后必然打爆配额，只是 N 多大取决于配额（#183 单独跑了 14 轮、#179 跑了 6 轮）。属工作流运维成本，需要一个明确的清理触发点写进审计工作流文档
+- **约束**：清理是删除操作，执行前需要用户确认具体路径
 
 ## 已关闭条目
 
+### issue #187：运行时层 fail-fast 拒绝非法 `storage_mode`（已解决）
+
+- **结论**：已修，issue #187 / commit `b0dee3bb`。三方在**配置加载层**一律拒绝非法 `storage_mode`（只接受 `"row"` / `"column"` / 空 / 缺省），错误文案字节相同；值白名单刻意放在 config 校验层而非 frame factory，使 #179 的 dispatch 规则保持不变。规则、三层解释点、Go 白名单常量重复定义的原因都已落 `architecture/dag-engine.md` 的 `storage_mode` 节
+- **实际范围比本条目描述更宽**：条目的决策输入 (a) 预见到「不只是加值白名单、还要先统一类型处理」，本次两半一起做了。类型层规则（present 但类型错 → 拒绝、`null`/缺省 → 默认值）适用于**全部四个根级字符串字段**而不只是 `storage_mode`，另立 `reference/root-config-string-fields.md` 承载
+- **用户可见契约已同步**：`doc/guide_pipeline{,-en}.md` 原先写「手写 JSON 的非法值被三方静默接受并落行存」，已改为拒绝，旧行为保留一小段标注为 #187 之前的历史
+- **过程记录**：`memory/reflections/config-validation-and-byte-exact-coverage-187-188.md`
+
+### issue #188：字节级对等的校验通道覆盖面太窄（已解决）
+
+- **结论**：(b) 半由 issue #183 完成（删掉 `09-raw-byte.sh` 的归一化回落，14 号不再是唯一无归一化通道）；(a) 半由 issue #188 完成——`fixtures/server_byte_exact/` 按响应形状事先枚举扩充（覆盖面以目录 `ls` 与 `scripts/cross-validate/14-byte-exact-execute.sh` 的头部注释为准，**不在此复述数量**），头注同时写清这条通道结构性不可能覆盖什么（含 `trace` 或来自 `/stats` 的响应永远不字节稳定）
+- **顺带沉淀**：纪律「fixture 按响应形状枚举、不等出事才补」与「穷举矩阵查出读代码查不出的缺口」进了 `guides/ci-quality-baseline.md`。按形状枚举的第一个 fixture 就查出 pine-cpp 校验错误 envelope 的既存分歧（`{"common":{},"items":[]}` vs `null`），已一并修
+- **过程记录**：`memory/reflections/config-validation-and-byte-exact-coverage-187-188.md`
+
 ### issue #179：`storage_mode` 非法值兜底跨运行时分歧（已解决）
 
-- **结论**：已修，commit `90982071`。三方分派统一为「只有字面量 `"column"` 精确匹配才走列存、其余一切落行存」，以 pine-go `NewFrame` 的 `switch` + `default: newRowFrame` 为基准。规则、三处分派点、保留静默兜底而非 fail-fast 的理由，以及 Apple DSL 编译期校验作为第一道防线，都已落 `architecture/dag-engine.md` 的「`storage_mode` 分派规则与非法值兜底」节
-- **残留项已单独立条**：运行时层 fail-fast 仍未做，见开放条目「运行时层 fail-fast 拒绝非法 `storage_mode`」
+- **结论**：已修，commit `90982071`。三方**分派**统一为「只有字面量 `"column"` 精确匹配才走列存、其余一切落行存」，以 pine-go `NewFrame` 的 `switch` + `default: newRowFrame` 为基准。规则与三处分派点已落 `architecture/dag-engine.md` 的 `storage_mode` 节
+- **当时刻意保留静默兜底、不做 fail-fast** 的理由（只改两侧就是新分歧、三方同改属独立决策）已由 issue #187 处理掉；分派规则本身没变，非法值现在在加载期就被拒绝、不可达。见上一条已关闭条目
 - **顺带沉淀**：这个属性的外部可观察面为空（行列存输出对等把差别吸收掉、`/stats` 与 `/dag` 无 storage 字段），门只能放在各运行时 factory 单测；两条相关纪律进了 `guides/ci-quality-baseline.md`，「既存断言与参考实现相反时先定基准」与「修错误注释按声明出现位置清理」进了 `guides/investigation-to-fix-testing.md`
 - **过程记录**：`memory/reflections/storage-mode-dispatch-parity-179.md`
 
