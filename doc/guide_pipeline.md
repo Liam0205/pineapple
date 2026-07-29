@@ -173,7 +173,9 @@ cd pine-go/benchmarks && go test -tags pine_bench -bench=BenchmarkStorageAB -run
 scripts/bench-cross-runtime.sh --filter <fixture 名> --modes "row,column"
 ```
 
-`storage_mode` 只接受 `"row"` 和 `"column"`。**走 Apple DSL 时**其他值在编译期就会被拒绝（`apple/flow.py` 的 `_VALID_STORAGE_MODES`）；而**手写 JSON 配置不经过这层校验**，非法值会被三个运行时静默接受并落到行存（issue #179）：
+`storage_mode` 只接受 `"row"` 和 `"column"`。**走 Apple DSL 时**其他值在编译期就会被拒绝（`apple/flow.py` 的 `_VALID_STORAGE_MODES`）；而**手写 JSON 配置不经过这层校验**：非法的**字符串**值（拼错、大小写不同）会被三个运行时静默接受并落到行存。
+注意非字符串值（数字、布尔、`null`）三方行为**并不一致** —— pine-go 与 pine-cpp 在配置解析层就报错，
+pine-java 会宽松强转后静默接受，见 issue #179 的残留项：
 
 ```python
 flow = Flow(

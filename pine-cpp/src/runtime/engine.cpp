@@ -1232,8 +1232,15 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
   // Capture the calling thread's central arena (non-null if RequestArena is active).
   // Worker threads get their own ThreadLocalBump backed by this central arena.
   auto* central = current_central_arena();
-  // Frame is now the polymorphic base; pick the implementation
-  // requested by storage_mode ("column" / "row"), default "column".
+  // Frame is now the polymorphic base; pick the implementation requested by
+  // storage_mode. Only the exact literal "column" selects the column store;
+  // everything else — including an unrecognised or differently-cased value —
+  // selects the ROW store, matching pine-go's NewFrame default branch.
+  //
+  // This comment said default "column" until issue #179. It was the FOURTH copy
+  // of that inverted claim, and the one sitting directly above make_frame's only
+  // production call site; the first three were fixed a commit earlier while this
+  // one survived, because the search was scoped to the files the issue named.
   std::unique_ptr<Frame> frame_ptr = make_frame(config_.storage_mode, request.common, request.items);
   Frame& frame = *frame_ptr;
   frame.set_resources(&resources);

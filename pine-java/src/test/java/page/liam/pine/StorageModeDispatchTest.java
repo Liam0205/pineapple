@@ -63,8 +63,13 @@ class StorageModeDispatchTest {
 
     @Test
     void nullStorageModeSelectsTheRowStore() {
-        // Reachable when a hand-written config omits the key entirely. Go's
-        // switch on the zero value likewise falls to default.
+        // Reachable only through this public factory directly, NOT through the
+        // JSON path: Config.java defaults an absent key to "row", and an explicit
+        // JSON null becomes the string "null" via asText(). Measured both.
+        //
+        // Kept anyway because Frame and create are both public, so null is part
+        // of this API's negative space. Note Go's analogue is the zero value ""
+        // rather than null — an analogy, not an equivalence.
         Frame f = Frame.create(null, new HashMap<>(), oneItem());
         assertInstanceOf(DataFrame.class, f, "absent storage_mode must select the row store");
     }
