@@ -87,9 +87,14 @@ CHECK(dynamic_cast<RowFrame*>(fallback.get()) == nullptr);  // defaults to colum
 `engine.cpp:1236`（`make_frame` 唯一生产调用点上一行）；`ac32e308` 补了第五份
 `architecture/pine-cpp-runtime.md:104`。本节的 Root Cause 只解释了前三份。
 
-`row_frame.cpp:425-426` 写的是 "Unknown values fall back to `column` — mirrors pine-go NewFrame behavior."，`include/pine/frame.hpp:114` 写的是 "Unknown / empty storage_mode falls back to `column`."（**措辞不同，后者不含 "mirrors pine-go" 那半句**——审计第四轮指出初版把前者的原文当成了两处共同引文）
-`column` — mirrors pine-go NewFrame behavior"，而 pine-go 的兜底是 **row**。这条注释既与
-自己实现的意图相反，也与它引用的那个运行时相反——是一条双向错的注释，本次都改了。
+两处注释的措辞**并不相同**（初版把前者的原文当成了两处共同引文，审计第四轮指出）：
+
+- `row_frame.cpp:425-426`：`// Factory selecting Frame implementation by storage_mode. Unknown`
+  / `// values fall back to "column" — mirrors pine-go NewFrame behavior.`
+- `frame.hpp:114`：`// Unknown / empty storage_mode falls back to "column".`
+
+而 pine-go 的兜底是 **row**。所以两处都与自己实现的意图相反；`row_frame.cpp` 那处还额外与它
+显式引用的那个运行时相反，是双向错的。`frame.hpp:114` 没有引用任何运行时，只错一个方向。两处本次都改了。
 
 **但 `frame.hpp:24-25` 的类文件头注释里还有第三份同样的错误表述**（"storage_mode falls
 back to `column` when unrecognised"）——初版没改到，而它就在被修的同一个文件里、只差 90 行。
