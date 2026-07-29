@@ -81,14 +81,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Reject unknown --modes values up front. The runtimes silently fall back on an
-# unrecognized storage_mode. Since issue #187 all three REJECT it at config load
-# (before #179 they disagreed on the fallback direction, and between #179 and #187
-# they all silently fell back to row — which is why this check was added) — so a
-# typo like --modes "colunm" would now fail every engine, and before that would
-# have produced a full report
-# labelled with a mode nothing actually ran. That is the same
-# mislabelled-numbers failure this script was just fixed for.
+# Reject unknown --modes values up front. A mode outside {row, column} is rejected
+# by all three runtimes as of issue #187 (before #179 they disagreed on the fallback
+# direction; between #179 and #187 all three silently fell back to row, which is why
+# this check was added). So a typo like --modes "colunm" now fails every engine, and
+# before #187 it would have produced a full report labelled with a mode that nothing
+# actually ran — the same mislabelled-numbers failure this script was fixed for.
 for _m in "${STORAGE_MODES[@]}"; do
   if [[ "$_m" != "row" && "$_m" != "column" ]]; then
     echo "Error: --modes accepts only 'row' and 'column' (got '$_m')" >&2

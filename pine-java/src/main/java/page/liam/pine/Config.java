@@ -84,11 +84,20 @@ public class Config {
 
     private static Config parseRoot(JsonNode root) throws PineErrors.ConfigError {
         Config cfg = new Config();
+        // ORDER MATTERS when more than one root field is wrong-typed: the field NAMED
+        // in the error is externally observable. This order matches pine-cpp's
+        // load_config, so those two always blame the same field.
+        //
+        // pine-go cannot be matched by any fixed order — encoding/json names whichever
+        // wrong-typed field comes FIRST IN THE JSON DOCUMENT, so its answer moves with
+        // the input's key order. Measured. Recorded in memory/doc-gaps.md.
+        //
+        // Add a new root string field to BOTH runtimes at the same position.
         cfg.pineappleVersion = rootString(root, "_PINEAPPLE_VERSION", "");
         cfg.pineappleCreateTime = rootString(root, "_PINEAPPLE_CREATE_TIME", "");
+        cfg.storageMode = rootString(root, "storage_mode", "row");
         cfg.logPrefix = rootString(root, "log_prefix", "");
         cfg.debug = root.has("debug") && root.get("debug").asBoolean();
-        cfg.storageMode = rootString(root, "storage_mode", "row");
 
         // Parse flow_contract
         cfg.flowContract = new FlowContract();

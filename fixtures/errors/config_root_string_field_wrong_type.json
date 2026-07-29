@@ -1,0 +1,65 @@
+{
+  "name": "Config error: a root string field with a non-string value is rejected",
+  "description": "A wrong-TYPED root string field must be rejected by all three runtimes (issue #187). Before that fix pine-go rejected it, pine-java coerced it via asText() (123 became \"123\"), and pine-cpp silently ignored it behind an is_string() guard. This also pins the type-layer MESSAGE, which nothing did: the two storage_mode fixtures pin the value-layer message with wrapping_exact, but `config field \"X\" must be a string` had no fixture, so pine-java could be reworded with every gate staying green. wrapping_exact covers java and cpp only — pine-go's rejection comes from encoding/json failing the whole unmarshal and reads \"JSON parse error: json: cannot unmarshal number into Go struct field ...\", which is a different message by construction rather than a divergence to fix. Note message_contains is the FIELD NAME, not the message wording: it is checked against all three runtimes, and pine-go's encoding/json wording (\"cannot unmarshal number into Go struct field ... of type string\") shares no phrase with the other two beyond the field name. The wording itself is pinned by wrapping_exact for java and cpp.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "cp": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": [
+              "zz",
+              "aa"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "zz",
+              "aa"
+            ]
+          }
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "cp"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "zz",
+        "aa"
+      ],
+      "item_input": [
+        "id"
+      ],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "zz",
+        "aa"
+      ]
+    },
+    "log_prefix": 123
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "log_prefix",
+    "wrapping_exact": "pine: config error: config field \"log_prefix\" must be a string",
+    "wrapping_exact_engines": [
+      "java",
+      "cpp"
+    ]
+  }
+}

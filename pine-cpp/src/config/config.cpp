@@ -325,20 +325,37 @@ Config load_config_from_json(const std::string& text) {
     return &it->second.as_string();
   };
   Config config;
-  if (const std::string* v = require_string(root, "storage_mode")) {
-    config.storage_mode = *v;
-  }
-  if (auto it = root.find("debug"); it != root.end() && it->second.is_bool()) {
-    config.debug = it->second.as_bool();
-  }
-  if (const std::string* v = require_string(root, "log_prefix")) {
-    config.log_prefix = *v;
-  }
+  // ORDER MATTERS when more than one root field is wrong-typed, because the field
+  // NAMED in the error is externally observable. This order matches pine-java's
+  // (see Config.parseRoot), so those two always blame the same field.
+  //
+  // pine-go CANNOT be matched by any fixed order: encoding/json reports whichever
+  // wrong-typed field appears FIRST IN THE JSON DOCUMENT, so its answer depends on
+  // the input's key order, not on a declaration order. Measured — the same three bad
+  // fields in two different key orders make pine-go name log_prefix and then
+  // storage_mode, while these two say storage_mode both times.
+  //
+  // So the achievable contract is java==cpp, with pine-go documented as
+  // input-order-dependent. Recorded in memory/doc-gaps.md alongside the other
+  // multi-error-ordering divergences; the repo treats first-error priority under
+  // simultaneous violations as an external contract (see
+  // memory/reflections/review-driven-build-input-error-ordering.md).
+  //
+  // If you add a root string field, add it to BOTH runtimes at the same position.
   if (const std::string* v = require_string(root, "_PINEAPPLE_VERSION")) {
     config.pineapple_version = *v;
   }
   if (const std::string* v = require_string(root, "_PINEAPPLE_CREATE_TIME")) {
     config.pineapple_create_time = *v;
+  }
+  if (const std::string* v = require_string(root, "storage_mode")) {
+    config.storage_mode = *v;
+  }
+  if (const std::string* v = require_string(root, "log_prefix")) {
+    config.log_prefix = *v;
+  }
+  if (auto it = root.find("debug"); it != root.end() && it->second.is_bool()) {
+    config.debug = it->second.as_bool();
   }
   if (auto it = root.find("resource_config"); it != root.end() && it->second.is_object()) {
     for (const auto& [name, entry] : it->second.as_object()) {

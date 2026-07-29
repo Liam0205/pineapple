@@ -93,6 +93,28 @@ class StorageModeValidationTest {
         }
     }
 
+    @Test
+    void multipleWrongTypedRootFieldsNameTheFirstInCheckOrder() throws Exception {
+        // With more than one root field wrong-typed, WHICH field the error names is
+        // externally observable, so pine-java and pine-cpp must agree. Both check in
+        // the order _PINEAPPLE_VERSION, _PINEAPPLE_CREATE_TIME, storage_mode,
+        // log_prefix, so both name _PINEAPPLE_VERSION here regardless of the JSON's
+        // key order.
+        //
+        // pine-go deliberately is NOT part of this contract: encoding/json names
+        // whichever wrong-typed field appears first IN THE JSON DOCUMENT, so its
+        // answer moves with the input and no fixed check order can reproduce it.
+        // Measured; recorded in llmdoc/memory/doc-gaps.md. That asymmetry is also why
+        // this cannot be a cross-validate error fixture — section 05 requires all
+        // three engines to match the same substring.
+        String base = new String(config(null), StandardCharsets.UTF_8);
+        byte[] body = ("{\"log_prefix\": 1, \"storage_mode\": 2, \"_PINEAPPLE_VERSION\": 3,"
+                + base.substring(1)).getBytes(StandardCharsets.UTF_8);
+        Exception e = assertThrows(Exception.class, () -> Config.load(body));
+        assertTrue(e.getMessage().contains("_PINEAPPLE_VERSION"),
+                "expected the first field in check order to be named, got: " + e.getMessage());
+    }
+
     /** Rebuilds the minimal config with one root field forced to a raw JSON value. */
     private static byte[] withField(String field, String rawJson) {
         String base = new String(config(null), StandardCharsets.UTF_8);
