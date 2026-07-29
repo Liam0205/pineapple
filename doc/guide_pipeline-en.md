@@ -186,16 +186,21 @@ cross-runtime load script:
 scripts/bench-cross-runtime.sh --filter <fixture name> --modes "row,column"
 ```
 
-`storage_mode` accepts only `"row"` and `"column"`. **Through the Apple DSL**
-anything else is rejected at compile time (`_VALID_STORAGE_MODES` in
-`apple/flow.py`); **hand-written JSON configs do not go through that check**: an invalid
-STRING value — a misspelling or a different casing — is silently accepted by all
-three runtimes and falls back to row storage. NON-STRING values are not consistent, and the
-distribution differs per type: a number or boolean is rejected by pine-go and
-pine-cpp in the config parsing layer and accepted by pine-java, while `null` is
-rejected only by pine-cpp — pine-go and pine-java both accept it and fall back to
-row. The full table is in `llmdoc/architecture/dag-engine.md`; it is not restated
-here. See the open item on issue #179:
+`storage_mode` accepts only `"row"` and `"column"` (or an omitted key / `null`,
+which both mean the `"row"` default). **Every other value is rejected**:
+
+- **Through the Apple DSL**, at compile time (`_VALID_STORAGE_MODES` in `apple/flow.py`)
+- **In hand-written JSON**, at config load in all three runtimes, with a
+  byte-identical message: `storage_mode "colunm" is invalid, must be "row" or "column"`
+
+Non-string values (a number, boolean, array or object) are likewise rejected by all
+three. `null` is equivalent to omitting the key and yields the default.
+
+This changed in issue #187. Before it, an invalid string value was silently accepted
+by all three and fell back to row storage (that direction was aligned in issue #179),
+and non-string values behaved differently in each runtime. A typo producing a working
+engine whose memory and performance profile is the opposite of the one requested is
+what this change removes.
 
 ```python
 flow = Flow(

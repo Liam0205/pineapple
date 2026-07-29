@@ -464,9 +464,9 @@ HTTP `GET /stats` 返回组合观测视图：
 
 通过 JSON 配置的 `storage_mode` 字段选择（`"row"` 或 `"column"`，默认 `"row"`）。`NewEngine` 将 mode 存入 `Engine.storageMode`，`Execute` 中通过 `dataframe.NewFrame(mode, common, items)` 创建对应实现。
 
-#### `storage_mode` 分派规则与非法值兜底（跨运行时契约）
+#### `storage_mode` 的三层解释点（跨运行时契约）
 
-**只有字面量 `"column"` 精确匹配才走列存，其余一切值都落行存**——包括非法值、空字符串、以及大小写不同的写法（`"Column"` / `"COLUMN"`）。契约定义方是 pine-go 的 `NewFrame`：`switch` + `default: newRowFrame`，`default` 分支接受一切输入，不报错。
+分派规则：**只有字面量 `"column"` 精确匹配才走列存，其余一切值都落行存**——包括空字符串与大小写不同的写法（`"Column"` / `"COLUMN"`）。契约定义方是 pine-go 的 `NewFrame`：`switch` + `default: newRowFrame`，`default` 分支接受一切输入、不报错。非法值现在在配置加载期就被拒绝、到不了这里，但 `default` 分支仍然是这条规则的定义处，三方都复刻了它。
 
 三处**分派**点，**任何改动必须三处同时改**：
 
@@ -474,28 +474,39 @@ HTTP `GET /stats` 返回组合观测视图：
 - `pine-java/src/main/java/page/liam/pine/Frame.java`（`Frame.create`）
 - `pine-cpp/src/dataframe/row_frame.cpp`（`make_frame`）
 
-但 `storage_mode` 实际有**六个**解释点：上面三处分派之外，配置**解析**层还有三处，而且这三处
-对**非字符串** JSON 值互不一致（实测）：
+分派之外，`storage_mode` 还要经过两层校验，因此它的解释点分**三层**（每层三方各一处，改动必须整层同时改）：
 
-| 解析点 | `123` / `true` / `[..]` / `{..}` | `null` |
+| 层 | 位置 | 作用 |
 |---|---|---|
-| `pine-go/internal/config/types.go`（struct tag，类型强制） | 解析报错 | 静默 → 行存 |
-| `pine-java/.../Config.java`（`asText()` 宽松强转） | 静默 → 行存（数字/布尔得到其字面量、数组/对象得到 `""`） | 静默（得到字符串 `"null"`）→ 行存 |
-| `pine-cpp/src/config/config.cpp`（`as_string()` 抛 `ConfigError`） | 解析报错 | 解析报错 |
+| 类型层（配置解析） | `pine-go/internal/config/types.go`（struct tag）、`pine-java/.../Config.java`（`rootString`）、`pine-cpp/src/config/config.cpp`（`require_string`） | 拒绝 present 但类型不是字符串的值；`null` 与缺省保持默认 |
+| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_config` | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝 |
+| 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
 
-这张表覆盖全部 JSON 类型：数组与对象与数字/布尔同档（pine-go 与 pine-cpp 解析报错、pine-java 静默接受，实测确认）。
+三方现在对全部 JSON 输入形式一致（issue #187）：
 
-**上面「精确匹配」那条规则只覆盖字符串输入。** 非字符串输入的分歧在解析层、先于分派，issue #179
-没有动它（属基线既存）。做运行时层 fail-fast 时必须连这三处一起考虑，否则「拒绝非法值」只在字符串
-维度成立——这也是 `doc-gaps.md` 那条残留决策项缺的输入。
+| 输入 | 三方行为 |
+|---|---|
+| `"row"` / `"column"` | 接受，按分派规则选存储 |
+| 空字符串、键缺省 | 接受，落行存（`""` 是 pine-go 的零值，缺省与 `null` 都到达这里） |
+| `null` | 接受，保持默认 |
+| 其他字符串（拼错、大小写不同、带空格） | 值层拒绝，错误文案三方**字节相同** |
+| 数字 / 布尔 / 数组 / 对象 | 类型层拒绝 |
 
-历史分歧（issue #179，已由 commit `90982071` 对齐）：pine-java 曾用 `equalsIgnoreCase`，`"Column"` 会走列存；pine-cpp 曾写成 `if (== "row") ... else ColumnFrame`，任何拼错都走列存。同一份手写 JSON 在三个运行时选到不同的物理存储。
+**值白名单刻意放在配置校验层而不是 frame factory**：分派规则「只有字面量 `"column"` 精确匹配才走列存」以 pine-go `NewFrame` 的 `default: newRowFrame` 为基准，三方都复刻了这个分支。在加载期拒绝使非法值**不可达**，从而在不改动分派规则的前提下拿到 fail-fast，而不是把 `default` 分支改成报错、逼三方重新解释 dispatch。
 
-**保留静默兜底、不做 fail-fast，是刻意的**：Go 的 `default` 分支接受一切，只在 pine-java / pine-cpp 侧拒绝非法值就是引入一个新的跨运行时分歧。运行时层 fail-fast 需要三方同时改（含 pine-go），属于独立决策，跟踪于 `memory/doc-gaps.md`。
+**类型层那条规则不是 `storage_mode` 专属的**，四个根级字符串字段（`storage_mode` / `log_prefix` / `_PINEAPPLE_VERSION` / `_PINEAPPLE_CREATE_TIME`）共用它。根因在 pine-go：这四个字段都声明成 `string`，`encoding/json` 对每一个都强制类型，任何一个类型不对都会让整份 unmarshal 失败。另两侧是为对齐它而改的。加第五个根级字符串字段时必须遵守同一规则，详见 `reference/root-config-string-fields.md`。
 
-**Apple DSL 侧已有第一道防线**：`apple/flow.py` 的 `_VALID_STORAGE_MODES` 在编译期就拒绝非法值，所以这个分歧只对**手写 JSON 配置**成立，走 DSL 生成的配置永远合法。运行时层的兜底是第二道防线。
+**Go 的白名单常量在 `internal/config` 重复定义**（`StorageModeRow` / `StorageModeColumn`），不是从 `internal/dataframe` import 的——`internal/dataframe` import `internal/config`，反向 import 会成环。`internal/dataframe` 侧的 `StorageMode` 是分派侧类型，**两处必须同步**，代码注释里已写明。
 
-分派选中哪个实现**对进程外部完全不可观察**：行列存输出对等本身是设计契约（cross-validate section 4 断言），`/stats` 与 `/dag` 都不含 storage 字段。因此这条规则的回归门只能落在各运行时自己的 factory 单测上，跨运行时通道对它恒绿——推理细节见 `guides/ci-quality-baseline.md`。
+**Apple DSL 侧是第一道防线**：`apple/flow.py` 的 `_VALID_STORAGE_MODES` 在编译期就拒绝非法值。运行时层的两层校验是第二道防线，覆盖手写 JSON 与其他非 DSL 来源的配置。
+
+分派选中哪个实现**对进程外部完全不可观察**：行列存输出对等本身是设计契约（cross-validate section 4 断言），`/stats` 与 `/dag` 都不含 storage 字段。因此**分派层**的回归门只能落在各运行时自己的 factory 单测上，跨运行时通道对它恒绿；**值层与类型层**的拒绝行为反过来是外部可观察的（错误响应），由各运行时的 validation 单测加 cross-validate section 21 共同钉住。推理细节见 `guides/ci-quality-baseline.md`。
+
+历史（都已对齐，无歧义地属于过去）：
+
+- issue #179 之前，**分派方向**三方不同：pine-java 用 `equalsIgnoreCase`，`"Column"` 走列存；pine-cpp 写成 `if (== "row") ... else ColumnFrame`，任何拼错都走列存。同一份手写 JSON 在三个运行时选到不同的物理存储。已由 commit `90982071` 统一到 pine-go 的 `default: newRowFrame`。
+- issue #179 到 #187 之间，非法字符串值被三方**静默接受并落行存**。当时刻意不做 fail-fast，理由是只改 pine-java / pine-cpp 就是引入新分歧，而三方同改属独立决策。#187 做了三方同改，这半段结束。
+- issue #187 之前，**类型层**三方各不相同，且 pine-cpp 与自己不一致：只有 `storage_mode` 调 throwing 的 `as_string()` 会抛 `ConfigError`，`log_prefix` 与两个 `_PINEAPPLE_*` 有 `is_string()` 守卫、静默忽略类型错误；pine-java 用 `asText()` 强转（`123` 变成 `"123"`、数组/对象变成 `""`），也就是 pine-go 直接拒绝的配置在 pine-java 里带着编造出来的值跑起来了。
 
 ### 并发安全
 

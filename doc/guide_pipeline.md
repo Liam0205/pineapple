@@ -173,10 +173,17 @@ cd pine-go/benchmarks && go test -tags pine_bench -bench=BenchmarkStorageAB -run
 scripts/bench-cross-runtime.sh --filter <fixture 名> --modes "row,column"
 ```
 
-`storage_mode` 只接受 `"row"` 和 `"column"`。**走 Apple DSL 时**其他值在编译期就会被拒绝（`apple/flow.py` 的 `_VALID_STORAGE_MODES`）；而**手写 JSON 配置不经过这层校验**：非法的**字符串**值（拼错、大小写不同）会被三个运行时静默接受并落到行存。
-注意**非字符串**值三方行为**并不一致**，且每种类型的分布还不同（数字/布尔：pine-go 与 pine-cpp
-在配置解析层报错、pine-java 静默接受；`null`：只有 pine-cpp 报错，pine-go 与 pine-java 都接受并落行存）。
-完整对照表见 `llmdoc/architecture/dag-engine.md` 的六个解释点节，这里不复述：
+`storage_mode` 只接受 `"row"` 和 `"column"`（或省略／`null`，此时用默认值 `"row"`）。**其他任何值都会被拒绝**：
+
+- **走 Apple DSL 时**在编译期被拒（`apple/flow.py` 的 `_VALID_STORAGE_MODES`）
+- **手写 JSON 配置**在三个运行时的配置加载层被拒，错误文案三方逐字节相同：
+  `storage_mode "colunm" is invalid, must be "row" or "column"`
+
+非字符串值（数字、布尔、数组、对象）同样被三方一律拒绝。`null` 与省略该键等价，得到默认值。
+
+issue #187 之前不是这样：非法字符串值会被三方**静默接受**并落到行存（方向由 issue #179 对齐），
+非字符串值则三方行为各不相同。拼错字段值却得到一个能跑、但内存与性能特征与预期相反的引擎，
+是这条改动要消除的问题。
 
 ```python
 flow = Flow(
