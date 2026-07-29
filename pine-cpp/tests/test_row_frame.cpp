@@ -97,8 +97,10 @@ TEST_CASE("make_frame: only the exact literal \"column\" selects the column stor
   // StorageMode with `default: newRowFrame`, so only an exact "column" reaches
   // the column store. pine-java's Frame.create and this factory must agree,
   // case included — before #179 this factory fell back to COLUMN and pine-java
-  // matched case-insensitively, so "colunm" and "Column" each picked a different
-  // physical store in each of the three runtimes.
+  // matched case-insensitively, so "colunm" and "Column" each disagreed with Go
+  // in at least one runtime. Only two stores exist, so the split was 2-vs-1, not
+  // three different answers: "colunm" was row in Go and Java but column in C++,
+  // and "Column" was row in Go but column in Java and C++.
   //
   // Row/column output parity (cross-validate section 4) means none of that ever
   // changed a response, only the memory and performance profile. That is exactly

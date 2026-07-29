@@ -20,8 +20,9 @@ import org.junit.jupiter.api.Test;
  * <p>Before #179 they did not: this runtime matched with
  * {@code equalsIgnoreCase} so {@code "Column"} selected the column store, and
  * pine-cpp's factory fell back to column so a misspelling like {@code "colunm"}
- * did too. One hand-written config therefore selected a different physical store
- * in each runtime.
+ * did too. So one hand-written config disagreed with Go in at least one runtime —
+ * a 2-vs-1 split, since only two stores exist: "colunm" was row in Go and Java
+ * but column in C++, and "Column" was row in Go but column in Java and C++.
  *
  * <p>Row and column stores are output-equivalent by design — cross-validate
  * section 4 asserts that — so the divergence never changed a response byte, only

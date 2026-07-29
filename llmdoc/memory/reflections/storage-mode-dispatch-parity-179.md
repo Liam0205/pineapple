@@ -79,9 +79,15 @@ CHECK(dynamic_cast<RowFrame*>(fallback.get()) == nullptr);  // defaults to colum
 本次给三方补了单测，同一组 12 个值（含两个真实分歧过的 `"Column"` / `"colunm"`，另有
 带空格、复数、截断等形式），每条都做了 mutation 验证会红。
 
-### 4. 三处注释同时说反话，其中一处在被修的那个文件里活下来了
+### 4. 五处注释同时说反话（初版以为是三处），其中一处在被修的那个文件里活下来了
 
-`row_frame.cpp:425` 与 `include/pine/frame.hpp:114` 都写着 "Unknown values fall back to
+**总数是五处，本节写下时只知道三处。** 完整清单与每轮漏掉哪一份，见
+`guides/investigation-to-fix-testing.md` 里那张三行表：初版改了 `row_frame.cpp` 与
+`frame.hpp:114`；`0ac95035` 补了 `frame.hpp:24`；`ed2406e5` 补了第四份
+`engine.cpp:1236`（`make_frame` 唯一生产调用点上一行）；`ac32e308` 补了第五份
+`architecture/pine-cpp-runtime.md:104`。本节的 Root Cause 只解释了前三份。
+
+`row_frame.cpp:425-426` 写的是 "Unknown values fall back to `column` — mirrors pine-go NewFrame behavior."，`include/pine/frame.hpp:114` 写的是 "Unknown / empty storage_mode falls back to `column`."（**措辞不同，后者不含 "mirrors pine-go" 那半句**——审计第四轮指出初版把前者的原文当成了两处共同引文）
 `column` — mirrors pine-go NewFrame behavior"，而 pine-go 的兜底是 **row**。这条注释既与
 自己实现的意图相反，也与它引用的那个运行时相反——是一条双向错的注释，本次都改了。
 
