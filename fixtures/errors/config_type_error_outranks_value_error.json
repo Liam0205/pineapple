@@ -1,0 +1,66 @@
+{
+  "name": "Config error: a wrong-typed field outranks an invalid storage_mode value",
+  "description": "Layer precedence: when a config has BOTH a wrong-TYPED root field and an invalid storage_mode VALUE, all three runtimes must report the type error. pine-go does so because encoding/json fails the whole unmarshal before any value check runs; the other two must place their whitelist after every root type check. This pins a gap that review found in the fix for another gap: moving pine-cpp's whitelist to parse time (so it would outrank operator errors) put it BETWEEN the storage_mode and log_prefix reads, so pine-cpp reported the value error where pine-go and pine-java reported log_prefix's type error — java != cpp, the one pairing that is supposed to be aligned. Neither the adjacent-pair ordering tests nor the other precedence fixture caught it: both use two wrong-TYPED fields, so they never mix the two layers.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "cp": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": [
+              "zz",
+              "aa"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "zz",
+              "aa"
+            ]
+          }
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "cp"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "zz",
+        "aa"
+      ],
+      "item_input": [
+        "id"
+      ],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "zz",
+        "aa"
+      ]
+    },
+    "storage_mode": "colunm",
+    "log_prefix": 123
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "log_prefix",
+    "wrapping_exact": "pine: config error: config field \"log_prefix\" must be a string",
+    "wrapping_exact_engines": [
+      "java",
+      "cpp"
+    ]
+  }
+}
