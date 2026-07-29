@@ -351,9 +351,27 @@ Config load_config_from_json(const std::string& text) {
   if (const std::string* v = require_string(root, "storage_mode")) {
     config.storage_mode = *v;
   }
-  // Validate the value HERE, not in validate_config, which runs at the end of
-  // load_config_from_json — after require_obj, parse_operator, parse_metadata and
-  // apply_registry_traits have all had their chance to throw.
+  if (const std::string* v = require_string(root, "log_prefix")) {
+    config.log_prefix = *v;
+  }
+  // Validate the value HERE — after ALL FOUR type checks above, and before the
+  // parse stages below.
+  //
+  // Two orderings had to be satisfied at once, and getting one right first broke
+  // the other:
+  //
+  //   1. It must precede operator parsing. validate_config runs at the very end of
+  //      load_config_from_json, so leaving the check there made pine-cpp report a
+  //      co-occurring operator error where pine-go and pine-java reported the
+  //      storage_mode one.
+  //   2. It must follow every root-field TYPE check. Placing it immediately after
+  //      the storage_mode read put it BETWEEN the storage_mode and log_prefix reads,
+  //      so `{"storage_mode":"colunm","log_prefix":123}` reported the value error
+  //      here while the other two reported log_prefix's type error — java != cpp,
+  //      the one pairing that is supposed to be aligned.
+  //
+  // Both were found by review, the second in the fix for the first. Type layer
+  // before value layer, both before parsing.
   //
   // pine-go and pine-java put this check first in their validate(), so a bad
   // storage_mode always wins. Leaving it in validate_config made pine-cpp report a
@@ -364,9 +382,6 @@ Config load_config_from_json(const std::string& text) {
   // violations as an external contract — see
   // memory/reflections/review-driven-build-input-error-ordering.md.
   validate_storage_mode(config.storage_mode);
-  if (const std::string* v = require_string(root, "log_prefix")) {
-    config.log_prefix = *v;
-  }
   if (auto it = root.find("debug"); it != root.end() && it->second.is_bool()) {
     config.debug = it->second.as_bool();
   }
