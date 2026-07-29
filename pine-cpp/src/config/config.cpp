@@ -128,23 +128,23 @@ OperatorConfig parse_operator(const std::string& name, const Variant& value) {
   return op;
 }
 
-void validate_config(const Config& config) {
-  // storage_mode accepts exactly "row", "column", or empty; anything else is
-  // rejected rather than silently becoming row storage (issue #187).
-  //
-  // Rejecting here rather than in make_frame keeps the dispatch rule untouched:
-  // that rule is deliberately "only the exact literal column selects column
-  // storage, everything else is row", mirroring pine-go's NewFrame default
-  // branch (issue #179). Validation makes the invalid value unreachable rather
-  // than changing what dispatch does with it.
-  //
-  // Empty is allowed because it is pine-go's zero value: an omitted key and a
-  // JSON null both arrive as "" there, so all three runtimes accept both.
-  if (!config.storage_mode.empty() && config.storage_mode != "row"
-      && config.storage_mode != "column") {
-    throw ConfigError("storage_mode \"" + config.storage_mode
-                      + "\" is invalid, must be \"row\" or \"column\"");
+// storage_mode accepts exactly "row", "column", or empty; anything else is
+// rejected rather than silently becoming row storage (issue #187).
+//
+// Rejecting at config load rather than in make_frame keeps the dispatch rule
+// untouched: that rule is "only the exact literal column selects column storage,
+// everything else is row", mirroring pine-go's NewFrame default branch (#179).
+// Validation makes the invalid value unreachable rather than changing dispatch.
+//
+// Empty is allowed because it is pine-go's zero value: an omitted key and a JSON
+// null both arrive as "" there, so all three runtimes accept both.
+void validate_storage_mode(const std::string& mode) {
+  if (!mode.empty() && mode != "row" && mode != "column") {
+    throw ConfigError("storage_mode \"" + mode + "\" is invalid, must be \"row\" or \"column\"");
   }
+}
+
+void validate_config(const Config& config) {
   if (config.operators.empty()) {
     throw ConfigError("pipeline_config.operators is empty");
   }
@@ -351,6 +351,19 @@ Config load_config_from_json(const std::string& text) {
   if (const std::string* v = require_string(root, "storage_mode")) {
     config.storage_mode = *v;
   }
+  // Validate the value HERE, not in validate_config, which runs at the end of
+  // load_config_from_json — after require_obj, parse_operator, parse_metadata and
+  // apply_registry_traits have all had their chance to throw.
+  //
+  // pine-go and pine-java put this check first in their validate(), so a bad
+  // storage_mode always wins. Leaving it in validate_config made pine-cpp report a
+  // co-occurring operator error instead: with storage_mode "colunm" AND a missing
+  // type_name, the other two named storage_mode while pine-cpp named the operator
+  // (measured, issue #187 audit). Which error a config reports first is externally
+  // observable, and this repo treats first-error priority under simultaneous
+  // violations as an external contract — see
+  // memory/reflections/review-driven-build-input-error-ordering.md.
+  validate_storage_mode(config.storage_mode);
   if (const std::string* v = require_string(root, "log_prefix")) {
     config.log_prefix = *v;
   }

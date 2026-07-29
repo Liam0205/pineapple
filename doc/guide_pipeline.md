@@ -178,6 +178,8 @@ scripts/bench-cross-runtime.sh --filter <fixture 名> --modes "row,column"
 - **走 Apple DSL 时**在编译期被拒（`apple/flow.py` 的 `_VALID_STORAGE_MODES`）
 - **手写 JSON 配置**在三个运行时的配置加载层被拒，错误文案三方逐字节相同：
   `storage_mode "colunm" is invalid, must be "row" or "column"`
+  （逐字节相同这一结论对**不含引号／反斜杠／控制字符／不可打印 Unicode** 的值成立；
+  这类值上 pine-go 用 `%q` 转义、另两方裸拼接，细节见 `llmdoc/reference/root-config-string-fields.md`）
 
 非字符串值（数字、布尔、数组、对象）同样被三方一律拒绝。`null` 与省略该键等价，得到默认值。
 注意上面那句「文案三方相同」只对**值**层（白名单）成立；**类型**层的文案 pine-go 与另两方不同

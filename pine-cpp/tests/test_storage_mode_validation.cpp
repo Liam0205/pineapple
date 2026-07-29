@@ -89,15 +89,34 @@ TEST_CASE("config: root string fields reject a non-string value") {
 // #187's audit and recorded in llmdoc/memory/doc-gaps.md. That asymmetry is also
 // why this is a unit test rather than a cross-validate error fixture: section 05
 // requires all three engines to match the same substring.
-TEST_CASE("config: with several wrong-typed root fields, the first in check order is named") {
-  const std::string cfg = minimal_config(
-      R"("log_prefix": 1, "storage_mode": 2, "_PINEAPPLE_VERSION": 3,)");
-  try {
-    load_config_from_json(cfg);
-    FAIL("expected ConfigError");
-  } catch (const ConfigError& e) {
-    const std::string msg = e.what();
-    CHECK_MESSAGE(msg.find("_PINEAPPLE_VERSION") != std::string::npos,
-                  "expected the first field in check order to be named, got: " << msg);
+TEST_CASE("config: with several wrong-typed root fields, check order is fully pinned") {
+  // Asserts every ADJACENT PAIR, which locks all four positions. An earlier version
+  // used one input with three bad fields and asserted only that _PINEAPPLE_VERSION
+  // was named — that pins position 1 and leaves the other three free: swapping
+  // storage_mode with log_prefix left all 254 cases and section 05 green while making
+  // pine-cpp and pine-java blame different fields, i.e. exactly the divergence the
+  // source comment claims is pinned.
+  //
+  // pine-java's StorageModeValidationTest has the mirror of this. pine-go is outside
+  // the contract: encoding/json names whichever wrong-typed field comes first IN THE
+  // JSON DOCUMENT, so its answer moves with the input's key order and no fixed
+  // sequence reproduces it (measured; see llmdoc/memory/doc-gaps.md).
+  const std::pair<const char*, const char*> pairs[] = {
+      {"_PINEAPPLE_VERSION", "_PINEAPPLE_CREATE_TIME"},
+      {"_PINEAPPLE_CREATE_TIME", "storage_mode"},
+      {"storage_mode", "log_prefix"},
+  };
+  for (const auto& [first, second] : pairs) {
+    // Both wrong-typed; the earlier one in check order must be the one named.
+    const std::string cfg = minimal_config(std::string("\"") + second + "\": 1, \"" + first +
+                                           "\": 2,");
+    try {
+      load_config_from_json(cfg);
+      FAIL("expected ConfigError for " << first << " + " << second);
+    } catch (const ConfigError& e) {
+      const std::string msg = e.what();
+      CHECK_MESSAGE(msg.find(first) != std::string::npos,
+                    "expected \"" << first << "\" to outrank \"" << second << "\", got: " << msg);
+    }
   }
 }

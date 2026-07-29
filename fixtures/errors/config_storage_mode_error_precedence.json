@@ -1,0 +1,65 @@
+{
+  "name": "Config error: an invalid storage_mode outranks a co-occurring operator error",
+  "description": "When a config violates storage_mode AND something else at once, which error is reported first is externally observable, so the three runtimes must agree. pine-go and pine-java check the storage_mode whitelist first in validate(); pine-cpp originally checked it in validate_config, which runs at the END of load_config_from_json, after operator parsing — so it reported 'operator \"...\": missing type_name' where the other two reported the storage_mode error (measured during issue #187's audit). Fixed by validating the value at parse time in pine-cpp. This repo treats first-error priority under simultaneous violations as an external contract; see memory/reflections/review-driven-build-input-error-ordering.md.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "cp": {
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": [
+              "zz",
+              "aa"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "zz",
+              "aa"
+            ]
+          }
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "cp"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "zz",
+        "aa"
+      ],
+      "item_input": [
+        "id"
+      ],
+      "common_output": [],
+      "item_output": [
+        "id",
+        "zz",
+        "aa"
+      ]
+    },
+    "storage_mode": "colunm"
+  },
+  "expected_error": {
+    "type": "ConfigError",
+    "message_contains": "is invalid, must be",
+    "wrapping_exact": "pine: config error: storage_mode \"colunm\" is invalid, must be \"row\" or \"column\"",
+    "wrapping_exact_engines": [
+      "go",
+      "java",
+      "cpp"
+    ]
+  }
+}
