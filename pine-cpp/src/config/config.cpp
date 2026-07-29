@@ -354,8 +354,15 @@ Config load_config_from_json(const std::string& text) {
   if (const std::string* v = require_string(root, "log_prefix")) {
     config.log_prefix = *v;
   }
-  // Validate the value HERE — after ALL FOUR type checks above, and before the
+  // Validate the value HERE — after all four ROOT type checks above, and before the
   // parse stages below.
+  //
+  // KNOWN LIMIT, deliberately not fixed: "after the type layer" holds only for the
+  // four root fields. pine-go's encoding/json fails on a type error at ANY depth, so
+  // with an invalid storage_mode AND e.g. $metadata.common_input given as a string,
+  // pine-go and pine-java report the nested type error while this reports the value
+  // error. Moving this call after nested parsing fixes that but re-breaks constraint 2
+  // below; satisfying both needs a two-pass parse. Tracked in memory/doc-gaps.md.
   //
   // Two orderings had to be satisfied at once, and getting one right first broke
   // the other:
