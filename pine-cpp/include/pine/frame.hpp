@@ -21,8 +21,10 @@ namespace pine {
 //     is short or sparse.
 //
 // Both implementations are thread-safe internally. Engine selects based on
-// Config.storage_mode ("column" / "row"); storage_mode falls back to
-// "column" when unrecognised.
+// Config.storage_mode ("column" / "row"); only the exact literal "column"
+// selects the column store, and every other value — unrecognised, empty, or
+// differently cased — selects the ROW store, matching pine-go's NewFrame
+// default branch (issue #179).
 //
 // Frame was previously `using Frame = ColumnFrame;` (single-impl).
 // Promoted to virtual base when pine-cpp grew RowFrame to match
