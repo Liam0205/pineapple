@@ -94,25 +94,33 @@ class StorageModeValidationTest {
     }
 
     @Test
-    void multipleWrongTypedRootFieldsNameTheFirstInCheckOrder() throws Exception {
-        // With more than one root field wrong-typed, WHICH field the error names is
-        // externally observable, so pine-java and pine-cpp must agree. Both check in
-        // the order _PINEAPPLE_VERSION, _PINEAPPLE_CREATE_TIME, storage_mode,
-        // log_prefix, so both name _PINEAPPLE_VERSION here regardless of the JSON's
-        // key order.
+    void rootFieldCheckOrderIsFullyPinned() throws Exception {
+        // Asserts every ADJACENT PAIR, locking all four positions. An earlier version
+        // used one input with three bad fields and asserted only that
+        // _PINEAPPLE_VERSION was named, which pins position 1 and leaves the other
+        // three free — swapping storage_mode with log_prefix in pine-cpp kept every
+        // gate green while making the two runtimes blame different fields.
         //
-        // pine-go deliberately is NOT part of this contract: encoding/json names
-        // whichever wrong-typed field appears first IN THE JSON DOCUMENT, so its
-        // answer moves with the input and no fixed check order can reproduce it.
-        // Measured; recorded in llmdoc/memory/doc-gaps.md. That asymmetry is also why
-        // this cannot be a cross-validate error fixture — section 05 requires all
-        // three engines to match the same substring.
+        // pine-cpp's test_storage_mode_validation.cpp has the mirror. pine-go is
+        // outside this contract: encoding/json names whichever wrong-typed field
+        // appears first IN THE JSON DOCUMENT, so no fixed order reproduces it.
+        String[][] pairs = {
+            {"_PINEAPPLE_VERSION", "_PINEAPPLE_CREATE_TIME"},
+            {"_PINEAPPLE_CREATE_TIME", "storage_mode"},
+            {"storage_mode", "log_prefix"},
+        };
         String base = new String(config(null), StandardCharsets.UTF_8);
-        byte[] body = ("{\"log_prefix\": 1, \"storage_mode\": 2, \"_PINEAPPLE_VERSION\": 3,"
-                + base.substring(1)).getBytes(StandardCharsets.UTF_8);
-        Exception e = assertThrows(Exception.class, () -> Config.load(body));
-        assertTrue(e.getMessage().contains("_PINEAPPLE_VERSION"),
-                "expected the first field in check order to be named, got: " + e.getMessage());
+        for (String[] pair : pairs) {
+            String first = pair[0];
+            String second = pair[1];
+            byte[] body = ("{\"" + second + "\": 1, \"" + first + "\": 2,"
+                    + base.substring(1)).getBytes(StandardCharsets.UTF_8);
+            Exception e = assertThrows(Exception.class, () -> Config.load(body),
+                    first + " + " + second + " must be rejected");
+            assertTrue(e.getMessage().contains(first),
+                    "expected \"" + first + "\" to outrank \"" + second
+                            + "\", got: " + e.getMessage());
+        }
     }
 
     /** Rebuilds the minimal config with one root field forced to a raw JSON value. */

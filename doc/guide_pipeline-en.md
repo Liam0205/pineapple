@@ -192,6 +192,9 @@ which both mean the `"row"` default). **Every other value is rejected**:
 - **Through the Apple DSL**, at compile time (`_VALID_STORAGE_MODES` in `apple/flow.py`)
 - **In hand-written JSON**, at config load in all three runtimes, with a
   byte-identical message: `storage_mode "colunm" is invalid, must be "row" or "column"`
+  (byte-identical holds for values without a quote, backslash, control character or
+  non-printable Unicode; on those pine-go applies `%q` escaping where the other two
+  concatenate raw — see `llmdoc/reference/root-config-string-fields.md`)
 
 Non-string values (a number, boolean, array or object) are likewise rejected by all
 three. `null` is equivalent to omitting the key and yields the default.
