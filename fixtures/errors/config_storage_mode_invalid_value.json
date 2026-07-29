@@ -1,6 +1,6 @@
 {
   "name": "Config error: storage_mode 'colunm' is not a valid value",
-  "description": "storage_mode with a misspelled value must be rejected at config load rather than silently falling back to row storage (issue #187). Before the fix all three runtimes accepted it; the fallback DIRECTION had been aligned in #179 but the silence remained, so a typo produced a working engine whose memory and performance profile was the opposite of what was asked for. Message is byte-identical across the three runtimes.",
+  "description": "storage_mode with a misspelled value must be rejected at config load rather than silently falling back to row storage (issue #187). Before the fix all three runtimes accepted it; the fallback DIRECTION had been aligned in #179 but the silence remained, so a typo produced a working engine whose memory and performance profile was the opposite of what was asked for. Message is byte-identical across the three runtimes. The byte-identical claim is pinned by wrapping_exact rather than only asserted in prose: with message_contains alone, rewording one runtime's message left section 05 green, so the claim had no gate at all.",
   "config": {
     "pipeline_config": {
       "operators": {
@@ -55,6 +55,12 @@
   },
   "expected_error": {
     "type": "ConfigError",
-    "message_contains": "is invalid, must be"
+    "message_contains": "is invalid, must be",
+    "wrapping_exact": "pine: config error: storage_mode \"colunm\" is invalid, must be \"row\" or \"column\"",
+    "wrapping_exact_engines": [
+      "go",
+      "java",
+      "cpp"
+    ]
   }
 }

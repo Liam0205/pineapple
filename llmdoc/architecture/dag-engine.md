@@ -492,10 +492,17 @@ HTTP `GET /stats` 返回组合观测视图：
 | 其他字符串（拼错、大小写不同、带空格） | 值层拒绝，错误文案三方**字节相同** |
 | 数字 / 布尔 / 数组 / 对象 | 类型层拒绝 |
 
-**两处已知例外，都不在 #187 的范围内，但读这张表的人需要知道：**
+**三处已知例外，都不在 #187 的范围内，但读这张表的人需要知道：**
 
-- **`debug`**：唯一的另一个根级标量，布尔。它仍是修前那个样子——pine-go 拒绝错误类型，
-  pine-java 与 pine-cpp 静默忽略。见 `reference/root-config-string-fields.md`。
+- **`debug`**：唯一的另一个根级标量，布尔，仍是修前那个样子：pine-go 拒绝错误类型；**pine-java 的 `asBoolean()` 强转**——`1` 与 `"true"` 会真的把 debug 打开，
+  `"yes"` / `[1]` 强转成 false；pine-cpp 的 `is_bool()` 守卫静默忽略、保持关闭。**三方三种行为**（实测）。
+  见 `reference/root-config-string-fields.md`。
+- **键名大小写**：pine-go 的 `encoding/json` 在精确匹配失败时会**忽略大小写**回退匹配 struct tag，
+  所以 `{"STORAGE_MODE":"colunm"}` 被 pine-go 绑到 `StorageMode` 并**拒绝**，而 pine-java 的
+  `root.has()` 与 pine-cpp 的 `parent.find()` 都是精确匹配、根本看不到这个键，于是**接受**。
+  `Storage_Mode` / `Log_Prefix` / `_pineapple_version` / `DEBUG` 同型（实测）。
+  与重复键那条一样，这也是**本次改动新引入的可见差异**：改动前没人看类型，Go 把 `STORAGE_MODE`
+  绑到哪里都无后果。跟踪于 `memory/doc-gaps.md`。
 - **重复键**：同一个键在 JSON 里出现两次时，pine-go 与 pine-java 取**后者**，而 pine-cpp 的
   `FlatMap` 取**前者**。所以 `{"log_prefix":"ok","log_prefix":123}` 被 pine-go / pine-java 拒绝、
   被 pine-cpp 接受。这是本次改动**新引入的**可见差异：校验之前不看类型，所以取哪个重复值都一样；

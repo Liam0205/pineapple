@@ -11,8 +11,11 @@
 # WHAT THIS CHANNEL COVERS, and what it structurally CANNOT (issue #188).
 #
 # The fixtures were chosen by enumerating response shapes rather than by waiting
-# for a bug: before #188 all eight existed because something had already broken
-# (#180 added the number-format one, #183 the three key-escaping ones), so the
+# for a bug. Before #188 the INCREMENTS were all incident-driven (#180 added the
+# number-format one, #183 the three key-escaping ones), and the other four came
+# from this channel's own founding commit b3be2503, covering only the basic
+# success / empty / partial-error shapes. So the initial coverage was already
+# narrow and every later addition was pushed by a defect, which is why the
 # "byte-exact" claim was much broader than the coverage behind it.
 #
 # Covered: success envelope, empty items, empty common, validation-error envelope,

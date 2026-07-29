@@ -196,6 +196,11 @@ which both mean the `"row"` default). **Every other value is rejected**:
 Non-string values (a number, boolean, array or object) are likewise rejected by all
 three. `null` is equivalent to omitting the key and yields the default.
 
+Note the byte-identical message above holds for the VALUE layer (the whitelist)
+only. At the TYPE layer pine-go differs from the other two: it reports
+`JSON parse error: ...` from `encoding/json`, while pine-java and pine-cpp report
+`config field "X" must be a string`.
+
 This changed in issue #187. Before it, an invalid string value was silently accepted
 by all three and fell back to row storage (that direction was aligned in issue #179),
 and non-string values behaved differently in each runtime. A typo producing a working
