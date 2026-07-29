@@ -85,7 +85,7 @@ CHECK(dynamic_cast<RowFrame*>(fallback.get()) == nullptr);  // defaults to colum
 `column` — mirrors pine-go NewFrame behavior"，而 pine-go 的兜底是 **row**。这条注释既与
 自己实现的意图相反，也与它引用的那个运行时相反——是一条双向错的注释，本次都改了。
 
-**但 `frame.hpp:24-25` 的类文件头注释里还有第三份同样的错误表述**（"storage_mode falls
+**但 `frame.hpp:24-25` 的类文件头注释里还有第三份同样的错误表述**（"storage_mode falls。**已完成**：与本篇同一次提交（`0ac95035`）就改掉了，HEAD 上 `frame.hpp` 已是正确表述；这条 follow-up 写下时就已经过时，第二轮审计抓出来的
 back to `column` when unrecognised"），本次没改到，而它就在被修的同一个文件里、只差 90 行。
 根因是按 grep 命中的「分派点附近注释」清理，没有对同一文件通读一遍。
 

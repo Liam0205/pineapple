@@ -112,9 +112,13 @@ TEST_CASE("make_frame: only the exact literal \"column\" selects the column stor
   // Everything else is row: explicit, empty, misspelled, and every casing.
   for (const char* mode : {"row", "", "colunm", "Column", "COLUMN", "cOlUmN", "column ",
                            " column", "columns", "col", "rows", "unknown"}) {
+    // std::string, not the raw const char*: doctest's MessageBuilder streams a
+    // pointer as its ADDRESS, so a failure printed `storage_mode "0x5825..."`
+    // and gave no clue which of the twelve values broke.
+    const std::string mode_str(mode);
     auto f = make_frame(mode, common, items);
     CHECK_MESSAGE(dynamic_cast<RowFrame*>(f.get()) != nullptr,
-                  "storage_mode \"" << mode << "\" must select the row store");
+                  "storage_mode \"" << mode_str << "\" must select the row store");
     CHECK(f->item_count() == 1);
   }
 }
