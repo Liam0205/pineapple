@@ -87,3 +87,9 @@ fi
 if [[ $cpp_sm_total -gt 0 && $cpp_sm_pass -eq $cpp_sm_total ]]; then
   pass "storage_mode fallback parity Go vs C++ ($cpp_sm_pass/$cpp_sm_total modes)"
 fi
+
+# Propagate failure when run standalone, which is how the repo docs recommend
+# debugging a single section. Without this the script prints its ✗ lines and
+# still exits 0 — harmless under scripts/cross-validate.sh (the parallel runner
+# records $_CV_FAIL in .rc and CI also greps "^FAIL:") but misleading by hand.
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit $_CV_FAIL || true

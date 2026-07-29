@@ -44,7 +44,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Redis cascade-safety** — The `redis_connection` resource exposes 5 cascade params (`{dial,read,write,pool}_timeout_ms` + `pool_size`); per-command metrics `pine_redis_command_*` with 4-state status (ok / timeout / pool_timeout / error), fail-on-error silent-degradation contract
 - **White-box observability** — Operator-level traces; the `/stats` composite response includes `/stats.http` (request-level 4-state metrics) + `/stats.resources` (resource pool / probe / per-command 4-state categories); pluggable Prometheus interface
 - **Row/Column storage** — DataFrame supports both storage modes; results are identical, only performance differs. Choose column for transform-dominated pipelines with large N and few structural changes, keep the row default for recall/filter/sort or small N. Criteria and a measurement entry point live in the "Flow-Level Configuration" section of [`doc/guide_pipeline-en.md`](doc/guide_pipeline-en.md)
-- **Tri-engine consistency** — Go/Java/C++ engines verified byte-exactly via CI cross-validation (19 sections + tri-engine differential fuzz + daily ASan/TSan sanitized fuzz)
+- **Tri-engine consistency** — Go/Java/C++ engines verified byte-exactly via CI cross-validation (see scripts/cross-validate/ for the section list, plus tri-engine differential fuzz + daily ASan/TSan sanitized fuzz)
 - **Pine-C++ benchmark runtime** — Complete third runtime with operator parity, HTTP server (hot reload / graceful shutdown), ColumnFrame/RowFrame dual physical layouts, lazy OperatorInput projection, LuaJIT integration, metrics/resource parity
 
 ## Quick Start
@@ -192,7 +192,7 @@ Cross-language fmt / lint / test / bench / codegen / version management is unifi
 | `scripts/go-fuzz.sh` | Go fuzz testing |
 | `scripts/java-fuzz.sh` | Java fuzz testing |
 | `scripts/differential-fuzz.sh` | Tri-engine differential fuzzing (random pipelines, output diff) |
-| `scripts/cross-validate.sh` | Tri-engine cross-validation (schema + DAG + execution + errors + server + metrics, 19 sections) |
+| `scripts/cross-validate.sh` | Tri-engine cross-validation (schema + DAG + execution + errors + server + metrics; see scripts/cross-validate/ for the section list) |
 | `scripts/cpp-sanitizer-smoke.sh` | C++ ASan/UBSan smoke |
 | `scripts/cpp-tsan-smoke.sh` | C++ ThreadSanitizer high-fanout stress |
 | `scripts/codegen.sh` | Code generation (`--backend go\|java`) |
@@ -224,7 +224,7 @@ CI runs automatically on every push/PR:
 
 ### Cross-Validation
 
-`scripts/cross-validate.sh` verifies consistency across the three engines, currently 19 sections (see `scripts/cross-validate/` for the authoritative list):
+`scripts/cross-validate.sh` verifies consistency across the three engines, with `scripts/cross-validate/` as the authoritative section list:
 
 1. **Schema parity** — Operator schemas and apple_generated artifacts exported by all three codegen tools must match byte-for-byte
 2. **DAG parity** — Same config input must produce identical DAG output (DOT + Mermaid, including collapse) from all engines

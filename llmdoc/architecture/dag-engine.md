@@ -468,11 +468,24 @@ HTTP `GET /stats` 返回组合观测视图：
 
 **只有字面量 `"column"` 精确匹配才走列存，其余一切值都落行存**——包括非法值、空字符串、以及大小写不同的写法（`"Column"` / `"COLUMN"`）。契约定义方是 pine-go 的 `NewFrame`：`switch` + `default: newRowFrame`，`default` 分支接受一切输入，不报错。
 
-三处分派点，**任何改动必须三处同时改**：
+三处**分派**点，**任何改动必须三处同时改**：
 
 - `pine-go/internal/dataframe/frame.go`（`NewFrame`）— 契约定义方
 - `pine-java/src/main/java/page/liam/pine/Frame.java`（`Frame.create`）
 - `pine-cpp/src/dataframe/row_frame.cpp`（`make_frame`）
+
+但 `storage_mode` 实际有**六个**解释点：上面三处分派之外，配置**解析**层还有三处，而且这三处
+对**非字符串** JSON 值互不一致（实测）：
+
+| 解析点 | `123` / `true` | `null` |
+|---|---|---|
+| `pine-go/internal/config/types.go`（struct tag，类型强制） | 解析报错 | 静默 → 行存 |
+| `pine-java/.../Config.java`（`asText()` 宽松强转） | 静默 → 行存 | 静默（得到字符串 `"null"`）→ 行存 |
+| `pine-cpp/src/config/config.cpp`（`as_string()` 抛 `ConfigError`） | 解析报错 | 解析报错 |
+
+**上面「精确匹配」那条规则只覆盖字符串输入。** 非字符串输入的分歧在解析层、先于分派，issue #179
+没有动它（属基线既存）。做运行时层 fail-fast 时必须连这三处一起考虑，否则「拒绝非法值」只在字符串
+维度成立——这也是 `doc-gaps.md` 那条残留决策项缺的输入。
 
 历史分歧（issue #179，已由 commit `90982071` 对齐）：pine-java 曾用 `equalsIgnoreCase`，`"Column"` 会走列存；pine-cpp 曾写成 `if (== "row") ... else ColumnFrame`，任何拼错都走列存。同一份手写 JSON 在三个运行时选到不同的物理存储。
 

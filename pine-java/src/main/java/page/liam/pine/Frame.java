@@ -59,7 +59,8 @@ public interface Frame {
      * <p>Deliberately a silent fallback rather than a rejection: Go's default
      * branch accepts anything, so rejecting here would itself be a divergence.
      * Rejecting invalid values in all three runtimes is a separate decision,
-     * recorded in llmdoc/reference/storage-mode-dispatch.md.
+     * recorded as an open item in llmdoc/memory/doc-gaps.md; the dispatch rule
+     * itself is in llmdoc/architecture/dag-engine.md.
      */
     static Frame create(String storageMode, Map<String, Object> common, List<Map<String, Object>> items) {
         if ("column".equals(storageMode)) {
