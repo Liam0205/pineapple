@@ -23,13 +23,18 @@ JSON 配置根级的字符串字段在三个运行时遵守同一条类型规则
 | pine-java | `pine-java/src/main/java/page/liam/pine/Config.java`（`rootString`） | `isNull()` 放过、`!isTextual()` 抛 `ConfigError` |
 | pine-cpp | `pine-cpp/src/config/config.cpp`（`require_string`） | `is_null()` 返回 `nullptr`、非 string 抛 `ConfigError` |
 
-错误文案三方字节相同：`config field "X" must be a string`。
+错误文案**只有 pine-java 与 pine-cpp 相同**（`config field "X" must be a string`）。
+pine-go 的拒绝来自 `encoding/json` 整份 unmarshal 失败、经 `Load` 的 `JSON parse error: %v`
+包装，文案是 `JSON parse error: json: cannot unmarshal number into Go struct field ...`，
+**与另两方不同**。要按文案匹配就只能匹配各自的子串；值白名单那层的文案才是三方逐字节相同的。
 
 ## 当前受这条规则约束的字段
 
 `storage_mode`、`log_prefix`、`_PINEAPPLE_VERSION`、`_PINEAPPLE_CREATE_TIME`。
 
-`debug` 是布尔字段，不在此列；`storage_mode` 在类型层之外还有一层值白名单，见 `architecture/dag-engine.md` 的 `storage_mode` 节。
+`debug` 是布尔字段，不在此列——**但要注意它仍然是修前那个样子**：pine-go 拒绝错误类型，
+pine-java（`asBoolean()`）与 pine-cpp（`is_bool()` 守卫）都静默忽略。也就是说 `debug` 上还留着
+本次为四个字符串字段消除掉的那个分歧，「不在此列」是范围声明、不是「已经一致」；`storage_mode` 在类型层之外还有一层值白名单，见 `architecture/dag-engine.md` 的 `storage_mode` 节。
 
 ## 新增第五个字段时要同步的四处
 

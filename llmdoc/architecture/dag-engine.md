@@ -482,7 +482,7 @@ HTTP `GET /stats` 返回组合观测视图：
 | 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_config` | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝 |
 | 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
 
-三方现在对全部 JSON 输入形式一致（issue #187）：
+三方现在对这四个字符串字段的**单次出现、各类型**取值一致（issue #187）：
 
 | 输入 | 三方行为 |
 |---|---|
@@ -491,6 +491,16 @@ HTTP `GET /stats` 返回组合观测视图：
 | `null` | 接受，保持默认 |
 | 其他字符串（拼错、大小写不同、带空格） | 值层拒绝，错误文案三方**字节相同** |
 | 数字 / 布尔 / 数组 / 对象 | 类型层拒绝 |
+
+**两处已知例外，都不在 #187 的范围内，但读这张表的人需要知道：**
+
+- **`debug`**：唯一的另一个根级标量，布尔。它仍是修前那个样子——pine-go 拒绝错误类型，
+  pine-java 与 pine-cpp 静默忽略。见 `reference/root-config-string-fields.md`。
+- **重复键**：同一个键在 JSON 里出现两次时，pine-go 与 pine-java 取**后者**，而 pine-cpp 的
+  `FlatMap` 取**前者**。所以 `{"log_prefix":"ok","log_prefix":123}` 被 pine-go / pine-java 拒绝、
+  被 pine-cpp 接受。这是本次改动**新引入的**可见差异：校验之前不看类型，所以取哪个重复值都一样；
+  现在校验依赖于哪个值胜出。实测过；无生成器会产出重复键（`apple/compiler.py` 用 dict），
+  所以实际风险低，但它确实是一份配置在一个运行时通过、在另一个被拒的情形。跟踪于 `memory/doc-gaps.md`。
 
 **值白名单刻意放在配置校验层而不是 frame factory**：分派规则「只有字面量 `"column"` 精确匹配才走列存」以 pine-go `NewFrame` 的 `default: newRowFrame` 为基准，三方都复刻了这个分支。在加载期拒绝使非法值**不可达**，从而在不改动分派规则的前提下拿到 fail-fast，而不是把 `default` 分支改成报错、逼三方重新解释 dispatch。
 

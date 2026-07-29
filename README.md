@@ -262,7 +262,7 @@ CI 在每次 push/PR 时自动运行：
 18. **SubFlow contract stderr** — Apple 编译期 SubFlow 契约报错文案稳定
 19. **Bench-stub parity** — bench 构建下 `reorder_topn_boost` 字节级一致
 20. **Custom routes parity** — 自定义路由（Route/Ingress/Egress）、watch 开关、指标 path 标签有界扩展一致
-21. **storage_mode fallback parity** — 非法 `storage_mode` 值被三方静默接受且输出字节一致（分派方向本身由各运行时的 factory 单测钉，见 `llmdoc/architecture/dag-engine.md`）
+21. **storage_mode validation parity** — 合法 `storage_mode` 三方接受且输出字节一致、非法值三方一律拒绝（issue #187；分派方向本身由各运行时的 factory 单测钉，见 `llmdoc/architecture/dag-engine.md`）
 
 ### 为下游构建 Cross-Validation 体系
 
