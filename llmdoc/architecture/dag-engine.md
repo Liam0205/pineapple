@@ -479,7 +479,7 @@ HTTP `GET /stats` 返回组合观测视图：
 | 层 | 位置 | 作用 |
 |---|---|---|
 | 类型层（配置解析） | `pine-go/internal/config/types.go`（struct tag）、`pine-java/.../Config.java`（`rootString`）、`pine-cpp/src/config/config.cpp`（`require_string`） | 拒绝 present 但类型不是字符串的值；`null` 与缺省保持默认 |
-| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在类型层之后、解析之前 |
+| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而另两方的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。见 `memory/doc-gaps.md` |
 | 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
 
 三方现在对这四个字符串字段的**单次出现、各类型**取值一致（issue #187）：
