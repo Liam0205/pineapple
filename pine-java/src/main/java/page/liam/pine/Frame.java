@@ -40,8 +40,29 @@ public interface Frame {
         return null;
     }
 
+    /**
+     * Selects the physical frame implementation by {@code storage_mode}.
+     *
+     * <p>Matching is EXACT and case-sensitive, and anything other than the
+     * literal {@code "column"} — including null, empty, a misspelling, and
+     * {@code "Column"} — yields the row store. That mirrors pine-go's
+     * {@code NewFrame}, which is a {@code switch} on a string-typed
+     * {@code StorageMode} with {@code default: newRowFrame}, so only an exact
+     * {@code "column"} reaches the column store.
+     *
+     * <p>This used to use equalsIgnoreCase, which made {@code "Column"} select
+     * the column store here and the row store in Go — the same configuration
+     * meaning different things in different runtimes (issue #179). Row/column
+     * output parity means that never changed a response, only the memory and
+     * performance profile, which is why it went unnoticed.
+     *
+     * <p>Deliberately a silent fallback rather than a rejection: Go's default
+     * branch accepts anything, so rejecting here would itself be a divergence.
+     * Rejecting invalid values in all three runtimes is a separate decision,
+     * recorded in llmdoc/reference/storage-mode-dispatch.md.
+     */
     static Frame create(String storageMode, Map<String, Object> common, List<Map<String, Object>> items) {
-        if ("column".equalsIgnoreCase(storageMode)) {
+        if ("column".equals(storageMode)) {
             return new ColumnFrame(common, items);
         }
         return new DataFrame(common, items);

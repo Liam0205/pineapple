@@ -84,5 +84,37 @@ TEST_CASE("make_frame factory selects implementation by storage_mode") {
   // Implementation discriminated by dynamic_cast.
   CHECK(dynamic_cast<RowFrame*>(row.get()) != nullptr);
   CHECK(dynamic_cast<RowFrame*>(col.get()) == nullptr);
-  CHECK(dynamic_cast<RowFrame*>(fallback.get()) == nullptr);  // defaults to column
+
+  // Everything that is not the exact literal "column" gets the ROW store,
+  // matching pine-go's NewFrame `default: newRowFrame`. This line previously
+  // asserted the opposite ("defaults to column") and so pinned the divergence
+  // in issue #179 rather than catching it.
+  CHECK(dynamic_cast<RowFrame*>(fallback.get()) != nullptr);
+}
+
+TEST_CASE("make_frame: only the exact literal \"column\" selects the column store") {
+  // Cross-runtime contract: pine-go's NewFrame switches on a string-typed
+  // StorageMode with `default: newRowFrame`, so only an exact "column" reaches
+  // the column store. pine-java's Frame.create and this factory must agree,
+  // case included — before #179 this factory fell back to COLUMN and pine-java
+  // matched case-insensitively, so "colunm" and "Column" each picked a different
+  // physical store in each of the three runtimes.
+  //
+  // Row/column output parity (cross-validate section 4) means none of that ever
+  // changed a response, only the memory and performance profile. That is exactly
+  // why it needs asserting here: no end-to-end channel can see it.
+  Variant::object_t common{{"r", Variant(std::string("v"))}};
+  std::vector<Variant::object_t> items{{{"id", Variant(1.0)}}};
+
+  // The one and only value that selects column.
+  CHECK(dynamic_cast<RowFrame*>(make_frame("column", common, items).get()) == nullptr);
+
+  // Everything else is row: explicit, empty, misspelled, and every casing.
+  for (const char* mode : {"row", "", "colunm", "Column", "COLUMN", "cOlUmN", "column ",
+                           " column", "columns", "col", "rows", "unknown"}) {
+    auto f = make_frame(mode, common, items);
+    CHECK_MESSAGE(dynamic_cast<RowFrame*>(f.get()) != nullptr,
+                  "storage_mode \"" << mode << "\" must select the row store");
+    CHECK(f->item_count() == 1);
+  }
 }

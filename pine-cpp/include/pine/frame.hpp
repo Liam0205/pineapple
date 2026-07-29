@@ -111,7 +111,10 @@ class Frame {
 };
 
 // Factory: build the Frame implementation that matches storage_mode.
-// Unknown / empty storage_mode falls back to "column".
+//
+// Only the exact literal "column" selects the column store; unknown, empty and
+// differently-cased values all select the ROW store, matching pine-go's NewFrame
+// default branch. See row_frame.cpp for why this used to say "column" (#179).
 std::unique_ptr<Frame> make_frame(const std::string& storage_mode, Variant::object_t common,
                                   std::vector<Variant::object_t> items);
 

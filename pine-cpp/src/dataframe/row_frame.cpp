@@ -422,14 +422,24 @@ bool RowFrame::item_has_no_lock(std::size_t index, const std::string& field) con
   return src[index].find(field) != src[index].end();
 }
 
-// Factory selecting Frame implementation by storage_mode. Unknown
-// values fall back to "column" — mirrors pine-go NewFrame behavior.
+// Factory selecting Frame implementation by storage_mode.
+//
+// Matching is EXACT: only the literal "column" selects the column store, and
+// everything else — empty, a misspelling, "Column" — selects the row store.
+// That mirrors pine-go's NewFrame, a switch with `default: newRowFrame`.
+//
+// This used to test `storage_mode == "row"` and fall through to ColumnFrame,
+// i.e. the opposite direction, so a typo like "colunm" got the column store
+// here and the row store in Go (issue #179). The comment above it claimed the
+// column fallback "mirrors pine-go NewFrame behavior" while pine-go's fallback
+// is row — the comment described the reverse of both its own implementation's
+// intent and the runtime it cited.
 std::unique_ptr<Frame> make_frame(const std::string& storage_mode, Variant::object_t common,
                                   std::vector<Variant::object_t> items) {
-  if (storage_mode == "row") {
-    return std::make_unique<RowFrame>(std::move(common), std::move(items));
+  if (storage_mode == "column") {
+    return std::make_unique<ColumnFrame>(std::move(common), std::move(items));
   }
-  return std::make_unique<ColumnFrame>(std::move(common), std::move(items));
+  return std::make_unique<RowFrame>(std::move(common), std::move(items));
 }
 
 }  // namespace pine
