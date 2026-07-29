@@ -21,10 +21,11 @@
 - **已做**：`guides/benchmark-hygiene.md` 补了"搬 microbench 形状要重查投影/序列化段"，覆盖了 benchmark 场景
 - **待决策**：是否在 `reference/` 层给 `flow_contract` / `item_output` 投影语义一个独立的契约条目，使非 benchmark 场景（写 cross-validate fixture、写 fuzz 生成器）也能检索到。issue #175 的 fuzzer flow_contract 投影盲区是同一语义的第三次现身，倾向于值得做
 
-### `storage_mode` 非法值兜底跨运行时分歧（issue #179）
+### 运行时层 fail-fast 拒绝非法 `storage_mode`（issue #179 的残留项）
 
-- **现状**：已知分歧，见 issue #179，**未修**。仅在 issue 中记录，无稳定文档条目
-- **待决策**：修（三方对齐兜底行为 + error fixture）还是归档为 accepted design difference（则需进 `architecture/dag-engine.md` 的接受差异段并给出理由）。在决定之前，稳定文档不得表述为已解决
+- **现状**：三方分派已对齐（非法值一律静默落行存，见下方已关闭条目），但**没有任何运行时在配置加载层拒绝非法值**。issue #179 自己倾向 fail-fast，本次没做
+- **待决策**：是否加运行时层 fail-fast。要求三方同时改（含 pine-go——它的 `default` 分支现在接受一切，只改另两侧就是引入新的跨运行时分歧），因此属于独立决策而非对齐任务的一部分
+- **决策输入**：(a) Apple DSL 侧 `apple/flow.py` 的 `_VALID_STORAGE_MODES` 已在编译期拒绝非法值，运行时层是第二道防线而非唯一防线，分歧只对手写 JSON 成立；(b) cross-validate section 21 断言「非法值被静默接受」，只改一侧会立刻变红，等于已经把这条负空间钉住了；(c) 改了就是用户可见契约变更，`doc/guide_pipeline{,-en}.md` 现在写的是「走 Apple DSL 时编译期拒绝、手写 JSON 静默落行存」，需一并更新
 
 ### 字节级对等的校验通道覆盖面太窄（(b) 已完成，(a) 仍开放）
 
@@ -33,6 +34,13 @@
 - **待决策**：(a) 继续扩 `fixtures/server_byte_exact/`，把「字节级」声明真正覆盖到主要响应形状。数字拼写在 `normalize_json` 下的可见性边界（`round(v,10)` + int/float 类型分裂）未变，仍需字节通道兜住。注：#183 已加 `07_non_bmp_keys.json`（BMP 外 key，钉住 `writeValueAsBytes` 的代理对转义与 UTF-8 比较器两处），但覆盖面仍远小于「字节级对等」这个全局声明，条目保持开放
 
 ## 已关闭条目
+
+### issue #179：`storage_mode` 非法值兜底跨运行时分歧（已解决）
+
+- **结论**：已修，commit `90982071`。三方分派统一为「只有字面量 `"column"` 精确匹配才走列存、其余一切落行存」，以 pine-go `NewFrame` 的 `switch` + `default: newRowFrame` 为基准。规则、三处分派点、保留静默兜底而非 fail-fast 的理由，以及 Apple DSL 编译期校验作为第一道防线，都已落 `architecture/dag-engine.md` 的「`storage_mode` 分派规则与非法值兜底」节
+- **残留项已单独立条**：运行时层 fail-fast 仍未做，见开放条目「运行时层 fail-fast 拒绝非法 `storage_mode`」
+- **顺带沉淀**：这个属性的外部可观察面为空（行列存输出对等把差别吸收掉、`/stats` 与 `/dag` 无 storage 字段），门只能放在各运行时 factory 单测；两条相关纪律进了 `guides/ci-quality-baseline.md`，「既存断言与参考实现相反时先定基准」与「修错误注释按声明出现位置清理」进了 `guides/investigation-to-fix-testing.md`
+- **过程记录**：`memory/reflections/storage-mode-dispatch-parity-179.md`
 
 ### issue #183：Java object key 插入顺序 vs Go 排序（已解决）
 

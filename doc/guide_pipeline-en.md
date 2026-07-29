@@ -186,8 +186,11 @@ cross-runtime load script:
 scripts/bench-cross-runtime.sh --filter <fixture name> --modes "row,column"
 ```
 
-`storage_mode` accepts only `"row"` and `"column"`; anything else is rejected
-at compile time:
+`storage_mode` accepts only `"row"` and `"column"`. **Through the Apple DSL**
+anything else is rejected at compile time (`_VALID_STORAGE_MODES` in
+`apple/flow.py`); **hand-written JSON configs do not go through that check**, and
+all three runtimes silently accept an invalid value and fall back to row storage
+(issue #179):
 
 ```python
 flow = Flow(

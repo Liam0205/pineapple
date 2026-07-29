@@ -464,6 +464,24 @@ HTTP `GET /stats` 返回组合观测视图：
 
 通过 JSON 配置的 `storage_mode` 字段选择（`"row"` 或 `"column"`，默认 `"row"`）。`NewEngine` 将 mode 存入 `Engine.storageMode`，`Execute` 中通过 `dataframe.NewFrame(mode, common, items)` 创建对应实现。
 
+#### `storage_mode` 分派规则与非法值兜底（跨运行时契约）
+
+**只有字面量 `"column"` 精确匹配才走列存，其余一切值都落行存**——包括非法值、空字符串、以及大小写不同的写法（`"Column"` / `"COLUMN"`）。契约定义方是 pine-go 的 `NewFrame`：`switch` + `default: newRowFrame`，`default` 分支接受一切输入，不报错。
+
+三处分派点，**任何改动必须三处同时改**：
+
+- `pine-go/internal/dataframe/frame.go`（`NewFrame`）— 契约定义方
+- `pine-java/src/main/java/page/liam/pine/Frame.java`（`Frame.create`）
+- `pine-cpp/src/dataframe/row_frame.cpp`（`make_frame`）
+
+历史分歧（issue #179，已由 commit `90982071` 对齐）：pine-java 曾用 `equalsIgnoreCase`，`"Column"` 会走列存；pine-cpp 曾写成 `if (== "row") ... else ColumnFrame`，任何拼错都走列存。同一份手写 JSON 在三个运行时选到不同的物理存储。
+
+**保留静默兜底、不做 fail-fast，是刻意的**：Go 的 `default` 分支接受一切，只在 pine-java / pine-cpp 侧拒绝非法值就是引入一个新的跨运行时分歧。运行时层 fail-fast 需要三方同时改（含 pine-go），属于独立决策，跟踪于 `memory/doc-gaps.md`。
+
+**Apple DSL 侧已有第一道防线**：`apple/flow.py` 的 `_VALID_STORAGE_MODES` 在编译期就拒绝非法值，所以这个分歧只对**手写 JSON 配置**成立，走 DSL 生成的配置永远合法。运行时层的兜底是第二道防线。
+
+分派选中哪个实现**对进程外部完全不可观察**：行列存输出对等本身是设计契约（cross-validate section 4 断言），`/stats` 与 `/dag` 都不含 storage 字段。因此这条规则的回归门只能落在各运行时自己的 factory 单测上，跨运行时通道对它恒绿——推理细节见 `guides/ci-quality-baseline.md`。
+
 ### 并发安全
 
 Frame 实现内部自行保证并发安全，调度器不持有外部 frame 锁。RowFrame 和 ColumnFrame 均使用单个 `sync.RWMutex`：读操作 RLock，写操作 Lock。
