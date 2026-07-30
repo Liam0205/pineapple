@@ -188,7 +188,7 @@ N 多大取决于配额。
   运行时成立」的同型第二例，可以并列写。
 - **需要更新的稳定文档**（recorder 处理）：
   - `architecture/dag-engine.md` 的 `storage_mode` 节——「六个解释点」表按现状重写为九个（三层 × 三方各一处）
-    （三分派 + 三解析 + 一白名单），解析层三方已统一为「拒绝 present-but-wrong-typed、接受
+    （三分派 + 三解析 + 三白名单），解析层三方已统一为「拒绝 present-but-wrong-typed、接受
     `null`/缺省」，并写下值白名单**刻意放在 config 校验层而不是 frame factory** 的理由（保持
     #179 的 dispatch 规则不变，让非法值不可达而不是把 dispatch 搞复杂）；补 Go 白名单常量在
     `internal/config` 重复定义的原因（import 环）与「两处必须同步」。
