@@ -187,7 +187,7 @@ N 多大取决于配额。
   不要从一个字段推广到一类字段。这是 #183「某个运行时天然满足只对具体代码路径成立、不对整个
   运行时成立」的同型第二例，可以并列写。
 - **需要更新的稳定文档**（recorder 处理）：
-  - `architecture/dag-engine.md` 的 `storage_mode` 节——「六个解释点」表按现状重写为七个
+  - `architecture/dag-engine.md` 的 `storage_mode` 节——「六个解释点」表按现状重写为九个（三层 × 三方各一处）
     （三分派 + 三解析 + 一白名单），解析层三方已统一为「拒绝 present-but-wrong-typed、接受
     `null`/缺省」，并写下值白名单**刻意放在 config 校验层而不是 frame factory** 的理由（保持
     #179 的 dispatch 规则不变，让非法值不可达而不是把 dispatch 搞复杂）；补 Go 白名单常量在
@@ -211,7 +211,7 @@ N 多大取决于配额。
 
 ## Follow-up
 
-1. 调 `recorder` 落地上述稳定文档改动：`architecture/dag-engine.md` 七个解释点、
+1. 调 `recorder` 落地上述稳定文档改动：`architecture/dag-engine.md` 九个解释点、
    `doc/guide_pipeline{,-en}.md` 用户可见契约、`guides/ci-quality-baseline.md` 三条纪律
    （按形状枚举 fixture / 穷举矩阵 / `set -e` 脚本写法）、`guides/investigation-to-fix-testing.md`
    一条（同一运行时内部分歧），并关掉 doc-gaps 两条开放条目。
