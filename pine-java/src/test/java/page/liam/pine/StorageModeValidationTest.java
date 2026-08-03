@@ -123,6 +123,47 @@ class StorageModeValidationTest {
         }
     }
 
+    @Test
+    void nestedTypeErrorPrecedenceDependsOnWhetherTheReadThrows() throws Exception {
+        // Executable version of a claim that four review rounds could not state
+        // correctly in prose. Each attempt described the boundary as a CATEGORY —
+        // "leaf vs container", then "container-typed only" — and each was wrong,
+        // because the boundary is the ACCESSOR: a read that coerces lets the
+        // storage_mode whitelist fire first, a read that throws does not.
+        //
+        // This is documentation that cannot rot: if someone changes an accessor,
+        // this fails instead of a sentence quietly becoming false. The residual
+        // pine-cpp/pine-go divergence itself is an accepted limitation recorded in
+        // llmdoc/memory/doc-gaps.md, NOT something this test asks us to fix.
+        String base = new String(config(null), StandardCharsets.UTF_8);
+
+        // asText()/asBoolean() coerce and never throw -> whitelist wins.
+        for (String field : new String[] {"type_name", "recall", "debug",
+                                          "consumes_row_set", "mutates_row_set",
+                                          "additive_writes_row_set", "for_branch_control"}) {
+            byte[] body = coercedOperatorField(base, field);
+            Exception e = assertThrows(Exception.class, () -> Config.load(body));
+            assertTrue(e.getMessage().contains("is invalid, must be"),
+                    "coerced field " + field + " should let the storage_mode whitelist fire "
+                            + "first, got: " + e.getMessage());
+        }
+
+        // readStringList throws on a wrong type -> the type error wins.
+        byte[] arrayBody = ("{\"storage_mode\": \"colunm\"," + base.substring(1))
+                .replace("\"$metadata\": {", "\"sources\": \"notalist\", \"$metadata\": {")
+                .getBytes(StandardCharsets.UTF_8);
+        Exception e = assertThrows(Exception.class, () -> Config.load(arrayBody));
+        assertTrue(!e.getMessage().contains("is invalid, must be"),
+                "a throwing read should outrank the whitelist, got: " + e.getMessage());
+    }
+
+    /** Minimal config with an invalid storage_mode and one operator field wrong-typed. */
+    private static byte[] coercedOperatorField(String base, String field) {
+        return ("{\"storage_mode\": \"colunm\"," + base.substring(1))
+                .replace("\"$metadata\": {", "\"" + field + "\": 123, \"$metadata\": {")
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
     /** Rebuilds the minimal config with one root field forced to a raw JSON value. */
     private static byte[] withField(String field, String rawJson) {
         String base = new String(config(null), StandardCharsets.UTF_8);
