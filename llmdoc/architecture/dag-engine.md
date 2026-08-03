@@ -479,7 +479,19 @@ HTTP `GET /stats` 返回组合观测视图：
 | 层 | 位置 | 作用 |
 |---|---|---|
 | 类型层（配置解析） | `pine-go/internal/config/types.go`（struct tag）、`pine-java/.../Config.java`（`rootString`）、`pine-cpp/src/config/config.cpp`（`require_string`） | 拒绝 present 但类型不是字符串的值；`null` 与缺省保持默认 |
-| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 只在**叶子**字段上不受影响（`Config.load` 先 `parseRoot` 再 `validate()`）；**容器类型字段上 pine-java 与 pine-cpp 一样报值错**，因为 `parseRoot` 根本检测不到这类类型错——`root.get("pipeline_group").fields()` 作用在 `TextNode` 上得到空迭代器、`readStringList` 同样静默返回空，都不抛错，于是随后的白名单先命中。实测：`pipeline_config` / `pipeline_group` / `flow_contract` / `resource_config` 以及 `operators` / `pipeline_map` / `$metadata` 等给字符串时，pine-go 报类型错、另两方报值错（这几个容器场景在 #187 之前三方本来就各不相同，不是本次引入的）。见 `memory/doc-gaps.md` |
+| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 的分界不是「叶子 vs 容器」，而是**抛错 vs 强转**：`parseRoot` / `parseOperatorConfig` 里
+凡是用 `asText()` / `asBoolean()` 读的字段都**静默强转、不抛错**，于是随后的白名单先命中；
+凡是用 `readStringList` 或 `.fields()` 遍历读的字段，类型错会抛 `IllegalArgumentException`，
+pine-java 就与 pine-go 一致。实测：
+
+| 被改坏的字段 | 读取方式 | pine-go | pine-java | pine-cpp |
+|---|---|---|---|---|
+| `operators.X.type_name`（及 `recall` / `debug` / `consumes_row_set` / `mutates_row_set` / `additive_writes_row_set` / `for_branch_control` / `skip`，共 8 个标量叶子） | `asText()` / `asBoolean()` 强转 | 类型错 | **值错** | 值错 |
+| `sources`、`$metadata.common_input`、`flow_contract.common_input`、`pipeline_map.*.pipeline` 等数组字段 | `readStringList` 抛错 | 类型错 | 类型错 | 值错 |
+| `pipeline_config` / `pipeline_group` / `flow_contract` / `resource_config` 等容器 | `.fields()` 静默空迭代 | 类型错 | **值错** | 值错 |
+
+所以 pine-cpp 在**所有**嵌套类型错上都报值错，pine-java 只在「强转类字段」上如此。这些嵌套场景在
+#187 之前三方本来就各不相同，不是本次引入的。
 | 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
 
 三方现在对这四个字符串字段的**单次出现、各类型**取值一致（issue #187）：

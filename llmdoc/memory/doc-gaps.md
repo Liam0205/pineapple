@@ -42,11 +42,16 @@
   - **键名大小写**：pine-go 的 `encoding/json` 精确匹配失败后会忽略大小写回退匹配 struct tag，
     另两方精确匹配。`{"STORAGE_MODE":"colunm"}` 被 pine-go 拒绝、被另两方接受。
   - **嵌套类型错误 vs 值错误的层级**：`storage_mode` 非法**且**某个嵌套字段类型错（如
-    `$metadata.common_input` 给了字符串而非数组）时，pine-go 与 pine-java 报**嵌套类型错**，
+    `$metadata.common_input` 给了字符串而非数组）时，pine-go 报**嵌套类型错**，
     pine-cpp 报 **`storage_mode` 值错**（实测，8 个嵌套字段同型，含
     `pipeline_group.main.pipeline`、`sources`、`flow_contract.common_input`、`data_parallel`）。
     根因是 pine-go 的 `encoding/json` 在**任意深度**的类型错上就让整份 unmarshal 失败，
     而 pine-cpp 的 `validate_storage_mode` 只排在**四个根级**类型检查之后、嵌套解析之前。
+    **pine-java 落在中间**，分界是「抛错 vs 强转」而不是「叶子 vs 容器」：`readStringList` 读的
+    数组字段会抛错、于是与 pine-go 一致；而 `asText()` / `asBoolean()` 读的 8 个标量叶子
+    （`type_name` / `recall` / `debug` / `consumes_row_set` / `mutates_row_set` /
+    `additive_writes_row_set` / `for_branch_control` / `skip`）以及 `.fields()` 读的容器字段
+    都静默强转、于是和 pine-cpp 一样报值错。对照表见 `architecture/dag-engine.md`。
     **不打算靠移动调用点修**：审计实测过把它挪到 `apply_registry_traits` 前——能修好这 8 个嵌套
     场景，但会重新打破「算子错误不得抢先」那条（`colunm` + 缺 `type_name` 又变成 cpp 报算子错）。
     两个约束无法靠移动一行同时满足，要修得把 pine-cpp 的类型校验与值校验拆成两遍
