@@ -359,9 +359,10 @@ Config load_config_from_json(const std::string& text) {
   //
   // KNOWN LIMIT, deliberately not fixed: "after the type layer" holds only for the
   // four root fields. pine-go's encoding/json fails on a type error at ANY depth, so
-  // with an invalid storage_mode AND e.g. $metadata.common_input given as a string,
-  // pine-go and pine-java report the nested type error while this reports the value
-  // error. Moving this call after nested parsing fixes that but re-breaks constraint 2
+  // with an invalid storage_mode AND a nested field of the wrong type, this reports
+  // the value error while pine-go reports the type error. pine-java sits in between:
+  // it matches pine-go only for fields it reads through a throwing helper
+  // (readStringList), and matches this for the ones it coerces via asText/asBoolean. Moving this call after nested parsing fixes that but re-breaks constraint 2
   // below; satisfying both needs a two-pass parse. Tracked in memory/doc-gaps.md.
   //
   // Two orderings had to be satisfied at once, and getting one right first broke
