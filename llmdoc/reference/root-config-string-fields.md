@@ -26,7 +26,7 @@ JSON 配置根级的字符串字段在三个运行时遵守同一条类型规则
 错误文案**只有 pine-java 与 pine-cpp 相同**（`config field "X" must be a string`）。
 pine-go 的拒绝来自 `encoding/json` 整份 unmarshal 失败、经 `Load` 的 `JSON parse error: %v`
 包装，文案是 `JSON parse error: json: cannot unmarshal number into Go struct field ...`，
-**与另两方不同**。要按文案匹配就只能匹配各自的子串；值白名单那层的文案才是三方逐字节相同的。
+**与另两方不同**。要按文案匹配就只能匹配各自的子串；值白名单那层的文案才是三方逐字节相同的——但那也有转义限定，见本文末尾的「值层文案的一个转义限定」节。
 
 ## 当前受这条规则约束的字段
 
