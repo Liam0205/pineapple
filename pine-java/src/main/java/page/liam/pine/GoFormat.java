@@ -84,6 +84,13 @@ public final class GoFormat {
             //     at 1e6 items Go keeps its items while pine-java and pine-cpp empty the
             //     list, with no error. (That consumer already behaved this way at base,
             //     so it is pre-existing rather than introduced here.)
+            //   - Redis key construction (`TransformRedisGet.sprintValue` ->
+            //     `buildKeySuffix`, used by transform_redis_get and transform_redis_set)
+            //     is ALSO silent and IS introduced here at this source: Go writes
+            //     `wr:1000000` where this now writes `wr:1e+06`. That escapes the
+            //     process — a key written by one runtime is not read back by another,
+            //     and stale keys accumulate. On every other source the same path is
+            //     FIXED by this change, as with templated params.
             // An earlier version of this comment said "one source" in a way that read as
             // "one code path", which understated the silent case.
             // There, pine-java used to agree with Go and pine-cpp was the lone outlier;

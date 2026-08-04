@@ -118,6 +118,13 @@
   而 `filter_condition` 拿它做比较时**静默分歧**：1e6 个 item 时 Go 保留、pine-java 与 pine-cpp
   清空列表，不报错。**`filter_condition` 这个消费者在 base 上就已经如此**，属既存而非本次引入；
   只有我那句作用域写窄了（写成「一条路径」而不是「一个来源、多个消费者」）。
+- **第三个消费者：Redis 键构造（审计第六轮）**。`TransformRedisGet.sprintValue` →
+  `buildKeySuffix`（`transform_redis_get` 与 `transform_redis_set` 都用）同样**静默**，且在
+  `transform_size` 这个来源上**是本 range 新引入的**：Go 写 `wr:1000000`，改后写 `wr:1e+06`。
+  它比 `filter_condition` 更需要注意，因为**影响逃出了进程**——一个运行时写的键另一个读不到，
+  且失效键会累积。在其余来源上这条路径同样被本 range **修好**（与模板参数一致）。
+  实测（真 Redis）：`transform_size` → `transform_redis_set`、1e6 items，Go `wr:1000000`、
+  HEAD `wr:1e+06`、base `wr:1000000`；读方向同型。
 - **作用域限定：这个「两侧对调」只对 `transform_size` 这一个来源成立**（审计第四轮指出，我原先写成了
   整条 ≥ 1e6 计数路径）。原因是 **Go 只有 `in.ItemCount()` 这一条路能拿到原生 `int`**；其余来源
   （request payload 的 common 字段、`recall_static` 的 `set_common`）都经 `encoding/json` 变成
