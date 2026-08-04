@@ -371,6 +371,10 @@ class GoJsonNumberParityTest {
         // Redis key construction (TransformRedisGet.sprintValue), is silent too and IS
         // introduced here at this source — Go writes wr:1000000 where this writes
         // wr:1e+06, which escapes the process as unreadable and accumulating keys.
+        // A FOURTH surface, Redis member values (TransformRedisSet.toStringList), is
+        // silent and introduced too, and is worse: the key stays stable so both
+        // runtimes read the same key and get different values — wrong data, not
+        // missing data.
         // Other sources of the same count go through
         // encoding/json and are float64 in Go too, so Go errors there as well and this
         // change FIXED a pre-existing divergence on those. Removing sprint's box-type
@@ -407,7 +411,14 @@ class GoJsonNumberParityTest {
                      java.nio.file.Files.walk(src)) {
             for (java.nio.file.Path f : files.filter(x -> x.toString().endsWith(".java"))
                     .toList()) {
-                String body = java.nio.file.Files.readString(f);
+                // Strip comments BEFORE matching. Without this the check is defeated by
+                // the very thing it guards against: removing a real call while adding a
+                // comment that names the symbol keeps the derived set unchanged and the
+                // test green. Review measured exactly that, plus a false positive from a
+                // class that only mentions the symbol in prose.
+                String body = java.nio.file.Files.readString(f)
+                        .replaceAll("(?s)/\\*.*?\\*/", "")
+                        .replaceAll("(?m)//.*$", "");
                 String name = f.getFileName().toString().replace(".java", "");
                 if (name.equals("GoFormat")) continue;   // the definition itself
                 // Catch the method-reference form too: TransformRedisSet uses
