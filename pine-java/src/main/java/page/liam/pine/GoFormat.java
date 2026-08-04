@@ -91,6 +91,18 @@ public final class GoFormat {
             //     process — a key written by one runtime is not read back by another,
             //     and stale keys accumulate. On every other source the same path is
             //     FIXED by this change, as with templated params.
+            //   - Redis MEMBER VALUES (`TransformRedisSet.toStringList`, a stream map
+            //     over list elements) are a fourth and distinct surface: also silent,
+            //     also introduced here. It is worse than the key case in one way —
+            //     the key stays stable, so both runtimes read the SAME key and get
+            //     DIFFERENT values back. Wrong data rather than missing data, which the
+            //     "unreadable key" argument above does not cover.
+            //
+            // That is four surfaces from one source. The list of CONSUMERS is derived
+            // mechanically by GoJsonNumberParityTest.sprintConsumerListInDocsMatchesTheCode;
+            // this list of FAILURE MODES is still hand-written, and review caught it
+            // trailing the consumer list by one entry twice. If you add a consumer, add
+            // its failure mode here too.
             // An earlier version of this comment said "one source" in a way that read as
             // "one code path", which understated the silent case.
             // There, pine-java used to agree with Go and pine-cpp was the lone outlier;

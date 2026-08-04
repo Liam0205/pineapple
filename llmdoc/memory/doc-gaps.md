@@ -125,6 +125,14 @@
   且失效键会累积。在其余来源上这条路径同样被本 range **修好**（与模板参数一致）。
   实测（真 Redis）：`transform_size` → `transform_redis_set`、1e6 items，Go `wr:1000000`、
   HEAD `wr:1e+06`、base `wr:1000000`；读方向同型。
+- **第四个面：Redis 成员值（审计第七轮）**。`TransformRedisSet.toStringList`（对 list 元素做
+  `GoFormat::sprint`）格式化的是**成员值**而不是键，同样静默、同样本 range 新引入。
+  **它比键那条更糟**：键是稳定的，所以两个运行时读**同一个键**却拿到**不同的值**——是读到错数据，
+  而不是读不到数据，「键写了另一方读不到」那套说法覆盖不了它。实测 `data_type=list`、1e6 items：
+  Go 成员 `1000,1000000`、HEAD `1e+06,1e+06`、base `1000,1000000`。
+- **消费者清单已机械化，失败形式清单仍是手写的**：前者由
+  `GoJsonNumberParityTest.sprintConsumerListInDocsMatchesTheCode` 从源码派生，后者连续两轮被审计
+  指出比消费者清单少一条。加消费者时必须同时补它的失败形式。
 - **作用域限定：这个「两侧对调」只对 `transform_size` 这一个来源成立**（审计第四轮指出，我原先写成了
   整条 ≥ 1e6 计数路径）。原因是 **Go 只有 `in.ItemCount()` 这一条路能拿到原生 `int`**；其余来源
   （request payload 的 common 字段、`recall_static` 的 `set_common`）都经 `encoding/json` 变成
