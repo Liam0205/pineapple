@@ -180,6 +180,14 @@ public class FixtureTest {
                 assertValueEquals(el.get(i), al.get(i), path + "[" + i + "]");
             }
         } else if (expected instanceof Map<?, ?> em && actual instanceof Map<?, ?> am) {
+            // Key ORDER is deliberately not checked here, which is a real loosening
+            // versus the old String.valueOf path: that rendered a LinkedHashMap in
+            // insertion order, so two maps with the same entries in different orders
+            // compared unequal. Operator fixtures are the wrong place to pin ordering —
+            // it is pinned by GoJsonKeyOrderParityTest and by cross-validate's
+            // key_order_signature, which compare it directly instead of as a side
+            // effect of stringification. Recorded because review flagged it as an
+            // unstated change.
             assertEquals(em.keySet(), am.keySet(), path + " (keys)");
             for (Map.Entry<?, ?> e : em.entrySet()) {
                 assertValueEquals(e.getValue(), am.get(e.getKey()), path + "." + e.getKey());

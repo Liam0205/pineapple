@@ -37,12 +37,28 @@ public final class GoFormat {
         if (v instanceof Boolean) return v.toString();
         if (v instanceof Number) {
             double d = ((Number) v).doubleValue();
-            if (v instanceof Long || v instanceof Integer) {
-                return Long.toString(((Number) v).longValue());
-            }
             if (Double.doubleToRawLongBits(d) == Double.doubleToRawLongBits(-0.0)) {
                 return "-0";
             }
+            // The integral cutoff must NOT depend on the box type. Go reaches this
+            // path with fmt.Sprintf("%v", ...) on values that came out of
+            // encoding/json, and JSON has no integer type — so BOTH sides of a
+            // comparison are float64 there and both obey the same 1e6 switch to %g.
+            //
+            // Java's Jackson decodes a JSON config literal to Integer while pipeline
+            // data arrives as Double. Branching on the box type therefore formatted
+            // the two sides of one comparison under different rules: filter_condition
+            // with value 2000000 stopped matching a Lua-produced 2000000, because the
+            // config side printed "2000000" (Integer branch) and the data side
+            // "2e+06" (Double branch). Go and pine-cpp both removed the item; Java
+            // kept it. Found by review while fixing issues #189/#190 — the earlier
+            // narrowing in TransformByLua.fromLua had been masking this by making
+            // both sides integral by accident.
+            //
+            // There is deliberately NO Long/Integer branch: Go has none either,
+            // because every value reaching its %v came through encoding/json as a
+            // float64. Adding one back — even only above 1e6 — reintroduces the
+            // asymmetry, which I confirmed by trying exactly that.
             if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e6) {
                 return Long.toString((long) d);
             }

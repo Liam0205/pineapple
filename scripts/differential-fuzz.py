@@ -1882,11 +1882,29 @@ def main():
         if len(bad) > 10:
             shown += f",... ({len(bad)} total)"
         print(f"  REPRODUCE: rounds {shown}")
-        print(
-            f"  REPRODUCE: python3 scripts/differential-fuzz.py --rounds {max(bad)}"
-            f" --seed {seed} --engines {','.join(e.name for e in engines)}"
-            f" --save-dir /tmp/diff-fuzz-repro"
-        )
+        # Carry every flag that AFFECTS what is detected, not just the range. Review
+        # caught two omissions that made the line unusable for the cases that need it
+        # most: without --stability-runs an unstable round cannot be re-detected at all
+        # (the default of 0 disables the check), and without the binary overrides a
+        # sanitizer-specific divergence silently re-runs against the Release build.
+        repro = [
+            "python3 scripts/differential-fuzz.py",
+            f"--rounds {max(bad)}",
+            f"--seed {seed}",
+            f"--engines {','.join(e.name for e in engines)}",
+        ]
+        if args.stability_runs > 0:
+            repro.append(f"--stability-runs {args.stability_runs}")
+        if args.go_bin:
+            repro.append(f"--go-bin {args.go_bin}")
+        if args.cpp_bin:
+            repro.append(f"--cpp-bin {args.cpp_bin}")
+        if args.shrink:
+            repro.append("--shrink")
+        # --time-budget-seconds is deliberately omitted: it stops a run EARLY, so
+        # carrying it into a reproduction could cut off the very round being chased.
+        repro.append("--save-dir /tmp/diff-fuzz-repro")
+        print("  REPRODUCE: " + " ".join(repro))
     print(
         f"  Coverage: flat={stats['flat']}"
         f" subflow={stats['subflow']}"
