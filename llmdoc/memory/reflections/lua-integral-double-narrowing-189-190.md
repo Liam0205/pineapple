@@ -240,6 +240,12 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 翻到了「与 pine-cpp 一致、与 Go 分歧」——base 上 `sprint(Integer 1000000)` 给 `1000000`（同 Go），
 现在给 `1e+06`，于是 ≥ 1e6 的 item 数会报 `cannot coerce "1e+06" to int64` 而 Go 成功。
 
+**审计第四轮又缩了一次作用域**：那个「两侧对调」只对 `transform_size` 成立——Go 只有 `in.ItemCount()`
+这一条路能拿到原生 `int`。其余来源（request payload、`recall_static set_common`）都经 `encoding/json`
+变成 float64，Go 自己也报 `1e+06`，所以在那些来源上 base 的 pine-java 才是唯一异类、本 range 是**修好了**
+既存分歧。连续两轮（第三、第四）栽在同一处：**第三轮是漏标「谁引入的」，第四轮是把「哪一侧是异类」
+这句话的作用域写宽了。** 两次都是归属类陈述而不是代码。
+
 **两侧无法同时与 Go 一致**：保留装箱类型分支会打破 `filter_condition`，只在 ≥ 1e6 保留同样重新引入
 不对称（两种都实测）。选了可达性高得多的 `filter_condition`。教训不在于选得对不对，而在于**我原先
 把这个结果写成了「审计发现的既存缺口」**——同一份 doc-gaps 里负零那条明确标了「先于本 range 存在」
