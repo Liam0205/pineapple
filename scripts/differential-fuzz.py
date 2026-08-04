@@ -1519,6 +1519,13 @@ def main():
 
     passed = 0
     failed = 0
+    # Round numbers of failures and instabilities, so the summary can print a
+    # ready-to-paste reproduction command. Without this, reproducing "last night's
+    # failure" depended on the saved divergence directory surviving in /tmp — which
+    # it often does not, because the seed is random per run and the FAIL: line did
+    # not carry it alongside the round (issue #190).
+    failed_rounds: list[int] = []
+    unstable_rounds: list[int] = []
     errors = 0
     unstable = 0
     stats = {"flat": 0, "subflow": 0, "nested": 0, "deep_nested": 0, "column": 0, "skip": 0,
@@ -1678,6 +1685,7 @@ def main():
                                                     args.stability_runs)
                     if not stable:
                         unstable += 1
+                        unstable_rounds.append(i + 1)
                         d = save_divergence(save_dir, i, config, request,
                                             {n: (rc, out) for n, (rc, out, _) in results.items()},
                                             ("", ""), kind="unstable")
@@ -1809,6 +1817,7 @@ def main():
                             pass  # skip cross-storage check on timeout
                 else:
                     failed += 1
+                    failed_rounds.append(i + 1)
                     if config.get("storage_mode") == "column":
                         stats["fail_column"] += 1
                     else:
@@ -1863,6 +1872,21 @@ def main():
     if args.stability_runs > 0:
         print(f"  UNSTABLE: {unstable}")
     print(f"  ERROR: {errors}")
+    # Reproduction line, printed only when something went wrong. The seed alone is
+    # not enough to find the case quickly in a 10000-round nightly run, and the
+    # saved divergence directory lives in /tmp and gets reaped, so issue #190's
+    # investigation had to rely on a leftover copy. Emit the exact command instead.
+    if failed_rounds or unstable_rounds:
+        bad = sorted(set(failed_rounds) | set(unstable_rounds))
+        shown = ",".join(str(r) for r in bad[:10])
+        if len(bad) > 10:
+            shown += f",... ({len(bad)} total)"
+        print(f"  REPRODUCE: rounds {shown}")
+        print(
+            f"  REPRODUCE: python3 scripts/differential-fuzz.py --rounds {max(bad)}"
+            f" --seed {seed} --engines {','.join(e.name for e in engines)}"
+            f" --save-dir /tmp/diff-fuzz-repro"
+        )
     print(
         f"  Coverage: flat={stats['flat']}"
         f" subflow={stats['subflow']}"

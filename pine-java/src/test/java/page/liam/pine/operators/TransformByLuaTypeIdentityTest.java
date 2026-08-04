@@ -77,9 +77,23 @@ public class TransformByLuaTypeIdentityTest {
 
     @Test
     void realNumbersStillTakeNumberBranch() throws Exception {
+        // Lua numbers come back as Double, INCLUDING integral ones. This changed in
+        // issues #189/#190: fromLua used to narrow an integral double to long, which
+        // made pine-java the only runtime able to print a different SPELLING of the
+        // same float64 (2^62 as 4611686018427387904 rather than Go's
+        // 4611686018427388000). Go's pool_gopher_lua returns `float64(x)` for every
+        // Lua number and has no integer branch at all, and pine-cpp uses
+        // lua_tonumber, so Long was never a cross-runtime contract — it was an
+        // internal detail these assertions had frozen.
+        //
+        // What IS the contract is the serialized form, and it is unchanged below
+        // 2^53: GoFormat.formatJsonNumber prints an integral double with no decimal
+        // point, so 42.0 still serializes as `42`. Asserted here on the value rather
+        // than the box type.
         Object intOut = runOnce("function f() return 42 end", 1.0);
-        assertInstanceOf(Long.class, intOut);
-        assertEquals(42L, intOut);
+        assertInstanceOf(Double.class, intOut);
+        assertEquals(42.0, intOut);
+        assertEquals("42", page.liam.pine.GoFormat.formatJsonNumber((Double) intOut));
 
         Object floatOut = runOnce("function f() return 2.5 end", 1.0);
         assertInstanceOf(Double.class, floatOut);
@@ -87,12 +101,26 @@ public class TransformByLuaTypeIdentityTest {
     }
 
     @Test
+    void integralDoubleAbove2Pow53KeepsGoSpelling() throws Exception {
+        // The regression from issues #189 (nightly fuzz, seed 1655185644 round 7005)
+        // and #190. (-2147483648)^2 is exactly 2^62, so Lua produces an integral
+        // value past the point where double<->long round-trips losslessly.
+        Object out = runOnce("function f() return item_x * item_x end", -2147483648.0);
+        assertInstanceOf(Double.class, out);
+        assertEquals(Math.pow(2, 62), out);
+        // The spelling, which is the part that actually diverged: Go's strconv
+        // shortest round-trip, NOT the exact integer 4611686018427387904.
+        assertEquals("4611686018427388000",
+                page.liam.pine.GoFormat.formatJsonNumber((Double) out));
+    }
+
+    @Test
     void luaArithmeticCoercionProducesRealNumber() throws Exception {
         // "42" + 0 coerces to a Lua number inside the script — that value
         // genuinely IS a number and must keep taking the number branch.
         Object out = runOnce("function f() return \"42\" + 0 end", 1.0);
-        assertInstanceOf(Long.class, out);
-        assertEquals(42L, out);
+        assertInstanceOf(Double.class, out);
+        assertEquals(42.0, out);
     }
 
     @Test
@@ -113,8 +141,12 @@ public class TransformByLuaTypeIdentityTest {
         assertEquals(3, arr.size());
         assertEquals("1777288596209286259", arr.get(0));
         assertInstanceOf(String.class, arr.get(0));
-        assertEquals(42L, arr.get(1));
-        assertInstanceOf(Long.class, arr.get(1));
+        assertEquals(42.0, arr.get(1));
+        // Double, not Long: fromLua no longer narrows integral values (#189/#190).
+        // The point of this case is that the numeric STRINGS either side keep string
+        // identity while the real number keeps number identity — the box type of the
+        // number was never the contract.
+        assertInstanceOf(Double.class, arr.get(1));
         assertEquals("007", arr.get(2));
         assertInstanceOf(String.class, arr.get(2));
     }

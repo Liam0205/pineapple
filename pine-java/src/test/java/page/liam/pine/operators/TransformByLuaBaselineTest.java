@@ -112,9 +112,9 @@ public class TransformByLuaBaselineTest {
               + "  end\n"
               + "end";
         Operator op = buildOp(script);
-        assertEquals(100L, runOnce(op, 2.0),
+        assertEquals(100.0, runOnce(op, 2.0),
                 "first execute hijacks _G.math (top-level baseline key)");
-        assertEquals(100L, runOnce(op, 2.0),
+        assertEquals(100.0, runOnce(op, 2.0),
                 "second execute must see the restored _G.math — baseline reset failed");
     }
 

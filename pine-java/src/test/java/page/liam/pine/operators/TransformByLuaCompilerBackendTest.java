@@ -86,7 +86,7 @@ public class TransformByLuaCompilerBackendTest {
         try {
             System.setProperty(TransformByLua.COMPILER_PROP, "luac");
             Object result = runOnce("function f() return item_x * 2 end", 21.0);
-            assertEquals(42L, result);
+            assertEquals(42.0, result);
         } finally {
             if (saved == null) System.clearProperty(TransformByLua.COMPILER_PROP);
             else System.setProperty(TransformByLua.COMPILER_PROP, saved);

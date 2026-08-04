@@ -313,11 +313,22 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         // string through the number branch destroys type identity and, past
         // 2^53, the value itself (todouble round-trip) — issue #175.
         if (v.type() == LuaValue.TNUMBER) {
-            double d = v.todouble();
-            if (d == Math.floor(d) && !Double.isInfinite(d) && d >= Long.MIN_VALUE && d <= Long.MAX_VALUE) {
-                return (long) d;
-            }
-            return d;
+            // ALWAYS a double, never narrowed to long. Go's pool_gopher_lua returns
+            // `float64(x)` and pine-cpp's lua_bridge returns `lua_tonumber` — both
+            // plain doubles — so narrowing here made pine-java the only runtime that
+            // could emit a different SPELLING of the same value.
+            //
+            // The narrowing was unbounded, and double->long stops being lossless at
+            // 2^53. For 2^62 (reachable as (-2147483648)^2, which nightly fuzz hit)
+            // Java printed the exact integer 4611686018427387904 while Go and C++
+            // printed strconv's shortest round-trip 4611686018427388000. Same float64,
+            // different bytes, on a response body the repo claims is byte-exact
+            // (issues #189, #190).
+            //
+            // Returning a double loses nothing below 2^53 either: GoFormat's
+            // formatJsonNumber prints an integral double without a decimal point, so
+            // 42.0 still serializes as `42`. Measured across 2^53, 2^62 and negatives.
+            return v.todouble();
         }
         if (v.type() == LuaValue.TSTRING) return v.tojstring();
         if (v.istable()) {
