@@ -479,12 +479,14 @@ HTTP `GET /stats` 返回组合观测视图：
 | 层 | 位置 | 作用 |
 |---|---|---|
 | 类型层（配置解析） | `pine-go/internal/config/types.go`（struct tag）、`pine-java/.../Config.java`（`rootString`）、`pine-cpp/src/config/config.cpp`（`require_string`） | 拒绝 present 但类型不是字符串的值；`null` 与缺省保持默认 |
-| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 的分界不是「叶子 vs 容器」，而是**抛错 vs 强转**：`parseRoot` / `parseOperatorConfig` 里
+| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 的具体分界由用例断言，见下方指针 |
 | 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
 
 pine-java 落在 pine-go 与 pine-cpp 之间，分界取决于**读取器**而不是字段形状。**这条规则不在这里
 复述**——它由 `StorageModeValidationTest.nestedTypeErrorPrecedenceDependsOnWhetherTheReadThrows`
-逐字段断言，改一个读取器会让那条用例变红。
+按**三类读取器**各自断言（`asText()`/`asBoolean()` 强转、`readStringList` 抛错、`.fields()` 空迭代），
+改任一类的行为会让那条用例变红。它不是逐字段穷举——审计第十二轮指出原来这里写「逐字段」是过度声称，
+当时 `skip` 与容器类读取器都没被断言，已补上。
 
 之所以只留指针：这段描述在审计里连续四轮没写对（「叶子 vs 容器」→「只有容器」→ 说 `.fields()`
 抛错而下面自己的表格说它不抛），第三轮修它时又把上面那张三层表拆断了。同一条机制已经有四份副本
