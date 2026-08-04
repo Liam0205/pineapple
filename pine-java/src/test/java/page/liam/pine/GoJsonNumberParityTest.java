@@ -364,7 +364,11 @@ class GoJsonNumberParityTest {
         // "1000000", agreeing with Go's %v on the native int that transform_size
         // writes; pine-cpp was the lone outlier because it casts item_count() to
         // double — and transform_size is the ONLY source where Go holds a native int,
-        // so this flip is scoped to it. Other sources of the same count go through
+        // so this flip is scoped to that SOURCE — but the value reaches every sprint
+        // consumer, and filter_condition comparing against it diverges SILENTLY (an
+        // emptied item list, no error) rather than raising a coerce error like the
+        // templated path. That consumer already behaved so at base.
+        // Other sources of the same count go through
         // encoding/json and are float64 in Go too, so Go errors there as well and this
         // change FIXED a pre-existing divergence on those. Removing sprint's box-type
         // branch flipped the sides for transform_size: pine-java now
