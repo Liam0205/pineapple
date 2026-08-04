@@ -7,6 +7,14 @@
 
 适用场景：在 pine-cpp / pine-java（或任何第四运行时）里复刻 Go `strconv` / `encoding/json` 的 double 输出，或修改已有的格式化路径。
 
+## 作用域：本文件的前提是「值以 double 到达格式化器」
+
+本文件覆盖的失效面只有一个：**已经是 double 的值如何变成字符串**。前提是值以 double 抵达格式化器。
+
+**值在到达格式化器之前被换成了另一种类型，不属本文件覆盖面。** 那类缺陷会绕过整条浮点路径，格式化器逐位正确也照样产生拼写分歧，按本文件的索引查会一路查格式化器、查不到东西。反例见 issue #189/#190：pine-java 的 Lua bridge 把整数值 double 窄化成 `Long`，序列化器直接打印精确整数、根本没走 `formatJsonNumber`，于是同一个 float64 在 2^53 以上有两种整数拼写。过程见 `llmdoc/memory/reflections/lua-integral-double-narrowing-189-190.md`。
+
+相关的跨运行时事实：各运行时 Lua bridge 的 number 出口一律是 double、无整数分支（`pine-go/operators/lua/pool_gopher_lua.go` 与 `pool_wangshu.go` 对所有 Lua number 返回 float64、`pine-cpp/src/lua/lua_bridge.cpp` 用 `lua_tonumber`），因此 `Long` 从来不是跨运行时契约。数字拼写出现分歧时，先确认值到达格式化器时的类型，再看格式化规则。
+
 参照的实现落点：
 
 - pine-java：`pine-java/src/main/java/page/liam/pine/GoFormat.java`（`formatJsonNumber`）
