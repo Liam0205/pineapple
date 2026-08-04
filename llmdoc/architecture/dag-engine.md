@@ -480,9 +480,12 @@ HTTP `GET /stats` 返回组合观测视图：
 |---|---|---|
 | 类型层（配置解析） | `pine-go/internal/config/types.go`（struct tag）、`pine-java/.../Config.java`（`rootString`）、`pine-cpp/src/config/config.cpp`（`require_string`） | 拒绝 present 但类型不是字符串的值；`null` 与缺省保持默认 |
 | 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 的分界不是「叶子 vs 容器」，而是**抛错 vs 强转**：`parseRoot` / `parseOperatorConfig` 里
+| 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
+
 凡是用 `asText()` / `asBoolean()` 读的字段都**静默强转、不抛错**，于是随后的白名单先命中；
-凡是用 `readStringList` 或 `.fields()` 遍历读的字段，类型错会抛 `IllegalArgumentException`，
-pine-java 就与 pine-go 一致。实测：
+凡是用 `readStringList` 读的**数组**字段，类型错会抛 `IllegalArgumentException`，pine-java 就与
+pine-go 一致。（`.fields()` 读的容器字段既不强转也不抛错——它在 `TextNode` 上得到空迭代器，
+于是同样让白名单先命中。）实测：
 
 | 被改坏的字段 | 读取方式 | pine-go | pine-java | pine-cpp |
 |---|---|---|---|---|
@@ -498,7 +501,6 @@ pine-java 就与 pine-go 一致。实测：
 「叶子 vs 容器」、再改成「只有容器」，两次都错，因为分界取决于**读取器**（`asText()` 强转 vs
 `readStringList` 抛错）而不是字段形状。改一个读取器会让那条用例变红，而一句话只会悄悄变成假的。
 **判据：当一条跨运行时描述连续两轮被审计改错时，把它写成用例，别再改措辞。**
-| 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
 
 三方现在对这四个字符串字段的**单次出现、各类型**取值一致（issue #187）：
 
