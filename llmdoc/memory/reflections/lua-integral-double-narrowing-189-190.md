@@ -234,6 +234,17 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 - `TransformByLuaTypeIdentityTest` 里现存的 `assertInstanceOf` 还剩 string 分支若干，
   那些**是**契约（`"42"` 必须是 `String`），保留；不要顺手一起改掉。
 
+
+**一处被接受的回归，写在这里而不是只写「全绿」**：审计第三轮查出 `a39a950d` 在
+`transform_size` → `filter_truncate` 的 `top_n: "{{n}}"` 这条路径上，把 pine-java 从「与 Go 一致」
+翻到了「与 pine-cpp 一致、与 Go 分歧」——base 上 `sprint(Integer 1000000)` 给 `1000000`（同 Go），
+现在给 `1e+06`，于是 ≥ 1e6 的 item 数会报 `cannot coerce "1e+06" to int64` 而 Go 成功。
+
+**两侧无法同时与 Go 一致**：保留装箱类型分支会打破 `filter_condition`，只在 ≥ 1e6 保留同样重新引入
+不对称（两种都实测）。选了可达性高得多的 `filter_condition`。教训不在于选得对不对，而在于**我原先
+把这个结果写成了「审计发现的既存缺口」**——同一份 doc-gaps 里负零那条明确标了「先于本 range 存在」
+并给了 base commit，说明我知道怎么区分，这一条却没标。**接受一个回归是可以的，把它记成不是自己造成的
+不行。** 现已改正，并加了 `integralCountAboveOneMillionUsesScientificForm` 钉住当前答案。
 ## 验证情况（本次已完成）
 
 - 用 #189 原 seed（1655185644）三引擎跑 7010 轮 → **7010 PASS / 0 FAIL**（原第 7005 轮
