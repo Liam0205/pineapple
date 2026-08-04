@@ -113,7 +113,13 @@
   只对 `float64` 应用 1e6 之后切科学计数法。所以当计数 ≥ 1e6 且被模板参数消费时
   （`transform_size` → `filter_truncate` 的 `top_n: "{{n}}"`），**Go 成功、另两方报
   `cannot coerce "1e+06" to int64`**。审计实测边界正好在 1e6。
-- **这是本 range 引入的回归，不是既存缺口**（审计第三轮指出，我原先把它写成了「审计发现」）。
+- **作用域限定：这个「两侧对调」只对 `transform_size` 这一个来源成立**（审计第四轮指出，我原先写成了
+  整条 ≥ 1e6 计数路径）。原因是 **Go 只有 `in.ItemCount()` 这一条路能拿到原生 `int`**；其余来源
+  （request payload 的 common 字段、`recall_static` 的 `set_common`）都经 `encoding/json` 变成
+  float64，`%v` 同样出 `1e+06`，所以**那些来源上 Go 自己也报错**。实测 request payload `{"n":1000000}`
+  三方一致失败。在那两个来源上 base 的 pine-java 才是唯一异类，本 range 是**修好了既存分歧**。
+- **这是本 range 引入的回归，不是既存缺口**（审计第三轮指出，我原先把它写成了「审计发现」）——
+  但仅限 `transform_size` 来源，见上一条。
   在 base `a9830fca` 上 pine-java **与 Go 一致**（`sprint(Integer 1000000)` 给 `1000000`），
   pine-cpp 是当时唯一的异类；`a39a950d` 去掉装箱类型分支后 pine-java 转而与 pine-cpp 一致、
   与 Go 分歧。**两侧对调了。** 逐 commit 实测：`7c4540c1` / `2db1982f` 成功，`a39a950d` /

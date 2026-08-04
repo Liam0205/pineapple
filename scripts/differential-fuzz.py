@@ -585,8 +585,18 @@ def gen_operator(rng: random.Random, name: str,
     if prev_op_names and len(prev_op_names) >= 2 and rng.random() < 0.15:
         config["sources"] = [rng.choice(prev_op_names)]
 
-    new_item_out = list(set(prev_item_outputs + item_out))
-    new_common_out = list(set(prev_common_outputs + common_out))
+    # sorted(), not list(set()): set iteration order over strings varies with
+    # PYTHONHASHSEED, so these two lines made --seed insufficient to determine what
+    # gets generated. Measured with --seed 42: HASHSEED=0 and HASHSEED=1 produced
+    # different coverage (subflow=0 vs subflow=2), and repeating a hash seed
+    # reproduced exactly. That defeats the REPRODUCE line below, whose whole purpose
+    # is reproducing a failure without the /tmp divergence copy (issue #190).
+    #
+    # sorted() also changes which configs a given seed generates, so historical seeds
+    # from before this commit will not reproduce — an acceptable one-time cost for
+    # making every future seed reproducible.
+    new_item_out = sorted(set(prev_item_outputs + item_out))
+    new_common_out = sorted(set(prev_common_outputs + common_out))
     return config, new_item_out, new_common_out
 
 
@@ -928,7 +938,12 @@ def gen_pipeline(rng: random.Random) -> tuple[dict, dict, list[dict], bool]:
             source_item_lists.append(request_items)
         for items_list in source_item_lists:
             for item in items_list:
-                for f in defaulted_fields:
+                # sorted(): this loop consumes rng.random() PER FIELD, so iterating a
+                # set in hash order changed both which fields were nulled and how many
+                # draws were taken, shifting the whole RNG stream downstream. Found by
+                # sweeping for hash-order dependencies after the two list(set()) sites
+                # above turned out to defeat seed reproducibility.
+                for f in sorted(defaulted_fields):
                     if f in item and rng.random() < 0.4:
                         item[f] = None
 

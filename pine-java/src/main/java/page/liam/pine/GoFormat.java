@@ -74,10 +74,18 @@ public final class GoFormat {
             //
             // ACCEPTED REGRESSION, stated plainly because an earlier version of this
             // comment called Go "the outlier" and that was only true AFTER this change.
-            // On the one path where Go really does hold an int (`transform_size` ->
-            // templated `top_n`), pine-java USED TO agree with Go and pine-cpp was the
-            // lone outlier; removing the box-type branch flipped the sides, so now
-            // pine-java and pine-cpp error at >= 1e6 where Go succeeds.
+            // The flip applies to EXACTLY ONE source, `transform_size`, because
+            // in.ItemCount() is the only way a Go value reaches here as a native int.
+            // There, pine-java used to agree with Go and pine-cpp was the lone outlier;
+            // removing the box-type branch reversed that, so pine-java and pine-cpp now
+            // error at >= 1e6 where Go succeeds.
+            //
+            // For every OTHER source of the same count (a request payload field, a
+            // recall_static set_common) the value passes through encoding/json and is a
+            // float64 in Go too, so Go also prints 1e+06 and also errors — measured. On
+            // those sources base pine-java was the lone outlier and this change FIXED a
+            // pre-existing divergence. An earlier version of this comment stated the
+            // flip without that scope.
             //
             // It is accepted rather than fixed because the two cannot both hold: keeping
             // the branch breaks filter_condition (Go and pine-cpp filter, base pine-java

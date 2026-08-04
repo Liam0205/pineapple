@@ -363,7 +363,11 @@ class GoJsonNumberParityTest {
         // silently. At base a9830fca pine-java printed an Integer 1000000 as
         // "1000000", agreeing with Go's %v on the native int that transform_size
         // writes; pine-cpp was the lone outlier because it casts item_count() to
-        // double. Removing sprint's box-type branch flipped the sides: pine-java now
+        // double — and transform_size is the ONLY source where Go holds a native int,
+        // so this flip is scoped to it. Other sources of the same count go through
+        // encoding/json and are float64 in Go too, so Go errors there as well and this
+        // change FIXED a pre-existing divergence on those. Removing sprint's box-type
+        // branch flipped the sides for transform_size: pine-java now
         // matches pine-cpp and diverges from Go on that one path, so a
         // transform_size -> filter_truncate top_n: "{{n}}" pipeline errors at >= 1e6
         // items where Go succeeds.
