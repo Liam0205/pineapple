@@ -1,7 +1,7 @@
 # [pine-java 把整数值 double 窄化成 Long 导致同一 float64 两种拼写（issue #189 + #190）]
 
 分支 `fix/189-190-number-spelling-parity`（基于 `origin/master` = `a9830fca`），单 commit
-`7c4540c1`。7 个文件、+165/−14。
+`7c4540c1`（初版修复与文档），以及审计第一轮后的 `a39a950d`（修 `GoFormat.sprint` 按装箱类型分派）。**文件数与增删行数不在此复述**——本行原本写死的数字在下一个 commit 就过期了，要数就跑 `git show --stat`。
 
 ## Task
 
@@ -140,6 +140,26 @@ Go 侧一直返回 float64。
    不同。Go 的 `%v` 抹掉 int/float 之分，Java 只对标量做数值比较、容器落字符串化。
    宽松的那一侧长期绿灯，让 fixture 看起来是三方共用的同一道门，实际上门槛不一样高。
 
+
+### 第二处根因（审计第一轮才暴露）：格式化器按**宿主语言的装箱类型**分派
+
+去掉窄化后，Lua 产出的整数值改以 `Double` 到达，暴露出 `GoFormat.sprint` 按装箱类型分派：
+`Long`/`Integer` 直接返回 `Long.toString`，只有 `Double` 分支应用 Go 的「≥ 1e6 切 `%g`」规则。
+后果是**同一次比较的两侧走了不同规则**——`filter_condition` 的 `value: 2000000`（Jackson 解成
+`Integer` → `"2000000"`）不再匹配 Lua 产出的 2000000（`Double` → `"2e+06"`）：Go 与 pine-cpp
+都过滤掉该 item，Java 留着。**原来的窄化把两侧都变成整数装箱，偶然掩盖了这个不对称。**
+
+我第一次修错了：保留了「1e6 以上仍按整数装箱输出」的分支，理由是整数装箱有精确十进制形式。
+实测仍分歧——问题不在精度，而在**两侧是否遵循同一套规则**。
+
+**Java 的装箱类型追踪的是「值从哪里解析来的」，不是「参照运行时认为它的静态类型是什么」**，
+所以不能充当后者的代理。这是本次两处根因共同的形状：**把宿主语言的类型系统当成跨运行时契约的代理**。
+窄化那处是 `long` 冒充「整数」，`sprint` 那处是装箱类型冒充「静态类型」。
+
+审计第二轮进一步指出：我给这处写的注释断言「Go 没有整数分支」是**假的**——`transform_size` 写的
+`in.ItemCount()` 是真 Go `int`、不经 `encoding/json`，Go 的 `%v` 对它原样打印。那条路径上
+pine-cpp 与 pine-java 一致而 **Go 是异类**，已记入 `memory/doc-gaps.md`。注释已改为陈述真实理由：
+Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 ## Missing Docs or Signals
 
 - **`reference/number-formatting-parity.md` 没写自己的前置条件**。它只管「double 怎么拼」，
@@ -221,7 +241,7 @@ Go 侧一直返回 float64。
 - #190 保存的用例：三方响应体字节一致
 - 新 fixture `fixtures/server_byte_exact/14_integral_float_above_2pow53.json`：
   byte-exact 13/13 两对
-- 357 Java 测试、254 C++ 用例、Go 全套、`make lint`、`make codegen-check`、
+- Java / C++ / Go 全套测试、`make lint`、`make codegen-check`、
   `make cross-validate` 57 PASS、`make differential-fuzz` 1000/1000
 - mutation 双向验证：把窄化改回去 → 新 fixture 与新单测都变红
 - 探针对照 `formatJsonNumber` 与旧 long 路径在 42/0/−1/1e15/2^53/2^62/负 2^62/1.5 上

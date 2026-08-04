@@ -55,10 +55,28 @@ public final class GoFormat {
             // narrowing in TransformByLua.fromLua had been masking this by making
             // both sides integral by accident.
             //
-            // There is deliberately NO Long/Integer branch: Go has none either,
-            // because every value reaching its %v came through encoding/json as a
-            // float64. Adding one back — even only above 1e6 — reintroduces the
-            // asymmetry, which I confirmed by trying exactly that.
+            // There is deliberately NO Long/Integer branch here, but NOT because Go
+            // lacks an integer path — an earlier version of this comment claimed that
+            // and review measured it false. Go's %v does print a genuine int plainly
+            // (int(1000000) -> "1000000") and only applies the 1e6 switch to float64,
+            // and `transform_size` writes in.ItemCount(), a real Go int, straight into
+            // a common field without passing through encoding/json.
+            //
+            // The reason the branch is gone is that Java cannot reconstruct that
+            // distinction. Jackson decodes a JSON config literal to Integer and
+            // pipeline data to Double for the SAME value, so branching on the box type
+            // here formats the two sides of one comparison under different rules —
+            // filter_condition with value 2000000 stopped matching a Lua-produced
+            // 2000000. The box type in Java tracks where the value was parsed, not what
+            // the reference runtime considers its static type, so it is not a usable
+            // proxy. Adding the branch back even only above 1e6 reintroduces the
+            // asymmetry; I tried exactly that and measured it.
+            //
+            // On the one path where Go really does hold an int (`transform_size` ->
+            // templated param), pine-cpp casts item_count() to double and agrees with
+            // this code rather than with Go, so Go is the outlier there. That
+            // three-way disagreement is tracked in memory/doc-gaps.md and is NOT
+            // settled by this function.
             if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e6) {
                 return Long.toString((long) d);
             }
