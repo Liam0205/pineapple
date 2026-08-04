@@ -140,13 +140,39 @@ class StorageModeValidationTest {
         // asText()/asBoolean() coerce and never throw -> whitelist wins.
         for (String field : new String[] {"type_name", "recall", "debug",
                                           "consumes_row_set", "mutates_row_set",
-                                          "additive_writes_row_set", "for_branch_control"}) {
+                                          "additive_writes_row_set", "for_branch_control",
+                                          "skip"}) {
             byte[] body = coercedOperatorField(base, field);
             Exception e = assertThrows(Exception.class, () -> Config.load(body));
             assertTrue(e.getMessage().contains("is invalid, must be"),
                     "coerced field " + field + " should let the storage_mode whitelist fire "
                             + "first, got: " + e.getMessage());
         }
+
+        // A container read through .fields() neither coerces nor throws: on a
+        // TextNode it yields an empty iterator, so the whitelist fires first. The
+        // deleted prose table had this as its own row; without this case the
+        // pointer's claim would cover only two of the three accessor classes.
+        // Two traps here, both hit while writing this:
+        //
+        // 1. PREPENDING the key does not work. The base config already contains
+        //    flow_contract, and Jackson's readTree is last-wins, so a prepended
+        //    duplicate is silently overridden by the valid object below it and the
+        //    mutation goes undetected. The key must REPLACE the existing one. (That
+        //    duplicate-key resolution is itself one of the accepted limitations this
+        //    range documents — it defeated a test about the same mechanism.)
+        // 2. pipeline_group would be the wrong container to pick: a wrong-typed one
+        //    also makes validate() throw "pipeline_group is empty", which this
+        //    assertion cannot tell apart from the whitelist message, so it would
+        //    pass for the wrong reason. flow_contract has no emptiness check.
+        byte[] containerBody = base
+                .replaceFirst("\\{", "{\"storage_mode\": \"colunm\",")
+                .replaceFirst("\"flow_contract\": \\{[^}]*\\}", "\"flow_contract\": \"x\"")
+                .getBytes(StandardCharsets.UTF_8);
+        Exception ce = assertThrows(Exception.class, () -> Config.load(containerBody));
+        assertTrue(ce.getMessage().contains("is invalid, must be"),
+                "a container read via .fields() should let the whitelist fire first, got: "
+                        + ce.getMessage());
 
         // readStringList throws on a wrong type -> the type error wins.
         byte[] arrayBody = ("{\"storage_mode\": \"colunm\"," + base.substring(1))
