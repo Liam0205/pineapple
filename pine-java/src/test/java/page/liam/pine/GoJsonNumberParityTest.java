@@ -326,4 +326,34 @@ class GoJsonNumberParityTest {
                     "serializer diverged from formatJsonNumber for " + d);
         }
     }
+
+    @Test
+    void sprintIsIndependentOfHowTheNumberWasBoxed() throws Exception {
+        // Go reaches fmt.Sprintf("%v", ...) with values that came through
+        // encoding/json, and JSON has no integer type — so both sides of any
+        // comparison are float64 and both obey the same 1e6 switch to %g. Java's
+        // Jackson decodes a config literal to Integer while pipeline data arrives as
+        // Double, so branching sprint on the box type formatted the two sides of one
+        // comparison under different rules.
+        //
+        // Concretely: filter_condition with value 2000000 stopped removing a
+        // Lua-produced 2000000, because the config side printed "2000000" and the data
+        // side "2e+06". Go and pine-cpp both removed the item. Review caught this while
+        // issues #189/#190 were being fixed — removing the narrowing in
+        // TransformByLua.fromLua exposed it, because that narrowing had been making
+        // both sides integral by accident.
+        com.fasterxml.jackson.databind.ObjectMapper mapper =
+                new com.fasterxml.jackson.databind.ObjectMapper();
+        for (String literal : new String[] {"42", "999999", "1000000", "2000000",
+                                            "123456789", "0", "-2000000", "-1"}) {
+            Object boxed = mapper.readValue(literal, Object.class);
+            double asDouble = ((Number) boxed).doubleValue();
+            assertEquals(GoFormat.sprint(asDouble), GoFormat.sprint(boxed),
+                    "sprint must not depend on the box type, literal " + literal);
+        }
+        // And the 1e6 switch itself, which is the Go behaviour being mirrored.
+        assertEquals("999999", GoFormat.sprint(999999.0));
+        assertEquals("1e+06", GoFormat.sprint(1000000.0));
+        assertEquals("2e+06", GoFormat.sprint(2000000.0));
+    }
 }
