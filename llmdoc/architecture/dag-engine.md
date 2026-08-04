@@ -482,25 +482,14 @@ HTTP `GET /stats` 返回组合观测视图：
 | 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 的分界不是「叶子 vs 容器」，而是**抛错 vs 强转**：`parseRoot` / `parseOperatorConfig` 里
 | 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
 
-凡是用 `asText()` / `asBoolean()` 读的字段都**静默强转、不抛错**，于是随后的白名单先命中；
-凡是用 `readStringList` 读的**数组**字段，类型错会抛 `IllegalArgumentException`，pine-java 就与
-pine-go 一致。（`.fields()` 读的容器字段既不强转也不抛错——它在 `TextNode` 上得到空迭代器，
-于是同样让白名单先命中。）实测：
+pine-java 落在 pine-go 与 pine-cpp 之间，分界取决于**读取器**而不是字段形状。**这条规则不在这里
+复述**——它由 `StorageModeValidationTest.nestedTypeErrorPrecedenceDependsOnWhetherTheReadThrows`
+逐字段断言，改一个读取器会让那条用例变红。
 
-| 被改坏的字段 | 读取方式 | pine-go | pine-java | pine-cpp |
-|---|---|---|---|---|
-| `operators.X.type_name`（及 `recall` / `debug` / `consumes_row_set` / `mutates_row_set` / `additive_writes_row_set` / `for_branch_control` / `skip`，共 8 个标量叶子） | `asText()` / `asBoolean()` 强转 | 类型错 | **值错** | 值错 |
-| `sources`、`$metadata.common_input`、`flow_contract.common_input`、`pipeline_map.*.pipeline` 等数组字段 | `readStringList` 抛错 | 类型错 | 类型错 | 值错 |
-| `pipeline_config` / `pipeline_group` / `flow_contract` / `resource_config` 等容器 | `.fields()` 静默空迭代 | 类型错 | **值错** | 值错 |
-
-所以 pine-cpp 在**所有**嵌套类型错上都报值错，pine-java 只在「强转类字段」上如此。这些嵌套场景在
-#187 之前三方本来就各不相同，不是本次引入的。
-
-**上面这张表由 `StorageModeValidationTest.nestedTypeErrorPrecedenceDependsOnWhetherTheReadThrows`
-钉住**，不是只写在文档里。这条纪律是被逼出来的：这个分界连续四轮都没能用文字写对——先写成
-「叶子 vs 容器」、再改成「只有容器」，两次都错，因为分界取决于**读取器**（`asText()` 强转 vs
-`readStringList` 抛错）而不是字段形状。改一个读取器会让那条用例变红，而一句话只会悄悄变成假的。
-**判据：当一条跨运行时描述连续两轮被审计改错时，把它写成用例，别再改措辞。**
+之所以只留指针：这段描述在审计里连续四轮没写对（「叶子 vs 容器」→「只有容器」→ 说 `.fields()`
+抛错而下面自己的表格说它不抛），第三轮修它时又把上面那张三层表拆断了。同一条机制已经有四份副本
+（用例、`memory/doc-gaps.md`、`guides/investigation-to-fix-testing.md`、这里），而只有用例会在写错时
+变红。**判据：一条机制描述被审计连续改错两次以上时，删掉散文副本、只留能执行的那一份加指针。**
 
 三方现在对这四个字符串字段的**单次出现、各类型**取值一致（issue #187）：
 
