@@ -74,8 +74,18 @@ public final class GoFormat {
             //
             // ACCEPTED REGRESSION, stated plainly because an earlier version of this
             // comment called Go "the outlier" and that was only true AFTER this change.
-            // The flip applies to EXACTLY ONE source, `transform_size`, because
-            // in.ItemCount() is the only way a Go value reaches here as a native int.
+            // EXACTLY ONE SOURCE, but every sprint CONSUMER. `transform_size` is the
+            // only native-int frame write in Go (in.ItemCount(); verified against every
+            // SetCommon/SetItem call site), yet the resulting value reaches all of this
+            // function's consumers, and they fail differently:
+            //   - templated params (filter_truncate `top_n: "{{n}}"`) raise a coerce
+            //     error, so the divergence is loud;
+            //   - `filter_condition` comparing against that count diverges SILENTLY —
+            //     at 1e6 items Go keeps its items while pine-java and pine-cpp empty the
+            //     list, with no error. (That consumer already behaved this way at base,
+            //     so it is pre-existing rather than introduced here.)
+            // An earlier version of this comment said "one source" in a way that read as
+            // "one code path", which understated the silent case.
             // There, pine-java used to agree with Go and pine-cpp was the lone outlier;
             // removing the box-type branch reversed that, so pine-java and pine-cpp now
             // error at >= 1e6 where Go succeeds.

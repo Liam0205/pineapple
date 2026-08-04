@@ -113,6 +113,11 @@
   只对 `float64` 应用 1e6 之后切科学计数法。所以当计数 ≥ 1e6 且被模板参数消费时
   （`transform_size` → `filter_truncate` 的 `top_n: "{{n}}"`），**Go 成功、另两方报
   `cannot coerce "1e+06" to int64`**。审计实测边界正好在 1e6。
+- **消费侧不止一处（审计第五轮）**：来源确实只有 `transform_size` 一个，但那个值会流到 `sprint` 的
+  **每一个**消费者，且失败形式不同——模板参数（`filter_truncate` 的 `top_n`）报 coerce 错误、很响；
+  而 `filter_condition` 拿它做比较时**静默分歧**：1e6 个 item 时 Go 保留、pine-java 与 pine-cpp
+  清空列表，不报错。**`filter_condition` 这个消费者在 base 上就已经如此**，属既存而非本次引入；
+  只有我那句作用域写窄了（写成「一条路径」而不是「一个来源、多个消费者」）。
 - **作用域限定：这个「两侧对调」只对 `transform_size` 这一个来源成立**（审计第四轮指出，我原先写成了
   整条 ≥ 1e6 计数路径）。原因是 **Go 只有 `in.ItemCount()` 这一条路能拿到原生 `int`**；其余来源
   （request payload 的 common 字段、`recall_static` 的 `set_common`）都经 `encoding/json` 变成
@@ -134,6 +139,19 @@
   (c) 承认这条路径不在字节契约覆盖面内并写清。
 - **不在 #189/#190 范围内**：那两条是 Lua 产出的整数值 double 的拼写；这条是**计数值的静态类型**，
   且 ≥ 1e6 的 item 数在推荐场景里不现实。审计确认 1e6 以下三方一致（实测 1000 items 三方均 `1000`）。
+
+### `cross_storage_diverge` 计数器只增不报（issue #189/#190 审计第五轮顺带发现）
+
+- **现状**：`scripts/differential-fuzz.py:1810` 在检测到「同一配置在 row 与 column 存储下输出不同」时
+  递增 `stats["cross_storage_diverge"]`，但这个计数器**从不出现在结尾摘要里**、**不进 `failed_rounds`**、
+  **不影响退出码**。也就是说一次跨存储分歧只会在 stdout 里闪过一行，nightly 依然报绿。
+- **为什么值得记**：这与 #189/#190 是同一族问题——**检测到了却没有让任何门变红**。本次刚给 fuzz 加了
+  `REPRODUCE:` 行来解决「失败无法复现」，而这一条是「失败根本不算失败」。
+- **待决策**：(a) 把 `cross_storage_diverge` 计入 `failed_rounds` 并写进摘要（最直接，但需先确认历史上
+  是否有长期存在的跨存储分歧——若有，加门会立刻让 nightly 变红，那本身是需要单独排期的信息）；
+  (b) 只打进摘要、暂不影响退出码，先观察若干轮 nightly 再决定是否升级为门。
+- **不在 #189/#190 范围内**：那两条是 go-vs-java 的数字拼写；这条是同一运行时内 row-vs-column 的
+  报告机制，且先于本 range 存在（`git log -S` 可查）。
 
 ## 已关闭条目
 
