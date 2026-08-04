@@ -356,4 +356,26 @@ class GoJsonNumberParityTest {
         assertEquals("1e+06", GoFormat.sprint(1000000.0));
         assertEquals("2e+06", GoFormat.sprint(2000000.0));
     }
+
+    @Test
+    void integralCountAboveOneMillionUsesScientificForm() {
+        // Pins an ACCEPTED regression so the next edit to sprint cannot move it
+        // silently. At base a9830fca pine-java printed an Integer 1000000 as
+        // "1000000", agreeing with Go's %v on the native int that transform_size
+        // writes; pine-cpp was the lone outlier because it casts item_count() to
+        // double. Removing sprint's box-type branch flipped the sides: pine-java now
+        // matches pine-cpp and diverges from Go on that one path, so a
+        // transform_size -> filter_truncate top_n: "{{n}}" pipeline errors at >= 1e6
+        // items where Go succeeds.
+        //
+        // The trade is deliberate and both alternatives were measured: keeping the
+        // branch breaks filter_condition, and keeping it only above 1e6 reintroduces
+        // the same two-sides-two-rules asymmetry. A >= 1e6 item count is far less
+        // reachable than filter_condition, so this is the side that loses.
+        // Decision options are in llmdoc/memory/doc-gaps.md; this test only pins the
+        // current answer.
+        assertEquals("1e+06", GoFormat.sprint(Integer.valueOf(1000000)));
+        assertEquals("1e+06", GoFormat.sprint(1000000.0));
+        assertEquals("999999", GoFormat.sprint(Integer.valueOf(999999)));
+    }
 }

@@ -72,11 +72,21 @@ public final class GoFormat {
             // proxy. Adding the branch back even only above 1e6 reintroduces the
             // asymmetry; I tried exactly that and measured it.
             //
+            // ACCEPTED REGRESSION, stated plainly because an earlier version of this
+            // comment called Go "the outlier" and that was only true AFTER this change.
             // On the one path where Go really does hold an int (`transform_size` ->
-            // templated param), pine-cpp casts item_count() to double and agrees with
-            // this code rather than with Go, so Go is the outlier there. That
-            // three-way disagreement is tracked in memory/doc-gaps.md and is NOT
-            // settled by this function.
+            // templated `top_n`), pine-java USED TO agree with Go and pine-cpp was the
+            // lone outlier; removing the box-type branch flipped the sides, so now
+            // pine-java and pine-cpp error at >= 1e6 where Go succeeds.
+            //
+            // It is accepted rather than fixed because the two cannot both hold: keeping
+            // the branch breaks filter_condition (Go and pine-cpp filter, base pine-java
+            // did not), and keeping it only above 1e6 reintroduces the same asymmetry —
+            // both measured. filter_condition is far more reachable than a >= 1e6 item
+            // count, so that is the side kept. Tracked with decision options in
+            // memory/doc-gaps.md, and pinned by
+            // GoJsonNumberParityTest.integralCountAboveOneMillionUsesScientificForm so
+            // the next edit here cannot move it silently.
             if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e6) {
                 return Long.toString((long) d);
             }
