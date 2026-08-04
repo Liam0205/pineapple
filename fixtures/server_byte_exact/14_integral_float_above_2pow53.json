@@ -1,0 +1,63 @@
+{
+  "config": {
+    "storage_mode": "column",
+    "pipeline_config": {
+      "operators": {
+        "lua": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function process()\n  local out = {}\n  out[\"p62\"] = value * value\n  out[\"p53\"] = 2 ^ 53\n  out[\"p53_plus2\"] = 2 ^ 53 + 2\n  out[\"neg62\"] = -(value * value)\n  out[\"small\"] = 42\n  out[\"frac\"] = 1.5\n  return out\nend",
+          "function_for_common": "process",
+          "$metadata": {
+            "common_input": [
+              "value"
+            ],
+            "common_output": [
+              "nums"
+            ],
+            "item_input": [],
+            "item_output": []
+          },
+          "function_for_item": ""
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "lua"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "value"
+      ],
+      "item_input": [
+        "id"
+      ],
+      "common_output": [
+        "nums"
+      ],
+      "item_output": [
+        "id"
+      ]
+    }
+  },
+  "request": {
+    "common": {
+      "value": -2147483648
+    },
+    "items": [
+      {
+        "id": "a"
+      }
+    ]
+  }
+}

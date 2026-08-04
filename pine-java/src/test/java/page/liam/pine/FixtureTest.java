@@ -163,6 +163,27 @@ public class FixtureTest {
             assertEquals(((Number) expected).doubleValue(), ((Number) actual).doubleValue(), 1e-9, path);
         } else if (expected instanceof Boolean && actual instanceof Boolean) {
             assertEquals(expected, actual, path);
+        } else if (expected instanceof List<?> el && actual instanceof List<?> al) {
+            // Recurse instead of falling through to String.valueOf. A list of numbers
+            // stringifies with Java's box formatting ("[10.0, 15.0]") while the fixture
+            // literal reads "[10, 15]", so a container of numerically-equal values
+            // failed on formatting alone — and only in this runtime: Go's fixture
+            // runner compares with fmt "%v", which prints float64 10 as "10".
+            //
+            // Surfaced by issues #189/#190: once fromLua stopped narrowing integral
+            // doubles to long, every Lua-produced number became a Double and these
+            // fixtures broke, even though the VALUES were unchanged and Go had been
+            // returning float64 all along. The defect was in the comparison, not the
+            // data.
+            assertEquals(el.size(), al.size(), path + " (size)");
+            for (int i = 0; i < el.size(); i++) {
+                assertValueEquals(el.get(i), al.get(i), path + "[" + i + "]");
+            }
+        } else if (expected instanceof Map<?, ?> em && actual instanceof Map<?, ?> am) {
+            assertEquals(em.keySet(), am.keySet(), path + " (keys)");
+            for (Map.Entry<?, ?> e : em.entrySet()) {
+                assertValueEquals(e.getValue(), am.get(e.getKey()), path + "." + e.getKey());
+            }
         } else {
             assertEquals(String.valueOf(expected), String.valueOf(actual), path);
         }
