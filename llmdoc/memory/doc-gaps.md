@@ -103,6 +103,25 @@
   区分 `-0.0`），代价与收益不成比例；(b) 若要统一，先定 Go 侧的确定性行为，再谈另两方跟随。
 - **不在 #189/#190 范围内**：那两条是「整数值 double 的拼写」；负零是符号位问题，且先于本 range 存在。
 
+### `transform_size` 的计数值类型三方不一致，Go 是异类（issue #189/#190 审计发现）
+
+- **现状**：`transform_size` 把 item 数写进 common 字段，三方的**静态类型**不同：
+  - pine-go：`out.SetCommon(..., in.ItemCount())` —— 一个真正的 Go `int`，**不经过 `encoding/json`**
+  - pine-cpp：`Variant(static_cast<double>(input.item_count()))` —— double
+  - pine-java：Jackson/内部一律走 double 路径
+- **可观测后果**：Go 的 `fmt.Sprintf("%v", ...)` 对 `int` 原样打印（`int(1000000)` → `1000000`），
+  只对 `float64` 应用 1e6 之后切科学计数法。所以当计数 ≥ 1e6 且被模板参数消费时
+  （`transform_size` → `filter_truncate` 的 `top_n: "{{n}}"`），**Go 成功、另两方报
+  `cannot coerce "1e+06" to int64`**。审计实测边界正好在 1e6。
+- **注意 Go 是异类**：pine-cpp 与 pine-java 在这条路径上彼此一致、与 Go 不一致。所以这**不是**
+  「另两方跟随 Go」的常规修法能解决的——要先决定基准是哪一侧。
+- **待决策**：(a) 让 Go 也把计数转成 double，三方统一走浮点规则（改动小，但会让 ≥ 1e6 的计数在
+  Go 侧也变成 `1e+06`，属用户可见变更）；(b) 让另两方在这条路径上保留整数语义（需要一个跨运行时的
+  「整数值」概念，而 Java 的装箱类型追踪的是解析来源、不是静态类型，无法直接充当该概念）；
+  (c) 承认这条路径不在字节契约覆盖面内并写清。
+- **不在 #189/#190 范围内**：那两条是 Lua 产出的整数值 double 的拼写；这条是**计数值的静态类型**，
+  且 ≥ 1e6 的 item 数在推荐场景里不现实。审计确认 1e6 以下三方一致（实测 1000 items 三方均 `1000`）。
+
 ## 已关闭条目
 
 ### issue #187：运行时层 fail-fast 拒绝非法 `storage_mode`（已解决）
