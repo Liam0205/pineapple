@@ -40,7 +40,7 @@
 
 - 由 recorder 把前三条 promotion 写进对应稳定文档并同步 `index.md`；lazy proxy 实现差异那条建议放在 `architecture/dag-engine.md` "BuildInput 语义"节，与现有 lazy proxy 描述并列一段"实现差异清单"。
 - 下次 nightly artifact 复现走弯路超过 30 分钟时，条件反射式切"从末端逐算子截断"策略，不要继续深挖末端错误路径。
-- pine-java `TransformByLua.java` 的 `is*()` 派发点现已全部为 type-tag 派发（table-key check / fromLua / snapshotKeys），三处闭环；下次再触碰该文件时不需要额外扫。若 pine-java 后续加新 Lua bridge 代码，仍需 grep 全部 `is*()` 调用逐个判定 coercion-or-tag（与 #175 反思同款要求）。
+- pine-java `TransformByLua.java` 的 `is*()` 派发点现已全部为 type-tag 派发（table-key check / fromLua / snapshotKeys），三处闭环；下次再触碰该文件时不需要额外扫。**注（issue #189/#190 纠偏）**：「三处闭环」只对 `is*()` **派发谓词这一个维度**成立，「下次触碰不需额外扫」这句把维度级结论升格成了文件级结论、是错的。同一函数 `fromLua` 里距 #175 改动点三行处还有一个 `(long) d` 窄化缺陷（整数值 double → `Long`，2^62 上 java 与 go 拼写不同），它在 #175 的 grep 清单（找 `is*()` 调用）里结构性不可命中，直到 #189/#190 才被 nightly fuzz 抓到。详见 `lua-integral-double-narrowing-189-190.md`。若 pine-java 后续加新 Lua bridge 代码，仍需 grep 全部 `is*()` 调用逐个判定 coercion-or-tag（与 #175 反思同款要求）。
 
 ## Review Follow-up
 

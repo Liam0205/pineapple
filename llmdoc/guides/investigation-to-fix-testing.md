@@ -128,6 +128,24 @@ issue #179 把这条纪律逐级放宽了两次，每次都是被下一轮审计
 
 issue #179 的直接教训：改掉分派点附近的两处反向注释后，`pine-cpp/include/pine/frame.hpp` 的类文件头注释里还活着第三份同样的表述，与改掉那处只差 90 行。根因是按 grep 命中的「分派点附近」清理，没有对同一文件通读。这与 issue #183 的「`/stats` 漏两轮」同型：都是按「issue 举的那个点」清理，而不是按「这条声明出现在哪里」清理。
 
+## 断言装箱类型 vs 断言契约
+
+类型断言（`assertInstanceOf` / `assertEquals(42L, ...)` 这类带宿主语言类型的写法）**只有在被断言的那个 class 本身是外部可观察契约时才成立**。否则它冻的是内部实现细节，实现被改正确时反而变红，产生「修对了看起来像回归」的信号反转。
+
+issue #189/#190 的实例：六处断言（`TransformByLuaTypeIdentityTest` 三处、`TransformByLuaBaselineTest` 两处、`TransformByLuaCompilerBackendTest` 一处）用 `assertInstanceOf(Long.class, ...)` / `assertEquals(42L, ...)` 冻住了 Lua number 的装箱类型。而各运行时 Lua bridge 的 number 出口一律是 double、无整数分支（pine-go 对所有 Lua number 返回 `float64`，pine-cpp 用 `lua_tonumber`），所以 `Long` 从来不是跨运行时契约，只是 pine-java 的内部表示。这些断言把内部表示冻成了伪契约，去掉窄化这个正确修复因此先表现为一批测试变红。
+
+值得注意的是这几处断言部分来自 #175：那次用 `assertInstanceOf` 保护 string-vs-number 类型身份是对的（必须区分 `"42"` 与 `42`），但顺带把 number 分支的 box 类型也冻住了，**超出了它要保护的属性**。
+
+判据：**写类型断言时说明这个 class 为什么是契约；说不出来就改成断值与序列化形式。** 本次改法：
+
+```java
+assertInstanceOf(Double.class, intOut);
+assertEquals(42.0, intOut);
+assertEquals("42", GoFormat.formatJsonNumber((Double) intOut));
+```
+
+序列化形式是外部真正可观察的东西，也顺带覆盖了「2^53 以下零变化」这个需要证明的属性。反向的例子同样要认：`TransformByLuaTypeIdentityTest` 里 string 分支的 `assertInstanceOf` **是**契约（`"42"` 必须是 `String`），不要顺手一起改掉。详见 `memory/reflections/lua-integral-double-narrowing-189-190.md`。
+
 ## 同一运行时内部也会有行为分歧
 
 跨运行时对比时容易假设「一个运行时内部是自洽的」，**它不一定**。确认某运行时的行为时，检查它对**同类字段/同类路径**是否一致，不要从一个字段推广到一类字段。

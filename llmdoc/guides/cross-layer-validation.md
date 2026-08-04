@@ -181,3 +181,18 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 - Java `PipelineFixtureTest` 对非 Number 对**类型敏感**；cross-validate 的 `normalize_json` 保持 string vs number 区分——**类型身份**类属性只能在这两层钉住
 
 选择在哪一层钉住哪个属性（值级对等 vs 类型身份）前，先核对该层比对器的实际行为；层边界是设计决策，应显式写下（如 fixture 顶层 `_comment` 键或单测注释）。历史案例（issue #175）：Lua 标量类型身份由 Java 单测（`assertInstanceOf`）+ pipeline fixture 钉住，operator fixture 只钉值级，边界用 fixture 内 `_comment` 固化。详见 `memory/reflections/lua-type-tag-dispatch-and-fuzz-blindspot.md`。
+
+### 共享 fixture 时各 runner 的比较宽松度是隐藏变量
+
+同一份 fixture 被多个运行时的 runner 读取时，**它不是同一道门**：各 runner 自己实现比较函数，宽松度不同，于是宽松的一侧长期绿灯、严格的一侧会因与契约无关的表示变更而失败。
+
+实测差别（issue #189/#190）：
+
+| runner | 标量 | 容器（List/Map） |
+|---|---|---|
+| Go fixture runner（`pine-go/integration/fixture_test.go` 等，`pipeline_fixture_test.go`） | `fmt.Sprintf("%v")`，int 与 float 不可分（float64 `10` 打印成 `10`） | 同上 |
+| Java `FixtureTest.assertValueEquals` | 对 `Number` 做数值比较（带容差） | 曾落到 `String.valueOf`，`Double.toString` 带 `.0` |
+
+后果：`[10.0, 15.0]` 与 fixture 字面量 `[10, 15]` 仅因装箱格式化就在 Java 侧失败，而 Go 侧因 `%v` 恰好抹掉 int/float 之分一直通过——两边读的是同一份「期望值」。已修为 Java 侧对 List/Map 递归调用 `assertValueEquals`，也就是对容器做它对标量早就在做的事。
+
+判据：**共享 fixture 上的失败，先判断是值真的不同，还是两个 runner 的比较口径不同。** 后者要修比较函数，不是改期望值——本次值没变，变的只是 Java 侧的装箱类型。推论：给共享 fixture 加新 runner，或改动某一侧的比较函数时，先把各 runner 的宽松度列出来对照；宽松侧通过不构成契约成立的证据。详见 `memory/reflections/lua-integral-double-narrowing-189-190.md`。

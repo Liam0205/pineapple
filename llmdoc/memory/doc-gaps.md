@@ -75,6 +75,22 @@
   最后一条（嵌套层级）由用户在审计第六轮明确决定记录而不修，理由是两遍解析的重构代价超出本 range。
 
 
+### `Codegen.toPythonLiteral` 与 Go `pythonLiteral` 的数字分派不同轴（issue #189/#190 顺带发现）
+
+- **现状**：修 `fromLua` 的窄化后，我按「数据路径上按值域选表示」这个模式反查了全仓，命中一处同型：
+  - `pine-java/.../Codegen.java:375`：`if (d == (long) d && !Double.isInfinite(d)) return Long.toString((long) d);`
+    —— 按**值**判断（无 2^53 上界），与被修掉的 `fromLua` 是同一形状。
+  - `pine-go/pkg/codegen/template.go:66-69`：按**静态 Go 类型**分派——`case float64: "%g"`、`case int64: "%d"`。
+- **因此分歧在原理上成立**：一个整数值的 `float64` 默认值，Go 出 `1e+16`（`%g`），Java 出 `10000000000000000`。
+  实测 Go 侧 `%g` 对 42 出 `42`、对 1e16 出 `1e+16`、对 2^62 出 `4.611686018427388e+18`。
+- **但当前不可达**：没有任何算子 spec 带足够大的整数值浮点默认值，`make codegen-check` 干净，
+  `apple_generated/` 与 `doc/operators/` 里也搜不到 `1e+16` / `1e+20` 一类字面量。所以这是**潜在缺口而不是现存缺陷**，
+  没有并进 #189/#190 的修复范围。
+- **待决策**：(a) 是否把 Java 侧改成与 Go 同轴（按静态类型分派）——改动小，但需要先确认 Java 侧拿到的是什么静态类型，
+  Jackson 解出的 JSON number 在 Java 里没有 Go 那种 float64/int64 之分，所以"同轴"未必可直接平移；
+  (b) 是否给 codegen 加一条带大整数浮点默认值的 spec 作为回归门——这会先变红，需要 (a) 一起做。
+- **不在 #189/#190 范围内**：那两条是 `/execute` 响应体的字节契约；codegen 输出是另一条通道。
+
 ## 已关闭条目
 
 ### issue #187：运行时层 fail-fast 拒绝非法 `storage_mode`（已解决）
