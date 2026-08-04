@@ -367,7 +367,10 @@ class GoJsonNumberParityTest {
         // so this flip is scoped to that SOURCE — but the value reaches every sprint
         // consumer, and filter_condition comparing against it diverges SILENTLY (an
         // emptied item list, no error) rather than raising a coerce error like the
-        // templated path. That consumer already behaved so at base.
+        // templated path. That consumer already behaved so at base. A THIRD consumer,
+        // Redis key construction (TransformRedisGet.sprintValue), is silent too and IS
+        // introduced here at this source — Go writes wr:1000000 where this writes
+        // wr:1e+06, which escapes the process as unreadable and accumulating keys.
         // Other sources of the same count go through
         // encoding/json and are float64 in Go too, so Go errors there as well and this
         // change FIXED a pre-existing divergence on those. Removing sprint's box-type
@@ -385,5 +388,46 @@ class GoJsonNumberParityTest {
         assertEquals("1e+06", GoFormat.sprint(Integer.valueOf(1000000)));
         assertEquals("1e+06", GoFormat.sprint(1000000.0));
         assertEquals("999999", GoFormat.sprint(Integer.valueOf(999999)));
+    }
+
+    @Test
+    void sprintConsumerListInDocsMatchesTheCode() throws Exception {
+        // Five rounds of review found the same defect: a hand-written enumeration of
+        // this formatter's consumers that was narrower than the code. Round 5 said
+        // "one source" when there were several consumers; round 6 named two consumers
+        // when there were three, and the missing one wrote Redis keys.
+        //
+        // So the list is no longer only prose. This test derives it from the source and
+        // fails when a consumer is added or removed, forcing whoever does that to
+        // revisit the divergence note in GoFormat and doc-gaps rather than leaving a
+        // stale count behind.
+        java.nio.file.Path src = java.nio.file.Paths.get("src/main/java/page/liam/pine");
+        java.util.TreeSet<String> callers = new java.util.TreeSet<>();
+        try (java.util.stream.Stream<java.nio.file.Path> files =
+                     java.nio.file.Files.walk(src)) {
+            for (java.nio.file.Path f : files.filter(x -> x.toString().endsWith(".java"))
+                    .toList()) {
+                String body = java.nio.file.Files.readString(f);
+                String name = f.getFileName().toString().replace(".java", "");
+                if (name.equals("GoFormat")) continue;   // the definition itself
+                // Catch the method-reference form too: TransformRedisSet uses
+                // GoFormat::sprint, which the call-shaped patterns miss. Writing this
+                // test found that immediately — the hand-written list had named
+                // TransformRedisSet for the wrong reason (it reaches key building via
+                // TransformRedisGet.buildKeySuffix) while its actual direct use is a
+                // stream map over list elements.
+                if (body.contains("GoFormat.sprint(") || body.contains("GoFormat::sprint")
+                        || body.contains(" sprint(")) {
+                    callers.add(name);
+                }
+            }
+        }
+        assertEquals(
+                java.util.Set.of("FilterCondition", "TemplateResolver",
+                                 "TransformRedisGet", "TransformRedisSet"),
+                callers,
+                "GoFormat.sprint consumers changed. Update the divergence note in "
+                        + "GoFormat.java and llmdoc/memory/doc-gaps.md, which enumerate "
+                        + "how each consumer fails at >= 1e6, then update this set.");
     }
 }
