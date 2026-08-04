@@ -51,7 +51,7 @@
     数组字段会抛错、于是与 pine-go 一致；而 `asText()` / `asBoolean()` 读的 8 个标量叶子
     （`type_name` / `recall` / `debug` / `consumes_row_set` / `mutates_row_set` /
     `additive_writes_row_set` / `for_branch_control` / `skip`）以及 `.fields()` 读的容器字段
-    都静默强转、于是和 pine-cpp 一样报值错。对照表见 `architecture/dag-engine.md`。
+    都静默强转、于是和 pine-cpp 一样报值错。逐字段的断言见 `StorageModeValidationTest.nestedTypeErrorPrecedenceDependsOnWhetherTheReadThrows`（`architecture/dag-engine.md` 只留指针，不复述机制）。
     **不打算靠移动调用点修**：审计实测过把它挪到 `apply_registry_traits` 前——能修好这 8 个嵌套
     场景，但会重新打破「算子错误不得抢先」那条（`colunm` + 缺 `type_name` 又变成 cpp 报算子错）。
     两个约束无法靠移动一行同时满足，要修得把 pine-cpp 的类型校验与值校验拆成两遍
