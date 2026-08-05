@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="430" font-family="DejaVu Sans,Arial" font-size="13">
+<rect width="900" height="430" fill="#fff"/>
+<text x="16" y="26" font-size="16" font-weight="bold">#189 / #190 — one float64, two spellings</text>
+<text x="16" y="48" fill="#444">Lua computes (-2147483648)^2 = 2^62 exactly. Same value; the runtimes disagreed on how to write it.</text>
+
+<rect x="16" y="66" width="868" height="150" fill="#fafafa" stroke="#ccc"/>
+<text x="28" y="86" font-weight="bold">BEFORE</text>
+<text x="28" y="108" font-family="monospace" font-size="12">Lua number  ──&gt;  fromLua()</text>
+<text x="300" y="108" font-family="monospace" font-size="12">──&gt;  serialize</text>
+<text x="28" y="132" font-family="monospace" font-size="12" fill="#0a0">go    float64(x)          no integer branch     4611686018427388000</text>
+<text x="28" y="152" font-family="monospace" font-size="12" fill="#0a0">cpp   lua_tonumber        double                4611686018427388000</text>
+<text x="28" y="172" font-family="monospace" font-size="12" fill="#c00">java  (long) d  &lt;-- narrowing, no 2^53 bound   4611686018427387904</text>
+<text x="28" y="198" font-size="12" fill="#c00">The narrowing made the value bypass the float formatter entirely. double&lt;-&gt;long is lossless only below 2^53.</text>
+
+<rect x="16" y="230" width="868" height="92" fill="#f6fbf6" stroke="#bcd"/>
+<text x="28" y="250" font-weight="bold">AFTER</text>
+<text x="28" y="272" font-family="monospace" font-size="12" fill="#0a0">java  v.todouble()        double                4611686018427388000</text>
+<text x="28" y="296" font-size="12">All three byte-identical. Below 2^53 nothing changes: an integral double still prints without a decimal point (42.0 -&gt; 42).</text>
+<text x="28" y="314" font-size="12" fill="#555">GoFormat.formatJsonNumber was already correct at every magnitude — the defect was upstream of it.</text>
+
+<rect x="16" y="336" width="868" height="80" fill="#fff8f0" stroke="#e8c9a0"/>
+<text x="28" y="356" font-weight="bold">Exposed by the fix, and fixed too (found by review round 1)</text>
+<text x="28" y="378" font-family="monospace" font-size="12">GoFormat.sprint branched on the BOX TYPE: Integer -&gt; "2000000", Double -&gt; "2e+06"</text>
+<text x="28" y="398" font-size="12">Jackson gives Integer for a config literal and Double for pipeline data, so the two sides of a filter_condition</text>
+<text x="28" y="414" font-size="12">comparison used different rules. Java stopped filtering where Go and C++ filtered. Branch removed.</text>
+</svg>
