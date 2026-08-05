@@ -103,57 +103,23 @@
   区分 `-0.0`），代价与收益不成比例；(b) 若要统一，先定 Go 侧的确定性行为，再谈另两方跟随。
 - **不在 #189/#190 范围内**：那两条是「整数值 double 的拼写」；负零是符号位问题，且先于本 range 存在。
 
-### `transform_size` 计数值 ≥ 1e6 时的模板参数分歧（**本 range 引入**，issue #189/#190）
+### 已解决：`transform_size` 计数值 ≥ 1e6 的跨运行时分歧（issue #189/#190，PR 审查后彻底修掉）
 
-- **现状**：`transform_size` 把 item 数写进 common 字段，三方的**静态类型**不同：
-  - pine-go：`out.SetCommon(..., in.ItemCount())` —— 一个真正的 Go `int`，**不经过 `encoding/json`**
-  - pine-cpp：`Variant(static_cast<double>(input.item_count()))` —— double
-  - pine-java：Jackson/内部一律走 double 路径
-- **可观测后果**：Go 的 `fmt.Sprintf("%v", ...)` 对 `int` 原样打印（`int(1000000)` → `1000000`），
-  只对 `float64` 应用 1e6 之后切科学计数法。所以当计数 ≥ 1e6 且被模板参数消费时
-  （`transform_size` → `filter_truncate` 的 `top_n: "{{n}}"`），**Go 成功、另两方报
-  `cannot coerce "1e+06" to int64`**。审计实测边界正好在 1e6。
-- **消费侧不止一处（审计第五轮）**：来源确实只有 `transform_size` 一个，但那个值会流到 `sprint` 的
-  **每一个**消费者，且失败形式不同——模板参数（`filter_truncate` 的 `top_n`）报 coerce 错误、很响；
-  而 `filter_condition` 拿它做比较时**静默分歧**：1e6 个 item 时 Go 保留、pine-java 与 pine-cpp
-  清空列表，不报错。**`filter_condition` 这个消费者在 base 上就已经如此**，属既存而非本次引入；
-  只有我那句作用域写窄了（写成「一条路径」而不是「一个来源、多个消费者」）。
-- **第三个消费者：Redis 键构造（审计第六轮）**。`TransformRedisGet.sprintValue` →
-  `buildKeySuffix`（`transform_redis_get` 与 `transform_redis_set` 都用）同样**静默**，且在
-  `transform_size` 这个来源上**是本 range 新引入的**：Go 写 `wr:1000000`，改后写 `wr:1e+06`。
-  它比 `filter_condition` 更需要注意，因为**影响逃出了进程**——一个运行时写的键另一个读不到，
-  且失效键会累积。在其余来源上这条路径同样被本 range **修好**（与模板参数一致）。
-  实测（真 Redis）：`transform_size` → `transform_redis_set`、1e6 items，Go `wr:1000000`、
-  HEAD `wr:1e+06`、base `wr:1000000`；读方向同型。
-- **第四个面：Redis 成员值（审计第七轮）**。`TransformRedisSet.toStringList`（对 list 元素做
-  `GoFormat::sprint`）格式化的是**成员值**而不是键，同样静默、同样本 range 新引入。
-  **它比键那条更糟**：键是稳定的，所以两个运行时读**同一个键**却拿到**不同的值**——是读到错数据，
-  而不是读不到数据，「键写了另一方读不到」那套说法覆盖不了它。实测 `data_type=list`、1e6 items：
-  Go 成员 `1000,1000000`、HEAD `1e+06,1e+06`、base `1000,1000000`。
-- **消费者清单已机械化，失败形式清单仍是手写的**：前者由
-  `GoJsonNumberParityTest.sprintConsumerListInDocsMatchesTheCode` 从源码派生，后者连续两轮被审计
-  指出比消费者清单少一条。加消费者时必须同时补它的失败形式。
-- **作用域限定：这个「两侧对调」只对 `transform_size` 这一个来源成立**（审计第四轮指出，我原先写成了
-  整条 ≥ 1e6 计数路径）。原因是 **Go 只有 `in.ItemCount()` 这一条路能拿到原生 `int`**；其余来源
-  （request payload 的 common 字段、`recall_static` 的 `set_common`）都经 `encoding/json` 变成
-  float64，`%v` 同样出 `1e+06`，所以**那些来源上 Go 自己也报错**。实测 request payload `{"n":1000000}`
-  三方一致失败。在那两个来源上 base 的 pine-java 才是唯一异类，本 range 是**修好了既存分歧**。
-- **这是本 range 引入的回归，不是既存缺口**（审计第三轮指出，我原先把它写成了「审计发现」）——
-  但仅限 `transform_size` 来源，见上一条。
-  在 base `a9830fca` 上 pine-java **与 Go 一致**（`sprint(Integer 1000000)` 给 `1000000`），
-  pine-cpp 是当时唯一的异类；`a39a950d` 去掉装箱类型分支后 pine-java 转而与 pine-cpp 一致、
-  与 Go 分歧。**两侧对调了。** 逐 commit 实测：`7c4540c1` / `2db1982f` 成功，`a39a950d` /
-  `f5992c2f` 报 `cannot coerce "1e+06" to int64`。
-- **回归被接受，代价是明确的**：保留装箱类型分支会打破 `filter_condition`（Go 与 pine-cpp 都过滤、
-  base 的 pine-java 不过滤），而只在 ≥ 1e6 保留该分支同样重新引入不对称（两种都实测过）。
-  也就是说这条路径与 `filter_condition` 无法同时与 Go 一致，因为 Java 的装箱类型追踪解析来源、
-  不是静态类型。选择了保 `filter_condition`（可达性高得多）而牺牲 ≥ 1e6 的计数模板路径。
-- **待决策**：(a) 让 Go 也把计数转成 double，三方统一走浮点规则（改动小，但会让 ≥ 1e6 的计数在
-  Go 侧也变成 `1e+06`，属用户可见变更）；(b) 让另两方在这条路径上保留整数语义（需要一个跨运行时的
-  「整数值」概念，而 Java 的装箱类型追踪的是解析来源、不是静态类型，无法直接充当该概念）；
-  (c) 承认这条路径不在字节契约覆盖面内并写清。
-- **不在 #189/#190 范围内**：那两条是 Lua 产出的整数值 double 的拼写；这条是**计数值的静态类型**，
-  且 ≥ 1e6 的 item 数在推荐场景里不现实。审计确认 1e6 以下三方一致（实测 1000 items 三方均 `1000`）。
+- **曾经的结论是「无法同时满足、接受回归」，这个结论是错的**。我原本认为 pine-java 无法同时在
+  `filter_condition` 与 `transform_size` 模板参数两条路径上与 Go 一致，理由是 Java 的装箱类型追踪
+  「值从哪里解析来的」而不是静态类型。据此我把装箱类型分支从 `GoFormat.sprint` 整个删掉、保住
+  `filter_condition`，把计数路径记为「本 range 引入、已接受」。
+- **PR #192 的审查机器人拒绝了这个取舍**，理由是 Redis 路径的数据正确性影响太重，不能固化为
+  accepted regression，并指出正确做法是**在比较点处理装箱对等**而不是改共享格式化器。这是对的。
+- **实际修法**：`GoFormat.sprint` 恢复整数装箱分支（Go 的 `%v` 对原生 `int` 任意量级都原样打印，
+  `transform_size` 写的 `in.ItemCount()` 就是原生 int，所以 Redis 键、Redis 成员值、模板参数三个
+  消费者都需要这个语义）；而 `FilterCondition` **自己把比较两侧都归一到 double**——Go 那边两侧都
+  经 `encoding/json` 成了 float64，所以不对称本就属于比较点、不属于格式化器。
+- **结果：两条路径同时与 Go 一致**，四个 `sprint` 消费者（模板参数、`filter_condition`、Redis 键、
+  Redis 成员值）全部不再分歧。两侧各有 mutation 验证的门：去掉 `FilterCondition` 的归一化会重现原
+  分歧，去掉 `sprint` 的装箱分支会让 `sprintPreservesIntegralBoxSpellingLikeGoDoes` 变红。
+- **教训**：我把「共享格式化器的输出」当成了唯一可调的旋钮，于是得出「必须二选一」。真正的自由度在
+  **比较点是否自己归一化**。声称「两个约束无法同时满足」之前，先确认约束真的作用在同一个地方。
 
 ### `cross_storage_diverge` 计数器只增不报（issue #189/#190 审计第五轮顺带发现）
 
