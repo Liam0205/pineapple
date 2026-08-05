@@ -55,75 +55,28 @@ public final class GoFormat {
             // narrowing in TransformByLua.fromLua had been masking this by making
             // both sides integral by accident.
             //
-            // There is deliberately NO Long/Integer branch here, but NOT because Go
-            // lacks an integer path — an earlier version of this comment claimed that
-            // and review measured it false. Go's %v does print a genuine int plainly
-            // (int(1000000) -> "1000000") and only applies the 1e6 switch to float64,
-            // and `transform_size` writes in.ItemCount(), a real Go int, straight into
-            // a common field without passing through encoding/json.
+            // There IS a Long/Integer branch here, and it mirrors Go: %v prints a
+            // genuine int plainly at any magnitude and applies the 1e6 switch to %g only
+            // to float64. `transform_size` writes in.ItemCount(), a real Go int, without
+            // passing through encoding/json, so this branch is what keeps Redis keys,
+            // Redis member values and templated params matching Go.
             //
-            // The reason the branch is gone is that Java cannot reconstruct that
-            // distinction. Jackson decodes a JSON config literal to Integer and
-            // pipeline data to Double for the SAME value, so branching on the box type
-            // here formats the two sides of one comparison under different rules —
-            // filter_condition with value 2000000 stopped matching a Lua-produced
-            // 2000000. The box type in Java tracks where the value was parsed, not what
-            // the reference runtime considers its static type, so it is not a usable
-            // proxy. Adding the branch back even only above 1e6 reintroduces the
-            // asymmetry; I tried exactly that and measured it.
+            // But it is NOT a proxy for "static type", and nothing may treat it as one.
+            // Jackson decodes a JSON config literal to Integer and pipeline data to
+            // Double for the SAME number, so any site that COMPARES two such values must
+            // normalize both sides itself. FilterCondition does that (see
+            // normalizeForCompare there); comparing raw sprint output made value 2000000
+            // stop matching a Lua-produced 2000000 once fromLua stopped narrowing.
             //
-            // ACCEPTED REGRESSION, stated plainly because an earlier version of this
-            // comment called Go "the outlier" and that was only true AFTER this change.
-            // EXACTLY ONE SOURCE, but every sprint CONSUMER. `transform_size` is the
-            // only native-int frame write in Go (in.ItemCount(); verified against every
-            // SetCommon/SetItem call site), yet the resulting value reaches all of this
-            // function's consumers, and they fail differently:
-            //   - templated params (filter_truncate `top_n: "{{n}}"`) raise a coerce
-            //     error, so the divergence is loud;
-            //   - `filter_condition` comparing against that count diverges SILENTLY —
-            //     at 1e6 items Go keeps its items while pine-java and pine-cpp empty the
-            //     list, with no error. (That consumer already behaved this way at base,
-            //     so it is pre-existing rather than introduced here.)
-            //   - Redis key construction (`TransformRedisGet.sprintValue` ->
-            //     `buildKeySuffix`, used by transform_redis_get and transform_redis_set)
-            //     is ALSO silent and IS introduced here at this source: Go writes
-            //     `wr:1000000` where this now writes `wr:1e+06`. That escapes the
-            //     process — a key written by one runtime is not read back by another,
-            //     and stale keys accumulate. On every other source the same path is
-            //     FIXED by this change, as with templated params.
-            //   - Redis MEMBER VALUES (`TransformRedisSet.toStringList`, a stream map
-            //     over list elements) are a fourth and distinct surface: also silent,
-            //     also introduced here. It is worse than the key case in one way —
-            //     the key stays stable, so both runtimes read the SAME key and get
-            //     DIFFERENT values back. Wrong data rather than missing data, which the
-            //     "unreadable key" argument above does not cover.
-            //
-            // That is four surfaces from one source. The list of CONSUMERS is derived
-            // mechanically by GoJsonNumberParityTest.sprintConsumerListInDocsMatchesTheCode;
-            // this list of FAILURE MODES is still hand-written, and review caught it
-            // trailing the consumer list by one entry twice. If you add a consumer, add
-            // its failure mode here too.
-            // An earlier version of this comment said "one source" in a way that read as
-            // "one code path", which understated the silent case.
-            // There, pine-java used to agree with Go and pine-cpp was the lone outlier;
-            // removing the box-type branch reversed that, so pine-java and pine-cpp now
-            // error at >= 1e6 where Go succeeds.
-            //
-            // For every OTHER source of the same count (a request payload field, a
-            // recall_static set_common) the value passes through encoding/json and is a
-            // float64 in Go too, so Go also prints 1e+06 and also errors — measured. On
-            // those sources base pine-java was the lone outlier and this change FIXED a
-            // pre-existing divergence. An earlier version of this comment stated the
-            // flip without that scope.
-            //
-            // It is accepted rather than fixed because the two cannot both hold: keeping
-            // the branch breaks filter_condition (Go and pine-cpp filter, base pine-java
-            // did not), and keeping it only above 1e6 reintroduces the same asymmetry —
-            // both measured. filter_condition is far more reachable than a >= 1e6 item
-            // count, so that is the side kept. Tracked with decision options in
-            // memory/doc-gaps.md, and pinned by
-            // GoJsonNumberParityTest.integralCountAboveOneMillionUsesScientificForm so
-            // the next edit here cannot move it silently.
+            // I first "fixed" that by deleting this branch, flattening everything to the
+            // float rule. It repaired filter_condition and broke the other three
+            // consumers, and I recorded the result as an accepted trade-off. PR review
+            // rejected that and was right: the free variable is whether the COMPARISON
+            // normalizes, not what the shared formatter emits. Both paths now match Go.
+            // Issues #189/#190.
+            if (v instanceof Long || v instanceof Integer) {
+                return Long.toString(((Number) v).longValue());
+            }
             if (d == Math.floor(d) && !Double.isInfinite(d) && Math.abs(d) < 1e6) {
                 return Long.toString((long) d);
             }

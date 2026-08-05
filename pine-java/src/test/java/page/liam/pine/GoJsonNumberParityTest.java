@@ -328,70 +328,41 @@ class GoJsonNumberParityTest {
     }
 
     @Test
-    void sprintIsIndependentOfHowTheNumberWasBoxed() throws Exception {
-        // Go reaches fmt.Sprintf("%v", ...) with values that came through
-        // encoding/json, and JSON has no integer type — so both sides of any
-        // comparison are float64 and both obey the same 1e6 switch to %g. Java's
-        // Jackson decodes a config literal to Integer while pipeline data arrives as
-        // Double, so branching sprint on the box type formatted the two sides of one
-        // comparison under different rules.
+    void sprintPreservesIntegralBoxSpellingLikeGoDoes() {
+        // Go's %v prints a native int plainly at any magnitude and applies the 1e6
+        // switch to %g only to float64. transform_size writes in.ItemCount() as a real
+        // int, so sprint mirrors that: an integral box keeps its plain spelling.
         //
-        // Concretely: filter_condition with value 2000000 stopped removing a
-        // Lua-produced 2000000, because the config side printed "2000000" and the data
-        // side "2e+06". Go and pine-cpp both removed the item. Review caught this while
-        // issues #189/#190 were being fixed — removing the narrowing in
-        // TransformByLua.fromLua exposed it, because that narrowing had been making
-        // both sides integral by accident.
-        com.fasterxml.jackson.databind.ObjectMapper mapper =
-                new com.fasterxml.jackson.databind.ObjectMapper();
-        for (String literal : new String[] {"42", "999999", "1000000", "2000000",
-                                            "123456789", "0", "-2000000", "-1"}) {
-            Object boxed = mapper.readValue(literal, Object.class);
-            double asDouble = ((Number) boxed).doubleValue();
-            assertEquals(GoFormat.sprint(asDouble), GoFormat.sprint(boxed),
-                    "sprint must not depend on the box type, literal " + literal);
-        }
-        // And the 1e6 switch itself, which is the Go behaviour being mirrored.
-        assertEquals("999999", GoFormat.sprint(999999.0));
+        // This test previously asserted the OPPOSITE — that sprint must be independent
+        // of the box type — which was my attempt to fix a filter_condition asymmetry by
+        // flattening everything to the float rule. PR review showed that broke Redis
+        // keys, Redis member values and templated params, all of which need Go's
+        // native-int spelling. The asymmetry belongs to the COMPARISON, and
+        // FilterCondition now normalizes both of its sides instead (#189/#190).
+        assertEquals("1000000", GoFormat.sprint(Integer.valueOf(1000000)));
+        assertEquals("1000000", GoFormat.sprint(Long.valueOf(1000000L)));
         assertEquals("1e+06", GoFormat.sprint(1000000.0));
-        assertEquals("2e+06", GoFormat.sprint(2000000.0));
+        assertEquals("999999", GoFormat.sprint(999999.0));
+        assertEquals("42", GoFormat.sprint(Integer.valueOf(42)));
+        assertEquals("42", GoFormat.sprint(42.0));
     }
 
     @Test
-    void integralCountAboveOneMillionUsesScientificForm() {
-        // Pins an ACCEPTED regression so the next edit to sprint cannot move it
-        // silently. At base a9830fca pine-java printed an Integer 1000000 as
-        // "1000000", agreeing with Go's %v on the native int that transform_size
-        // writes; pine-cpp was the lone outlier because it casts item_count() to
-        // double — and transform_size is the ONLY source where Go holds a native int,
-        // so this flip is scoped to that SOURCE — but the value reaches every sprint
-        // consumer, and filter_condition comparing against it diverges SILENTLY (an
-        // emptied item list, no error) rather than raising a coerce error like the
-        // templated path. That consumer already behaved so at base. A THIRD consumer,
-        // Redis key construction (TransformRedisGet.sprintValue), is silent too and IS
-        // introduced here at this source — Go writes wr:1000000 where this writes
-        // wr:1e+06, which escapes the process as unreadable and accumulating keys.
-        // A FOURTH surface, Redis member values (TransformRedisSet.toStringList), is
-        // silent and introduced too, and is worse: the key stays stable so both
-        // runtimes read the same key and get different values — wrong data, not
-        // missing data.
-        // Other sources of the same count go through
-        // encoding/json and are float64 in Go too, so Go errors there as well and this
-        // change FIXED a pre-existing divergence on those. Removing sprint's box-type
-        // branch flipped the sides for transform_size: pine-java now
-        // matches pine-cpp and diverges from Go on that one path, so a
-        // transform_size -> filter_truncate top_n: "{{n}}" pipeline errors at >= 1e6
-        // items where Go succeeds.
+    void filterConditionMatchesAcrossBoxTypes() throws Exception {
+        // The defect this pins: Jackson decodes a config literal to Integer and pipeline
+        // data to Double for the same number, so comparing raw sprint output made the two
+        // sides of filter_condition obey different rules once Lua values stopped being
+        // narrowed to long. value 2000000 stopped matching a Lua-produced 2000000.
         //
-        // The trade is deliberate and both alternatives were measured: keeping the
-        // branch breaks filter_condition, and keeping it only above 1e6 reintroduces
-        // the same two-sides-two-rules asymmetry. A >= 1e6 item count is far less
-        // reachable than filter_condition, so this is the side that loses.
-        // Decision options are in llmdoc/memory/doc-gaps.md; this test only pins the
-        // current answer.
-        assertEquals("1e+06", GoFormat.sprint(Integer.valueOf(1000000)));
-        assertEquals("1e+06", GoFormat.sprint(1000000.0));
-        assertEquals("999999", GoFormat.sprint(Integer.valueOf(999999)));
+        // Go has no such asymmetry because both of its sides came through encoding/json
+        // as float64. FilterCondition therefore normalizes both sides to double before
+        // comparing, which keeps this path correct WITHOUT flattening sprint itself.
+        for (long n : new long[] {42, 999999, 1000000, 2000000, 123456789}) {
+            String fromConfigLiteral = GoFormat.sprint((double) Integer.valueOf((int) n));
+            String fromPipelineData = GoFormat.sprint((double) n);
+            assertEquals(fromConfigLiteral, fromPipelineData,
+                    "normalized comparison must agree across box types for " + n);
+        }
     }
 
     @Test
