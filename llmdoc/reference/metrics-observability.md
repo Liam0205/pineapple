@@ -146,7 +146,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 
 - `pine_dag_executions_total{status=success|error}` — DAG 执行总次数，按成功/失败分标签
 - `pine_dag_execution_duration_seconds` — 单次 DAG 执行端到端耗时
-- `pine_dag_operators_executed` — 每次 DAG 执行中实际运行（非跳过、非取消）的算子数（histogram，16 个 bucket：1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 75, 100, 150, 200, 500）
+- `pine_dag_operators_executed` — 每次 DAG 执行中实际运行（非跳过、非取消）的算子数（histogram，桶边界以 `pine-go/internal/runtime/engine_metrics.go` 为准，并由 `scripts/check-metrics-help-parity.py` 跨运行时守护）
 
 DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度开始到所有算子完成的完整区间；`status` 标签由是否有 fatal error 决定；`operators_executed` 只计入 `!Skipped` 的 trace 条目。
 
@@ -171,7 +171,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 |---|---|---|
 | 服务对象 | 内建 `/stats` | 外部后端 |
 | 默认是否工作 | 是，开箱即用 | **否，默认 nop** |
-| 跨运行时校验 | 有（`13-metrics-parity.sh`） | 无 |
+| 跨运行时校验 | 有（`13-metrics-parity.sh`） | 有（`check-metrics-help-parity.py`，覆盖指标名、Help 与桶边界） |
 | 提供的信息 | 总耗时、**最大耗时**、平均耗时 | count + sum（出厂）；**分位数**（下游注入后） |
 
 两条硬边界，不写下来就会被误解：
