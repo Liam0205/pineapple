@@ -77,6 +77,11 @@ jobs:
           python-version: "3.13"
       - run: pip install ruff
       - run: ruff check apple/
+      # Cross-runtime metric Help and histogram bucket parity. Pure text scan, no
+      # build needed, so it belongs in the cheapest lint job. It guards properties
+      # no other channel can see: Help never reaches any output and no bundled
+      # Provider reads the bucket field, so drift is otherwise invisible (#193).
+      - run: python3 scripts/check-metrics-help-parity.py
 
   java-lint:
     runs-on: ubuntu-latest
