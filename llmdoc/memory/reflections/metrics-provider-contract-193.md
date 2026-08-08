@@ -165,7 +165,7 @@ data race。design_doc 里的 promadapter 示例能跑，纯粹因为 `prometheu
    那条写成一对，以及 codegen 单向对齐扩展到接口契约文档。
 2. `must/conventions.md`「实测受影响面」条目的同型清单从四次更新到五次（加 #193），并把
    「症状 vs 机制」的本次例子写进去。
-3. 若将来新增 `pine_*` 指标：`scripts/check-metrics-help-parity.py` 会自动覆盖（按 `pine_[a-z_]+`
+3. 若将来新增 `pine_*` 指标：`scripts/check-metrics-help-parity.py` 会自动覆盖（前提是声明写法能被正则命中；不能命中时由条数下限与对称性检查报错，而不是静默放过）（按 `pine_[a-z0-9_]+`
    正则扫源码），但**改动指标声明的写法**（Go `Name:`/`Help:` 相邻、Java 位置参数、C++ designated
    initializer 花括号）会让对应正则失配。Go 侧失配当时只有「零命中」保护，审计第二轮证明这远远不够：**Go 的集合是基准**，少一条时对称性检查看不见，真实分歧随之消失。现已加 metric 条数下限断言，并让 Go 侧扫描先剥注释
    现已改为三道门：条数下限、双向名字集合对称、逐值比对，且扫描先剥行注释与块注释。
