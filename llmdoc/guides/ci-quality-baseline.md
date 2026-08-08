@@ -194,6 +194,35 @@ issue #179（`storage_mode` 非法值选中不同物理存储）就是这类。�
 
 与上一条的关系：上一条讲输入分布回避了反例，这一条讲**比对面本身看不见这个维度**。前者可以靠改生成器修好，后者不能。
 
+**这一条只回答「门不能放哪」，不回答「要不要门」**——后者见下一条，两条必须成对读。
+
+### 无人可见的属性必然腐烂（上一条的另一半）
+
+上一条的结论是「属性不可观察 → 别在跨运行时通道上钉它」。它容易被误读成「不可观察 → 不设门」，
+而那是错的。补上的另一半：**不可观察不等于不需要门，门可以下沉到更便宜的层。**
+
+判据：**一条跨运行时声明如果没有任何通道能看见它，要么补一个代价与可观察性相称的检查，要么
+不要声称它一致。** 第三种做法（既没有门、又在文档里声称一致）会让分歧无声累积，而且文档反过来
+让下一个人相信有保障。
+
+issue #193 的实测依据：各运行时 metric 的 `# HELP` 文案由三方源码**各自独立声明**，而
+`# HELP` 从不出现在任何输出（仓库不产出 Prometheus 文本格式），出厂 provider 也都不读 `Help`
+字段（实测消费点计数为 0）。于是三方文案各自漂移，`pine_*` 指标里累积出的分歧数量远超 issue
+点名的那几条（当前数量与清单以 `scripts/check-metrics-help-parity.py` 的输出为准，不在文档里
+写死）。同期还有一处文档断言这些属性「由 cross-validate metrics-parity section 保证一致」，
+而那个 section 读的是另一套机制——见 `guides/investigation-to-fix-testing.md` 的
+「『由 X 保证』这类断言必须能追到具体脚本行」。
+
+补的门与可观察性相称：`scripts/check-metrics-help-parity.py` 同时比对 Help 文案与 histogram 桶数组，是纯文本源码扫描，不需构建、
+不需起服务，pine-go 是 source of truth，接入 `scripts/lint.sh`（即 `make lint`）。已按
+「Mutation 验证的两步判据」验过：注入一处分歧变红、恢复变绿、`make lint` 端到端同样。
+脚本自带一条 fail-fast——pine-go 侧扫不到任何 `pine_*` 时直接失败并提示「声明形状是不是变了」，
+防止正则失配退化成恒绿。**已知边界**：Java / C++ 侧正则失配不会 fail-fast，会静默退化成零比较
+对象，改动这两侧的指标声明写法时须一并核对脚本。
+
+两条并排的结论：可观察性决定门放在**哪一层**（跨运行时通道 / 单测 / 源码文本扫描），不决定
+**有没有门**。
+
 ### 新增校验段必须自陈它抓不到什么
 
 一个校验段实际能钉住的属性往往窄于它读起来的样子。**新增校验段时在脚本注释里写明：它能钉住什么、抓不到什么、为什么抓不到、真正的门在哪几个文件。**
@@ -384,6 +413,11 @@ Section 3 (`03-execution-parity.sh`) 比较三引擎 `/execute` 输出：
 - http.requests_total `POST /execute 2xx` 三方计数一致
 - http.request_duration_seconds `POST /execute` count 三方一致
 - `/stats.http` schema shape 三方一致（`requests_total` + `request_duration_seconds` 两子树存在 + duration bucket 含 `count`/`sum_ns` 字段）
+
+**边界**：本 section 读的是 `/stats`，数据由 `runtime.Stats` 供给，与 `metrics.Provider` 是分离的
+两套机制。它抓不到 Provider 侧的 metric `Help` 文案与 histogram 桶边界——那两项由
+`scripts/check-metrics-help-parity.py`（Help 文案与 histogram 桶数组，接 `make lint`）覆盖（issue #193）。
+名字里的 "metrics-parity" 曾被一份文档误读成覆盖了 Provider 侧属性。
 
 ### Section 15: Error Cause Chain Parity
 

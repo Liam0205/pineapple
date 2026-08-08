@@ -134,7 +134,22 @@
 - **不在 #189/#190 范围内**：那两条是 go-vs-java 的数字拼写；这条是同一运行时内 row-vs-column 的
   报告机制，且先于本 range 存在（`git log -S` 可查）。
 
+### 已解决：histogram 桶边界跨运行时无检查（issue #193）
+
+- **当时的判断**：`Help` 补了检查、桶边界没有，而桶的后果更重——桶只是给下游后端的建议值，但**每个运行时
+  建议得不一样，会让下游在三方之间算出的分位数不可比**。
+- **已就地解决**：`scripts/check-metrics-help-parity.py` 同时比对桶数组，接入 `make lint`。
+  边际成本接近零（同一次纯文本扫描），所以没有理由留成开放条目。
+- **实现取舍**：比对的是「某个运行时声明了哪一批桶数组」这个集合，而不是把每个数组映射回 metric 名——
+  三种语言的声明写法差异足以让名字关联变脆，而集合比对同样能抓到漂移，且不会静默错配。
+  只在两侧各有对方没有的数组时报错，避免把「某运行时不埋这个 histogram」误判成分歧。
+- **两侧都用 mutation 验证过**：改掉 pine-java 一个桶边界会变红并同时打印两侧数组，恢复后变绿。
+
 ## 已关闭条目
+
+### issue #193：`metrics.Provider` 契约定义与 metric `Help` 文案（已解决）
+
+- **结论**：已修，issue #193 / commit `67890029`。契约权威单副本落 `pine-go/pkg/metrics/metrics.go` 的 package doc，pine-java / pine-cpp 接口注释与 `design_doc/08_observability.md` 只留指针（并发那条刻意三方各重复一遍，理由见 `must/conventions.md` 的「这个模式不只适用于 codegen」）；`Help` 文案全部对齐 pine-go 并由 `scripts/check-metrics-help-parity.py` 接 `make lint` 守着；一处失效文档断言已改为陈述事实。能力边界落 `reference/metrics-observability.md`、两条纪律落 `guides/ci-quality-baseline.md` 与 `guides/investigation-to-fix-testing.md`。**桶边界那半仍无门，已单列为上面的开放条目**
 
 ### issue #187：运行时层 fail-fast 拒绝非法 `storage_mode`（已解决）
 
