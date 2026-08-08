@@ -128,6 +128,48 @@ issue #179 把这条纪律逐级放宽了两次，每次都是被下一轮审计
 
 issue #179 的直接教训：改掉分派点附近的两处反向注释后，`pine-cpp/include/pine/frame.hpp` 的类文件头注释里还活着第三份同样的表述，与改掉那处只差 90 行。根因是按 grep 命中的「分派点附近」清理，没有对同一文件通读。这与 issue #183 的「`/stats` 漏两轮」同型：都是按「issue 举的那个点」清理，而不是按「这条声明出现在哪里」清理。
 
+## 「由 X 保证 / 由 section N 锁定」这类断言必须能追到具体脚本行
+
+文档里「这个属性由 X 保证」「由 section N 锁定」是一句**可被依赖**的断言：下一个人读到它就不再去查，
+所以它假的时候代价比没写更大。
+
+**判据：写下这类断言、或读到它并打算依赖它时，打开那个 section 确认它真的断言了这个属性。
+名字相关不构成证据。**
+
+issue #193 的实例：`llmdoc/reference/metrics-observability.md` 原本写「同名指标与桶通过
+cross-validate metrics-parity section 保证一致」。名字**完全相关**——那个 section 就叫
+metrics-parity。但 `scripts/cross-validate/13-metrics-parity.sh` 读的是 `/stats`，数据由
+`runtime.Stats` 供给，与 `metrics.Provider` 是分离的两套机制；它断言的是「算子从启动即可见且计数
+为零」这类 `Stats` 行为，跟 histogram 的桶无关。三方桶数组当时逐值相同，但那是源码巧合，任一方
+改动不会让任何检查变红。处置：把断言改成陈述事实，并按
+`guides/ci-quality-baseline.md`「无人可见的属性必然腐烂」判断该不该补门。
+
+同一次核对里另外两处断言是**真的**，一并记下来避免下一个人重复排查：
+
+| 位置 | 断言 | 核对结果 |
+|---|---|---|
+| `design_doc/08_observability.md` 资源级指标 fan-out 段 | 该行为由 cross-validate section 16 锁定 | 准确。断言范围限定在 `/stats.resources`，section 16 确实钉住它 |
+| `guides/ci-quality-baseline.md` 的 Metrics Parity section 段 | section 13 覆盖 pre-init 与 `/stats` 数值一致性 | 准确。描述与脚本实际断言一致 |
+
+顺带的纪律：**核对过的断言把结论写进 commit message 或文档**（标明「已核对、不必重查」），
+比沉默地放过它们更省下游成本——沉默会让下一个人从零再核一遍。
+
+## 判缺陷之前先分清「有意设计」
+
+审计里冒出来的「缺陷」清单，**第一步不是排优先级，是逐条问「这是不是有意的」**。
+
+判据：一个候选缺陷如果在源码注释、设计文档或原始 commit 里能找到明确的设计意图声明，它就不是
+缺陷，缺的是文档。**找证据的顺序：就近注释 → 原始 commit message → 相邻实现（另两个运行时怎么做的）。**
+
+issue #193 的实例：默认 provider 丢弃一切观测、内置 collector 不读 `HistogramOpts.Buckets`，
+两条都被我当缺陷写进了 issue。实际都是有意的——nop 实现的注释明写 `zero overhead`，collector
+从设计上就不是直方图后端（只聚合 count + sum，供 `/stats.resources` 用）。承认这个前提之后，
+六条候选「缺陷」里四条塌缩成一条「缺文档」，工作量与风险都大幅下降。
+
+**这一步的真正价值是避免修掉正确的东西。** 把有意设计当缺陷"修好"，代价不只是白做，还会破坏它
+原本承担的契约（本例里就是默认路径的零开销）。与「既存断言与参考实现相反时的处置顺序」同族：
+那条讲测试可能在断言错的行为，这条讲你自己的缺陷清单可能在指控对的行为。
+
 ## 断言装箱类型 vs 断言契约
 
 类型断言（`assertInstanceOf` / `assertEquals(42L, ...)` 这类带宿主语言类型的写法）**只有在被断言的那个 class 本身是外部可观察契约时才成立**。否则它冻的是内部实现细节，实现被改正确时反而变红，产生「修对了看起来像回归」的信号反转。
