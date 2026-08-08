@@ -145,6 +145,19 @@
   分歧完全隐形。现为**按 metric 名建映射、逐值比对**，并对两个方向都做名字集合对称性检查。
 - **两侧都用 mutation 验证过**：改掉 pine-java 一个桶边界会变红并同时打印两侧数组，恢复后变绿。
 
+### `.github/agentic/setup.sh` 没有离线契约测试（2026-08-08 接入 `setup_script` 时确认）
+
+- **现状**：评审器环境准备脚本目前靠一套手工配方验证——用 `gh api` 拉上游**真实的** `run-setup-hook.sh`
+  在本地跑一遍，再用「让脚本 touch 一个游离文件」变异验证工作树洁净断言真的会红。配方已写进
+  `guides/ci-quality-baseline.md`，但没有任何自动化检查会在脚本回归时报警。
+- **为什么值得单独排期**：这个脚本有一类特别隐蔽的失效模式——它被刻意设计成「失败不致命、把缺失能力
+  报告给 agent」，于是**一个坏掉的脚本和一个诚实报告受限环境的脚本，输出长得一模一样**。本次接入就撞到
+  两次（`timeout` 调不了 shell 函数、`BASH_SOURCE` 指向 sparse checkout），两次都是「报告所有能力不可用、
+  其实什么都没装」，读脚本完全看不出来。下次回归大概率同样静默。
+- **待决策**：上游自己有 `scripts/test-pr-review-contract.py` 这类离线契约测试可作参照。问题是本仓库
+  没有 CI 配置代码的测试层，加一个要连带决定它放哪个 job、以及是否要 mock runner toolcache 布局。
+- **过程记录**：`memory/reflections/agentic-setup-script-and-apt-mirror-rotation.md`
+
 ## 已关闭条目
 
 ### issue #193：`metrics.Provider` 契约定义与 metric `Help` 文案（已解决）
