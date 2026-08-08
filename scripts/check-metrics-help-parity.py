@@ -140,8 +140,47 @@ def scan_named_buckets(patterns):
     return found
 
 
+def audit_scan_completeness():
+    """Cross-check the regex scan against a crude, independent count.
+
+    Three consecutive review rounds each found a different way to make the pine-go
+    scan silently see LESS than the file declares — an inserted comment, a comment
+    absorbing a pattern binding, and line-wrapped concatenation. Each was fixed, but
+    the shape recurred because a regex scan fails quietly by nature: it reports what
+    it matched, never what it should have matched.
+
+    So this counts `"pine_..."` string occurrences with a deliberately dumber method
+    and compares. It will not localise a problem, and it is expected to over-count
+    (names appear in tests, comments and both sides of a comparison). It only has to
+    notice the scan going blind, which no amount of pattern polish can do for itself.
+    """
+    crude = set()
+    for pat in _rooted(GO_GLOBS):
+        for path in glob.glob(pat, recursive=True):
+            if "_test" in path or not os.path.isfile(path):
+                continue
+            crude |= set(re.findall(r'"(pine_[a-z0-9_]+)"', open(path, encoding="utf-8").read()))
+    return crude
+
+
 def main():
     go = scan(GO_GLOBS, GO_PAT)
+    crude = audit_scan_completeness()
+    blind = sorted(crude - set(go))
+    if blind:
+        print(
+            f"FAIL the pine-go scan matched {len(go)} metrics but a cruder count found "
+            f"{len(blind)} more name(s) it never parsed:"
+        )
+        for name in blind:
+            print(f"  {name}")
+        print(
+            "\nThe scan is going blind, which is how this check has been defeated "
+            "three separate times. Either GO_PAT no longer matches a declaration shape "
+            "used in the tree, or a name appears somewhere this script should ignore. "
+            "Fix the pattern rather than the expectation."
+        )
+        return 1
     # A floor, not just a zero check. Losing ONE metric to a shape change is the
     # dangerous case: the go map is this check's baseline, so a go-side miss removes
     # the metric from every comparison at once and the summary still reads OK. Raise
