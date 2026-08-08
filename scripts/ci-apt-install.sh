@@ -59,15 +59,27 @@ APT_MIRRORLIST="${APT_MIRRORLIST:-/etc/apt/apt-mirrors.txt}"
 # the list one host at a time. Rotating by the attempt number instead would
 # make attempt 3 land back on the original head for a 3-mirror list.
 #
-# Comments and blank lines are preserved verbatim. Writes need sudo (the file
-# is root-owned), so readability is what gets checked here, not writability.
+# The rotation is computed over apt's own ordering, not the file's line order.
+# Those two differ: a list written as `A priority:3 / B priority:1` is tried
+# B-first, so shifting by line order would move A to the head and leave apt
+# still preferring B — no rotation at all, in exactly the case this function
+# exists for. Mirrors are therefore sorted by effective priority first (missing
+# priority sorts last, matching apt), and the shift applies to that sequence.
+#
+# Comment and blank lines keep their content but not their position: they are
+# emitted as encountered while mirror lines are held back to END, so they end
+# up above the mirror block. apt ignores both, so this is harmless.
+#
+# Writes need sudo (the file is root-owned), so readability is what gets
+# checked here, not writability.
 #
 # Parsing is tab-field aware because the format is: URI, then a TAB, then
 # metadata separated by tabs or spaces. Rewriting the line as a single string
 # would join URI and metadata with a space and apt would then read the space
-# as part of the URI. Only the priority token is dropped; any other metadata
-# (arch:, codename:, component:, ...) is carried through, since dropping it
-# would silently widen which files a partial mirror is asked to serve.
+# as part of the URI. Metadata other than priority (arch:, codename:,
+# component:, ...) is carried through — content preserved, though separators
+# are normalized to tabs — since dropping it would silently widen which files
+# a partial mirror is asked to serve.
 rotate_mirrorlist() {
   local tmp
   [[ -r "$APT_MIRRORLIST" ]] || return 1
@@ -76,26 +88,47 @@ rotate_mirrorlist() {
     /^[[:space:]]*(#|$)/ { print; next }
     { uri[++n] = $1
       meta[n] = ""
+      # Sentinel so mirrors with no explicit priority sort last, as apt does.
+      prio[n] = 2147483647
       for (f = 2; f <= NF; f++) {
         # Split on either separator the format allows, then keep everything
-        # except the priority we are about to reassign.
+        # except the priority, which we record and then reassign.
         c = split($f, kv, /[ \t]+/)
-        for (k = 1; k <= c; k++)
-          if (kv[k] != "" && kv[k] !~ /^priority:[0-9]+$/)
+        for (k = 1; k <= c; k++) {
+          if (kv[k] == "") continue
+          if (kv[k] ~ /^priority:[0-9]+$/) {
+            sub(/^priority:/, "", kv[k])
+            prio[n] = kv[k] + 0
+          } else {
             meta[n] = meta[n] "\t" kv[k]
+          }
+        }
       }
     }
     END {
+      if (n == 0) exit 1
+      # Insertion sort by effective priority into ord[], stable so that equal
+      # priorities keep file order (apt picks among equals at random anyway).
       for (i = 1; i <= n; i++) {
-        j = ((i - 1 + s) % n) + 1
+        for (j = i; j > 1 && prio[ord[j - 1]] > prio[i]; j--)
+          ord[j] = ord[j - 1]
+        ord[j] = i
+      }
+      for (i = 1; i <= n; i++) {
+        j = ord[((i - 1 + s) % n) + 1]
         printf "%s\tpriority:%d%s\n", uri[j], i, meta[j]
       }
     }' "$APT_MIRRORLIST" > "$tmp" || { rm -f "$tmp"; return 1; }
-  # Non-empty guard: an awk failure that still exits 0 would otherwise leave
-  # the runner with no mirrors at all, turning a slow day into a hard failure.
-  [[ -s "$tmp" ]] || { rm -f "$tmp"; return 1; }
-  sudo cp "$tmp" "$APT_MIRRORLIST"
-  local rc=$?
+  # Require at least one mirror line, not merely a non-empty file: a list of
+  # only comments would satisfy `-s` while leaving the runner with no mirrors
+  # at all, turning a slow day into a hard failure.
+  grep -Eqv '^[[:space:]]*(#|$)' "$tmp" || { rm -f "$tmp"; return 1; }
+  # Replace atomically. `cp` onto the live file truncates first, so a failure
+  # mid-write would leave apt with a half-written list; rename cannot. Keep a
+  # one-time backup of the image's original list for post-mortems.
+  sudo cp -n "$APT_MIRRORLIST" "$APT_MIRRORLIST.orig" 2>/dev/null || true
+  local rc=0
+  sudo cp "$tmp" "$APT_MIRRORLIST.new" && sudo mv "$APT_MIRRORLIST.new" "$APT_MIRRORLIST" || rc=$?
   rm -f "$tmp"
   # Report the new first mirror, skipping comments so the log names a host
   # rather than whatever header the image happens to put at the top.

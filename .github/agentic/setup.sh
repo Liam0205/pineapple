@@ -75,6 +75,34 @@ add_env() {
   export "$1"="$2"
 }
 
+# Overall deadline, kept a little under the hook's own cap so this script always
+# gets to print its summary.
+#
+# This matters because the per-phase budgets deliberately sum to more than the
+# hook allows (990s vs a 780s default): they are ceilings for a pathological
+# phase, not expected runtimes. But if the total were ever actually reached, the
+# hook would kill this process group and the "unavailable: X, Y" summary at the
+# bottom would never run — and that summary is the agent's only signal about
+# which capability is missing. So track a deadline ourselves and skip remaining
+# phases when the budget is spent, which keeps the summary on every path.
+#
+# SETUP_HOOK_TIMEOUT mirrors the upstream variable; parse the same m/s suffixes
+# it accepts so an overridden hook timeout is respected instead of assumed.
+# Match the digits explicitly rather than stripping a trailing unit first: a
+# bare `*s` case would turn "bogus" into "bogu" and feed that into arithmetic.
+hook_budget_seconds() {
+  local v="${SETUP_HOOK_TIMEOUT:-13m}"
+  case "$v" in
+    *[0-9]m) echo $(( ${v%m} * 60 ));;
+    *[0-9]s) echo "${v%s}";;
+    *[!0-9]*|"") echo 780;;   # unrecognized form: documented default
+    *) echo "$v";;
+  esac
+}
+START_TS=$SECONDS
+# Leave headroom for the summary itself and for the final phase's own kill-after.
+DEADLINE=$(( $(hook_budget_seconds) - 45 ))
+
 # Each phase gets its own wall-clock cap. A phase that overruns is killed and
 # recorded as failed; the phases after it still get their full budget. Without
 # this, one slow mirror would consume the whole 13 minutes and leave the
@@ -88,14 +116,33 @@ add_env() {
 # GITHUB_ENV appends, which are file writes and survive the subshell.
 phase() {
   local name=$1 budget=$2 fn=$3
+  local elapsed=$(( SECONDS - START_TS ))
+  local left=$(( DEADLINE - elapsed ))
+  if [[ $left -le 10 ]]; then
+    echo "::warning::setup phase '$name' skipped: overall budget spent (${elapsed}s)"
+    failed+=("$name (no time left)")
+    return 1
+  fi
+  # Never let a phase run past the overall deadline, even if its own ceiling
+  # is larger than the time remaining.
+  local secs=${budget%s}
+  if [[ $secs -gt $left ]]; then
+    echo "::notice::setup phase '$name' budget trimmed ${budget} -> ${left}s (overall deadline)"
+    budget="${left}s"
+  fi
   echo "::group::setup: $name (budget ${budget})"
   local rc=0
   timeout --signal=TERM --kill-after=20s "$budget" \
     bash -c "set -uo pipefail; $fn" || rc=$?
   echo "::endgroup::"
   if [[ $rc -ne 0 ]]; then
-    if [[ $rc -eq 124 ]]; then
-      echo "::warning::setup phase '$name' exceeded ${budget}, skipping"
+    # 124 is a clean TERM timeout; 137 is TERM ignored and --kill-after
+    # escalating to KILL, which cmake's compiler fan-out and pip's unpack stage
+    # can both produce. Reporting 137 as "failed" would relabel "ran out of
+    # budget" as "the script or environment is broken" — the exact distinction
+    # this setup is supposed to keep visible.
+    if [[ $rc -eq 124 || $rc -eq 137 ]]; then
+      echo "::warning::setup phase '$name' exceeded ${budget} (rc=${rc}), skipping"
     else
       echo "::warning::setup phase '$name' failed (rc=${rc})"
     fi
@@ -134,7 +181,9 @@ setup_java() {
 # version. Pick the newest 1.26.x the toolcache has.
 setup_go() {
   local want_minor go_bin
-  want_minor=$(sed -nE 's/^go 1\.([0-9]+)\..*/\1/p' pine-go/go.mod | head -1)
+  # Patch level is optional in go.mod (`go 1.26` is as valid as `go 1.26.2`),
+  # so do not require the second dot.
+  want_minor=$(sed -nE 's/^go 1\.([0-9]+).*/\1/p' pine-go/go.mod | head -1)
   if [[ -z "$want_minor" ]]; then
     echo "could not read the Go minor version from pine-go/go.mod" >&2
     return 1
@@ -207,6 +256,11 @@ setup_cpp() {
   timeout --signal=TERM --kill-after=15s 300s \
     env ATTEMPTS=3 ATTEMPT_TIMEOUT=90 \
     bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev || return 1
+  # Assert rather than merely print: `set -e` is deliberately off here, so an
+  # unguarded `cmake --version` would emit "command not found" and carry on to
+  # fail less clearly at the configure step. Per the convention in
+  # ci-apt-install.sh, a missing preinstalled tool must fail at this point.
+  command -v cmake >/dev/null || { echo "cmake not found on PATH" >&2; return 1; }
   cmake --version | head -1
   cmake -S pine-cpp -B pine-cpp/build-tests \
     -DCMAKE_BUILD_TYPE=Debug \
@@ -228,9 +282,10 @@ export -f setup_java setup_go setup_python setup_golangci setup_cpp
 export -f add_path add_env
 export TOOLS_DIR GOLANGCI_VERSION GOLANGCI_SHA256
 
-# Ordered cheapest first. Budgets sum to well over the hook's 13 minutes on
-# purpose: they are per-phase ceilings for a pathological phase, not an
-# expected runtime. The hook's own timeout remains the overall stop.
+# Ordered cheapest first. Budgets sum to more than the hook's 13 minutes on
+# purpose: they are per-phase ceilings for a pathological phase, not expected
+# runtimes. phase() enforces the overall deadline on top, trimming or skipping
+# so that the summary below is reached on every path.
 phase "JDK 25"        30s  setup_java
 phase "Go toolchain"  60s  setup_go
 phase "Python tools"  180s setup_python
