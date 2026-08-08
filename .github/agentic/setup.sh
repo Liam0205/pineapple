@@ -96,15 +96,21 @@ add_env() {
 # looks exactly like an honestly constrained runner. GNU timeout also accepts
 # h/d, but this budget is minutes-scale, so treat those as unsupported rather
 # than pretending to honour them.
+# Always emit a base-10-normalized integer. `+([0-9])` accepts leading zeros and
+# bash arithmetic then reads them as octal, so "010m" would quietly mean 480s
+# instead of 600s, and "0900s" would abort with "value too great for base" —
+# taking the whole script down before any phase ran, which is the one outcome
+# this deadline machinery exists to prevent. `10#` forces decimal, and the
+# result is what gets returned so no caller sees the raw string.
 hook_budget_seconds() {
   local v="${SETUP_HOOK_TIMEOUT:-13m}" n
   # Strip at most one trailing unit, then require what remains to be all
   # digits. Checking the unit alone is not sufficient: "13m30s" and "1e3s" both
   # end in a valid unit yet leave a non-numeric remainder.
   case "$v" in
-    *m) n=${v%m}; [[ "$n" == +([0-9]) ]] && { echo $(( n * 60 )); return; } ;;
-    *s) n=${v%s}; [[ "$n" == +([0-9]) ]] && { echo "$n"; return; } ;;
-    *)  [[ "$v" == +([0-9]) ]] && { echo "$v"; return; } ;;
+    *m) n=${v%m}; [[ "$n" == +([0-9]) ]] && { echo $(( 10#$n * 60 )); return; } ;;
+    *s) n=${v%s}; [[ "$n" == +([0-9]) ]] && { echo $(( 10#$n )); return; } ;;
+    *)  [[ "$v" == +([0-9]) ]] && { echo $(( 10#$v )); return; } ;;
   esac
   echo 780
 }
@@ -154,7 +160,9 @@ phase() {
   if [[ $rc -ne 0 ]]; then
     # 124 is the ordinary timeout: TERM was delivered and the phase stopped.
     # Measured, not assumed — a phase that forks a tree of children (cmake's
-    # compilers) still yields 124, because timeout signals the group.
+    # compilers) still reports 124. Note that 124 says the direct child was
+    # signalled, not that every descendant died: a TERM-ignoring grandchild can
+    # outlive the phase and still yield 124.
     #
     # 137 means TERM did not do the job: either the phase blocked/ignored it and
     # --kill-after escalated to KILL, or something outside killed us, which on a

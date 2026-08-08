@@ -119,10 +119,12 @@ rotate_mirrorlist() {
         printf "%s\tpriority:%d%s\n", uri[j], i, meta[j]
       }
     }' "$APT_MIRRORLIST" > "$tmp" || { rm -f "$tmp"; return 1; }
-  # Second line of defence: awk already exits 1 when it saw no mirror lines, so
-  # a comments-only list is rejected above. This catches the residual case of
-  # awk exiting 0 without emitting any mirror. Checking for a mirror line rather
-  # than a non-empty file matters because comments alone would satisfy `-s`.
+  # Belt and braces. awk already exits 1 when it read no mirror lines, so a
+  # comments-only list is rejected above and this check is currently redundant.
+  # It is kept as a cheap invariant on the thing that actually matters — never
+  # install a list with no mirrors — so that a future change to the awk cannot
+  # reintroduce that outcome silently. Note `-s` alone would not do: a file of
+  # comments is non-empty yet has no mirrors.
   grep -Eqv '^[[:space:]]*(#|$)' "$tmp" || { rm -f "$tmp"; return 1; }
   # Replace atomically. `cp` onto the live file truncates first, so a failure
   # mid-write would leave apt with a half-written list; rename cannot. Keep a
