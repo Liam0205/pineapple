@@ -88,9 +88,13 @@ type MetricOpts struct {
 type HistogramOpts struct {
 	MetricOpts
 	// Buckets carries Pine's SUGGESTED boundaries; see the package doc. A nil
-	// slice means "no suggestion, choose your own", but note that Pine's engine
-	// always passes a non-nil suggestion, so a Provider wanting its own defaults
-	// must actively ignore this field rather than wait for nil.
+	// slice means "no suggestion, choose your own".
+	//
+	// Both cases really occur, so a Provider must handle both: the engine and
+	// server histograms pass a suggestion, while the Redis probe histograms in
+	// operators/transform pass nil. A Provider that wants its own defaults
+	// therefore cannot wait for nil — it has to ignore a non-nil suggestion
+	// actively — and one that trusts the suggestion cannot assume it is present.
 	Buckets []float64
 }
 

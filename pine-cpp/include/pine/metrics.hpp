@@ -66,10 +66,11 @@ struct MetricOpts {
 
 struct HistogramOpts {
   MetricOpts opts;
-  // Pine's SUGGESTED boundaries. Empty means "no suggestion", but pine's engine
-  // always passes a non-empty suggestion, so a Provider wanting its own defaults
-  // must actively ignore this rather than wait for empty. No bundled Provider
-  // reads it. See the authoritative contract in pine-go/pkg/metrics/metrics.go.
+  // Pine's SUGGESTED boundaries. Empty means "no suggestion". Both cases really
+  // occur — the engine and server histograms pass a suggestion, the Redis probe
+  // histograms pass none — so a Provider wanting its own defaults cannot wait for
+  // empty and must actively ignore a non-empty value. No bundled Provider reads
+  // it. See the authoritative contract in pine-go/pkg/metrics/metrics.go.
   std::vector<double> buckets;
 };
 

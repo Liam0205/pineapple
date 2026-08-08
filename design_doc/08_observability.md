@@ -302,7 +302,7 @@ func (p *provider) NewHistogram(opts metrics.HistogramOpts) metrics.Histogram {
     // 出厂 Provider 不读这个字段，所以它只对本适配器有意义。
     buckets := opts.Buckets
     if len(buckets) == 0 {
-        buckets = prometheus.DefBuckets  // 引擎实际上总会传非空值，这里只是兜底
+        buckets = prometheus.DefBuckets  // 这个分支是真的会走到的：resource 级 histogram（redis ping / command）不传建议值
     }
     h := prometheus.NewHistogramVec(prometheus.HistogramOpts{
         Name: opts.Name, Help: opts.Help, Buckets: buckets,

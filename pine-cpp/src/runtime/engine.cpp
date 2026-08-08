@@ -277,7 +277,9 @@ std::unique_ptr<Engine::EngineMetrics> build_engine_metrics(metrics::Provider* p
       p->new_histogram({{"pine_dag_execution_duration_seconds", "DAG execution duration in seconds.", {}},
                         {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}});
   em->dag_ops_executed =
-      p->new_histogram({{"pine_dag_operators_executed", "Number of operators executed (not skipped or cancelled) per DAG run.", {}},
+      p->new_histogram({{"pine_dag_operators_executed",
+                         "Number of operators executed (not skipped or cancelled) per DAG run.",
+                         {}},
                         {1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 450}});
   for (const auto& n : op_names) {
     em->op_exec_total->with({n});
