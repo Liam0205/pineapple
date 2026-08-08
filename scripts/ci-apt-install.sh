@@ -42,6 +42,13 @@ set -u
 ATTEMPTS="${ATTEMPTS:-3}"
 ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-300}"
 
+# Normalize to base 10 before either value reaches arithmetic. A caller passing
+# a zero-padded number (ATTEMPTS=09) would otherwise abort `[[ -lt ]]` with
+# "value too great for base", which under `set -u` skips the retry body and
+# silently turns off the mirror rotation below rather than failing loudly.
+if [[ "$ATTEMPTS" == +([0-9]) ]]; then ATTEMPTS=$(( 10#$ATTEMPTS )); fi
+if [[ "$ATTEMPT_TIMEOUT" == +([0-9]) ]]; then ATTEMPT_TIMEOUT=$(( 10#$ATTEMPT_TIMEOUT )); fi
+
 if [[ $# -eq 0 ]]; then
   echo "usage: $0 <package>..." >&2
   exit 2

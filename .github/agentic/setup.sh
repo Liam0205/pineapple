@@ -108,9 +108,14 @@ hook_budget_seconds() {
   # digits. Checking the unit alone is not sufficient: "13m30s" and "1e3s" both
   # end in a valid unit yet leave a non-numeric remainder.
   case "$v" in
-    *m) n=${v%m}; [[ "$n" == +([0-9]) ]] && { echo $(( 10#$n * 60 )); return; } ;;
-    *s) n=${v%s}; [[ "$n" == +([0-9]) ]] && { echo $(( 10#$n )); return; } ;;
-    *)  [[ "$v" == +([0-9]) ]] && { echo $(( 10#$v )); return; } ;;
+    # Cap the digit count before doing arithmetic. `10#` pins the radix but not
+    # the magnitude, and a long enough value overflows into a large positive
+    # number, so the script would think it had ample budget and trim nothing —
+    # the very outcome this machinery is meant to prevent. (Overflow to a
+    # negative value is caught by the DEADLINE guard below, but not this one.)
+    *m) n=${v%m}; [[ "$n" == +([0-9]) && ${#n} -le 6 ]] && { echo $(( 10#$n * 60 )); return; } ;;
+    *s) n=${v%s}; [[ "$n" == +([0-9]) && ${#n} -le 8 ]] && { echo $(( 10#$n )); return; } ;;
+    *)  [[ "$v" == +([0-9]) && ${#v} -le 8 ]] && { echo $(( 10#$v )); return; } ;;
   esac
   echo 780
 }
