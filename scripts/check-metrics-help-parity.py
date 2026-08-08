@@ -46,13 +46,29 @@ JAVA_GLOBS = ["pine-java/src/main/java/**/*.java"]
 # real drift with the correct old value), and one AFTER can overwrite the live value
 # because the map keeps the last match. Both were demonstrated.
 COMMENT_PAT = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
+# Help may be written as SEVERAL concatenated literals. Capturing one literal made
+# the comparison a PREFIX comparison: a wrapped continuation was dropped, so a real
+# divergence read as equal. Not a coverage problem — the metric still counts, so the
+# floor and both symmetry guards stay quiet; it defeats the value comparison itself.
+# It is also the house style (config/load.go, DataFrame.java, row_frame.cpp all wrap
+# this way), and clang-format's BreakStringLiterals pushes C++ there once a line
+# passes ColumnLimit. Go and Java join with `+`; C++ juxtaposes adjacent literals.
+LITERAL_RUN = r'(?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+'
+LITERAL_ONE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def _join_literals(raw):
+    """Concatenate a run of adjacent or `+`-joined string literals into one value."""
+    return "".join(LITERAL_ONE.findall(raw))
+
+
 GO_PAT = re.compile(
     r'Name:\s*"(pine_[a-z0-9_]+)"'
-    r'(?:(?!Name:\s*")[\s\S])*?'   # other fields, but never crossing into the next metric
-    r'Help:\s*"([^"]*)"'
+    r'(?:(?!Name:\s*")[\s\S])*?'
+    r"Help:\s*(" + LITERAL_RUN + r")"
 )
-JAVA_PAT = re.compile(r'"(pine_[a-z0-9_]+)",\s*"([^"]*)"')
-CPP_PAT = re.compile(r'\{"(pine_[a-z0-9_]+)",\s*"([^"]*)"')
+JAVA_PAT = re.compile(r'"(pine_[a-z0-9_]+)"\s*,\s*(' + LITERAL_RUN + r")")
+CPP_PAT = re.compile(r'\{"(pine_[a-z0-9_]+)"\s*,\s*(' + LITERAL_RUN + r")")
 
 
 # Anchor every glob at the repo root so the result does not depend on the caller's
@@ -72,7 +88,7 @@ def scan(patterns, pattern):
                 continue
             text = COMMENT_PAT.sub("", open(path, encoding="utf-8").read())
             for name, help_text in pattern.findall(text):
-                found[name] = help_text
+                found[name] = _join_literals(help_text)
     return found
 
 
