@@ -25,6 +25,9 @@ import sys
 # two only and silently missed the Lua-pool and Redis metrics declared under
 # operators/ — ten of the repo's metrics, i.e. the check covered 14 of 24 while
 # reporting success. Review caught it.
+# Names allow digits: p99 / 5xx / 2xx style metrics are conventional, and an
+# `[a-z_]`-only pattern would make such a metric invisible in every runtime at once
+# while the count floor (a `<` test) stayed satisfied.
 GO_GLOBS = ["pine-go/**/*.go"]
 # Headers under pine-cpp/src/ count too: the Redis metrics live in
 # src/redis/connection_pool.hpp, which an include/-only glob missed, leaving six
@@ -37,14 +40,19 @@ JAVA_GLOBS = ["pine-java/src/main/java/**/*.java"]
 # two lines silently dropped that metric from EVERY map at once — the go map is
 # the baseline, so a go-side miss is invisible to the symmetry guard. Measured: a
 # comment plus a real java divergence reported "23 ... 0 mismatches", exit 0.
-COMMENT_PAT = re.compile(r"^\s*//.*$", re.M)
+# Strip line AND block comments, anywhere on a line. Anchoring at line start missed
+# trailing comments and Javadoc/`/* */` blocks, which matters in both directions: a
+# comment BEFORE a declaration can supply the array the pattern binds to (masking a
+# real drift with the correct old value), and one AFTER can overwrite the live value
+# because the map keeps the last match. Both were demonstrated.
+COMMENT_PAT = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
 GO_PAT = re.compile(
-    r'Name:\s*"(pine_[a-z_]+)"'
+    r'Name:\s*"(pine_[a-z0-9_]+)"'
     r'(?:(?!Name:\s*")[\s\S])*?'   # other fields, but never crossing into the next metric
     r'Help:\s*"([^"]*)"'
 )
-JAVA_PAT = re.compile(r'"(pine_[a-z_]+)",\s*"([^"]*)"')
-CPP_PAT = re.compile(r'\{"(pine_[a-z_]+)",\s*"([^"]*)"')
+JAVA_PAT = re.compile(r'"(pine_[a-z0-9_]+)",\s*"([^"]*)"')
+CPP_PAT = re.compile(r'\{"(pine_[a-z0-9_]+)",\s*"([^"]*)"')
 
 
 # Anchor every glob at the repo root so the result does not depend on the caller's
@@ -79,8 +87,8 @@ def scan(patterns, pattern):
 # divergence — swapping two metrics' arrays leaves the set identical while giving
 # every affected metric the wrong buckets, which was demonstrated to pass green.
 NAMED_BUCKET_PAT = re.compile(
-    r'"(pine_[a-z_]+)"'          # metric name
-    r"(?:.(?!\"pine_[a-z_]+\"))*?"  # anything up to, but not crossing, the next metric name
+    r'"(pine_[a-z0-9_]+)"'          # metric name
+    r"(?:.(?!\"pine_[a-z0-9_]+\"))*?"  # anything up to, but not crossing, the next metric name
     r"\{\s*([0-9][0-9.,eE+\-\s]*?)\s*\}",
     # NOTE: this binds the next 4+-element numeric brace list before the next
     # pine_* name. It cannot prove the array belongs to that declaration — a
@@ -104,7 +112,7 @@ def scan_named_buckets(patterns):
         for path in glob.glob(pat, recursive=True):
             if "_test" in path or not os.path.isfile(path):
                 continue
-            text = open(path, encoding="utf-8").read()
+            text = COMMENT_PAT.sub("", open(path, encoding="utf-8").read())
             for name, raw in NAMED_BUCKET_PAT.findall(text):
                 parts = [x.strip() for x in raw.split(",") if x.strip()]
                 try:
