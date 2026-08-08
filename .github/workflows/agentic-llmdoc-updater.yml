@@ -58,3 +58,10 @@ jobs:
       use_feishu_notify: true
       since_period: ${{ needs.prepare-llmdoc.outputs.since_period }}
       target_branch: master
+      # Same toolchain as the reviewer. Doc updates routinely assert things
+      # about code ("guarded by X", "section N pins Y"), and this repo has been
+      # burned by assertions that were merely plausible; being able to actually
+      # run the checks is what makes verifying them possible instead of
+      # guessing. Everything this installs is gitignored, which this link
+      # requires: the updater packages the worktree into a candidate commit.
+      setup_script: .github/agentic/setup.sh
