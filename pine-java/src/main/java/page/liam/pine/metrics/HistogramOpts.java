@@ -8,10 +8,11 @@ public class HistogramOpts extends MetricOpts {
      * Pine's <b>suggested</b> boundaries. No bundled Provider reads this —
      * {@link MetricsCollector} aggregates count and sum only — so it exists as
      * advice to an external backend, which may honour, replace or ignore it.
-     * Both an empty and a non-empty value really occur, so a Provider must handle
+     * Both a present and an absent value really occur, so a Provider must handle
      * both: the engine and server histograms pass a suggestion, while the Redis
-     * probe histograms pass none. A Provider wanting its own defaults cannot wait
-     * for empty — it must actively ignore a non-empty suggestion.
+     * probe histograms pass <b>{@code null}</b> — not an empty array. Null-check
+     * before touching {@code buckets.length}. A Provider wanting its own defaults
+     * cannot wait for absence either; it must actively ignore a present suggestion.
      */
     public final double[] buckets;
 
