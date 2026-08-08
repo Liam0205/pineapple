@@ -26,3 +26,9 @@ jobs:
       FEISHU_WEBHOOK_TOKEN: ${{ secrets.FEISHU_WEBHOOK_TOKEN }}
     with:
       use_feishu_notify: true
+      # Give the reviewer this project's own toolchain. Without it the runner
+      # has no ruff or golangci-lint and a JDK that rejects our release 25, so
+      # the reviewer can only read code — the checks most likely to catch a
+      # real defect are exactly the ones it cannot run. Failure is not fatal;
+      # the agent is told which capabilities are missing and discloses them.
+      setup_script: .github/agentic/setup.sh
