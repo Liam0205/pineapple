@@ -119,17 +119,34 @@ rotate_mirrorlist() {
         printf "%s\tpriority:%d%s\n", uri[j], i, meta[j]
       }
     }' "$APT_MIRRORLIST" > "$tmp" || { rm -f "$tmp"; return 1; }
-  # Require at least one mirror line, not merely a non-empty file: a list of
-  # only comments would satisfy `-s` while leaving the runner with no mirrors
-  # at all, turning a slow day into a hard failure.
+  # Second line of defence: awk already exits 1 when it saw no mirror lines, so
+  # a comments-only list is rejected above. This catches the residual case of
+  # awk exiting 0 without emitting any mirror. Checking for a mirror line rather
+  # than a non-empty file matters because comments alone would satisfy `-s`.
   grep -Eqv '^[[:space:]]*(#|$)' "$tmp" || { rm -f "$tmp"; return 1; }
   # Replace atomically. `cp` onto the live file truncates first, so a failure
   # mid-write would leave apt with a half-written list; rename cannot. Keep a
   # one-time backup of the image's original list for post-mortems.
-  sudo cp -n "$APT_MIRRORLIST" "$APT_MIRRORLIST.orig" 2>/dev/null || true
+  # Test-then-copy rather than `cp -n`: coreutils 9.4 warns that -n's behaviour
+  # is non-portable and may change, and "skip if the target exists" is exactly
+  # the behaviour being relied on here.
+  [[ -e "$APT_MIRRORLIST.orig" ]] \
+    || sudo cp "$APT_MIRRORLIST" "$APT_MIRRORLIST.orig" 2>/dev/null || true
   local rc=0
-  sudo cp "$tmp" "$APT_MIRRORLIST.new" && sudo mv "$APT_MIRRORLIST.new" "$APT_MIRRORLIST" || rc=$?
+  # Carry the current mode across the replacement. `mv` moves the temp file's
+  # inode, so without this the list inherits mktemp's 0600 and — being
+  # root-owned on a runner — stops being readable by this non-root script,
+  # which would make the very next rotation bail out at the `-r` test above.
+  # Plain `cp` onto the live file used to preserve mode implicitly; the atomic
+  # form has to do it explicitly.
+  local mode
+  mode=$(stat -c %a "$APT_MIRRORLIST" 2>/dev/null) || mode=644
+  sudo install -m "$mode" "$tmp" "$APT_MIRRORLIST.new" \
+    && sudo mv "$APT_MIRRORLIST.new" "$APT_MIRRORLIST" || rc=$?
   rm -f "$tmp"
+  # Do not leave a stray .new beside the live list if either step failed; it
+  # would be one more thing to explain during a post-mortem.
+  [[ $rc -eq 0 ]] || sudo rm -f "$APT_MIRRORLIST.new" 2>/dev/null || true
   # Report the new first mirror, skipping comments so the log names a host
   # rather than whatever header the image happens to put at the top.
   [[ $rc -eq 0 ]] && echo "    next attempt starts at: $(grep -v '^[[:space:]]*\(#\|$\)' "$APT_MIRRORLIST" | head -1 | cut -f1)"

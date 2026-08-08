@@ -88,20 +88,36 @@ add_env() {
 #
 # SETUP_HOOK_TIMEOUT mirrors the upstream variable; parse the same m/s suffixes
 # it accepts so an overridden hook timeout is respected instead of assumed.
-# Match the digits explicitly rather than stripping a trailing unit first: a
-# bare `*s` case would turn "bogus" into "bogu" and feed that into arithmetic.
+# Accept only a whole string of digits with an optional single m/s suffix, and
+# fall back to the documented default for anything else. Matching on a suffix
+# first is not enough: forms like "13m30s", "1e3s" and "0.5m" all end in a
+# plausible unit, and feeding them to arithmetic either aborts the script under
+# `set -u` or yields a negative deadline that silently skips every phase — which
+# looks exactly like an honestly constrained runner. GNU timeout also accepts
+# h/d, but this budget is minutes-scale, so treat those as unsupported rather
+# than pretending to honour them.
 hook_budget_seconds() {
-  local v="${SETUP_HOOK_TIMEOUT:-13m}"
+  local v="${SETUP_HOOK_TIMEOUT:-13m}" n
+  # Strip at most one trailing unit, then require what remains to be all
+  # digits. Checking the unit alone is not sufficient: "13m30s" and "1e3s" both
+  # end in a valid unit yet leave a non-numeric remainder.
   case "$v" in
-    *[0-9]m) echo $(( ${v%m} * 60 ));;
-    *[0-9]s) echo "${v%s}";;
-    *[!0-9]*|"") echo 780;;   # unrecognized form: documented default
-    *) echo "$v";;
+    *m) n=${v%m}; [[ "$n" == +([0-9]) ]] && { echo $(( n * 60 )); return; } ;;
+    *s) n=${v%s}; [[ "$n" == +([0-9]) ]] && { echo "$n"; return; } ;;
+    *)  [[ "$v" == +([0-9]) ]] && { echo "$v"; return; } ;;
   esac
+  echo 780
 }
 START_TS=$SECONDS
 # Leave headroom for the summary itself and for the final phase's own kill-after.
 DEADLINE=$(( $(hook_budget_seconds) - 45 ))
+# A budget too small to attempt anything would otherwise skip every phase and
+# read as a constrained runner. Say so instead.
+if [[ $DEADLINE -le 10 ]]; then
+  echo "::warning::SETUP_HOOK_TIMEOUT=${SETUP_HOOK_TIMEOUT:-13m} leaves no usable budget; skipping all preparation"
+  echo "Unavailable capabilities: all phases (no usable time budget)" >&2
+  exit 1
+fi
 
 # Each phase gets its own wall-clock cap. A phase that overruns is killed and
 # recorded as failed; the phases after it still get their full budget. Without
@@ -136,13 +152,19 @@ phase() {
     bash -c "set -uo pipefail; $fn" || rc=$?
   echo "::endgroup::"
   if [[ $rc -ne 0 ]]; then
-    # 124 is a clean TERM timeout; 137 is TERM ignored and --kill-after
-    # escalating to KILL, which cmake's compiler fan-out and pip's unpack stage
-    # can both produce. Reporting 137 as "failed" would relabel "ran out of
-    # budget" as "the script or environment is broken" — the exact distinction
-    # this setup is supposed to keep visible.
-    if [[ $rc -eq 124 || $rc -eq 137 ]]; then
-      echo "::warning::setup phase '$name' exceeded ${budget} (rc=${rc}), skipping"
+    # 124 is the ordinary timeout: TERM was delivered and the phase stopped.
+    # Measured, not assumed — a phase that forks a tree of children (cmake's
+    # compilers) still yields 124, because timeout signals the group.
+    #
+    # 137 means TERM did not do the job: either the phase blocked/ignored it and
+    # --kill-after escalated to KILL, or something outside killed us, which on a
+    # runner is usually the OOM killer. Those are different problems, and 137
+    # cannot tell them apart, so report it as its own category rather than
+    # filing it under either "out of budget" or "broken".
+    if [[ $rc -eq 124 ]]; then
+      echo "::warning::setup phase '$name' exceeded ${budget}, skipping"
+    elif [[ $rc -eq 137 ]]; then
+      echo "::warning::setup phase '$name' was SIGKILLed (rc=137): budget escalation or an external kill such as OOM"
     else
       echo "::warning::setup phase '$name' failed (rc=${rc})"
     fi
