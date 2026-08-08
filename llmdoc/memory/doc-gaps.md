@@ -149,7 +149,7 @@
 
 ### issue #193：`metrics.Provider` 契约定义与 metric `Help` 文案（已解决）
 
-- **结论**：已修，issue #193 / commit `67890029`。契约权威单副本落 `pine-go/pkg/metrics/metrics.go` 的 package doc，pine-java / pine-cpp 接口注释与 `design_doc/08_observability.md` 只留指针（并发那条刻意三方各重复一遍，理由见 `must/conventions.md` 的「这个模式不只适用于 codegen」）；`Help` 文案全部对齐 pine-go 并由 `scripts/check-metrics-help-parity.py` 接 `make lint` 守着；一处失效文档断言已改为陈述事实。能力边界落 `reference/metrics-observability.md`、两条纪律落 `guides/ci-quality-baseline.md` 与 `guides/investigation-to-fix-testing.md`。**桶边界那半仍无门，已单列为上面的开放条目**
+- **结论**：已修，issue #193 / commit `67890029`。契约权威单副本落 `pine-go/pkg/metrics/metrics.go` 的 package doc，pine-java / pine-cpp 接口注释与 `design_doc/08_observability.md` 只留指针（并发那条刻意三方各重复一遍，理由见 `must/conventions.md` 的「这个模式不只适用于 codegen」）；`Help` 文案全部对齐 pine-go 并由 `scripts/check-metrics-help-parity.py` 接 `make lint` 守着；一处失效文档断言已改为陈述事实。能力边界落 `reference/metrics-observability.md`、两条纪律落 `guides/ci-quality-baseline.md` 与 `guides/investigation-to-fix-testing.md`。桶边界那半随后由同一脚本一并守住（按 metric 名比对，见上面「已解决」条目）
 
 ### issue #187：运行时层 fail-fast 拒绝非法 `storage_mode`（已解决）
 

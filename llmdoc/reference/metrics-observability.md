@@ -32,10 +32,10 @@
 
 ### pine-java
 
-- pine-java: 参考 `Registry` / `metrics/Provider.java` 模块。**指标同名由三方源码各自声明，桶边界没有任何 section 守护**——
-  `scripts/cross-validate/13-metrics-parity.sh` 读的是 `/stats`，由 `runtime.Stats` 供给，与 `metrics.Provider` 是分离的两套机制，
-  它断言的是「算子从启动即可见且计数为零」这类 `Stats` 行为，与 histogram 的桶无关。三方桶数组目前逐值相同，但那是源码巧合、
-  任一方改动不会让任何检查变红（issue #193）
+- pine-java: 参考 `Registry` / `metrics/Provider.java` 模块。**指标名、Help 文案与 histogram 桶边界由
+  `scripts/check-metrics-help-parity.py` 守着**（接 `make lint`，纯文本扫描全部三方声明点，桶按 metric 名比对）。
+  注意 `scripts/cross-validate/13-metrics-parity.sh` **不**覆盖这些：它读 `/stats`，由 `runtime.Stats` 供给，
+  与 `metrics.Provider` 是分离的两套机制，断言的是「算子从启动即可见且计数为零」这类 `Stats` 行为（issue #193）
 - `metrics/MetricsCollector.java` — 资源级指标聚合 Collector
 - `metrics/TeeProvider.java` — fan-out Provider
 
