@@ -32,18 +32,38 @@ GO_GLOBS = ["pine-go/**/*.go"]
 CPP_GLOBS = ["pine-cpp/src/**/*.cpp", "pine-cpp/src/**/*.hpp", "pine-cpp/include/**/*.hpp"]
 JAVA_GLOBS = ["pine-java/src/main/java/**/*.java"]
 
-GO_PAT = re.compile(r'Name:\s*"(pine_[a-z_]+)",\s*\n?\s*Help:\s*"([^"]*)"')
+# Strip line comments before matching, and allow other fields between Name and
+# Help. Requiring them adjacent meant an ordinary clarifying comment between the
+# two lines silently dropped that metric from EVERY map at once — the go map is
+# the baseline, so a go-side miss is invisible to the symmetry guard. Measured: a
+# comment plus a real java divergence reported "23 ... 0 mismatches", exit 0.
+COMMENT_PAT = re.compile(r"^\s*//.*$", re.M)
+GO_PAT = re.compile(
+    r'Name:\s*"(pine_[a-z_]+)"'
+    r'(?:(?!Name:\s*")[\s\S])*?'   # other fields, but never crossing into the next metric
+    r'Help:\s*"([^"]*)"'
+)
 JAVA_PAT = re.compile(r'"(pine_[a-z_]+)",\s*"([^"]*)"')
 CPP_PAT = re.compile(r'\{"(pine_[a-z_]+)",\s*"([^"]*)"')
 
 
+# Anchor every glob at the repo root so the result does not depend on the caller's
+# CWD. Running from pine-go/ previously matched nothing and produced a false red.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _rooted(patterns):
+    return [os.path.join(REPO_ROOT, p) for p in patterns]
+
+
 def scan(patterns, pattern):
     found = {}
-    for pat in patterns:
+    for pat in _rooted(patterns):
         for path in glob.glob(pat, recursive=True):
             if "_test" in path or not os.path.isfile(path):
                 continue
-            for name, help_text in pattern.findall(open(path, encoding="utf-8").read()):
+            text = COMMENT_PAT.sub("", open(path, encoding="utf-8").read())
+            for name, help_text in pattern.findall(text):
                 found[name] = help_text
     return found
 
@@ -62,6 +82,13 @@ NAMED_BUCKET_PAT = re.compile(
     r'"(pine_[a-z_]+)"'          # metric name
     r"(?:.(?!\"pine_[a-z_]+\"))*?"  # anything up to, but not crossing, the next metric name
     r"\{\s*([0-9][0-9.,eE+\-\s]*?)\s*\}",
+    # NOTE: this binds the next 4+-element numeric brace list before the next
+    # pine_* name. It cannot prove the array belongs to that declaration — a
+    # bucket-less metric followed by an unrelated numeric literal would bind it.
+    # No current declaration triggers that (all associations verified correct), and
+    # the alternative is a per-language parser, so this stays a documented limit
+    # rather than a silent one. The symmetry check above bounds the damage: a
+    # mis-binding shows up as a value mismatch, not as a silent skip.
     re.S,
 )
 
@@ -73,7 +100,7 @@ def scan_named_buckets(patterns):
     lists, single defaults) are not mistaken for bucket sets.
     """
     found = {}
-    for pat in patterns:
+    for pat in _rooted(patterns):
         for path in glob.glob(pat, recursive=True):
             if "_test" in path or not os.path.isfile(path):
                 continue
@@ -91,8 +118,19 @@ def scan_named_buckets(patterns):
 
 def main():
     go = scan(GO_GLOBS, GO_PAT)
-    if not go:
-        print("FAIL: no pine_* metrics found in pine-go — did the declaration shape change?")
+    # A floor, not just a zero check. Losing ONE metric to a shape change is the
+    # dangerous case: the go map is this check's baseline, so a go-side miss removes
+    # the metric from every comparison at once and the summary still reads OK. Raise
+    # this number when metrics are added; that is the point — it forces a human to
+    # notice the count moved.
+    EXPECTED_MIN_GO_METRICS = 24
+    if len(go) < EXPECTED_MIN_GO_METRICS:
+        print(
+            f"FAIL: found {len(go)} pine-go metrics, expected at least "
+            f"{EXPECTED_MIN_GO_METRICS}. Either a declaration shape stopped matching "
+            f"GO_PAT (most likely — this check's baseline silently shrinks), or a "
+            f"metric was removed and this floor needs lowering deliberately."
+        )
         return 1
     java = scan(JAVA_GLOBS, JAVA_PAT)
     cpp = scan(CPP_GLOBS, CPP_PAT)
@@ -105,6 +143,12 @@ def main():
     # silently compares fewer things is worse than no check — it reads as a pass.
     coverage_bad = False
     for label, other in (("java", java), ("cpp", cpp)):
+        only_other = sorted(set(other) - set(go))
+        if only_other:
+            coverage_bad = True
+            print(f"FAIL {label} declares {len(only_other)} metric(s) pine-go does not:")
+            for name in only_other:
+                print(f"  {name}")
         unseen = sorted(set(go) - set(other))
         if unseen:
             coverage_bad = True
@@ -113,10 +157,12 @@ def main():
                 print(f"  {name}")
     if coverage_bad:
         print(
-            "\nEvery pine-go metric must be found in both other runtimes, otherwise "
-            "this check silently compares a subset. If a runtime genuinely does not "
-            "declare a metric, add it to the exemption list in this script with a "
-            "reason rather than letting the scan miss it."
+            "Every pine-go metric must be found in both other runtimes, otherwise "
+            "this check silently compares a subset. Most often a declaration shape "
+            "stopped matching this script's regex — fix the regex. If a runtime "
+            "genuinely lacks the metric, that is a real gap to resolve or to record "
+            "in llmdoc/memory/doc-gaps.md; there is deliberately no skip mechanism, "
+            "because an exemption is how a check rots."
         )
         return 1
 
@@ -140,6 +186,19 @@ def main():
     cb = scan_named_buckets(CPP_GLOBS)
     bucket_bad = False
     for label, other in (("java", jb), ("cpp", cb)):
+        # Symmetry FIRST, same as for Help. `name in other` alone skips any metric
+        # whose buckets one runtime declares and another does not, so replacing an
+        # array with null/{} passed silently — the only signal was a count in the OK
+        # line that nothing asserted on. Both directions matter: a suggestion added
+        # to a deliberately-nil histogram is drift too.
+        for name in sorted(set(gb) - set(other)):
+            bucket_bad = True
+            print(f"FAIL buckets {name} [{label}] declares no bucket array")
+            print(f"  pine-go: {list(gb[name])}")
+        for name in sorted(set(other) - set(gb)):
+            bucket_bad = True
+            print(f"FAIL buckets {name} [{label}] declares an array pine-go does not")
+            print(f"  {label:>7}: {list(other[name])}")
         for name, want in sorted(gb.items()):
             if name in other and other[name] != want:
                 bucket_bad = True
