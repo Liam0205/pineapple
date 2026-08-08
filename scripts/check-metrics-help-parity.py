@@ -149,6 +149,11 @@ def audit_scan_completeness():
     the shape recurred because a regex scan fails quietly by nature: it reports what
     it matched, never what it should have matched.
 
+    Scope, stated because an earlier description of this overstated it: this covers the
+    HELP scan only, and only the "declaration stopped matching" class. It cannot see a
+    truncated value (the name still matches) and there is no equivalent self-check for
+    the bucket scan; those rely on per-name value comparison and bucket symmetry.
+
     So this counts `"pine_..."` string occurrences with a deliberately dumber method
     and compares. It will not localise a problem, and it is expected to over-count
     (names appear in tests, comments and both sides of a comparison). It only has to
