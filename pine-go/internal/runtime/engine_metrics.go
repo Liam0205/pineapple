@@ -46,6 +46,12 @@ func NewEngineMetrics(p metrics.Provider) *EngineMetrics {
 			Help:       "Total successful operator executions.",
 			LabelNames: opLabels,
 		}),
+		// The Buckets below (and on the other histograms here) are a SUGGESTION to
+		// an external backend, not a working configuration: no bundled Provider
+		// reads them — Collector aggregates count and sum only. They encode the
+		// operator-latency range Pine actually observes, so they are worth keeping
+		// as advice, but a downstream Provider may replace or ignore them. See the
+		// implementer's contract in pkg/metrics/metrics.go.
 		OpExecDuration: p.NewHistogram(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{
 				Name:       "pine_operator_exec_duration_seconds",

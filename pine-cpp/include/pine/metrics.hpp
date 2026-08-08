@@ -9,6 +9,19 @@
 //
 // Engine instruments scheduler + DAG execution through Provider. To export
 // metrics, implement Provider and pass via EngineOptions::metrics_provider.
+//
+// IMPLEMENTER'S CONTRACT — the authoritative copy lives in
+// pine-go/pkg/metrics/metrics.go (package doc, "Implementer's contract"). This
+// file aligns to it and deliberately does not restate it, so the two cannot
+// drift. Read it before implementing Provider; the four points it covers are
+// concurrency, units, buckets-as-suggestion and label-value lifetime, and none
+// of them are inferable from the signatures below.
+//
+// The single point repeated here because it affects correctness rather than
+// accuracy: observe(), inc(), set(), add() and with() ARE CALLED CONCURRENTLY
+// (the scheduler runs independent operators in parallel), so an implementation
+// must be safe for concurrent use. The bundled Collector and nop_provider both
+// satisfy this, which means a racy Provider will not be caught by pine's tests.
 
 #include <chrono>
 #include <memory>
@@ -38,7 +51,10 @@ class Gauge {
 class Histogram {
  public:
   virtual ~Histogram() = default;
+  // Returned pointer is owned by the underlying Provider — do not delete.
   virtual Histogram* with(const std::vector<std::string>& label_values) = 0;
+  // For duration histograms the value is in SECONDS; the signature cannot
+  // enforce it. See the authoritative contract in pine-go/pkg/metrics.
   virtual void observe(double value) = 0;
 };
 
@@ -50,7 +66,11 @@ struct MetricOpts {
 
 struct HistogramOpts {
   MetricOpts opts;
-  std::vector<double> buckets;  // empty → implementation-chosen defaults
+  // Pine's SUGGESTED boundaries. Empty means "no suggestion", but pine's engine
+  // always passes a non-empty suggestion, so a Provider wanting its own defaults
+  // must actively ignore this rather than wait for empty. No bundled Provider
+  // reads it. See the authoritative contract in pine-go/pkg/metrics/metrics.go.
+  std::vector<double> buckets;
 };
 
 class Provider {

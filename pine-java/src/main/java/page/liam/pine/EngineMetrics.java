@@ -16,17 +16,21 @@ public class EngineMetrics {
     public final Histogram dagOpsExecuted;
 
     public EngineMetrics(Provider provider) {
-        this.schedulerRuns = provider.newCounter(new MetricOpts("pine_scheduler_runs_total", "Total scheduler runs"));
-        this.activeOps = provider.newGauge(new MetricOpts("pine_operator_active", "Currently executing operators"));
-        this.opExecTotal = provider.newCounter(new MetricOpts("pine_operator_exec_total", "Operator executions", "operator"));
-        this.opExecDuration = provider.newHistogram(new HistogramOpts("pine_operator_exec_duration_seconds", "Operator execution duration",
+        this.schedulerRuns = provider.newCounter(new MetricOpts("pine_scheduler_runs_total", "Total number of DAG scheduler runs."));
+        this.activeOps = provider.newGauge(new MetricOpts("pine_operator_active", "Number of operators currently executing."));
+        this.opExecTotal = provider.newCounter(new MetricOpts("pine_operator_exec_total", "Total successful operator executions.", "operator"));
+        // Buckets here (and on the other histograms) are a SUGGESTION to an external
+        // backend, not a working configuration: no bundled Provider reads them —
+        // MetricsCollector aggregates count and sum only. Authoritative contract:
+        // pine-go/pkg/metrics/metrics.go.
+        this.opExecDuration = provider.newHistogram(new HistogramOpts("pine_operator_exec_duration_seconds", "Operator execution duration in seconds.",
                 new double[]{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}, "operator"));
-        this.opSkipTotal = provider.newCounter(new MetricOpts("pine_operator_skip_total", "Operator skips", "operator"));
-        this.opErrorTotal = provider.newCounter(new MetricOpts("pine_operator_error_total", "Operator errors", "operator"));
-        this.dagExecTotal = provider.newCounter(new MetricOpts("pine_dag_executions_total", "DAG executions", "status"));
-        this.dagExecDuration = provider.newHistogram(new HistogramOpts("pine_dag_execution_duration_seconds", "DAG execution duration",
+        this.opSkipTotal = provider.newCounter(new MetricOpts("pine_operator_skip_total", "Total skipped operator executions.", "operator"));
+        this.opErrorTotal = provider.newCounter(new MetricOpts("pine_operator_error_total", "Total failed operator executions.", "operator"));
+        this.dagExecTotal = provider.newCounter(new MetricOpts("pine_dag_executions_total", "Total DAG executions.", "status"));
+        this.dagExecDuration = provider.newHistogram(new HistogramOpts("pine_dag_execution_duration_seconds", "DAG execution duration in seconds.",
                 new double[]{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}));
-        this.dagOpsExecuted = provider.newHistogram(new HistogramOpts("pine_dag_operators_executed", "Operators executed per DAG run",
+        this.dagOpsExecuted = provider.newHistogram(new HistogramOpts("pine_dag_operators_executed", "Number of operators executed (not skipped or cancelled) per DAG run.",
                 new double[]{1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 450}));
     }
 

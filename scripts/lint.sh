@@ -19,6 +19,12 @@ if [[ -f "$REPO_ROOT/pine-java/pom.xml" ]]; then
   java_out=$(cd "$REPO_ROOT/pine-java" && mvn checkstyle:check -B -q 2>&1) || errors+="=== checkstyle ===\n${java_out}\n\n"
 fi
 
+# Cross-runtime metric Help parity. Cheap (pure text scan, no build) and it
+# guards a property nothing else can see: `# HELP` never reaches any output, so
+# drift here is invisible to cross-validate. See issue #193.
+help_out=$(python3 "$REPO_ROOT/scripts/check-metrics-help-parity.py" 2>&1) \
+  || errors+="=== metrics Help parity ===\n${help_out}\n\n"
+
 if [[ -n "$errors" ]]; then
   echo
   echo "Lint failures:" >&2

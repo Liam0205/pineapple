@@ -133,11 +133,11 @@ public class PineServer {
                 ? metricsProvider
                 : page.liam.pine.metrics.NopProvider.getInstance();
         reloadTotal = this.metricsProvider.newCounter(
-                new page.liam.pine.metrics.MetricOpts("pine_config_reload_total", "Config reload count"));
+                new page.liam.pine.metrics.MetricOpts("pine_config_reload_total", "Total successful config reloads."));
         reloadErrorTotal = this.metricsProvider.newCounter(
-                new page.liam.pine.metrics.MetricOpts("pine_config_reload_errors_total", "Config reload error count"));
+                new page.liam.pine.metrics.MetricOpts("pine_config_reload_errors_total", "Total failed config reloads."));
         reloadDuration = this.metricsProvider.newHistogram(
-                new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration", new double[]{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}));
+                new page.liam.pine.metrics.HistogramOpts("pine_config_reload_duration_seconds", "Config reload duration in seconds.", new double[]{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}));
     }
 
     /**
@@ -591,9 +591,9 @@ public class PineServer {
     private com.sun.net.httpserver.HttpHandler httpMetricsMiddleware(String path, com.sun.net.httpserver.HttpHandler next) {
         if (httpRequestsTotal == null) {
             httpRequestsTotal = metricsProvider.newCounter(
-                    new page.liam.pine.metrics.MetricOpts("pine_http_requests_total", "HTTP request count", "method", "path", "status"));
+                    new page.liam.pine.metrics.MetricOpts("pine_http_requests_total", "Total HTTP requests.", "method", "path", "status"));
             httpRequestDuration = metricsProvider.newHistogram(
-                    new page.liam.pine.metrics.HistogramOpts("pine_http_request_duration_seconds", "HTTP request duration", new double[]{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}, "method", "path"));
+                    new page.liam.pine.metrics.HistogramOpts("pine_http_request_duration_seconds", "HTTP request duration in seconds.", new double[]{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}, "method", "path"));
         }
         return exchange -> {
             long start = System.nanoTime();

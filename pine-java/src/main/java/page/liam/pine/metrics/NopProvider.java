@@ -1,5 +1,12 @@
 package page.liam.pine.metrics;
 
+/**
+ * A {@link Provider} that discards every observation at zero cost. This is the
+ * default when no Provider is injected, which means <b>engine metrics record
+ * nothing out of the box</b> — see
+ * {@code llmdoc/reference/metrics-observability.md} for what the bundled
+ * implementations do and do not offer.
+ */
 public final class NopProvider implements Provider {
     private static final NopProvider INSTANCE = new NopProvider();
 

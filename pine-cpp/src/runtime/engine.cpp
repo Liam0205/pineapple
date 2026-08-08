@@ -261,6 +261,10 @@ std::unique_ptr<Engine::EngineMetrics> build_engine_metrics(metrics::Provider* p
   em->active_ops = p->new_gauge({"pine_operator_active", "Number of operators currently executing.", {}});
   em->op_exec_total =
       p->new_counter({"pine_operator_exec_total", "Total successful operator executions.", {"operator"}});
+  // Buckets here (and on the other histograms) are a SUGGESTION to an external
+  // backend, not a working configuration: no bundled Provider reads them — the
+  // Collector aggregates count and sum only. Authoritative contract:
+  // pine-go/pkg/metrics/metrics.go.
   em->op_exec_duration = p->new_histogram(
       {{"pine_operator_exec_duration_seconds", "Operator execution duration in seconds.", {"operator"}},
        {0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0}});
@@ -273,7 +277,7 @@ std::unique_ptr<Engine::EngineMetrics> build_engine_metrics(metrics::Provider* p
       p->new_histogram({{"pine_dag_execution_duration_seconds", "DAG execution duration in seconds.", {}},
                         {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}});
   em->dag_ops_executed =
-      p->new_histogram({{"pine_dag_operators_executed", "Number of operators executed per DAG run.", {}},
+      p->new_histogram({{"pine_dag_operators_executed", "Number of operators executed (not skipped or cancelled) per DAG run.", {}},
                         {1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 450}});
   for (const auto& n : op_names) {
     em->op_exec_total->with({n});
