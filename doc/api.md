@@ -75,7 +75,15 @@ curl http://localhost:8080/dag?format=dot&collapse=1
 
 ### Prometheus 接入
 
-通过 `pkg/metrics.Provider` 接口支持外部指标导出，核心库不依赖 `prometheus/client_golang`：
+通过 `pkg/metrics.Provider` 接口支持外部指标导出，核心库不依赖 `prometheus/client_golang`。
+
+> **实现前先读契约**：`pine-go/pkg/metrics/metrics.go` 的 package doc 定义了四件从签名看不出来的事——
+> `Observe` / `Inc` / `Set` / `Add` / `With` **会被并发调用**、duration 的单位是**秒**、
+> `HistogramOpts.Buckets` 只是**建议值**（出厂 Provider 并不读它）、`With` 之后可能不跟随 `Observe`。
+> 其中并发一条影响正确性而非精度。完整适配器示例（含 `NewHistogram`）见
+> [可观测性设计文档](../design_doc/08_observability.md)。
+
+注入方式：
 
 ```go
 mp := promadapter.New(prometheus.DefaultRegisterer)

@@ -267,7 +267,14 @@ Pineapple 核心库不依赖 `prometheus/client_golang`。Prometheus 适配器�
 
 #### Prometheus 接入示例
 
-第三方项目实现 `metrics.Provider` 接口，约 80 行：
+第三方项目实现 `metrics.Provider` 接口。**动手前先读 `pine-go/pkg/metrics/metrics.go` 的
+package doc「Implementer's contract」——那是唯一权威副本**，覆盖四件签名上看不出来的事：并发、
+单位、桶只是建议、label 生命周期。
+
+其中并发一条影响正确性而非精度：`Observe` / `Inc` / `Set` / `Add` / `With` **会被并发调用**
+（调度器并行执行算子）。下面用的 `prometheus.HistogramVec` 与 `CounterVec` 本身并发安全，所以照抄
+可用；但若自行用 `map` 缓存 `With()` 结果，必须自己加锁——出厂的 `Collector` 与 `nop` 都是安全的，
+所以这类竞争不会被 pineapple 自己的测试抓到。
 
 ```go
 package promadapter
@@ -289,7 +296,39 @@ func (p *provider) NewCounter(opts metrics.MetricOpts) metrics.Counter {
     return &counter{vec: c}
 }
 
-// NewGauge, NewHistogram 类似...
+func (p *provider) NewHistogram(opts metrics.HistogramOpts) metrics.Histogram {
+    // opts.Buckets 是 pineapple 的建议值，不是必须遵守的配置。这里选择 honor 它；
+    // 也可以完全忽略而使用自己的边界，或改用 native histogram（无固定边界）。
+    // 出厂 Provider 不读这个字段，所以它只对本适配器有意义。
+    buckets := opts.Buckets
+    if len(buckets) == 0 {
+        buckets = prometheus.DefBuckets  // 引擎实际上总会传非空值，这里只是兜底
+    }
+    h := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+        Name: opts.Name, Help: opts.Help, Buckets: buckets,
+    }, opts.LabelNames)
+    p.r.MustRegister(h)
+    return &histogram{vec: h}
+}
+
+// NewGauge 与 NewCounter 同型。
+
+type histogram struct {
+    vec *prometheus.HistogramVec
+    h   prometheus.Observer
+}
+
+func (h *histogram) With(lvs ...string) metrics.Histogram {
+    // 允许 With 之后不 Observe：引擎启动时会为每个算子预热 label 组合，
+    // 好让 Prometheus 从零值开始暴露序列。
+    return &histogram{vec: h.vec, h: h.vec.WithLabelValues(lvs...)}
+}
+
+func (h *histogram) Observe(v float64) {
+    // v 的单位是秒（引擎侧统一经 metrics.DurationSeconds 转换）。
+    // prometheus 的 duration 惯例同样是秒，所以这里直接传。
+    if h.h != nil { h.h.Observe(v) }
+}
 
 type counter struct {
     vec *prometheus.CounterVec

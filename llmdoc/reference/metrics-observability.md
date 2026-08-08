@@ -32,7 +32,10 @@
 
 ### pine-java
 
-- pine-java: 参考 `Registry` / `metrics/Provider.java` 模块；同名指标与桶通过 cross-validate metrics-parity section 保证一致
+- pine-java: 参考 `Registry` / `metrics/Provider.java` 模块。**指标同名由三方源码各自声明，桶边界没有任何 section 守护**——
+  `scripts/cross-validate/13-metrics-parity.sh` 读的是 `/stats`，由 `runtime.Stats` 供给，与 `metrics.Provider` 是分离的两套机制，
+  它断言的是「算子从启动即可见且计数为零」这类 `Stats` 行为，与 histogram 的桶无关。三方桶数组目前逐值相同，但那是源码巧合、
+  任一方改动不会让任何检查变红（issue #193）
 - `metrics/MetricsCollector.java` — 资源级指标聚合 Collector
 - `metrics/TeeProvider.java` — fan-out Provider
 
@@ -159,6 +162,33 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 - `/stats` 面向人类诊断与零配置自检
 - provider metrics 面向 Prometheus/Grafana 等系统
+
+### 两个通道各自的能力边界（issue #193）
+
+**这两条通道不是互为备份，各有对方没有的东西**，写清是为了避免读者以为其中一条冗余：
+
+| | 通道一 `runtime.Stats` | 通道二 metrics `Provider` |
+|---|---|---|
+| 服务对象 | 内建 `/stats` | 外部后端 |
+| 默认是否工作 | 是，开箱即用 | **否，默认 nop** |
+| 跨运行时校验 | 有（`13-metrics-parity.sh`） | 无 |
+| 提供的信息 | 总耗时、**最大耗时**、平均耗时 | count + sum（出厂）；**分位数**（下游注入后） |
+
+两条硬边界，不写下来就会被误解：
+
+1. **出厂部署下通道二不留任何观测。** 三方捆绑服务器都是「注入的 provider，否则 nop」
+   （`pine-go/pkg/server/server.go`、`pine-java/.../PineServer.java`、`pine-cpp/src/server/server.cpp`），
+   而 `Collector` / `MetricsCollector` 只交给 ResourceManager，engine metrics 被刻意排除在
+   `/stats.resources` 之外。所以不注入自定义 Provider 时，`pine_operator_exec_duration_seconds`
+   连一次观测都没有。
+2. **出厂 collector 只能给 count + sum，拿不到分位数。** 三方 cell 结构一致（Go `histCell`、
+   Java `HistCell`、C++ `HistCell` 都只有 count 与 sum_ns），只够算平均值，没有直方图结构。
+   **要 P50/P99 必须自己实现 Provider 并接真正的直方图后端**；`HistogramOpts.buckets` 是给那个
+   实现的建议值，出厂实现不消费它。
+
+实现 Provider 前必须读的契约（并发、单位、桶的性质、label 生命周期）在
+`pine-go/pkg/metrics/metrics.go` 的 package doc，**那是唯一权威副本**，pine-java / pine-cpp 的接口
+注释与 `design_doc/08_observability.md` 都只留指针、不复述。
 
 ## 服务端观测
 

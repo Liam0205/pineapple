@@ -75,7 +75,16 @@ The `GET /stats` endpoint is always available, backed by atomic counters with ze
 
 ### Prometheus Integration
 
-External metrics export is supported via the `pkg/metrics.Provider` interface. The core library has no dependency on `prometheus/client_golang`:
+External metrics export is supported via the `pkg/metrics.Provider` interface. The core library has no dependency on `prometheus/client_golang`.
+
+> **Read the contract first**: the package doc in `pine-go/pkg/metrics/metrics.go` states four things the
+> signatures do not — `Observe` / `Inc` / `Set` / `Add` / `With` **are called concurrently**, duration
+> values are in **seconds**, `HistogramOpts.Buckets` is only a **suggestion** (no bundled Provider reads
+> it), and `With` may not be followed by `Observe`. The concurrency point affects correctness, not just
+> accuracy. A complete adapter example including `NewHistogram` is in the
+> [observability design doc](../design_doc/08_observability.md).
+
+Injection:
 
 ```go
 mp := promadapter.New(prometheus.DefaultRegisterer)

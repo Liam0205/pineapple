@@ -1,5 +1,8 @@
 package page.liam.pine.metrics;
 
+/**
+ * Name, help text and label names for a Counter or Gauge.
+ */
 public class MetricOpts {
     public final String name;
     public final String help;
