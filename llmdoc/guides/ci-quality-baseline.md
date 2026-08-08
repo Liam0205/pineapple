@@ -50,9 +50,17 @@
 
 1. **仓库根目录取 `$PWD`，不能用 `BASH_SOURCE`。** 上游 hook 的调用形式是 `cd "$repo_dir" && bash "$hook"`，而 `$hook` 位于 `.trusted-base`——一个只含这个脚本的 sparse checkout。按脚本位置推导根目录会让每个阶段都找不到 `pine-go/go.mod` / `pine-cpp/` / `scripts/`，结果是"报告所有能力都不可用、其实什么都没装"。现已用三个 marker 文件断言 cwd。
 2. **`timeout` 是外部程序，调不了 shell 函数。** 阶段体必须 `export -f` 后在 `bash -c` 里跑，否则每个阶段以 rc=127 结束，症状同上——读脚本完全看不出来，只有真跑一次才会暴露。
-3. **工作树必须保持干净，否则 job 直接失败。** 产物一律落 `RUNNER_TEMP`，唯一例外是 C++ 构建用 `pine-cpp/build-tests`（与 `scripts/cpp-test.sh` 对齐，让 agent 的 `make cpp-test` 复用缓存），该路径由 `.gitignore` 的 `pine-cpp/build*/` 覆盖，其下 CMake FetchContent 缓存同样被覆盖。这条断言做过变异验证：让脚本 `touch` 一个游离文件，hook 确实以 exit 1 失败。
+3. **工作树必须保持干净，否则 job 直接失败。** 产物一律落 `RUNNER_TEMP`，唯一例外是 C++ 构建用 `pine-cpp/build-tests`（与 `scripts/cpp-test.sh` 对齐，让 agent 的 `make cpp-test` 复用缓存），该路径由 `.gitignore` 的 `pine-cpp/build*/` 覆盖，其下 CMake FetchContent 缓存同样被覆盖。
 
-退出码非零不致命，因此脚本会**点名**列出不可用的阶段——那段文字是 agent 唯一能知道"缺哪项能力"的信号，只给个退出码等于让它猜。
+退出码非零不致命，因此脚本会**点名**列出不可用的阶段——那段文字是 agent 唯一能知道"缺哪项能力"的信号，只给个退出码等于让它猜。**正因如此，脚本自己维护一个总 deadline**（读 `SETUP_HOOK_TIMEOUT`、留 45s 余量），预算不够时主动裁剪或跳过后续阶段：各阶段预算之和（990s）刻意大于 hook 默认上限（780s），它们是病态阶段的天花板而非预期耗时；但若总时长真撞到上限，被杀的是整个进程组，点名清单那段根本不会执行——那样恰好在最需要点名的路径上丢掉这个信号。
+
+### 验证这个脚本的手工配方
+
+它是 CI 配置代码，仓库里没有对应测试层，所以验证靠下面这套手工步骤（没有自动化检查会在它回归时报警，见 `memory/doc-gaps.md`）：
+
+1. **用上游真实的 hook 跑，不要模拟"我以为 hook 会怎么做"**：`gh api repos/Lightspeed-Intelligence/agentic-workflow-template/contents/.github/scripts/agentic/run-setup-hook.sh --jq .content | base64 -d > /tmp/run-setup-hook.sh`，然后按它的真实调用形式执行——把脚本放到一个模拟 `.trusted-base` 的目录里、cwd 设为仓库根：`bash /tmp/run-setup-hook.sh ".github/agentic/setup.sh" <trusted-base-dir> "$PWD" <prompt-file> review`。
+2. **变异验证工作树洁净断言真的会红**：换一个只做 `touch ./stray` 的脚本，确认 hook 以 exit 1 失败并打印 `环境准备脚本改动了工作树`；再确认真脚本通过。只看到"通过"不能证明这道门是活的。
+3. **验证脚本缺失路径**：把 trusted-base 目录换成空目录，确认 hook 打 warning 并 `exit 0`（这正是引入该脚本的那个 PR 自己会走的路径）。
 
 另有一条与直觉相反、下次别改回去：`pr-review` 从 **PR base commit** 读这个脚本，所以引入它的那个 PR 自己享受不到（降级为一条 warning，已对着真 hook 验证过），收益从下一个 PR 开始。`update-llmdoc` 则从事件固定的 checkout 读，没有这个滞后。
 
@@ -66,11 +74,11 @@ Benchmark job 将 `go test -bench` 输出写入 `benchmark.txt`，同时追加�
 
 背景：慢速 Azure archive mirror 曾两次拖垮 CI——#125（2026-06-18）把整段 `timeout` 从 300s 提到 600s 作为"修复"，#164（2026-07-10）同一堵墙被再次撞穿（单个包在 26 KB/s 下载了 433s）。根因是"单发安装 + 整段超时"结构本身没有第二次机会，静态加大超时数值只是把击穿点往后挪。判断准则：先问这个失败模式重试后是否大概率自愈——是则加重试层，否则才考虑调大超时数值。
 
-**但"重试就会换镜像"这个前提本身曾是错的，且错了很久。** #164 修完之后，本文这一节和脚本注释都写着"mirror rotation 通常会自愈"，实际上重试从来没有换过镜像：runner 的 `sources.list` 指向 `mirror+file:/etc/apt/apt-mirrors.txt`，而 `apt-transport-mirror(1)` 明确两条——只有**取用失败**才会 failover 到下一个镜像，且镜像按 `priority:` 升序尝试。#164 的失败形式是镜像**答应了然后极慢**，这不算失败，failover 从不触发，三次尝试全都回到同一个 `priority:1` 主机。per-attempt timeout 把"一个慢镜像"变成了"三个慢镜像"。修复（2026-08-08）是在尝试之间真的轮转 `priority:` 顺序。教训与 #193「无人可见的属性必然腐烂」同族但不同：这里的属性有人写下来了，只是写的是**期望**而非**实测**——「重试后会落到另一个镜像」当时既没有实测也没有任何通道能看见它没发生。凡是声称「某个机制会自愈」的注释，都要能说出它靠哪一条具体行为自愈。
+**但"重试就会换镜像"这个前提本身曾是错的，且错了很久。**（配套教训：修它的第一版**又按行序算了一次轮转**，见下方实现注意事项——「注释说 X 才生效」和「实现按 Y 算」同时存在，是审计查出来的。） #164 修完之后，本文这一节和脚本注释都写着"mirror rotation 通常会自愈"，实际上重试从来没有换过镜像：runner 的 `sources.list` 指向 `mirror+file:/etc/apt/apt-mirrors.txt`，而 `apt-transport-mirror(1)` 明确两条——只有**取用失败**才会 failover 到下一个镜像，且镜像按 `priority:` 升序尝试。#164 的失败形式是镜像**答应了然后极慢**，这不算失败，failover 从不触发，三次尝试全都回到同一个 `priority:1` 主机。per-attempt timeout 把"一个慢镜像"变成了"三个慢镜像"。修复（2026-08-08）是在尝试之间真的轮转 `priority:` 顺序。教训与 #193「无人可见的属性必然腐烂」同族但不同：这里的属性有人写下来了，只是写的是**期望**而非**实测**——「重试后会落到另一个镜像」当时既没有实测也没有任何通道能看见它没发生。凡是声称「某个机制会自愈」的注释，都要能说出它靠哪一条具体行为自愈。
 
 `ci-apt-install.sh` 的结构：update / install 各自最多 3 次尝试（`ATTEMPTS`，默认 3）、每次独立 per-attempt timeout（`ATTEMPT_TIMEOUT`，默认 300s，均可通过环境变量覆盖）、尝试间 backoff（`attempt * 10`s）、kill 后 `dpkg --configure -a` 修复半配置状态、尝试间轮转 mirrorlist 的 `priority:` 顺序（`APT_MIRRORLIST` 可覆盖路径；非 runner 环境读不到该文件时退化为原行为，不报错）、`Acquire::Retries=3`（覆盖单次尝试内的连接中断）+ `DPkg::Lock::Timeout=60`（等待 unattended-upgrades 类锁持有者）。
 
-轮转实现上有两处不显然、改动时不要退回去：**重写 `priority:` 数值而不是只调整行顺序**（文件里的行序不是 apt 遵循的东西，无显式 priority 的镜像排最后），以及**按 tab 字段解析**（格式是 URI + TAB + metadata，把整行当字符串重写会用空格连接 URI 与 metadata，apt 会把空格算进 URI；`arch:`/`codename:`/`component:` 必须原样带过，丢掉它们会扩大一个部分镜像被要求提供的文件范围）。调用方若给出更紧的时间预算，应整体包一层 `timeout` 限制 apt 总时长，而不是只压小 `ATTEMPT_TIMEOUT`——`.github/agentic/setup.sh` 的 pine-cpp 阶段就是这么做的（3 次 × 90s 两轮的最坏情况会吃掉整个阶段预算，cmake 根本轮不到）。
+轮转实现上有三处不显然、改动时不要退回去：**重写 `priority:` 数值而不是只调整行顺序**（文件里的行序不是 apt 遵循的东西，无显式 priority 的镜像排最后）、**轮转量必须按 priority 序而非文件行序计算**（第一版就错在这里：注释正确地写着「`priority:` 才是生效的东西」，紧接着却按行序左移；当行序与 priority 序不一致时，一次轮转可能把首选镜像留在原地，恰好是要消除的失效模式。验证用例全部取自 runner 真实 mirrorlist，而那份文件行序**恰好**等于 priority 序，于是两种实现不可区分、用例全绿——与 #183「fixture 声明顺序恰好已是字典序」同型。判据：**写下「X 才生效、不是 Y」时立刻检查实现按哪个算，并专门造一个 X 与 Y 不一致的用例**，这种用例不会自然出现在现实样本里），以及**按 tab 字段解析**（格式是 URI + TAB + metadata，把整行当字符串重写会用空格连接 URI 与 metadata，apt 会把空格算进 URI；`arch:`/`codename:`/`component:` 必须原样带过，丢掉它们会扩大一个部分镜像被要求提供的文件范围）。调用方若给出更紧的时间预算，应整体包一层 `timeout` 限制 apt 总时长，而不是只压小 `ATTEMPT_TIMEOUT`——`.github/agentic/setup.sh` 的 pine-cpp 阶段就是这么做的（3 次 × 90s 两轮的最坏情况会吃掉整个阶段预算，cmake 根本轮不到）。
 
 包清单纪律：只安装 runner image 真正缺失的包，不重复安装已预装工具（GitHub runner image 预装 cmake / g++ / build-essential，apt 装的同名包版本更旧且 PATH 排序在后，纯粹是死重，只会放大慢镜像暴露面）；install step 之后应对预装工具做版本断言（如 `cmake --version`、`g++ --version`），使 image 变更导致的依赖缺失在 install 阶段就明确报错，而不是在后续编译步骤里表现为莫名错误。新增 workflow 或 job 时禁止绕过 `ci-apt-install.sh` 直接内联 apt 命令。
 
