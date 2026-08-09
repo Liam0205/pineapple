@@ -42,12 +42,37 @@ set -u
 ATTEMPTS="${ATTEMPTS:-3}"
 ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-300}"
 
-# Normalize to base 10 before either value reaches arithmetic. A caller passing
-# a zero-padded number (ATTEMPTS=09) would otherwise abort `[[ -lt ]]` with
-# "value too great for base", which under `set -u` skips the retry body and
-# silently turns off the mirror rotation below rather than failing loudly.
-if [[ "$ATTEMPTS" == +([0-9]) ]]; then ATTEMPTS=$(( 10#$ATTEMPTS )); fi
-if [[ "$ATTEMPT_TIMEOUT" == +([0-9]) ]]; then ATTEMPT_TIMEOUT=$(( 10#$ATTEMPT_TIMEOUT )); fi
+# Normalize to base 10 before either value reaches arithmetic, and bound the
+# digit count while doing it.
+#
+# Zero-padded values are the reason for `10#`: `ATTEMPTS=09` makes
+# `[[ "$attempt" -lt "$ATTEMPTS" ]]` fail with "value too great for base", and
+# because that comparison guards the retry body, the mirror rotation below never
+# runs while the loop still reports its attempts. Measured to be independent of
+# shell options — identical under `set +u` and `set -eu` — and bash does print
+# the error to stderr each time, so the problem is that behaviour diverges from
+# what the script claims, not that it fails quietly.
+#
+# The digit cap is equally necessary: `10#` fixes the radix and not the
+# magnitude, so a value past 2^63 wraps negative, `seq 1 -N` yields nothing, and
+# apt is never invoked at all. Normalizing without the cap is worse than leaving
+# the string alone, since the raw string happened to work. Same pair of rules as
+# hook_budget_seconds in .github/agentic/setup.sh; out-of-range input falls back
+# to the documented default rather than being clamped, so a typo cannot silently
+# turn into "one attempt".
+if [[ "$ATTEMPTS" == +([0-9]) && ${#ATTEMPTS} -le 3 ]]; then
+  ATTEMPTS=$(( 10#$ATTEMPTS ))
+else
+  ATTEMPTS=3
+fi
+if [[ "$ATTEMPT_TIMEOUT" == +([0-9]) && ${#ATTEMPT_TIMEOUT} -le 6 ]]; then
+  ATTEMPT_TIMEOUT=$(( 10#$ATTEMPT_TIMEOUT ))
+else
+  ATTEMPT_TIMEOUT=300
+fi
+# A zero attempt count would skip apt entirely, which is never what a caller
+# means; treat it as a typo and use the default.
+[[ "$ATTEMPTS" -lt 1 ]] && ATTEMPTS=3
 
 if [[ $# -eq 0 ]]; then
   echo "usage: $0 <package>..." >&2

@@ -4,7 +4,7 @@
 # The reviewer runs on a bare ubuntu-latest with only the preinstalled
 # toolchain, which left it unable to run this repo's own checks. Review of
 # PR #194 reported exactly three gaps: no `ruff`, no `golangci-lint`, and a
-# JDK that rejects the project's `release 25`. Those checks are the ones most
+# JDK too old for the project's target release 25. Those checks are the ones most
 # likely to catch a real defect, so the reviewer reading code without them is
 # a real loss of review power.
 #
@@ -125,7 +125,7 @@ DEADLINE=$(( $(hook_budget_seconds) - 45 ))
 # A budget too small to attempt anything would otherwise skip every phase and
 # read as a constrained runner. Say so instead.
 if [[ $DEADLINE -le 10 ]]; then
-  echo "::warning::SETUP_HOOK_TIMEOUT=${SETUP_HOOK_TIMEOUT:-13m} leaves no usable budget; skipping all preparation"
+  echo "::warning::SETUP_HOOK_TIMEOUT=${SETUP_HOOK_TIMEOUT:-13m} leaves no usable budget (deadline=${DEADLINE}s after reserving headroom); skipping all preparation"
   echo "Unavailable capabilities: all phases (no usable time budget)" >&2
   exit 1
 fi
@@ -189,7 +189,7 @@ phase() {
 }
 
 # --- JDK 25 ------------------------------------------------------------------
-# pom.xml sets maven.compiler.release 25, and the runner's default JDK is 17,
+# pom.xml sets maven.compiler.source/target to 25, and the runner's default JDK is 17,
 # which is what made the reviewer report "JDK does not support the required
 # target release". No download needed: the runner image ships Temurin 25 in the
 # toolcache and exposes it as JAVA_HOME_25_X64.
@@ -332,8 +332,16 @@ if [[ ${#failed[@]} -gt 0 ]]; then
   # and it should disclose which checks it could not run. Naming the phases
   # here matters: that message is the agent's only signal about which
   # capability is missing, and a bare exit code would leave it guessing.
-  echo "::warning::setup incomplete, unavailable: ${failed[*]}"
-  echo "Unavailable capabilities: ${failed[*]}" >&2
+  #
+  # Join with "; " rather than the default space: phase names contain spaces
+  # ("JDK 25", "Go toolchain"), so a space-joined list has no recoverable item
+  # boundaries for a reader trying to enumerate what is missing. `${arr[*]}`
+  # cannot do this — IFS contributes only its first character — so build the
+  # string explicitly.
+  joined=$(printf '%s; ' "${failed[@]}")
+  joined=${joined%; }
+  echo "::warning::setup incomplete, unavailable: ${joined}"
+  echo "Unavailable capabilities: ${joined}" >&2
   exit 1
 fi
 

@@ -44,7 +44,7 @@
 
 `.github/workflows/agentic-pr-review.yml` 与 `agentic-llmdoc-updater.yml` 复用上游 `Lightspeed-Intelligence/agentic-workflow-template`，两者都通过上游的 `setup_script` 输入指向本仓库的 `.github/agentic/setup.sh`。
 
-为什么需要它：agent 跑在裸 `ubuntu-latest` 上，只有 runner 预装工具链。PR #194 的评审明确报告了三项做不到的检查——没有 `ruff`、没有 `golangci-lint`、JDK 不支持 `pom.xml` 的 `release 25`。这三项恰好是最容易查出真缺陷的检查，所以"只能读代码的审查器"是真实的审查能力损失。脚本按最便宜的阶段在前排序，每阶段各自限时，于是某个阶段病态超时只损失它自己那一项能力，不会连带后面的：JDK 25（走 runner toolcache 的 `JAVA_HOME_25_X64`，无下载）→ Go（按 `pine-go/go.mod` 取 toolcache 里最新 1.26.x）→ Python 工具（venv 装 ruff/pytest）→ golangci-lint（钉版本 + 校验和）→ pine-cpp（最后、预算最大）。版本钉的是 **CI 实际解析出来的值**（对着 PR #194 那次运行核过），不是照抄配置文件的字面写法。
+为什么需要它：agent 跑在裸 `ubuntu-latest` 上，只有 runner 预装工具链。PR #194 的评审明确报告了三项做不到的检查——没有 `ruff`、没有 `golangci-lint`、JDK 版本低于 `pom.xml` 的 `maven.compiler.source`/`target`（都是 25，注意属性名不是 `release`）。这三项恰好是最容易查出真缺陷的检查，所以"只能读代码的审查器"是真实的审查能力损失。脚本按最便宜的阶段在前排序，每阶段各自限时，于是某个阶段病态超时只损失它自己那一项能力，不会连带后面的：JDK 25（走 runner toolcache 的 `JAVA_HOME_25_X64`，无下载）→ Go（按 `pine-go/go.mod` 取 toolcache 里最新 1.26.x）→ Python 工具（venv 装 ruff/pytest）→ golangci-lint（钉版本 + 校验和）→ pine-cpp（最后、预算最大）。版本钉的是 **CI 实际解析出来的值**（对着 PR #194 那次运行核过），不是照抄配置文件的字面写法。
 
 改这个脚本前必须知道的三条，都是实测出来而非读代码看出来的：
 
