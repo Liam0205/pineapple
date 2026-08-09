@@ -97,11 +97,15 @@ add_env() {
 # h/d, but this budget is minutes-scale, so treat those as unsupported rather
 # than pretending to honour them.
 # Always emit a base-10-normalized integer. `+([0-9])` accepts leading zeros and
-# bash arithmetic then reads them as octal, so "010m" would quietly mean 480s
-# instead of 600s, and "0900s" would abort with "value too great for base" —
-# taking the whole script down before any phase ran, which is the one outcome
-# this deadline machinery exists to prevent. `10#` forces decimal, and the
-# result is what gets returned so no caller sees the raw string.
+# bash arithmetic then reads them as octal, which failed two different ways.
+# "010m" quietly meant 480s instead of 600s. "0900s" was worse: the `*s` branch
+# does no arithmetic, so the raw string escaped to the caller and blew up at the
+# DEADLINE assignment, leaving DEADLINE unset — `set -u` then aborted the script
+# before any phase ran and before the no-budget guard below could report
+# anything, which is the one outcome this machinery exists to prevent. ("08m" by
+# contrast failed inside the function, so the guard did report it, just with the
+# wrong reason.) `10#` forces decimal and the arithmetic result, never the raw
+# string, is what gets returned.
 hook_budget_seconds() {
   local v="${SETUP_HOOK_TIMEOUT:-13m}" n
   # Strip at most one trailing unit, then require what remains to be all
@@ -279,17 +283,22 @@ setup_golangci() {
 # The path is covered by .gitignore's `pine-cpp/build*/`, as is CMake's
 # FetchContent cache underneath it, so the worktree stays clean.
 setup_cpp() {
-  # Bound apt as a whole, not just per attempt. With the defaults (3 attempts x
-  # 300s, twice over for update and install) the worst case is ~1900s, so on a
-  # slow-mirror day apt alone would consume this phase's entire 600s ceiling
-  # and cmake would never run. Measured locally: configure 9s (which includes
-  # cloning ~70 MB of rapidjson + doctest) and 35s to build the test target at
-  # -j4, so 300s for apt leaves a comfortable margin for a slower runner.
+  # Bound apt as a whole, not just per attempt, and size that bound against the
+  # parameters actually passed rather than the script's defaults.
   #
-  # 3 attempts x 90s keeps two mirror rotations, which is the part that
-  # actually addresses the "mirror answers but crawls" mode from #164.
-  timeout --signal=TERM --kill-after=15s 300s \
-    env ATTEMPTS=3 ATTEMPT_TIMEOUT=90 \
+  # ci-apt-install.sh runs its retry loop twice, once for update and once for
+  # install. With 3 attempts of 60s plus the 10s and 20s backoffs, one loop is
+  # at most 210s and both are at most 420s, which is what the outer timeout has
+  # to cover. Budgeting for a single loop would let update alone exhaust the
+  # allowance and leave cmake unreached — the opposite of the intent.
+  #
+  # Why these numbers: the phase ceiling is 600s, and locally cmake needs 9s to
+  # configure (including cloning ~70 MB of rapidjson + doctest) plus 35s to
+  # build the test target at -j4, so reserving 420s for apt still leaves ample
+  # room on a slower runner. 3 attempts keeps two mirror rotations, which is the
+  # part that addresses the "mirror answers but crawls" mode from #164.
+  timeout --signal=TERM --kill-after=15s 420s \
+    env ATTEMPTS=3 ATTEMPT_TIMEOUT=60 \
     bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev || return 1
   # Assert rather than merely print: `set -e` is deliberately off here, so an
   # unguarded `cmake --version` would emit "command not found" and carry on to

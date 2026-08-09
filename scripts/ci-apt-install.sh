@@ -70,6 +70,11 @@ if [[ "$ATTEMPT_TIMEOUT" == +([0-9]) && ${#ATTEMPT_TIMEOUT} -le 6 ]]; then
 else
   ATTEMPT_TIMEOUT=300
 fi
+# GNU timeout reads a duration of 0 as "no timeout at all", so accepting 0 here
+# would quietly remove the per-attempt kill — the entire reason this wrapper
+# exists — and put us back in the #125/#164 shape while the log still says
+# "timeout 0s". Reject it the same way ATTEMPTS rejects a count below 1.
+[[ "$ATTEMPT_TIMEOUT" -lt 1 ]] && ATTEMPT_TIMEOUT=300
 # A zero attempt count would skip apt entirely, which is never what a caller
 # means; treat it as a typo and use the default.
 [[ "$ATTEMPTS" -lt 1 ]] && ATTEMPTS=3
@@ -118,6 +123,12 @@ rotate_mirrorlist() {
   tmp=$(mktemp) || return 1
   awk -F'\t' -v s=1 '
     /^[[:space:]]*(#|$)/ { print; next }
+    # A mirror line must separate URI from metadata with a TAB. If a line has no
+    # TAB yet contains whitespace, the whole thing lands in $1 and we would emit
+    # a URI with a space inside plus a second priority field — a worse file than
+    # we were given. That input is already an invalid mirrorlist, so refuse and
+    # leave the original alone rather than rewriting it into something stranger.
+    NF == 1 && $1 ~ /[[:space:]]/ { exit 1 }
     { uri[++n] = $1
       meta[n] = ""
       # Sentinel so mirrors with no explicit priority sort last, as apt does.
