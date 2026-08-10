@@ -123,12 +123,14 @@ rotate_mirrorlist() {
   tmp=$(mktemp) || return 1
   awk -F'\t' -v s=1 '
     /^[[:space:]]*(#|$)/ { print; next }
-    # A mirror line must separate URI from metadata with a TAB. If a line has no
-    # TAB yet contains whitespace, the whole thing lands in $1 and we would emit
-    # a URI with a space inside plus a second priority field — a worse file than
-    # we were given. That input is already an invalid mirrorlist, so refuse and
-    # leave the original alone rather than rewriting it into something stranger.
-    NF == 1 && $1 ~ /[[:space:]]/ { exit 1 }
+    # A URI field must not contain whitespace. Two ways it can: a line with no
+    # TAB at all (metadata separated by spaces, so the whole line lands in $1),
+    # or a line that does have a TAB but still has a space inside the URI part.
+    # Either way, rewriting it would emit a URI with an embedded space, plus in
+    # the first case a duplicate priority field — a worse file than we were
+    # given. Such input is already an invalid mirrorlist, so refuse and leave the
+    # original untouched instead of rewriting it into something stranger.
+    $1 ~ /[[:space:]]/ { exit 1 }
     { uri[++n] = $1
       meta[n] = ""
       # Sentinel so mirrors with no explicit priority sort last, as apt does.
@@ -204,14 +206,22 @@ retry() {
   local attempt rc
   for attempt in $(seq 1 "$ATTEMPTS"); do
     echo "==> ${desc} (attempt ${attempt}/${ATTEMPTS}, timeout ${ATTEMPT_TIMEOUT}s)"
-    timeout "$ATTEMPT_TIMEOUT" "$@"
+    # --kill-after matters here, not just decoration: plain `timeout` sends TERM
+    # and then waits forever if the child ignores it, so the attempt can run far
+    # past its limit while still reporting rc=124 — a bound that looks enforced
+    # and is not. dpkg holding a lock is exactly the case this script expects.
+    timeout --signal=TERM --kill-after=10s "$ATTEMPT_TIMEOUT" "$@"
     rc=$?
     [[ $rc -eq 0 ]] && return 0
     echo "    attempt ${attempt} failed (rc=${rc})" >&2
     if [[ "$attempt" -lt "$ATTEMPTS" ]]; then
       # A kill mid-unpack can leave dpkg half-configured; repair before
-      # retrying (no-op in the common kill-mid-download case).
-      sudo dpkg --configure -a >/dev/null 2>&1 || true
+      # retrying (no-op in the common kill-mid-download case). Bounded, because
+      # this runs inside the caller's overall budget and dpkg can block on the
+      # same lock that caused the failure; unbounded here would let a single
+      # repair swallow the time reserved for the actual work.
+      timeout --signal=TERM --kill-after=5s 30s \
+        sudo dpkg --configure -a >/dev/null 2>&1 || true
       # Move to a different mirror for the next attempt. Best-effort: a
       # missing or read-only mirrorlist (any non-runner environment) just
       # means the retry behaves as it did before, so do not fail on it.
