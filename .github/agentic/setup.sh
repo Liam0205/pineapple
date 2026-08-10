@@ -283,22 +283,33 @@ setup_golangci() {
 # The path is covered by .gitignore's `pine-cpp/build*/`, as is CMake's
 # FetchContent cache underneath it, so the worktree stays clean.
 setup_cpp() {
-  # Bound apt as a whole, not just per attempt, and size that bound against the
-  # parameters actually passed rather than the script's defaults.
+  # Bound apt as a whole, not just per attempt, and size the bound from every
+  # term in the retry loop rather than from the obvious one.
   #
-  # ci-apt-install.sh runs its retry loop twice, once for update and once for
-  # install. With 3 attempts of 60s plus the 10s and 20s backoffs, one loop is
-  # at most 210s and both are at most 420s, which is what the outer timeout has
-  # to cover. Budgeting for a single loop would let update alone exhaust the
-  # allowance and leave cmake unreached — the opposite of the intent.
+  # ci-apt-install.sh runs its loop twice, for update and for install. Per loop,
+  # worst case, with ATTEMPTS=3 and ATTEMPT_TIMEOUT=40:
   #
-  # Why these numbers: the phase ceiling is 600s, and locally cmake needs 9s to
-  # configure (including cloning ~70 MB of rapidjson + doctest) plus 35s to
-  # build the test target at -j4, so reserving 420s for apt still leaves ample
-  # room on a slower runner. 3 attempts keeps two mirror rotations, which is the
-  # part that addresses the "mirror answers but crawls" mode from #164.
-  timeout --signal=TERM --kill-after=15s 420s \
-    env ATTEMPTS=3 ATTEMPT_TIMEOUT=60 \
+  #   3 attempts x (40s + 10s kill-after)      = 150s
+  #   2 inter-attempt gaps x (30s + 5s dpkg
+  #     repair + ~2s rotate)                   =  74s
+  #   backoff sleeps of 10s and 20s            =  30s
+  #                                             ----
+  #   one loop                                  254s   ->  both loops 508s
+  #
+  # Hence the 510s bound below. Two earlier versions of this comment were wrong
+  # in the same direction, and both times the number looked like arithmetic: the
+  # first computed the worst case from the script's default parameters instead of
+  # the ones passed here, the second counted only attempts and backoffs and left
+  # out the dpkg repair (then unbounded) and the rotation. Every term inside the
+  # loop belongs in the sum, including the ones that only run between attempts.
+  #
+  # The phase ceiling is 600s and cmake needs ~44s locally (9s to configure,
+  # including cloning ~70 MB of rapidjson + doctest, plus 35s to build the test
+  # target at -j4), so 510s for apt still leaves headroom on a slower runner.
+  # 3 attempts is kept deliberately: it preserves two mirror rotations, which is
+  # the part that addresses the "mirror answers but crawls" mode from #164.
+  timeout --signal=TERM --kill-after=15s 510s \
+    env ATTEMPTS=3 ATTEMPT_TIMEOUT=40 \
     bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev || return 1
   # Assert rather than merely print: `set -e` is deliberately off here, so an
   # unguarded `cmake --version` would emit "command not found" and carry on to
@@ -313,8 +324,12 @@ setup_cpp() {
   # Cap the job count. The runner has 4 cores so nproc alone would be fine
   # there, but this script is also runnable locally, where a bare -j is a
   # standing rule violation in this repo (it swap-storms a big dev box).
+  # Validate rather than trust: if nproc is missing or prints something
+  # unexpected, `jobs` would be empty and -j"$jobs" would expand to a bare -j,
+  # committing the very violation this block cites.
   local jobs
-  jobs=$(nproc)
+  jobs=$(nproc 2>/dev/null)
+  [[ "$jobs" == +([0-9]) ]] || jobs=4
   [[ $jobs -gt 12 ]] && jobs=12
   cmake --build pine-cpp/build-tests --target pine_cpp_tests -j"$jobs" || return 1
 }
