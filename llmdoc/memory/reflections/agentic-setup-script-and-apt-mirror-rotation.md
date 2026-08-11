@@ -51,7 +51,7 @@ pine-cpp 阶段给 600s。apt 按默认参数跑，update 与 install 各一轮�
 
 这个数我算错了三次（见第七·七节），所以现在不在文档里复述具体数值，一律以 `.github/agentic/setup.sh` 里那段把每一项都列出来的注释为准。
 
-构建所需时间是实测的，不是估的：本地 configure 9s（含 clone ~70 MB 的 rapidjson + doctest）、`-j4` 构建测试目标 35s。有了这个数才敢说 300s 留给构建是宽裕的。这与 `reflections/sanitized-fuzz-time-budget-graceful-stop.md` 那条"预算标定要用实测 worst 而非快日均值"同源。
+构建所需时间是实测的，不是估的：先测量 configure 与构建测试目标的耗时，才能判断 apt 之外的剩余预算是否足够。具体参数与实测数值以 `.github/agentic/setup.sh` 的就近注释为准，不在此复制。这与 `reflections/sanitized-fuzz-time-budget-graceful-stop.md` 那条"预算标定要用实测 worst 而非快日均值"同源。
 
 `-j` 并发也按仓库既有纪律封了顶（12），因为这个脚本也能在本地跑，裸 `-j$(nproc)` 在大开发机上是禁止的。
 
