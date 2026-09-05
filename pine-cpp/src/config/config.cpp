@@ -313,8 +313,7 @@ Config load_config_from_json(const std::string& text) {
   //
   // JSON null is accepted and leaves the default, matching Go: decoding a null
   // into a string field is a no-op there, so the zero value survives.
-  auto require_string = [](const Variant::object_t& parent,
-                           const std::string& key) -> const std::string* {
+  auto require_string = [](const Variant::object_t& parent, const std::string& key) -> const std::string* {
     auto it = parent.find(key);
     if (it == parent.end() || it->second.is_null()) {
       return nullptr;

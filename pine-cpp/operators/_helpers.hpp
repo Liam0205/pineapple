@@ -59,8 +59,9 @@ std::string build_key_suffix(const OperatorInput& input, const std::vector<std::
 // Deprecated: reads Frame::common directly, bypassing skip / template
 // field exclusion. All in-tree redis operators moved to the OperatorInput
 // overload. Kept for source compatibility with out-of-tree callers only.
-[[deprecated("prefer build_key_suffix(OperatorInput&) — the Frame overload "
-             "bypasses skip / template field exclusion (issue #174)")]]
+[[deprecated(
+    "prefer build_key_suffix(OperatorInput&) — the Frame overload "
+    "bypasses skip / template field exclusion (issue #174)")]]
 std::string build_key_suffix(const Frame& frame, const std::vector<std::string>& fields);
 std::vector<std::string> json_to_string_slice(const Variant& v);
 
