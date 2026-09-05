@@ -1,101 +1,33 @@
-# STEP ONE IS ALWAYS: READ LLMDOC!
+# llmdoc 使用规则
 
-Before reading any source code, **ALWAYS check if `llmdoc/` exists** in the project root. If it exists, this is your primary source of truth.
+## 开始任务
 
-**THIS IS NON-NEGOTIABLE.** Every task, every investigation, every code change MUST start with reading the documentation.
+在阅读源代码、广泛探索、规划、更新文档或进行非平凡修改前，先加载 `llmdoc` skill。若项目根目录存在 `llmdoc/`，按 skill 规定的入口阅读：
 
-### Why llmdoc First?
+1. 先读 `llmdoc/index.md` 和 `llmdoc/startup.md`。
+2. 再读取 `startup.md` 指向的 `must/` 文档。
+3. 根据任务继续读取相关的 `guides/`、`reference/`、`architecture/` 和必要的历史反思。
 
-1. **Efficiency**: Documentation is pre-digested knowledge, faster than parsing code
-2. **Context**: Provides architectural understanding that code alone cannot convey
-3. **Accuracy**: Maintained by developers, reflects intended design not just implementation
+不要因为本文件而默认读取所有文档；无关文档会增加噪声和停顿。若不存在 `llmdoc/`，先依据 README 和代码注释工作，并建议初始化文档。
 
-## llmdoc Structure
+## 文档原则
 
-```
-llmdoc/
-├── index.md              # START HERE - Navigation and overview
-├── overview/             # "What is this project?"
-│   └── project-overview.md
-├── architecture/         # "How does it work?" (LLM Retrieval Map)
-│   └── *.md
-├── guides/               # "How do I do X?"
-│   └── *.md
-└── reference/            # "What are the specifics?"
-    └── *.md
-```
+- `llmdoc/` 是项目稳定知识的来源；`.llmdoc-tmp/` 仅用于本地临时调查缓存。复用临时报告前先用当前代码和文档核实。
+- 文档应少量、准确、面向检索；引用代码时使用 `path/to/file.ext:line`，不要复制大段实现代码。
+- 新增、重命名或删除稳定文档时，同时更新 `llmdoc/index.md`；必要时更新 `llmdoc/startup.md` 的路由提示。
+- 文档中的事实应以实际代码、配置和可复现命令为准，不要凭假设写入。
 
-### Reading Priority
+## 任务完成后
 
-1. **Always read `llmdoc/index.md` first** - Contains navigation and document summaries
-2. **Read ALL documents in `llmdoc/overview/`** - Essential project context
-3. **Read relevant `architecture/` docs** - Before modifying related code
-4. **Consult `guides/`** - For step-by-step workflows
-5. **Check `reference/`** - For conventions, data models, API specs
+完成任务后，检查是否改变了稳定的项目知识、接口、设计或操作方式：
 
-## Working with llmdoc
+- 若没有影响，无需更新 llmdoc，并在总结中说明。
+- 若确实影响，更新受影响的稳定文档，或建议用户运行 `/llmdoc:update`；更新时遵循该 skill 的反思、记录和索引规则。
 
-### Before Writing Code
+## 代码引用格式
 
-```
-1. Check: Does llmdoc/ exist?
-   - YES → Read index.md, then relevant docs
-   - NO  → Proceed with caution, suggest initializing docs
+文档或报告引用代码时使用如下形式：
 
-2. Find relevant architecture docs for the area you're modifying
+`src/auth/jwt.js:generateToken` — 处理令牌创建与校验。
 
-3. Check guides/ for existing workflows
-
-4. Review reference/ for conventions to follow
-```
-
-### After Completing Code Changes
-
-**Documentation updates are NOT automatic.** After completing a task:
-
-1. Identify which concepts/features were affected
-2. Ask the user: "Would you like to update the project documentation?"
-3. If confirmed, update relevant docs in `llmdoc/`:
-   - Modify existing docs to reflect changes
-   - Add new docs if new concepts were introduced
-   - Keep updates minimal and precise
-   - Update `index.md` if document structure changed
-
-### Documentation Update Principles
-
-1. **Minimality**: Use fewest words necessary
-2. **Accuracy**: Based on actual code, not assumptions
-3. **No Code Blocks**: Reference code with `path/file.ext:line` format
-4. **LLM-Friendly**: Write for machine consumption, not human tutorials
-
-## Code Reference Format
-
-When referencing code in documentation or reports:
-
-````
-# Good - Reference format
-`src/auth/jwt.js` (generateToken, verifyToken): Handles JWT creation and validation
-
-# Bad - Pasting code
-```javascript
-function generateToken(payload) {
-  // ... 50 lines of code
-}
-````
-
-## Quick Reference
-
-| Task               | Action                               |
-| ------------------ | ------------------------------------ |
-| Understand project | Read `llmdoc/index.md` → `overview/` |
-| Modify feature X   | Read `architecture/x-*.md` first     |
-| Follow workflow    | Check `guides/`                      |
-| Check conventions  | Read `reference/`                    |
-| After code changes | Offer to update relevant docs        |
-
-## No llmdoc Directory?
-
-If `llmdoc/` doesn't exist:
-
-1. The project hasn't initialized documentation yet
-2. Work carefully, relying on README.md and code comments
+不要在文档中粘贴大段源代码。
