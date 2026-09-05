@@ -1,8 +1,8 @@
+#include "pine/pine.hpp"
+
 #include <doctest/doctest.h>
 
 #include <string>
-
-#include "pine/pine.hpp"
 
 using namespace pine;
 
@@ -48,8 +48,8 @@ TEST_CASE("config: storage_mode accepts only row, column, empty or null") {
 
   // Every invalid string, including the two that diverged across runtimes before
   // #179: "colunm" (a typo) and "Column" (wrong case).
-  for (const char* bad : {"\"colunm\"", "\"Column\"", "\"COLUMN\"", "\"col\"", "\"columns\"",
-                          "\"column \"", "\" column\"", "\"unknown\""}) {
+  for (const char* bad : {"\"colunm\"", "\"Column\"", "\"COLUMN\"", "\"col\"", "\"columns\"", "\"column \"",
+                          "\" column\"", "\"unknown\""}) {
     const std::string cfg = with_storage_mode(bad);
     CHECK_THROWS_AS(load_config_from_json(cfg), ConfigError);
   }
@@ -64,17 +64,14 @@ TEST_CASE("config: storage_mode accepts only row, column, empty or null") {
 // and SILENTLY IGNORED a wrong type. So `"log_prefix": 123` was rejected by
 // pine-go, coerced by pine-java, and dropped on the floor here.
 TEST_CASE("config: root string fields reject a non-string value") {
-  for (const char* field : {"storage_mode", "log_prefix", "_PINEAPPLE_VERSION",
-                            "_PINEAPPLE_CREATE_TIME"}) {
+  for (const char* field : {"storage_mode", "log_prefix", "_PINEAPPLE_VERSION", "_PINEAPPLE_CREATE_TIME"}) {
     for (const char* val : {"123", "1.5", "true", "false", "[1,2]", "{\"a\":1}"}) {
-      const std::string cfg =
-          minimal_config(std::string("\"") + field + "\": " + val + ",");
+      const std::string cfg = minimal_config(std::string("\"") + field + "\": " + val + ",");
       CHECK_THROWS_AS(load_config_from_json(cfg), ConfigError);
     }
     // null leaves the default rather than erroring, matching pine-go where
     // decoding a JSON null into a string field is a no-op.
-    const std::string null_cfg =
-        minimal_config(std::string("\"") + field + "\": null,");
+    const std::string null_cfg = minimal_config(std::string("\"") + field + "\": null,");
     CHECK_NOTHROW(load_config_from_json(null_cfg));
   }
 }
@@ -108,8 +105,7 @@ TEST_CASE("config: with several wrong-typed root fields, check order is fully pi
   };
   for (const auto& [first, second] : pairs) {
     // Both wrong-typed; the earlier one in check order must be the one named.
-    const std::string cfg = minimal_config(std::string("\"") + second + "\": 1, \"" + first +
-                                           "\": 2,");
+    const std::string cfg = minimal_config(std::string("\"") + second + "\": 1, \"" + first + "\": 2,");
     try {
       load_config_from_json(cfg);
       FAIL("expected ConfigError for " << first << " + " << second);

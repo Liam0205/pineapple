@@ -135,7 +135,6 @@ inline void write_go_string(rapidjson::StringBuffer& sb, const std::string& s) {
   sb.Put('"');
 }
 
-
 // write_go_key emits an object key with the same escaping Go's encoding/json
 // applies to strings, including the HTML-safe escapes for < > & and the
 // line/paragraph separators U+2028 / U+2029.

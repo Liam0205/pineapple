@@ -73,7 +73,8 @@ static const OperatorSchema k_observe_log_schema{
     .name = "observe_log",
     .type = OpType::Observe,
     .description =
-        "Reads declared input fields and writes them to the engine's logger. This is a read-only operator: it "
+        "Reads declared input fields and writes them to the engine's logger. This is a read-only operator: "
+        "it "
         "produces no output fields and does not modify the DataFrame. It is exempt from dead-code detection.",
     .params =
         {

@@ -103,8 +103,7 @@ void register_pool_test_ops() {
   }
   static const OperatorSchema inspect_schema{
       "pool_test_inspect", OpType::Transform, "records leaked output state on entry", {}};
-  static const OperatorSchema recall_schema{
-      "pool_test_recall", OpType::Recall, "adds three fixed items", {}};
+  static const OperatorSchema recall_schema{"pool_test_recall", OpType::Recall, "adds three fixed items", {}};
   static const OperatorSchema mark_schema{
       "pool_test_mark", OpType::Transform, "writes one field on every item", {}};
   register_operator_typed<InspectOutputOp>(inspect_schema);
@@ -332,8 +331,8 @@ TEST_CASE("OperatorOutput reuse: a failed request's items never reach a later re
   Engine engine(load_config_from_json(kThrowThenGoodConfig), opts);
 
   Request bad;
-  bad.common["_run_bad"] = Variant(false);   // false => bad_recall runs
-  bad.common["_run_good"] = Variant(true);   // true  => good_recall skipped
+  bad.common["_run_bad"] = Variant(false);  // false => bad_recall runs
+  bad.common["_run_good"] = Variant(true);  // true  => good_recall skipped
   bool threw = false;
   try {
     (void)engine.execute(bad);
@@ -343,8 +342,8 @@ TEST_CASE("OperatorOutput reuse: a failed request's items never reach a later re
   REQUIRE(threw);
 
   Request good;
-  good.common["_run_bad"] = Variant(true);   // true  => bad_recall skipped
-  good.common["_run_good"] = Variant(false); // false => good_recall runs
+  good.common["_run_bad"] = Variant(true);    // true  => bad_recall skipped
+  good.common["_run_good"] = Variant(false);  // false => good_recall runs
   auto resp = engine.execute(good);
 
   // AddingRecallOp emits exactly 3 items; anything more came from the failure.

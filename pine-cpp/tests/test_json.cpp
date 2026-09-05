@@ -1,9 +1,10 @@
 #include "pine/pine.hpp"
-#include "config/json_writer.hpp"  // go_format_json_number
 
 #include <doctest/doctest.h>
 
 #include <limits>
+
+#include "config/json_writer.hpp"  // go_format_json_number
 
 using namespace pine;
 
@@ -246,8 +247,7 @@ TEST_CASE("dump_json: object KEYS get Go's HTML-safe escaping, like values do") 
   o.emplace("e>f", Variant(3.0));
   o.emplace("g\xe2\x80\xa8h", Variant(4.0));
   std::string out = dump_json(Variant(std::move(o)), 0);
-  CHECK(out ==
-        R"({"a\u003cb":1,"c\u0026d":2,"e\u003ef":3,"g\u2028h":4})");
+  CHECK(out == R"({"a\u003cb":1,"c\u0026d":2,"e\u003ef":3,"g\u2028h":4})");
 }
 
 TEST_CASE("go_format_json_number: trace duration magnitudes match Go") {
@@ -258,10 +258,10 @@ TEST_CASE("go_format_json_number: trace duration magnitudes match Go") {
   // compares whole response bodies (so a real duration is never byte-stable),
   // section 09 drives the CLI which emits no trace, and differential-fuzz's
   // strip_trace removes it too. Reverting the fix left every one of them green.
-  CHECK(go_format_json_number(1234.567) == "1234.567");   // %g gave 1234.57
-  CHECK(go_format_json_number(1000.001) == "1000.001");   // %g gave 1000
-  CHECK(go_format_json_number(1.234567) == "1.234567");   // %g gave 1.23457
-  CHECK(go_format_json_number(1234567.0) == "1234567");   // %g gave 1.23457e+06
+  CHECK(go_format_json_number(1234.567) == "1234.567");  // %g gave 1234.57
+  CHECK(go_format_json_number(1000.001) == "1000.001");  // %g gave 1000
+  CHECK(go_format_json_number(1.234567) == "1.234567");  // %g gave 1.23457
+  CHECK(go_format_json_number(1234567.0) == "1234567");  // %g gave 1.23457e+06
   CHECK(go_format_json_number(0.0) == "0");
 }
 
