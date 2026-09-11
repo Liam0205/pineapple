@@ -295,6 +295,41 @@
       "expected": {
         "items": [{}]
       }
+    },
+    {
+      "name": "numeric string written over a number in the same global stays a string (issue #200)",
+      "params": {
+        "lua_script": "function identity()\n  return x\nend",
+        "function_for_item": "identity",
+        "function_for_common": ""
+      },
+      "metadata": {
+        "common_input": [],
+        "common_output": [],
+        "item_input": ["x"],
+        "item_output": ["y"]
+      },
+      "input": {
+        "common": {},
+        "items": [
+          {"x": 7},
+          {"x": "1777288596209286259"},
+          {"x": "123"},
+          {"x": "1e5"},
+          {"x": "a"},
+          {"x": "456"}
+        ]
+      },
+      "expected": {
+        "items": [
+          {"y": 7},
+          {"y": "1777288596209286259"},
+          {"y": "123"},
+          {"y": "1e5"},
+          {"y": "a"},
+          {"y": "456"}
+        ]
+      }
     }
   ]
 }

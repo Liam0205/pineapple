@@ -190,7 +190,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
 
     private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
         for (String field : commonInput()) {
-            globals.set(field, toLua(input.common(field)));
+            setGlobal(globals, field, toLua(input.common(field)));
         }
 
         LuaValue fn = globals.get(funcName);
@@ -213,7 +213,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         for (int i = 0; i < n; i++) {
             if (token.isCancelled()) break;
             for (int k = 0; k < fields.size(); k++) {
-                globals.set(fields.get(k), toLua(cols[k][i]));
+                setGlobal(globals, fields.get(k), toLua(cols[k][i]));
             }
             Varargs results;
             try {
@@ -232,7 +232,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         if (token.isCancelled()) return;
 
         for (String field : commonInput()) {
-            globals.set(field, toLua(input.common(field)));
+            setGlobal(globals, field, toLua(input.common(field)));
         }
 
         int n = input.itemCount();
@@ -301,6 +301,43 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             return tbl;
         }
         return LuaValue.valueOf(String.valueOf(v));
+    }
+
+    /**
+     * Writes a global for the script to read. Every host-to-VM write of a
+     * string-keyed global goes through here, not {@code globals.set}, because
+     * of a luaj 3.0.1 table bug.
+     *
+     * <p>luaj specialises a hash slot whose value is a number into
+     * {@code LuaTable.NumberValueEntry}, and that entry's {@code set} reuses
+     * itself whenever {@code value.tonumber()} is non-nil — Lua coercion, so a
+     * numeric-looking LuaString is stored as its double. Once the slot for
+     * {@code item_tag} held 784.6 for item 0, item 1's string
+     * "1777288596209286259" was read back by the script as the number
+     * 1777288596209286144 (issue #200). Go's Lua backends and LuaJIT store the
+     * string as a string. Upstream fixed it in luaj commit b8aaaafb
+     * (2018-10-31, "Check the type before reusing a NumberValueEntry"), but no
+     * release after 3.0.1 exists on Maven Central, so the guard lives here.
+     *
+     * <p>Only the number-slot → string-value transition is affected (verified
+     * against the 3.0.1 bytecode: NormalEntry and IntKeyEntry store the
+     * LuaValue as given, and a fresh key never starts as NumberValueEntry with
+     * a string). Clearing the slot first makes the next write allocate a
+     * NormalEntry. The extra {@code rawget} is paid only when writing a string,
+     * and the clear only when the slot actually holds a number — so the
+     * numeric item loop, the hot path, is unchanged.
+     *
+     * <p>Not covered, and not coverable from the bridge: the same slot reuse
+     * happens for assignments made by the script itself
+     * ({@code t.k = 7; t.k = "123"} yields a number under luaj). That is a VM
+     * defect only a luaj upgrade or fork can fix; see
+     * llmdoc/memory/doc-gaps.md.
+     */
+    private static void setGlobal(Globals globals, String name, LuaValue value) {
+        if (value.type() == LuaValue.TSTRING && globals.rawget(name).type() == LuaValue.TNUMBER) {
+            globals.rawset(name, LuaValue.NIL);
+        }
+        globals.rawset(name, value);
     }
 
     private static Object fromLua(LuaValue v) throws PineErrors.OperatorException {
@@ -469,9 +506,11 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
                     g.set(k, LuaValue.NIL);
                 }
             }
-            // Restore modified baseline keys
+            // Restore modified baseline keys. Through setGlobal: a script
+            // that overwrote a string-valued baseline global with a number
+            // would otherwise get the string coerced on restore.
             for (Map.Entry<String, LuaValue> e : snap.entrySet()) {
-                g.set(e.getKey(), e.getValue());
+                setGlobal(g, e.getKey(), e.getValue());
             }
         }
     }
