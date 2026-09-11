@@ -327,6 +327,11 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
      * and the clear only when the slot actually holds a number — so the
      * numeric item loop, the hot path, is unchanged.
      *
+     * <p>The writes stay {@code globals.set}, not {@code rawset}: {@code set}
+     * honours a {@code __newindex} metamethod on {@code _G} for absent keys,
+     * which is what the previous code, gopher-lua's SetGlobal and C Lua's
+     * lua_setglobal all do. Only the guard's probe is raw.
+     *
      * <p>Not covered, and not coverable from the bridge: the same slot reuse
      * happens for assignments made by the script itself
      * ({@code t.k = 7; t.k = "123"} yields a number under luaj). That is a VM
@@ -335,9 +340,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
      */
     private static void setGlobal(Globals globals, String name, LuaValue value) {
         if (value.type() == LuaValue.TSTRING && globals.rawget(name).type() == LuaValue.TNUMBER) {
-            globals.rawset(name, LuaValue.NIL);
+            globals.set(name, LuaValue.NIL);
         }
-        globals.rawset(name, value);
+        globals.set(name, value);
     }
 
     private static Object fromLua(LuaValue v) throws PineErrors.OperatorException {

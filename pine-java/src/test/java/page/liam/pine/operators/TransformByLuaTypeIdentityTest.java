@@ -191,6 +191,29 @@ public class TransformByLuaTypeIdentityTest {
     }
 
     @Test
+    void hostGlobalWritesStillHonourNewindexOnGlobals() throws Exception {
+        // The #200 guard must not change how a global is written: a
+        // strict-mode style `setmetatable(_G, {__newindex=...})` installed by
+        // the script sees host writes to ABSENT keys in luaj (globals.set →
+        // settable), in gopher-lua (SetGlobal → setFieldString) and in C Lua
+        // (lua_setglobal). Using rawset in setGlobal would have bypassed it
+        // silently — a review finding on the first version of the fix.
+        // item_x is absent from _G until the first item write, so the write
+        // of item 0 goes through __newindex and is redirected into `seen`.
+        // f is defined before the metatable goes on, otherwise its own
+        // definition would be redirected too.
+        List<Object> out = runItems(
+                "seen = {}\n"
+                + "function f() return seen.item_x end\n"
+                + "setmetatable(_G, {__newindex = function(t, k, v) rawset(seen, k, v) end})",
+                Arrays.asList("via-newindex", 42.0));
+        assertEquals("via-newindex", out.get(0));
+        // After the redirect item_x still does not exist in _G, so item 1's
+        // write also takes __newindex.
+        assertEquals(42.0, out.get(1));
+    }
+
+    @Test
     void numericStringOverNumericBaselineGlobalAcrossPooledExecutes() throws Exception {
         // Same slot bug where the number was put there by the SCRIPT, not by a
         // previous item: a top-level `item_x = 7` makes item_x a baseline
