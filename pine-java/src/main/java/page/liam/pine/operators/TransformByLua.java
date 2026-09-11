@@ -242,7 +242,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             for (int i = 0; i < n; i++) {
                 tbl.set(i + 1, toLua(col[i]));
             }
-            globals.set(field, tbl);
+            setGlobal(globals, field, tbl);
         }
 
         if (token.isCancelled()) return;
@@ -306,7 +306,10 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     /**
      * Writes a global for the script to read. Every host-to-VM write of a
      * string-keyed global goes through here, not {@code globals.set}, because
-     * of a luaj 3.0.1 table bug.
+     * of a luaj 3.0.1 table bug. Table values (common-mode item columns) are
+     * not affected by that bug — a non-number value always displaces a
+     * NumberValueEntry — but they take this path too so the rule has no
+     * exception a reader has to know about.
      *
      * <p>luaj specialises a hash slot whose value is a number into
      * {@code LuaTable.NumberValueEntry}, and that entry's {@code set} reuses
