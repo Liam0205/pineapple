@@ -10,7 +10,7 @@
 | #201 | 全部 item 顺序不同 | `ReorderShuffle.anyToString` 对 List/Map 用裸 `new ObjectMapper()`，`[28.0,42.0]`/`2.0E100` vs Go `[28,42]`/`2e+100`，salt 字节不同 | 新增 `GoFormat.marshalJson`（复用响应路径的 Go 兼容 mapper），shuffle 与 bench stub 改用 |
 | #202 | Go/Java 分页取到不同 item（`id_2` vs `id_20`） | `ReorderSort` 用 `Double.compare`：`-0.0 < 0.0`；Go/C++ 用 `<` 视为相等、稳定排序保原序；三个零恰在 `filter_paginate` 页边界 | 比较器改 `x<y?-1:x>y?1:0` |
 
-三个 fixture 文件各加用例（`reorder_sort.json` 2 例、`reorder_shuffle.json` 2 例、`transform_by_lua_edge_cases.json` 1 例），期望值由 Go 生成；Java 单测 `GoFormatMarshalJsonTest`（新）与 `TransformByLuaTypeIdentityTest`（+3 多 item 用例）。每处都做了 red-before（文件备份还原旧源码）/ green-after。
+三个 fixture 文件各加用例（`reorder_sort.json` 2 例、`reorder_shuffle.json` 2 例、`transform_by_lua_edge_cases.json` 1 例），期望值由 Go 生成，由 **Go 与 Java 两个** fixture runner 消费（`pine-go/integration/fixture_test.go`、`FixtureTest.java`；pine-cpp 没有算子级 fixture runner，它只经 cross-validate 的 `fixtures/pipelines/` 比对——commit `48283ac7` 说明里的「all runtimes」不准确，审计 R1 指出）；Java 单测 `GoFormatMarshalJsonTest`（新）与 `TransformByLuaTypeIdentityTest`（+3 多 item 用例）。每处都做了 red-before（文件备份还原旧源码）/ green-after。
 
 ## 过程：哪些动作真正把范围收敛了
 
@@ -42,4 +42,4 @@
 
 - 三个修复都只动 pine-java；Go 与 C++ 在三个 case 上本就字节一致，未改。
 - fuzz 生成器未改：三个缺陷的触发形状（数字后接数字形字符串、复合值 salt、负零平局落页边界）生成器早已能产出（2026-05/07 起），只是概率低（各约 1/10000 轮），nightly 10k 轮三天各抓一个。fixture 是比调生成器概率更便宜的门。
-- 种子重放：`--rounds 362 --seed 2262930939` 与 `--rounds 161 --seed 4071164659` 本地全绿；`--rounds 7172 --seed 1622586423` 耗时约 3 小时（0.7 轮/秒），提交本文时仍在跑，结果由后续 docs commit 补记。
+- 种子重放：`--rounds 362 --seed 2262930939` 与 `--rounds 161 --seed 4071164659` 本地全绿（362/362、161/161）。`--rounds 7172 --seed 1622586423` 单机需约 3 小时（0.7 轮/秒），未纳入本文的完成判据；#201 的修复由原 artifact case 三方字节一致 + fixture 红绿 + `GoFormatMarshalJsonTest` 钉住。

@@ -236,6 +236,8 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 
 `reorder_sort` 与任何按数值排序的路径，比较器语义以 Go `sort.SliceStable` + `<` 为基准：`-0.0` 与 `0.0` **相等**，由稳定排序保留输入顺序。Java `Double.compare` 把 `-0.0` 排在 `0.0` 前（也把 NaN 排到最大），是另一套全序。issue #202：三个零值恰在 `filter_paginate` 的页边界上，Go/C++ 分页拿到 `id_2`、Java 拿到 `id_20`。与上面 `merge_dedup` 的 `-0.0 → +0.0` 归一化同源（IEEE 754 负零是跨语言分歧的固定来源，见 `memory/reflections/differential-fuzz-discoveries.md`），但落点不同：dedup 是 hash 相等、sort 是比较器相等，两处各自要守。
 
+**前提：被比较的值里没有 NaN。** `x<y?-1:(x>y?1:0)` 遇到 NaN 不是全序（NaN 与一切「相等」而其余值有序），Java `Arrays.sort(Object[])`（TimSort）可能抛 `Comparison method violates its general contract`，Go `sort.SliceStable` 只是顺序未定义不 panic。`reorder_sort` 当前安全是因为 frame 写入校验拒绝标量 NaN/Inf（`ColumnFrame.checkValue` / `row_frame.go` 同款）且 JSON 表达不出 NaN；把这条规则套到一条 NaN 可达的路径（例如直接对 Lua 中间值排序）之前，先决定 NaN 的位置并与 Go 做相同处理，不能直接套 `<`/`>`。
+
 ### 有界读取
 
 读取外部响应时必须使用 `io.LimitReader(body, limit+1)`，禁止裸 `io.ReadAll`。读取后若 `len(data) > limit` 则视为溢出错误。`max_response_size` 类参数的默认值为 10MB。
