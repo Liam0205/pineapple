@@ -621,7 +621,9 @@ public final class GoFormat {
             // Integer / Long / Short / Byte / BigInteger / BigDecimal: what Go
             // would have held as float64 from the moment it parsed the literal.
             // BigInteger past the double range becomes ±Infinity and takes the
-            // serializer's quoted branch; Go could not have parsed it at all.
+            // serializer's quoted branch; Go rejects such a request at parse
+            // time, so this is a recorded parse-layer divergence — see
+            // llmdoc/memory/doc-gaps.md "超出 float64 范围的整数字面量".
             return ((Number) v).doubleValue();
         }
         return v;
