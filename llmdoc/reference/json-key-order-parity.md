@@ -10,7 +10,7 @@ Jackson mapper，但规则互不相干。
 
 参照的实现落点：
 
-- pine-java：`pine-java/src/main/java/page/liam/pine/GoFormat.java`（`SortedByUtf8` / `sorted` / `wrapPayload` / `compareUtf8`，以及 `createGoCompatMapper` 里的序列化器注册）
+- pine-java：`pine-java/src/main/java/page/liam/pine/GoFormat.java`（`SortedByUtf8` / `payload` / `sorted` / `sortedShallow` / `wrapPayload` / `compareUtf8`，以及 `createGoCompatMapper` 里的序列化器注册）
 - 调用点：`pine-java/src/main/java/page/liam/pine/PineServer.java`、`pine-java/src/main/java/page/liam/pine/RunCli.java`（两个入口共用同一 comparator）
 - pine-cpp：`pine-cpp/src/config/json_writer.cpp`（`std::sort`，无需改动，见下）
 - Go 侧规则来源：`encoding/json` 对 map 与 struct 的两条不同路径
@@ -34,9 +34,13 @@ pine-go 的 `/execute` 响应外层（envelope）是 struct
 `error` 声明在 `items` 之后，所以它在后面；`common` 内部的 `a`/`z` 才排序。
 
 **Java 里 Map 与 struct 没有类型层面的区分，所以这条二分必须显式建模。**
-`GoFormat.SortedByUtf8` 是这个显式标记：payload 用 `GoFormat.sorted` /
-`GoFormat.wrapPayload` 包起来，envelope 保持普通 `LinkedHashMap` 按 put 顺序输出。
-`wrapPayload` 递归下钻（Go 在每一层都排，list 里嵌的 map 也要排）。
+`GoFormat.SortedByUtf8` 是这个显式标记：frame payload（`common`）用 `GoFormat.payload`、
+`items` 与 trace 快照用 `GoFormat.wrapPayload` 包起来，`/stats` 子树用 `GoFormat.sorted` /
+`sortedShallow`，envelope 保持普通 `LinkedHashMap` 按 put 顺序输出。
+`wrapPayload` 递归下钻（Go 在每一层都排，list 里嵌的 map 也要排）。payload 与 `sorted`
+两个包装器在 key 顺序上完全相同，差别只在**数字拼写**：payload 把整数载体按 Go float64 拼、
+`sorted` 保 Long 精确（对应 Go int64）——那是另一组规则，见 `must/conventions.md` 的
+「跨运行时 shuffle anyToString 一致性」节中 `marshalJson` 条目的数字拼写边界。
 
 直觉上「给 `Map.class` 注册一个排序序列化器」是错的：issue #183 第一版就是这么写的，
 所有 Map 都排序，把 `error` 排到了 `items` 前面，cross-validate 从 55 掉到 54，
