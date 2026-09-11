@@ -327,10 +327,28 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
      * and the clear only when the slot actually holds a number — so the
      * numeric item loop, the hot path, is unchanged.
      *
-     * <p>The writes stay {@code globals.set}, not {@code rawset}: {@code set}
-     * honours a {@code __newindex} metamethod on {@code _G} for absent keys,
-     * which is what the previous code, gopher-lua's SetGlobal and C Lua's
-     * lua_setglobal all do. Only the guard's probe is raw.
+     * <p>Two write paths, chosen by whether the key already exists:
+     * <ul>
+     *   <li>Guard hit (slot holds a number, value is a string): the key
+     *   exists, and Lua semantics for assignment to an EXISTING key are a raw
+     *   overwrite — {@code __newindex} is consulted only for absent keys
+     *   (C Lua lua_setglobal, gopher-lua SetGlobal, luaj settable). So both
+     *   the clear and the rewrite are {@code rawset}. Clearing with
+     *   {@code set(NIL)} then writing with {@code set(value)} would turn the
+     *   second write into an absent-key write and hand a string to a script's
+     *   {@code __newindex} that no other Lua would call — a review finding on
+     *   the second version of this fix.</li>
+     *   <li>Otherwise {@code globals.set}, which honours {@code __newindex}
+     *   for absent keys. Measured matrix for a host write of an absent global
+     *   with {@code setmetatable(_G, {__newindex=...})} installed by the
+     *   script: pine-cpp (LuaJIT) and pine-go with {@code -tags=lua_gopher}
+     *   honour it; pine-go's DEFAULT backend (wangshu) writes raw — its
+     *   {@code SetGlobal} goes through a raw table set. Go's two backends
+     *   disagree with each other, so there is no single Go behaviour to copy;
+     *   Java follows Lua semantics and the C++ benchmark runtime, and the
+     *   wangshu divergence is recorded in llmdoc/memory/doc-gaps.md for a
+     *   pine-go issue rather than replicated here.</li>
+     * </ul>
      *
      * <p>Not covered, and not coverable from the bridge: the same slot reuse
      * happens for assignments made by the script itself
@@ -340,7 +358,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
      */
     private static void setGlobal(Globals globals, String name, LuaValue value) {
         if (value.type() == LuaValue.TSTRING && globals.rawget(name).type() == LuaValue.TNUMBER) {
-            globals.set(name, LuaValue.NIL);
+            globals.rawset(name, LuaValue.NIL);
+            globals.rawset(name, value);
+            return;
         }
         globals.set(name, value);
     }
