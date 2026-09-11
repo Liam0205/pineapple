@@ -1,6 +1,6 @@
 # Nightly diff-fuzz #200 / #201 / #202：三个同周到达、互不相干的 pine-java 分歧
 
-日期：2026-09-11。三个 nightly differential-fuzz issue（2026-09-07 / 09 / 10，各 1 失败、0 unstable、都是 go vs java、cpp 与 go 字节一致），一次任务修完：原始三个修复各一个 commit，本地盲审后追加第四个修复（整数载体拼写）与若干 docs/refactor commit，全部在同一 PR range 内。
+日期：2026-09-11。三个 nightly differential-fuzz issue（2026-09-07 / 09 / 10，各 1 失败、0 unstable、都是 go vs java、cpp 与 go 字节一致），一次任务修完：原始三个修复各一个 commit；本地盲审后追加的行为修复有整数载体拼写（`7be3c34f`，挂载位置随后由 mapper 返工到 payload 层 `77964575`）与 `setGlobal` 守卫的两次修正（`1dee6cd1`、`21ee06c6`），其余为 docs/refactor commit，全部在同一 PR range 内。
 
 ## 结论先行
 
@@ -35,7 +35,7 @@
 ## 顺带发现、未修、已登记（`memory/doc-gaps.md`）
 
 1. luaj 脚本内部同 key 二次赋值（`t.k = 7; t.k = "123"`）同样被 coerce——桥接层修不到的残留。
-2. luaj `tostring()`/`..` 对非整数 double 走 float 精度（`784.6283`、`1e100`→`Infinity`、`2^53+1`→整数形），三运行时实测对照已写入。
+2. luaj `tostring()`/`..` 对非整数 double 走 float 精度（`784.6283`、`1e100`→`Infinity`、`2^53+1`→整数形），各运行时实测对照已写入。
 3. pine-cpp 拒绝手写 config 的 `pipeline_map: null` 与缺 `$metadata` 的算子，Go/Java 接受。
 4. pine-go 两个 Lua 后端对宿主写缺失全局是否触发 `__newindex` 不一致（默认 wangshu raw、gopher-lua honour；审计 R2 发现，见 doc-gaps 同名条目）。
 5. 非有限值进入复合 shuffle salt 时 Go/C++/Java 字节各不相同（Go `%v` fallback / C++ 裸 `nan` / Java 带引号；审计 R6 发现，先于本 range；我把参考对象错当成 `json.Marshal` 而非 Go `anyToString` 含 fallback 的完整行为，见 doc-gaps 同名条目）。
@@ -51,5 +51,5 @@
 - **R1**：`marshalJson` 只对 `Double` 载体等价——Jackson 把请求里的整数字面量解成 `Integer`/`Long`/`BigInteger` 并原样进 frame，而我的 javadoc 写成了无条件等价。这正是 `guides/investigation-to-fix-testing.md`「上游已修但从未发版」一节刚写下的「别让『修了』读成『全修了』」。实测 Go/C++ `[i1,i4,i3,i0,i2]` vs Java `[i0,i4,i3,i2,i1]`，且响应路径同样分歧（`bx15` 之前根本没有覆盖整数字面量 ≥ 2^53 的通道）。
 - **R2 阻塞**：我修 R1 时把 Long→float64 装在共享 mapper 上，而 `/stats` 的 `sum_ns`/`total_duration_ns` 是 Go int64、必须精确——commit message 里「此类值都远小于 2^53」这句是**想当然**：那是累计纳秒不是计数，2^53 ns ≈ 104 天。仓库里早有同型先例（`sortedShallow` 为「Go 对 map 排序、struct 不排」把 payload 与 `/stats` 分开处理），我没把它认出来。**判据**：改一个共享序列化器之前，先列出它的全部消费者及每个位置的 Go 类型；Go 规则取决于位置上的 Go 类型，Java 得按位置建模。
 - **R2 重要 ×2**：(a) 修 R1-M2 时把守卫分支的两次写改成 `set(NIL)`+`set(value)`，`set(NIL)` 会**删除**键，于是第二次写变成「缺失键写入」、被脚本的 `__newindex` 接走——两个既有测试各测一边（数字→字符串、`__newindex`），交集无覆盖；(b) 我在 commit message 里写「gopher-lua 与 C Lua 都 honour `__newindex`、Java only 绕过」，但 pine-go **默认后端是 wangshu**，其 `SetGlobal` 是 raw 写，实测矩阵：wangshu raw / gopher-lua honour / LuaJIT honour / Java(修后) honour。Go 自己两个后端不一致，「参考运行时怎么做」在这里没有单一答案；选边跟 Lua 语义与 C++ 标杆，wangshu 分歧登记 doc-gaps。**判据**：「Go 也如此」这类断言必须对**默认构建**实测，opt-in 后端不代表 Go。
-- **R12（第三次全范围）**：`createGoCompatMapper` 里一段「六个注册覆盖全部 frame 载体、frame 值只有 Double/Float」的旧注释在 77964575 撤掉整数序列化器后又「字面为真」了，但前提（整数载体已在 `wrap(v,true)` 被换成 double）没写——同一文件里刚写下的 `payload()` javadoc 与它矛盾。**判据**：清理过时注释时按「这个前提在哪些注释里被复述」grep，不止看自己刚改的那几行；`Column.java` 类头同一前提也一并改了。另两条历史卫生记录：`3e7ff2e6` 用 `docs(java)` 前缀却带一处死构造器删除（应拆 `refactor`）；`14215a37` message 引用的 `12c7e5e2` 是 rebase 前的旧 SHA，最终链里对应 `449fdec1`。两者未重写历史（重写会再次作废已完成的审计链），在此登记为已知例外。
+- **R12（第三次全范围）**：`createGoCompatMapper` 里一段「六个注册覆盖全部 frame 载体、frame 值只有 Double/Float」的旧注释在 77964575 撤掉整数序列化器后又「字面为真」了，但前提（整数载体已在 `wrap(v,true)` 被换成 double）没写——同一文件里刚写下的 `payload()` javadoc 与它矛盾。**判据**：清理过时注释时按「这个前提在哪些注释里被复述」grep，不止看自己刚改的那几行；`Column.java` 类头同一前提也一并改了。另两条历史卫生记录：`3e7ff2e6` 用 `docs(java)` 前缀却带一处死构造器删除（应拆 `refactor`）；`14215a37` message 引用的 `12c7e5e2` 是 rebase 前的旧 SHA，最终链里对应 `449fdec1`。`4da65b5f` 用 `test(cross-validate)` 前缀改的只是脚本头注释（应为 `docs`）。三者未重写历史（重写会再次作废已完成的审计链），在此登记为已知例外。
 - **R6（最终全范围）重要**：`marshalJson` javadoc 写「NaN/Inf 复合值 Go 无字节可匹配」——错把参考对象当成 `json.Marshal` 而非 Go `anyToString` 的完整行为：后者在 Marshal 报错后落 `fmt.Sprintf("%v")` 得 `[NaN 2]` 并照常 hash，C++ 写裸 `nan`，Java 写带引号 `"NaN"`，实测三方三种 shuffle 顺序。R1 报告其实已写明 Go 侧走 `%v`，我选「改文档」选项时把 Go 行为写反了。**判据**：复刻某个 Go 函数时，参考对象是它的调用者在那条路径上的完整行为（含 error 分支的 fallback），不是它调用的库函数。已登记 doc-gaps「非有限值进入复合 shuffle salt」。
