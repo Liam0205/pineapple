@@ -388,7 +388,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 `SetWarning` 与算子类型正交，用于非致命 warning。
 
-**整数值写入 frame 的拼写前提**：Go 侧 `validateValue` 放行 `int`/`int64`，响应里按 int64 精确打印；pine-java 的 payload 包装层把 `Long`/`Integer` 一律按 Go float64 拼写（因为解析进来的字面量在 Go 里本就是 float64）。两侧只在 |v| < 2^53 时字节相同。内置算子只写计数值（`transform_size`），不受影响；自定义算子要在 frame 放大整数（如 ID）时，三方都以 double 写入，与 Lua bridge「number 出口一律 double」同一约定。规则原文见 `must/conventions.md`「跨运行时 shuffle anyToString 一致性」节的数字拼写边界。
+**整数值写入 frame 的拼写前提**：Go 侧 `validateValue` 放行 `int`/`int64`，响应里按 int64 精确打印；pine-java 的 payload 包装层把 `Long`/`Integer` 一律按 Go float64 拼写（因为解析进来的字面量在 Go 里本就是 float64）。两侧只在 |v| < 2^53 时字节相同。内置算子只写计数值（`transform_size`），不受影响；自定义算子要在 frame 放大整数（如 ID）时，pine-go / pine-java / pine-cpp 都以 double 写入，与 Lua bridge「number 出口一律 double」同一约定。规则原文见 `must/conventions.md`「跨运行时 shuffle anyToString 一致性」节的数字拼写边界。
 
 #### 批量列写（`SetItemColumnFloat64` / `setItemColumnDouble` / `set_item_column_double`）
 
