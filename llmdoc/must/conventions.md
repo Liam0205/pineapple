@@ -143,6 +143,8 @@ codegen 之外的第一个应用点是**接口契约文档**（issue #193）：`
 
 案例（issue #189/#190）：`TransformByLua.fromLua` 里的 `(long) d` 窄化由 `81c1a36c`（2026-05-18）引入，issue #175 的三个 commit（2026-07-23）**都带着这行**——#175 修的正是同一个函数的标量派发，改动点距这行只有三行。#175 的检查项是「派发方式对不对」，这行的问题是「派发之后的类型转换对不对」：同一函数、同一屏、不同维度，那次的 grep 清单（找 `is*()` 调用）在构造上不可能命中一个强转。而那次续集反思写下的「该文件 `is*()` 派发点已三处闭环、下次触碰不需额外扫」，正是这个缺陷活下来的直接条件。
 
+**同一函数的第三个维度（issue #200）**：#175 查「逐个值的派发谓词」、#189/#190 查「派发后的类型转换」，#200 是「**槽位跨 item 的状态**」——`toLua(String)` 与 `fromLua` 逐个值都对，但 luaj 的表槽位复用让「上一个 item 写进去的 number」决定「这个 item 的 string 读回来是什么」。既有的 `inputStringRoundTripsThroughLuaUnchanged` 用**一个** item 测 identity，从构造上看不见需要两个 item 才出现的状态耦合。判据补一条：列职责维度时，把「跨调用/跨 item 的状态」单列，凡是复用容器（VM 全局表、池化 state、`thread_local` 缓冲）都有这一维，单样本测试对它恒绿。
+
 与「按这条表述出现在哪里清理」（`guides/investigation-to-fix-testing.md`，#183 的 `/stats` 漏两轮、#179 的五处反向注释）是**不同的失效模式，不要合并成一条**：那条是同一维度散落在多个位置，这条是同一位置承载多个维度。
 
 可执行动作：动一个函数前先列出它承担的职责维度（派发、类型转换、错误路径、边界校验等），标明当前 issue 覆盖哪几个；写审计结论时把维度写进主语，不要留「本文件下次不需再扫」这类跨维度免检声明。
@@ -227,8 +229,12 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 
 - 所有数值类型（含整数）使用 `%g` / `formatG` 格式化，而非 `%d` 或 `fmt.Sprint`
 - bool 类型特殊处理（必须在数值类型判定之前）
-- composite types（map/list）使用 JSON 序列化
+- composite types（map/list）使用 JSON 序列化——而且必须是 **Go `json.Marshal` 的字节**：pine-java 用 `GoFormat.marshalJson`（Go 数字拼写 + UTF-8 key 排序 + `<>&` 转义），不得用裸 `new ObjectMapper()`。issue #201：Lua 返回的 `{item_score*2, item_score*3}` 在 Java 里是 `List<Double>`，裸 Jackson 写成 `[28.0,42.0]`/`2.0E100`，Go 是 `[28,42]`/`2e+100`，salt 字节不同 → hash 不同 → 整个结果顺序不同。这条规则对**任何把复合值变成字节再喂 hash / 比较**的 Java 代码都成立（bench stub `ReorderTopnBoostStub` 同步改了）；响应路径早就在用同一个 mapper，`marshalJson` 只是把它暴露给算子层，不要再长出第二份 JSON 规则
 - shuffle 使用 original index 作为最终 tiebreaker，保证同 hash 值时排序确定性
+
+### 跨运行时数值排序比较必须按 IEEE `<`/`>`，不用 `Double.compare`
+
+`reorder_sort` 与任何按数值排序的路径，比较器语义以 Go `sort.SliceStable` + `<` 为基准：`-0.0` 与 `0.0` **相等**，由稳定排序保留输入顺序。Java `Double.compare` 把 `-0.0` 排在 `0.0` 前（也把 NaN 排到最大），是另一套全序。issue #202：三个零值恰在 `filter_paginate` 的页边界上，Go/C++ 分页拿到 `id_2`、Java 拿到 `id_20`。与上面 `merge_dedup` 的 `-0.0 → +0.0` 归一化同源（IEEE 754 负零是跨语言分歧的固定来源，见 `memory/reflections/differential-fuzz-discoveries.md`），但落点不同：dedup 是 hash 相等、sort 是比较器相等，两处各自要守。
 
 ### 有界读取
 
