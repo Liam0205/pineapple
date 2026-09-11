@@ -118,6 +118,13 @@
 - **可观察性**：fixture `transform_by_lua_edge_cases.json` 有「number to string via concatenation」用例但用的是整数值（三方一致），非整数值的 `tostring`/拼接没有任何通道覆盖；fuzz 生成器亦无此形状。
 - **待决策**：(a) 桥接层无法拦截（发生在脚本内部）；候选是在 pine-java 侧用 luaj 的 `LuaDouble` 替换点或注册自定义 `tostring`（BaseLib `tostring` 可覆写为 `%.14g` 等价实现，但 `..` 拼接走 `LuaDouble.tojstring` 覆写不到）；(b) 先补一个非整数 `tostring` 的 fixture 用例让分歧可见并接受红，或在 Lua 脚本约束里明文列为已知分歧。需要先量化用户脚本里 `tostring`/拼接非整数的出现频率再决定。
 
+### 非有限值进入复合 shuffle salt 时三运行时字节三样（#201 最终审计发现，先于本 range 存在，未修）
+
+- **现状**：`reorder_shuffle_by_salt` 的 item key 是复合值且内含 NaN/±Inf 时（frame 写入校验只拒绝标量非有限值、不下钻复合，故只能由 Lua `return {0/0, x}` 产生），三方喂 hash 的字节不同：pine-go `anyToString` 的 `json.Marshal` 报错后落 `fmt.Sprintf("%v")` 得 `[NaN 2]`；pine-cpp `dump_json` 写裸 `nan`/`inf`；pine-java `GoFormat.marshalJson` 写带引号 `"NaN"`/`"Infinity"`。实测 8 个 item（seed 2/5/7 的 key 含 NaN/Inf/嵌套 NaN，salt `alpha`）：Go `[5,8,2,4,7,6,3,1]`、C++ `[5,8,4,6,7,3,1,2]`、Java `[5,8,4,6,2,3,7,1]`。
+- **基线**：本 range 之前 Java 用裸 Jackson 同样写 `"NaN"`，C++ 一直写 `nan`；#201 修的是有限值的拼写，这条没变。审计 R6 指出本 range 的 javadoc 曾把它写成「Go 无字节可匹配、有意如此」——错在把参考对象当成 `json.Marshal` 而非 Go `anyToString` 的完整行为（含 fallback）；措辞已改为「已知分歧」。
+- **可观察性**：fuzz 生成器的 Lua 脚本不产生 NaN/Inf；无 fixture 覆盖；nightly 看不见。
+- **待决策**：(a) 三方都复刻 Go 的 `%v` fallback（Java 已有 `GoFormat.sprint` 可产出 `[NaN 2]` 形状，但 map 形状 `map[a:1.5 b:NaN]` 与非整数 `%v` 拼写还需对齐；C++ 需在 `any_to_string` 里对含非有限值的复合走 `%v` 路径）；(b) 三方在 shuffle 入口对含非有限值的复合 salt 统一报错（比复刻 `%v` 更容易钉住，但改变可观察行为）；(c) 记录为接受分歧。任一选择都要补一条 `fixtures/pipelines/` 用例让 cross-validate 能看见。需先确认 Go `%v` 对 map 的排序（Go 1.12+ 按 key 排）与 pine-go 最低 Go 版本。
+
 ### pine-go 两个 Lua 后端对宿主写全局是否触发 `__newindex` 不一致（#200 审计 R2 顺带发现，未修）
 
 - **现状**：脚本 `setmetatable(_G, {__newindex=...})` 后，宿主把 item 字段写入缺失全局：pine-go **默认** wangshu 后端 raw 写（`SetGlobal` → `tableSet` → `rawSet`，wangshu `internal/crescent/table.go` 头注释明写 raw 入口）、`-tags=lua_gopher` 触发 `__newindex`、pine-cpp LuaJIT 触发、pine-java（`TransformByLua.setGlobal` 非守卫分支 `globals.set`）触发。实测脚本见 `TransformByLuaTypeIdentityTest.hostGlobalWritesStillHonourNewindexOnGlobals` 的注释。

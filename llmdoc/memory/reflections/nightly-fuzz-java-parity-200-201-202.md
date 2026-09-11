@@ -38,6 +38,7 @@
 2. luaj `tostring()`/`..` 对非整数 double 走 float 精度（`784.6283`、`1e100`→`Infinity`、`2^53+1`→整数形），三运行时实测对照已写入。
 3. pine-cpp 拒绝手写 config 的 `pipeline_map: null` 与缺 `$metadata` 的算子，Go/Java 接受。
 4. pine-go 两个 Lua 后端对宿主写缺失全局是否触发 `__newindex` 不一致（默认 wangshu raw、gopher-lua honour；审计 R2 发现，见 doc-gaps 同名条目）。
+5. 非有限值进入复合 shuffle salt 时三方字节三样（Go `%v` fallback / C++ 裸 `nan` / Java 带引号；审计 R6 发现，先于本 range；我把参考对象错当成 `json.Marshal` 而非 Go `anyToString` 含 fallback 的完整行为，见 doc-gaps 同名条目）。
 
 ## 未做 / 边界
 
