@@ -192,15 +192,16 @@ public class TransformByLuaTypeIdentityTest {
 
     @Test
     void hostGlobalWritesStillHonourNewindexOnGlobals() throws Exception {
-        // The #200 guard must not change how a global is written: a
+        // The #200 guard must not change how an ABSENT global is written: a
         // strict-mode style `setmetatable(_G, {__newindex=...})` installed by
-        // the script sees host writes to ABSENT keys in luaj (globals.set →
-        // settable), in gopher-lua (SetGlobal → setFieldString) and in C Lua
-        // (lua_setglobal). Using rawset in setGlobal would have bypassed it
-        // silently — a review finding on the first version of the fix.
-        // item_x is absent from _G until the first item write, so the write
-        // of item 0 goes through __newindex and is redirected into `seen`.
-        // f is defined before the metatable goes on, otherwise its own
+        // the script sees host writes to absent keys in luaj (globals.set →
+        // settable), in LuaJIT (pine-cpp) and in gopher-lua. Using rawset for
+        // every write would have bypassed it silently — a review finding on
+        // the first version of the fix. (pine-go's default wangshu backend
+        // writes raw here; see setGlobal's javadoc for why Java does not copy
+        // that.) item_x is absent from _G until the first item write, so the
+        // write of item 0 goes through __newindex and is redirected into
+        // `seen`. f is defined before the metatable goes on, otherwise its own
         // definition would be redirected too.
         List<Object> out = runItems(
                 "seen = {}\n"
@@ -211,6 +212,24 @@ public class TransformByLuaTypeIdentityTest {
         // After the redirect item_x still does not exist in _G, so item 1's
         // write also takes __newindex.
         assertEquals(42.0, out.get(1));
+    }
+
+    @Test
+    void guardOnExistingNumericGlobalIsRawEvenUnderNewindex() throws Exception {
+        // Intersection of the two cases above, which each had a test and the
+        // second version of the fix got wrong: the key EXISTS (script set it
+        // to a number) and __newindex is installed. Lua assigns to an existing
+        // key raw, so the numeric-string write must land in _G as a string
+        // and __newindex must not see it. The second version cleared with
+        // set(NIL) — deleting the key — so the rewrite became an absent-key
+        // write and was redirected into `seen`, leaving _G.item_x nil.
+        List<Object> out = runItems(
+                "seen = {}\n"
+                + "item_x = 0\n"
+                + "function f() return tostring(rawget(_G, 'item_x')) .. '|' .. tostring(rawget(seen, 'item_x')) end\n"
+                + "setmetatable(_G, {__newindex = function(t, k, v) rawset(seen, k, v) end})",
+                Arrays.asList("123"));
+        assertEquals("123|nil", out.get(0));
     }
 
     @Test
