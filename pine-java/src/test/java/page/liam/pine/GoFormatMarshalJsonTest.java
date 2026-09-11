@@ -34,9 +34,39 @@ class GoFormatMarshalJsonTest {
         assertEquals("[2e+100,3e+100]", GoFormat.marshalJson(list(2e100, 3e100)));
         assertEquals("[1e-7,1e+21]", GoFormat.marshalJson(list(1e-7, 1e21)));
         assertEquals("[0.30000000000000004,-0]", GoFormat.marshalJson(list(0.30000000000000004, -0.0)));
-        // Config literals decode to Integer; Go has only float64 here and
-        // prints the same bytes for both.
+        // Integer carriers: Jackson decodes request/config literals to
+        // Integer/Long/BigInteger and they reach the frame as such. Go has
+        // only float64, so the bytes must be the float64 spelling — below
+        // 2^53 identical, above it Go's rounded shortest round-trip.
         assertEquals("[28,42]", GoFormat.marshalJson(list(28, 42)));
+    }
+
+    @Test
+    void integerCarriersPastTwoPow53SpellLikeGoFloat64() throws Exception {
+        // Expected strings: json.Marshal(json.Unmarshal(literal)) in Go.
+        // Review of #201 found these took Jackson's exact-decimal path, so a
+        // shuffle salt {9007199254740993} hashed differently in Java than in
+        // Go and C++ — the same mechanism as #201 with a different carrier.
+        assertEquals("[9007199254740992,1777288596209286100,7,-2147483648,2147483647,4611686018427388000]",
+                GoFormat.marshalJson(list(9007199254740993L, 1777288596209286259L, 7,
+                        -2147483648, 2147483647, 4611686018427387904L)));
+        assertEquals("[1.2345678901234568e+29]",
+                GoFormat.marshalJson(list(new java.math.BigInteger("123456789012345678901234567890"))));
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("k", new java.math.BigInteger("123456789012345678901234567890"));
+        assertEquals("{\"k\":1.2345678901234568e+29}", GoFormat.marshalJson(m));
+        // Primitive arrays reach the mapper through their own Jackson
+        // serializer, so they need their own registration.
+        assertEquals("[9007199254740992]", GoFormat.marshalJson(new long[]{9007199254740993L}));
+        assertEquals("[2147483647]", GoFormat.marshalJson(new int[]{2147483647}));
+    }
+
+    @Test
+    void nonFiniteValuesAreQuotedNotThrown() throws Exception {
+        // Documented behaviour, not Go's: json.Marshal fails on NaN/Inf, this
+        // mapper keeps Jackson's quoted form so the output stays parseable.
+        // Pinned here so the marshalJson javadoc cannot drift from it.
+        assertEquals("[\"NaN\",\"Infinity\"]", GoFormat.marshalJson(list(Double.NaN, Double.POSITIVE_INFINITY)));
     }
 
     @Test

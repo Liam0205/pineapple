@@ -1,0 +1,85 @@
+{
+  "config": {
+    "storage_mode": "row",
+    "pipeline_config": {
+      "operators": {
+        "copy": {
+          "type_name": "transform_copy",
+          "direction": "common_to_item",
+          "$metadata": {
+            "common_input": [
+              "big"
+            ],
+            "common_output": [],
+            "item_input": [],
+            "item_output": [
+              "big"
+            ]
+          }
+        }
+      },
+      "pipeline_map": {
+        "s": {
+          "pipeline": [
+            "copy"
+          ]
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "s"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [
+        "big",
+        "nums"
+      ],
+      "item_input": [
+        "id",
+        "n"
+      ],
+      "common_output": [
+        "big",
+        "nums"
+      ],
+      "item_output": [
+        "id",
+        "n",
+        "big"
+      ]
+    }
+  },
+  "request": {
+    "common": {
+      "big": 9007199254740993,
+      "nums": [
+        1777288596209286259,
+        123456789012345678901234567890,
+        4611686018427387904,
+        7,
+        -2147483648,
+        {
+          "k": 9007199254740993
+        }
+      ]
+    },
+    "items": [
+      {
+        "id": "a",
+        "n": 1777288596209286259
+      },
+      {
+        "id": "b",
+        "n": 123456789012345678901234567890
+      },
+      {
+        "id": "c",
+        "n": 42
+      }
+    ]
+  }
+}

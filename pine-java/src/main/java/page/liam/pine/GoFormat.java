@@ -613,9 +613,13 @@ public final class GoFormat {
     private static final ObjectMapper GO_JSON_MARSHAL = createGoCompatMapper();
 
     /**
-     * Replicates Go's {@code json.Marshal(v)} for a frame value: Go's number
-     * spelling ({@link #formatJsonNumber}), maps sorted by UTF-8 key order at
-     * every depth, and Go's HTML-safe escaping of {@code <>&}.
+     * Replicates Go's {@code json.Marshal(v)} for a frame value: Go's float64
+     * number spelling ({@link #formatJsonNumber}) for every Number carrier
+     * Jackson can decode a literal into (Double, Float, Integer, Long,
+     * BigInteger — Go has only float64 on the way in, see the integer
+     * serializer registration in {@link #createGoCompatMapper}), maps sorted by
+     * UTF-8 key order at every depth, and Go's HTML-safe escaping of
+     * {@code <>&}.
      *
      * <p>Use this whenever a composite (List/Map) frame value is turned into a
      * string whose bytes feed a hash or a comparison — reorder_shuffle_by_salt
@@ -626,9 +630,18 @@ public final class GoFormat {
      * (issue #201). The response path already used this mapper; this exposes
      * the same rules to operator code so no second copy grows.
      *
-     * @throws IOException when Jackson cannot serialize the value (Go's
-     *         json.Marshal errors in the same situations: NaN/Inf inside the
-     *         composite). Callers decide the fallback.
+     * <p>Where it deliberately differs from Go: NaN and ±Infinity inside the
+     * composite are written as the quoted strings {@code "NaN"} /
+     * {@code "Infinity"} rather than failing, exactly as the response path
+     * does (see the NaN/Inf branch of the Double serializer). Go's
+     * json.Marshal returns an error there, so no Go bytes exist to match;
+     * the frame write path rejects non-finite scalars, and nested composites
+     * are not validated, so this is reachable only from a Lua table holding
+     * {@code 0/0}.
+     *
+     * @throws IOException only on a Jackson failure unrelated to the value's
+     *         numbers (e.g. a self-referencing structure); non-finite numbers
+     *         do not throw.
      */
     public static String marshalJson(Object v) throws IOException {
         return GO_JSON_MARSHAL.writeValueAsString(wrapPayload(v));
@@ -769,6 +782,64 @@ public final class GoFormat {
                 gen.writeStartArray();
                 for (double v : values) {
                     goDoubleSerializer.serialize(v, gen, provider);
+                }
+                gen.writeEndArray();
+            }
+        });
+        // Integer carriers take the SAME float64 path. Go's encoding/json has no
+        // integer type on the way in: every JSON number literal in a request,
+        // resource or config becomes float64, so 9007199254740993 is already
+        // 9007199254740992 before Go ever prints it, and a 30-digit literal
+        // prints as 1.2345678901234568e+29. Jackson decodes the same literals to
+        // Integer / Long / BigInteger and they reach the frame unchanged
+        // (Column.java dispatches on the exact class), so Jackson's default
+        // exact-decimal output diverged from Go for every integer past 2^53 —
+        // on the response body and, via GoFormat.marshalJson, in the bytes
+        // reorder_shuffle_by_salt hashes (found by review of issue #201).
+        //
+        // Converting through double is lossless below 2^53 and matches Go's
+        // float64 spelling above it. The one case it does NOT match is a Java
+        // Long that stands for a genuine Go int (item counts, /stats counters):
+        // Go prints those exactly at any magnitude. Every such value in this
+        // codebase is a count far below 2^53, where the two spellings are
+        // byte-identical, so the float64 rule is the one that agrees with Go
+        // on every value a response can actually carry. BigInteger past the
+        // double range becomes ±Infinity and takes the quoted-string branch,
+        // as Go would have failed to parse it in the first place.
+        StdSerializer<Number> goIntegerSerializer = new StdSerializer<Number>(Number.class) {
+            @Override
+            public void serialize(Number value, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                goDoubleSerializer.serialize(value.doubleValue(), gen, provider);
+            }
+        };
+        module.addSerializer(Long.class, goIntegerSerializer);
+        module.addSerializer(Long.TYPE, goIntegerSerializer);
+        module.addSerializer(Integer.class, goIntegerSerializer);
+        module.addSerializer(Integer.TYPE, goIntegerSerializer);
+        module.addSerializer(Short.class, goIntegerSerializer);
+        module.addSerializer(Short.TYPE, goIntegerSerializer);
+        module.addSerializer(Byte.class, goIntegerSerializer);
+        module.addSerializer(Byte.TYPE, goIntegerSerializer);
+        module.addSerializer(java.math.BigInteger.class, goIntegerSerializer);
+        module.addSerializer(long[].class, new StdSerializer<long[]>(long[].class) {
+            @Override
+            public void serialize(long[] values, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                gen.writeStartArray();
+                for (long v : values) {
+                    goDoubleSerializer.serialize((double) v, gen, provider);
+                }
+                gen.writeEndArray();
+            }
+        });
+        module.addSerializer(int[].class, new StdSerializer<int[]>(int[].class) {
+            @Override
+            public void serialize(int[] values, JsonGenerator gen, SerializerProvider provider)
+                    throws IOException {
+                gen.writeStartArray();
+                for (int v : values) {
+                    goDoubleSerializer.serialize((double) v, gen, provider);
                 }
                 gen.writeEndArray();
             }

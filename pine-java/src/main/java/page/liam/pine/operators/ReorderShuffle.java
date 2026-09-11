@@ -86,7 +86,10 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
         if (v instanceof List || v instanceof Map) {
             // Go: json.Marshal(v). Must be the Go-compatible mapper, not a
             // plain ObjectMapper — the bytes are hashed, so "28.0" vs "28"
-            // reorders the whole result (issue #201).
+            // reorders the whole result (issue #201). NaN/Inf inside the
+            // composite do not throw (marshalJson writes them quoted), so
+            // this fallback only covers a Jackson failure such as a cyclic
+            // structure, which no frame value can be.
             try {
                 return GoFormat.marshalJson(v);
             } catch (Exception e) {
