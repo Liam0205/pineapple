@@ -774,7 +774,7 @@ public class PineServer {
             // i.e. UTF-16 code-unit order — which disagrees with Go's UTF-8 byte
             // order for any key above the BMP (issue #183). The serializer-side
             // comparator is the single correct implementation.
-            resp.put("common", GoFormat.sorted(result.common));
+            resp.put("common", GoFormat.payload(result.common));
             resp.put("items", GoFormat.wrapPayload(result.items));
 
             if (result.warnings != null && !result.warnings.isEmpty()) {
@@ -1068,7 +1068,7 @@ public class PineServer {
                     Map<String, Object> resp = new LinkedHashMap<>();
                     // Sorted recursively so the bytes match Go's encoding/json
                     // for map[string]any. See GoFormat.SortedByUtf8.
-                    resp.put("common", GoFormat.sorted(result.common));
+                    resp.put("common", GoFormat.payload(result.common));
                     server.sendResponse(exchange, 200, resp);
                 }));
     }

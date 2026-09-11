@@ -2,6 +2,7 @@ package page.liam.pine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -55,10 +56,37 @@ class GoFormatMarshalJsonTest {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("k", new java.math.BigInteger("123456789012345678901234567890"));
         assertEquals("{\"k\":1.2345678901234568e+29}", GoFormat.marshalJson(m));
-        // Primitive arrays reach the mapper through their own Jackson
-        // serializer, so they need their own registration.
-        assertEquals("[9007199254740992]", GoFormat.marshalJson(new long[]{9007199254740993L}));
-        assertEquals("[2147483647]", GoFormat.marshalJson(new int[]{2147483647}));
+        // Nested inside a list inside a map: the conversion must follow the
+        // same recursion as the key sort.
+        Map<String, Object> nested = new LinkedHashMap<>();
+        nested.put("z", list(9007199254740993L, m));
+        assertEquals("{\"z\":[9007199254740992,{\"k\":1.2345678901234568e+29}]}", GoFormat.marshalJson(nested));
+    }
+
+    @Test
+    void statsShapedLongsStayExactUnderSorted() throws Exception {
+        // The float64 rule is a property of frame PAYLOAD, not of the mapper.
+        // /stats values are Go int64 (`sum_ns`, `total_duration_ns`, ...) and
+        // Go prints them exactly to 2^63; a first version registered Long
+        // serializers on the shared mapper and would have rounded them past
+        // 2^53 ≈ 104 days of accumulated nanoseconds. Expected bytes:
+        // json.Marshal(map[string]int64{...}) in Go.
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("total_duration_ns", 12345678901234567L);
+        stats.put("sum_ns", 9007199254740993L);
+        stats.put("count", 123456789L);
+        ObjectMapper mapper = GoFormat.createGoCompatMapper();
+        assertEquals("{\"count\":123456789,\"sum_ns\":9007199254740993,\"total_duration_ns\":12345678901234567}",
+                mapper.writeValueAsString(GoFormat.sorted(stats)));
+        // sortedShallow (the /stats top level and `operators`) likewise.
+        Map<String, Object> ops = new LinkedHashMap<>();
+        ops.put("max_duration_ns", 9007199254740993L);
+        assertEquals("{\"max_duration_ns\":9007199254740993}",
+                mapper.writeValueAsString(GoFormat.sortedShallow(ops)));
+        // And the same Long under the payload wrapper takes the float64 rule.
+        Map<String, Object> common = new LinkedHashMap<>();
+        common.put("n", 9007199254740993L);
+        assertEquals("{\"n\":9007199254740992}", mapper.writeValueAsString(GoFormat.payload(common)));
     }
 
     @Test

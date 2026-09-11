@@ -146,7 +146,7 @@ public class RunCli {
         // order (common, items), not sorted. Payloads are wrapped so their keys
         // emit in Go's sorted order. See GoFormat.SortedByUtf8.
         Map<String, Object> output = new LinkedHashMap<>();
-        output.put("common", GoFormat.sorted(result.common));
+        output.put("common", GoFormat.payload(result.common));
         output.put("items", GoFormat.wrapPayload(result.items));
 
         String json = prettyWriter.writeValueAsString(output);
