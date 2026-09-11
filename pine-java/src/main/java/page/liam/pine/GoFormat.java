@@ -494,7 +494,9 @@ public final class GoFormat {
      * which is what broke the partial-error byte-exact fixture on the first
      * attempt at issue #183.
      *
-     * <p>Wrap payloads with {@link #sorted}; leave the envelope unwrapped.
+     * <p>Wrap frame payloads with {@link #payload} / {@link #wrapPayload},
+     * /stats-shaped maps with {@link #sorted} / {@link #sortedShallow}; leave
+     * the envelope unwrapped.
      */
     static final class SortedByUtf8 {
         final Map<String, Object> delegate;
