@@ -29,19 +29,33 @@ public class TransformByLuaTypeIdentityTest {
     }
 
     private static Object runOnce(String script, Object itemValue) throws Exception {
+        return runItems(script, List.of(itemValue)).get(0);
+    }
+
+    private static List<Object> runItems(String script, List<Object> itemValues) throws Exception {
         AllOperators.ensureRegistered();
         Operator op = Registry.global().buildOperator("transform_by_lua", luaParams(script));
+        return runItems(op, itemValues);
+    }
+
+    private static List<Object> runItems(Operator op, List<Object> itemValues) throws Exception {
         if (op instanceof AbstractOperator a) {
             a.setMetadata(List.of(), List.of(), List.of("item_x"), List.of("item_y"));
         }
         List<Map<String, Object>> items = new ArrayList<>();
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("item_x", itemValue);
-        items.add(row);
+        for (Object v : itemValues) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("item_x", v);
+            items.add(row);
+        }
         OperatorInput input = new OperatorInput(new LinkedHashMap<>(), items);
         OperatorOutput output = new OperatorOutput();
         op.execute(CancellationToken.create(), input, output);
-        return output.getItemWrites().get(0).get("item_y");
+        List<Object> out = new ArrayList<>();
+        for (int i = 0; i < itemValues.size(); i++) {
+            out.add(output.getItemWrites().get(i).get("item_y"));
+        }
+        return out;
     }
 
     @Test
@@ -130,6 +144,68 @@ public class TransformByLuaTypeIdentityTest {
         Object out = runOnce("function f() return item_x end", "1777288596209286259");
         assertInstanceOf(String.class, out);
         assertEquals("1777288596209286259", out);
+    }
+
+    @Test
+    void numericStringAfterNumberInSameGlobalStaysString() throws Exception {
+        // Issue #200 (nightly fuzz, seed 2262930939 round 362). The test above
+        // passes with a single item and always did: the bug needs the global's
+        // slot to already hold a NUMBER when the string is written. luaj 3.0.1's
+        // LuaTable.NumberValueEntry.set reuses the slot via tonumber() — Lua
+        // coercion — so "1777288596209286259" written over 7.0 was read back by
+        // the script as the double 1777288596209286144. #175 audited this same
+        // function for its dispatch predicates and could not see this: it is a
+        // different dimension (slot state across items, not per-value dispatch).
+        List<Object> out = runItems("function f() return item_x end",
+                Arrays.asList(7.0, "1777288596209286259", "123", "1e5", "a", "456"));
+        assertInstanceOf(Double.class, out.get(0));
+        assertEquals(7.0, out.get(0));
+        // Every numeric-looking string after the number must survive as a string.
+        assertInstanceOf(String.class, out.get(1));
+        assertEquals("1777288596209286259", out.get(1));
+        assertInstanceOf(String.class, out.get(2));
+        assertEquals("123", out.get(2));
+        assertInstanceOf(String.class, out.get(3));
+        assertEquals("1e5", out.get(3));
+        assertInstanceOf(String.class, out.get(4));
+        assertEquals("a", out.get(4));
+        assertInstanceOf(String.class, out.get(5));
+        assertEquals("456", out.get(5));
+    }
+
+    @Test
+    void numberAfterStringAndStringAfterStringUnaffected() throws Exception {
+        // The other transitions of the same slot: string→number must still
+        // give a number (a real Lua number, not a string), and string→string
+        // has no NumberValueEntry to trip on. Pins the guard to exactly the
+        // number-slot → string-value edge.
+        List<Object> out = runItems("function f() return item_x end",
+                Arrays.asList("42", 42.0, "42", "43"));
+        assertInstanceOf(String.class, out.get(0));
+        assertInstanceOf(Double.class, out.get(1));
+        assertEquals(42.0, out.get(1));
+        assertInstanceOf(String.class, out.get(2));
+        assertEquals("42", out.get(2));
+        assertInstanceOf(String.class, out.get(3));
+        assertEquals("43", out.get(3));
+    }
+
+    @Test
+    void numericStringOverNumericBaselineGlobalAcrossPooledExecutes() throws Exception {
+        // Same slot bug where the number was put there by the SCRIPT, not by a
+        // previous item: a top-level `item_x = 7` makes item_x a baseline
+        // global holding a number, and resetToBaseline restores that number
+        // after every execute. So the very first item of every request writes a
+        // string over a number slot — including on a pooled Globals that a
+        // previous request already used.
+        AllOperators.ensureRegistered();
+        Operator op = Registry.global().buildOperator("transform_by_lua",
+                luaParams("item_x = 7\nfunction f() return item_x end"));
+        for (int request = 0; request < 2; request++) {
+            List<Object> out = runItems(op, List.of("1777288596209286259"));
+            assertInstanceOf(String.class, out.get(0), "request " + request);
+            assertEquals("1777288596209286259", out.get(0), "request " + request);
+        }
     }
 
     @Test
