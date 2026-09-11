@@ -500,14 +500,21 @@ public final class GoFormat {
         final Map<String, Object> delegate;
         /** When true, sort this map's own keys only and do not descend. */
         final boolean shallow;
+        /**
+         * When true, integer Number leaves below this map are emitted with Go's
+         * float64 spelling (see {@link #payload}); when false they keep their
+         * exact integer spelling (Go int64, the /stats shape).
+         */
+        final boolean payload;
 
         SortedByUtf8(Map<String, Object> delegate) {
-            this(delegate, false);
+            this(delegate, false, false);
         }
 
-        SortedByUtf8(Map<String, Object> delegate, boolean shallow) {
+        SortedByUtf8(Map<String, Object> delegate, boolean shallow, boolean payload) {
             this.delegate = delegate;
             this.shallow = shallow;
+            this.payload = payload;
         }
     }
 
@@ -530,9 +537,43 @@ public final class GoFormat {
         return out;
     }
 
-    /** Wraps a payload map so its keys emit in Go's order. Null-safe. */
+    /**
+     * Wraps a map so its keys emit in Go's order, values untouched. Null-safe.
+     *
+     * <p>For maps whose Go counterpart holds typed values — the /stats
+     * subtrees (`server`, `http`, `resources`, `operator_detail`), where the
+     * counters and `*_ns` sums are Go int64 and print exactly at any
+     * magnitude. Java's Long does the same under this wrapper. Frame payload
+     * goes through {@link #payload} instead.
+     */
     static Object sorted(Map<String, Object> m) {
-        return m == null ? null : new SortedByUtf8(withStringKeys(m));
+        return m == null ? null : new SortedByUtf8(withStringKeys(m), false, false);
+    }
+
+    /**
+     * Wraps a frame payload map (`common`) so its keys emit in Go's order and
+     * its numbers in Go's float64 spelling. Null-safe.
+     *
+     * <p>Go's encoding/json decodes every JSON number literal in a request,
+     * resource or config to float64, so a literal 9007199254740993 is already
+     * 9007199254740992 when Go prints it, and a 30-digit literal prints as
+     * 1.2345678901234568e+29. Jackson decodes the same literals to
+     * Integer / Long / BigInteger and they reach the frame unchanged
+     * (Column.java dispatches on the exact class). Left alone, they would
+     * serialize with Jackson's exact decimal and diverge from Go past 2^53 —
+     * on the response body and, via {@link #marshalJson}, in the bytes
+     * reorder_shuffle_by_salt hashes (review of issue #201).
+     *
+     * <p>The conversion lives here, on the payload wrapper, and NOT on the
+     * mapper: the same mapper writes /stats, whose Long values are Go int64
+     * and must stay exact (a first version registered Long/Integer serializers
+     * on the mapper and would have rounded `sum_ns` past 2^53 ≈ 104 days of
+     * accumulated nanoseconds — caught by review). Same split as
+     * {@link #sortedShallow}: Go's rule depends on the Go type at that
+     * position, which Java has to model explicitly.
+     */
+    static Object payload(Map<String, Object> m) {
+        return m == null ? null : new SortedByUtf8(withStringKeys(m), false, true);
     }
 
     /**
@@ -548,29 +589,42 @@ public final class GoFormat {
      * level you name is.
      */
     static Object sortedShallow(Map<String, Object> m) {
-        return m == null ? null : new SortedByUtf8(withStringKeys(m), true);
+        return m == null ? null : new SortedByUtf8(withStringKeys(m), true, false);
     }
 
     /**
-     * Recursively wraps nested maps found inside an already-wrapped payload.
-     * Go sorts at every depth, so a map nested inside a list inside a map must
-     * sort too — the pine-cpp side has a test for exactly that (dump_json L5).
+     * Recursively wraps a frame payload value (`items`, trace snapshots, a
+     * composite value handed to {@link #marshalJson}): nested maps sort at
+     * every depth — Go does, and the pine-cpp side has a test for exactly that
+     * (dump_json L5) — and integer Number leaves take Go's float64 spelling
+     * (see {@link #payload}).
      */
     static Object wrapPayload(Object v) {
+        return wrap(v, true);
+    }
+
+    private static Object wrap(Object v, boolean payload) {
         if (v instanceof SortedByUtf8) {
             return v;
         }
         if (v instanceof Map) {
             // withStringKeys, not a cast: map keys are not always String here.
-            return new SortedByUtf8(withStringKeys((Map<?, ?>) v));
+            return new SortedByUtf8(withStringKeys((Map<?, ?>) v), false, payload);
         }
         if (v instanceof List) {
             List<?> in = (List<?>) v;
             List<Object> out = new ArrayList<>(in.size());
             for (Object e : in) {
-                out.add(wrapPayload(e));
+                out.add(wrap(e, payload));
             }
             return out;
+        }
+        if (payload && v instanceof Number && !(v instanceof Double) && !(v instanceof Float)) {
+            // Integer / Long / Short / Byte / BigInteger / BigDecimal: what Go
+            // would have held as float64 from the moment it parsed the literal.
+            // BigInteger past the double range becomes ±Infinity and takes the
+            // serializer's quoted branch; Go could not have parsed it at all.
+            return ((Number) v).doubleValue();
         }
         return v;
     }
@@ -616,10 +670,10 @@ public final class GoFormat {
      * Replicates Go's {@code json.Marshal(v)} for a frame value: Go's float64
      * number spelling ({@link #formatJsonNumber}) for every Number carrier
      * Jackson can decode a literal into (Double, Float, Integer, Long,
-     * BigInteger — Go has only float64 on the way in, see the integer
-     * serializer registration in {@link #createGoCompatMapper}), maps sorted by
-     * UTF-8 key order at every depth, and Go's HTML-safe escaping of
-     * {@code <>&}.
+     * BigInteger — Go has only float64 on the way in, see {@link #payload}),
+     * maps sorted by UTF-8 key order at every depth, and Go's HTML-safe
+     * escaping of {@code <>&}. Frame values only: a /stats-shaped map with
+     * int64 counters must go through {@link #sorted}, not here.
      *
      * <p>Use this whenever a composite (List/Map) frame value is turned into a
      * string whose bytes feed a hash or a comparison — reorder_shuffle_by_salt
@@ -786,64 +840,6 @@ public final class GoFormat {
                 gen.writeEndArray();
             }
         });
-        // Integer carriers take the SAME float64 path. Go's encoding/json has no
-        // integer type on the way in: every JSON number literal in a request,
-        // resource or config becomes float64, so 9007199254740993 is already
-        // 9007199254740992 before Go ever prints it, and a 30-digit literal
-        // prints as 1.2345678901234568e+29. Jackson decodes the same literals to
-        // Integer / Long / BigInteger and they reach the frame unchanged
-        // (Column.java dispatches on the exact class), so Jackson's default
-        // exact-decimal output diverged from Go for every integer past 2^53 —
-        // on the response body and, via GoFormat.marshalJson, in the bytes
-        // reorder_shuffle_by_salt hashes (found by review of issue #201).
-        //
-        // Converting through double is lossless below 2^53 and matches Go's
-        // float64 spelling above it. The one case it does NOT match is a Java
-        // Long that stands for a genuine Go int (item counts, /stats counters):
-        // Go prints those exactly at any magnitude. Every such value in this
-        // codebase is a count far below 2^53, where the two spellings are
-        // byte-identical, so the float64 rule is the one that agrees with Go
-        // on every value a response can actually carry. BigInteger past the
-        // double range becomes ±Infinity and takes the quoted-string branch,
-        // as Go would have failed to parse it in the first place.
-        StdSerializer<Number> goIntegerSerializer = new StdSerializer<Number>(Number.class) {
-            @Override
-            public void serialize(Number value, JsonGenerator gen, SerializerProvider provider)
-                    throws IOException {
-                goDoubleSerializer.serialize(value.doubleValue(), gen, provider);
-            }
-        };
-        module.addSerializer(Long.class, goIntegerSerializer);
-        module.addSerializer(Long.TYPE, goIntegerSerializer);
-        module.addSerializer(Integer.class, goIntegerSerializer);
-        module.addSerializer(Integer.TYPE, goIntegerSerializer);
-        module.addSerializer(Short.class, goIntegerSerializer);
-        module.addSerializer(Short.TYPE, goIntegerSerializer);
-        module.addSerializer(Byte.class, goIntegerSerializer);
-        module.addSerializer(Byte.TYPE, goIntegerSerializer);
-        module.addSerializer(java.math.BigInteger.class, goIntegerSerializer);
-        module.addSerializer(long[].class, new StdSerializer<long[]>(long[].class) {
-            @Override
-            public void serialize(long[] values, JsonGenerator gen, SerializerProvider provider)
-                    throws IOException {
-                gen.writeStartArray();
-                for (long v : values) {
-                    goDoubleSerializer.serialize((double) v, gen, provider);
-                }
-                gen.writeEndArray();
-            }
-        });
-        module.addSerializer(int[].class, new StdSerializer<int[]>(int[].class) {
-            @Override
-            public void serialize(int[] values, JsonGenerator gen, SerializerProvider provider)
-                    throws IOException {
-                gen.writeStartArray();
-                for (int v : values) {
-                    goDoubleSerializer.serialize((double) v, gen, provider);
-                }
-                gen.writeEndArray();
-            }
-        });
         // Go sorts MAP keys but not STRUCT fields, and pine-go models the
         // response envelope as a struct (`executeResponse`) while common/items
         // payloads are `map[string]any`. So `{"common":...,"items":...,"error":...}`
@@ -864,7 +860,7 @@ public final class GoFormat {
                 for (String k : keys) {
                     gen.writeFieldName(k);
                     Object v = value.delegate.get(k);
-                    provider.defaultSerializeValue(value.shallow ? v : wrapPayload(v), gen);
+                    provider.defaultSerializeValue(value.shallow ? v : wrap(v, value.payload), gen);
                 }
                 gen.writeEndObject();
             }
