@@ -509,10 +509,6 @@ public final class GoFormat {
          */
         final boolean payload;
 
-        SortedByUtf8(Map<String, Object> delegate) {
-            this(delegate, false, false);
-        }
-
         SortedByUtf8(Map<String, Object> delegate, boolean shallow, boolean payload) {
             this.delegate = delegate;
             this.shallow = shallow;
@@ -686,14 +682,21 @@ public final class GoFormat {
      * (issue #201). The response path already used this mapper; this exposes
      * the same rules to operator code so no second copy grows.
      *
-     * <p>Where it deliberately differs from Go: NaN and ±Infinity inside the
+     * <p>Known divergence, NOT a match for Go: NaN and ±Infinity inside the
      * composite are written as the quoted strings {@code "NaN"} /
      * {@code "Infinity"} rather than failing, exactly as the response path
      * does (see the NaN/Inf branch of the Double serializer). Go's
-     * json.Marshal returns an error there, so no Go bytes exist to match;
-     * the frame write path rejects non-finite scalars, and nested composites
-     * are not validated, so this is reachable only from a Lua table holding
-     * {@code 0/0}.
+     * json.Marshal returns an error there — but the Go caller this method
+     * stands in for, reorder_shuffle_by_salt's {@code anyToString}, then
+     * falls back to {@code fmt.Sprintf("%v", v)} and hashes {@code [NaN 2]};
+     * pine-cpp writes {@code nan} bare. Three runtimes, three byte strings,
+     * three shuffle orders (measured). The frame write path rejects
+     * non-finite scalars and does not validate nested composites, so this is
+     * reachable only from a Lua table holding {@code 0/0} or {@code 1/0}. It
+     * predates the #201 fix, is not covered by any fixture or fuzz shape, and
+     * needs a three-runtime decision — recorded in
+     * llmdoc/memory/doc-gaps.md ("非有限值进入复合 shuffle salt"). Do not read
+     * the quoted form as the contract.
      *
      * @throws IOException only on a Jackson failure unrelated to the value's
      *         numbers (e.g. a self-referencing structure); non-finite numbers

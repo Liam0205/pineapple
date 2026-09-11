@@ -91,9 +91,11 @@ class GoFormatMarshalJsonTest {
 
     @Test
     void nonFiniteValuesAreQuotedNotThrown() throws Exception {
-        // Documented behaviour, not Go's: json.Marshal fails on NaN/Inf, this
-        // mapper keeps Jackson's quoted form so the output stays parseable.
-        // Pinned here so the marshalJson javadoc cannot drift from it.
+        // Pins the CURRENT behaviour so the javadoc cannot drift from it; it
+        // is a known divergence, not a contract. Go's shuffle anyToString
+        // hashes fmt.Sprintf("%v") = "[NaN +Inf]" here and pine-cpp writes
+        // bare nan; see llmdoc/memory/doc-gaps.md "非有限值进入复合 shuffle
+        // salt". When that entry is resolved this assertion changes with it.
         assertEquals("[\"NaN\",\"Infinity\"]", GoFormat.marshalJson(list(Double.NaN, Double.POSITIVE_INFINITY)));
     }
 

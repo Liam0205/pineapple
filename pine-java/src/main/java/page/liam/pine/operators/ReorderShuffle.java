@@ -84,12 +84,15 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
             return GoFormat.formatG(((Number) v).doubleValue());
         }
         if (v instanceof List || v instanceof Map) {
-            // Go: json.Marshal(v). Must be the Go-compatible mapper, not a
-            // plain ObjectMapper — the bytes are hashed, so "28.0" vs "28"
-            // reorders the whole result (issue #201). NaN/Inf inside the
-            // composite do not throw (marshalJson writes them quoted), so
-            // this fallback only covers a Jackson failure such as a cyclic
-            // structure, which no frame value can be.
+            // Go: json.Marshal(v), falling back to fmt.Sprintf("%v") when
+            // Marshal errors. Must be the Go-compatible mapper, not a plain
+            // ObjectMapper — the bytes are hashed, so "28.0" vs "28" reorders
+            // the whole result (issue #201). The Go fallback fires exactly for
+            // NaN/Inf inside the composite; marshalJson does NOT throw there
+            // (it writes them quoted), so this catch never takes Go's %v path
+            // and the order diverges from Go and C++ for such salts. Known,
+            // recorded in llmdoc/memory/doc-gaps.md; the catch itself only
+            // covers a Jackson failure such as a cyclic structure.
             try {
                 return GoFormat.marshalJson(v);
             } catch (Exception e) {
