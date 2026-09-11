@@ -110,6 +110,8 @@
 
 同型事故已发生两次：issue #122 用 `git checkout -- pine-cpp/src/runtime/engine.cpp` 恢复 mutation，连带 revert 掉尚未提交的 `thread_local` 改动，后续「mutation 没抓到」的结论全建立在假基线上。判据：只要工作区不干净，就不要碰 git 做恢复。
 
+**`cp` 回来之后先重新构建，再做任何黑盒验证。** 文件级备份只恢复源码，不恢复构建产物：red-check 那次编译留在 `target/classes` / `build/` 里的是旧代码，紧接着直接调 CLI/二进制会得到「修复无效」的假结论（issue #200：Java 单测绿、`pineapple-run` 对照仍红，原因是 class 文件比源码旧）。单测框架自己触发编译所以看不出来，只有绕过构建系统的验证会中招。
+
 ## Commit 单域隔离与 `git add` 的粒度错位
 
 单域隔离纪律的执行单位是 commit，但 `git add` 的操作单位是**文件**。同一文件承载两个不相干域的改动时，`git add <file>` 就是纪律的漏洞。

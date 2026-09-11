@@ -197,6 +197,16 @@ assertEquals("42", GoFormat.formatJsonNumber((Double) intOut));
 
 判据：写下「运行时 X 的行为是 Y」之前，先确认这句话的主语是**具体代码路径或具体字段**，还是被无根据地扩大到了整个运行时。规则本身见 `reference/root-config-string-fields.md`。
 
+## Nightly fuzz artifact 的三步归因（issue #200/#201/#202）
+
+三个 nightly 分歧同一周到达，症状形状各异（一个值的类型、整个顺序、分页取到不同 item），根因也各不相干；能把它们各自收敛到一行代码，靠的是下面三步的顺序，而不是读代码的敏锐度。
+
+1. **先把统计数字当噪声**。三份报告都是 `row=…/0 column=…/1`，看起来是列存专属；本地把 `storage_mode` 翻成 `row` 重跑，三个 case 全部照样分歧。分层统计在 n=1 时不构成归因证据，动手前先在两种模式下复现一次，再决定要不要读列存代码。
+2. **最小复现不出来时，差别在数据不在算子**。#200 用同样的 Lua 脚本、同样的 `item_defaults` 写了四个最小配置全绿；按 triage playbook 从尾部截断原 pipeline，砍到 `recall + op_6` 两个算子仍红——说明触发条件在 recall 的**数据**里。对比后发现是 item 顺序：原 case 里 item 0 是 null→取默认值 784.6（number），item 1 才是那个大整数字符串；最小配置把字符串放在第一位。于是把「哪个值在前」当变量做顺序实验，六个变体一次定位到「数字槽之后的数字形字符串」。判据：算子集合已经最小、仍不复现，就换成对**数据形状/顺序**二分。
+3. **红绿检查之后重新编译**。用文件备份把 `TransformByLua.java` 换回旧版跑 red-check、再 `cp` 回修复版，`target/classes` 里留下的是 red-check 那次编译的**旧 class**；紧接着黑盒重跑 artifact 得到「仍然分歧」的假结论，差点回头怀疑修法。判据：任何「恢复源文件」动作之后、任何黑盒验证之前，先跑一次构建；测试框架自己会编译所以单测看不出来，直接调 CLI/二进制的验证才会中招。这与 `guides/ci-quality-baseline.md`「长跑 differential-fuzz 期间不得触碰构建产物」是同一个变量（构建产物与源码不同步）的两个方向。
+
+另一条来自 #201 的判据：**同一个 Java 类型在仓库里有几条序列化路径**。响应路径的 Go 兼容 mapper（数字拼写、key 顺序、转义）已经修过三轮（#180/#183/#189），而 `ReorderShuffle.anyToString` 里的裸 `new ObjectMapper()` 从没进过任何一次的 grep 清单——因为那三轮找的都是「输出到响应的 JSON」，salt 是**喂给 hash 的中间字节**，不出现在任何响应里。grep `new ObjectMapper()` 一次，把每个命中按「字节去哪」分类：进响应 / 进 hash 或比较 / 进日志 / 进配置解析，前两类都必须走 `GoFormat`。
+
 ## 跟进上游 issue 与临时止血的方法论
 
 当任务是跟进上游依赖（如 wangshu）的 issue、或为其缺陷加下游临时 workaround 时：
@@ -236,6 +246,16 @@ rc / 大版本升级时，"源码看到 API 表面到位"和"issue 真的从根�
 - drop-fat-state **只换判据**：原 workaround 目标"sustained-fat state 不能让它一直占着 fat backing slab"，上游 `Arena.Compact()` 只解了 transient peak 那一半、sustained-fat 仍 latch；workaround 框架保留，判据从 `GCCountKB`（proxy，sweep 前活跃量）→ `ArenaCapKB`（真观测面，post-Compact cap）
 
 工程信号：**顺序耦合消失是好信号**——若新 API 取代旧 hack 是真的，原 workaround 的脆弱顺序约束（"采样必须早于 sweep"之类）应自然消失；若仍需保留，说明没真取代。本仓 drop-fat-state 判据迁移后旧顺序耦合天然消失，是新设计有效的证据。
+
+### 上游已修但从未发版：守卫放在自己能控制的最窄边界
+
+luaj 3.0.1（2017，Maven Central 最新）的 `LuaTable.NumberValueEntry` 槽位 coercion 在上游 2018 年就修了（`b8aaaafb`），之后再无发布。可选项与取舍：
+
+- **换依赖坐标 / fork**（jitpack、自建 artifact）：修得最全（连脚本内部赋值也对），但引入无审计的浮动构建来源，且 luaj master 的 `LuaTable` 与 3.0.1 的其他类（WeakTable 合并等）已不兼容，不能单文件替换
+- **classpath 遮蔽单个类**：依赖 jar 顺序，fat jar 场景直接冲突
+- **在桥接层加守卫**（本次选择）：只修 host→VM 这条我们控制的边，脚本内部同型赋值成为**明文登记的残留**（`memory/doc-gaps.md`），等一个可审计的 luaj 版本
+
+判据：先按 3.0.1 的**字节码**（不是 master 源码）把受影响边枚举完（`javap -c`），守卫只覆盖被证实的那条边；修不到的那部分写进 doc-gaps 并在守卫的 javadoc 里指过去，不要让「修了」读成「全修了」。
 
 ## 修复前的验证清单
 

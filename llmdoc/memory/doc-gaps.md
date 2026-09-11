@@ -103,6 +103,26 @@
   区分 `-0.0`），代价与收益不成比例；(b) 若要统一，先定 Go 侧的确定性行为，再谈另两方跟随。
 - **不在 #189/#190 范围内**：那两条是「整数值 double 的拼写」；负零是符号位问题，且先于本 range 存在。
 
+### luaj 3.0.1 表槽位 coercion 在脚本内部赋值上的残留（issue #200，桥接层修不到）
+
+- **现状**：`LuaTable.NumberValueEntry.set` 用 `tonumber()` 复用数字槽，同一 key 上「先 number 后数字形 string」读回来是 number。#200 在 `TransformByLua.setGlobal` 加了 host→VM 写全局的守卫，但**脚本自己的赋值**走同一条 VM 路径：实测 luaj 下 `t = {}; t.k = 7; t.k = "123"; type(t.k)` 得 `number`，全局 `v = 7; v = "123"` 同样。LuaJIT / gopher-lua / wangshu 均为 `string`。
+- **上游状态**：luaj 提交 `b8aaaafb`（2018-10-31，"Check the type before reusing a NumberValueEntry"，Fixes luaj#20）已修；Maven Central `org.luaj:luaj-jse` 最新仍是 3.0.1（2017），无含修复的发行版。
+- **为什么不在桥接层修**：见 `guides/investigation-to-fix-testing.md`「上游已修但从未发版」——fork/jitpack 引入无审计浮动来源、master `LuaTable` 与 3.0.1 其他类不兼容、classpath 遮蔽依赖 jar 顺序。
+- **可观察性**：fuzz 生成器的 Lua 脚本（`LUA_ITEM_FUNCTIONS` 等）都是「读全局 → 返回」，不做同 key 二次赋值，所以这条残留对 nightly 不可见；用户脚本会撞到。
+- **待决策**：(a) 等一个可审计的 luaj 发行版（或 pin 到具体 commit 的自建 artifact）后整体升级，届时 `setGlobal` 守卫可拆——拆除判别按「上游修的是 root cause」走真拆；(b) 在用户文档的 Lua 脚本约束（`reference/operator-contract.md` 5.1 交集节）加一条「同一 key 不要先赋 number 再赋数字形 string」——代价低但只是提醒；(c) 给 fuzz 生成器加一个「脚本内同 key 二次赋值」形状让残留可见，代价是 nightly 会持续红直到 (a) 落地。
+
+### luaj `tostring(number)` / `..` 拼接对非整数 double 走 float 精度（issue #200 调查顺带实测，未修）
+
+- **现状**：三运行时实测（pine-go wangshu / pine-cpp LuaJIT 经 `pineapple-run`，luaj 经 pine-java RunCli，脚本 `tostring(x) .. '|' .. (x .. '')`）：`784.628302` → Go/C++ `784.628302`、Java `784.6283`；`1e100` → Go/C++ `1e+100`、Java `Infinity`；`2^53+1` → Go/C++ `9.007199254741e+15`、Java `9007199254740992`；`3` → 三方 `3`。机制：Lua 5.1 的 `tostring` 是 `%.14g`；luaj `LuaDouble.tojstring` 对整数值打印 long（所以 |v| ≥ 1e14 起与 `%.14g` 的指数形式分歧）、对非整数值经 `float` 转字符串（7 位有效数字，且 |v| > 3.4e38 溢出成 `Infinity`）。
+- **与 #200 的关系**：不同机制（数字→字符串格式化 vs 表槽位复用），发现于 #200 的 `tostring(item_tag)` 探针，本次未修、未开门。
+- **可观察性**：fixture `transform_by_lua_edge_cases.json` 有「number to string via concatenation」用例但用的是整数值（三方一致），非整数值的 `tostring`/拼接没有任何通道覆盖；fuzz 生成器亦无此形状。
+- **待决策**：(a) 桥接层无法拦截（发生在脚本内部）；候选是在 pine-java 侧用 luaj 的 `LuaDouble` 替换点或注册自定义 `tostring`（BaseLib `tostring` 可覆写为 `%.14g` 等价实现，但 `..` 拼接走 `LuaDouble.tojstring` 覆写不到）；(b) 先补一个非整数 `tostring` 的 fixture 用例让分歧可见并接受红，或在 Lua 脚本约束里明文列为已知分歧。需要先量化用户脚本里 `tostring`/拼接非整数的出现频率再决定。
+
+### 手写 config 的两处负空间：pine-cpp 拒绝 `pipeline_map: null` 与缺 `$metadata` 的算子，Go/Java 接受（issue #200 探针顺带发现）
+
+- **现状**：写最小探针时 `pipeline_config.pipeline_map` 用 `null`、`recall_static` 不带 `$metadata`，Go 与 Java 都正常执行，pine-cpp 分别报 `pine: config error: JSON value is not object` 与 `pine: config error: operator missing $metadata`。Apple DSL 编译产物两者都齐全，fuzz 生成器亦然，故三条通道都看不见。
+- **待决策**：这两条属「根级配置的五处残留分歧」同族（配置形状的负空间），是让 Go/Java 也拒绝（fail-fast 对齐 C++）还是让 C++ 宽容（对齐 Go `encoding/json` 的 null→零值），需与那一条一起裁决；未裁决前手写 config 一律带 `{}` 与 `$metadata`。
+
 ### 已解决：`transform_size` 计数值 ≥ 1e6 的跨运行时分歧（issue #189/#190，PR 审查后彻底修掉）
 
 - **曾经的结论是「无法同时满足、接受回归」，这个结论是错的**。我原本认为 pine-java 无法同时在
