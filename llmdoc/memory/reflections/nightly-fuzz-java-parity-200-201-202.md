@@ -43,12 +43,12 @@
 ## 未做 / 边界
 
 - 三个修复加审计驱动的第四个修复（整数载体按 Go float64 拼写，`7be3c34f` + 后续把规则从 mapper 移到 payload 层）都只动 pine-java；Go 与 C++ 在三个 case 上本就字节一致，未改。
+- fuzz 生成器未改：三个缺陷的触发形状（数字后接数字形字符串、复合值 salt、负零平局落页边界）生成器早已能产出（2026-05/07 起），只是概率低（各约 1/10000 轮），nightly 10k 轮三天各抓一个。fixture 是比调生成器概率更便宜的门。
+- 种子重放：`--rounds 362 --seed 2262930939` 与 `--rounds 161 --seed 4071164659` 本地全绿（362/362、161/161）。`--rounds 7172 --seed 1622586423` 单机需约 3 小时（0.7 轮/秒），未纳入本文的完成判据；#201 的修复由原 artifact case 三方字节一致 + fixture 红绿 + `GoFormatMarshalJsonTest` 钉住。
 
 ## 本地盲审查出的、我自己没看见的（按轮次）
 
-- **R1**：`marshalJson` 只对 `Double` 载体等价——Jackson 把请求里的整数字面量解成 `Integer`/`Long`/`BigInteger` 并原样进 frame，而我的 javadoc 写成了无条件等价。这正是 `must/conventions.md` 刚写下的「别让『修了』读成『全修了』」。实测 Go/C++ `[i1,i4,i3,i0,i2]` vs Java `[i0,i4,i3,i2,i1]`，且响应路径同样分歧（`bx15` 之前根本没有覆盖整数字面量 ≥ 2^53 的通道）。
+- **R1**：`marshalJson` 只对 `Double` 载体等价——Jackson 把请求里的整数字面量解成 `Integer`/`Long`/`BigInteger` 并原样进 frame，而我的 javadoc 写成了无条件等价。这正是 `guides/investigation-to-fix-testing.md`「上游已修但从未发版」一节刚写下的「别让『修了』读成『全修了』」。实测 Go/C++ `[i1,i4,i3,i0,i2]` vs Java `[i0,i4,i3,i2,i1]`，且响应路径同样分歧（`bx15` 之前根本没有覆盖整数字面量 ≥ 2^53 的通道）。
 - **R2 阻塞**：我修 R1 时把 Long→float64 装在共享 mapper 上，而 `/stats` 的 `sum_ns`/`total_duration_ns` 是 Go int64、必须精确——commit message 里「此类值都远小于 2^53」这句是**想当然**：那是累计纳秒不是计数，2^53 ns ≈ 104 天。仓库里早有同型先例（`sortedShallow` 为「Go 对 map 排序、struct 不排」把 payload 与 `/stats` 分开处理），我没把它认出来。**判据**：改一个共享序列化器之前，先列出它的全部消费者及每个位置的 Go 类型；Go 规则取决于位置上的 Go 类型，Java 得按位置建模。
 - **R2 重要 ×2**：(a) 修 R1-M2 时把守卫分支的两次写改成 `set(NIL)`+`set(value)`，`set(NIL)` 会**删除**键，于是第二次写变成「缺失键写入」、被脚本的 `__newindex` 接走——两个既有测试各测一边（数字→字符串、`__newindex`），交集无覆盖；(b) 我在 commit message 里写「gopher-lua 与 C Lua 都 honour `__newindex`、Java only 绕过」，但 pine-go **默认后端是 wangshu**，其 `SetGlobal` 是 raw 写，实测矩阵：wangshu raw / gopher-lua honour / LuaJIT honour / Java(修后) honour。Go 自己两个后端不一致，「参考运行时怎么做」在这里没有单一答案；选边跟 Lua 语义与 C++ 标杆，wangshu 分歧登记 doc-gaps。**判据**：「Go 也如此」这类断言必须对**默认构建**实测，opt-in 后端不代表 Go。
-- fuzz 生成器未改：三个缺陷的触发形状（数字后接数字形字符串、复合值 salt、负零平局落页边界）生成器早已能产出（2026-05/07 起），只是概率低（各约 1/10000 轮），nightly 10k 轮三天各抓一个。fixture 是比调生成器概率更便宜的门。
-- 种子重放：`--rounds 362 --seed 2262930939` 与 `--rounds 161 --seed 4071164659` 本地全绿（362/362、161/161）。`--rounds 7172 --seed 1622586423` 单机需约 3 小时（0.7 轮/秒），未纳入本文的完成判据；#201 的修复由原 artifact case 三方字节一致 + fixture 红绿 + `GoFormatMarshalJsonTest` 钉住。
 - **R6（最终全范围）重要**：`marshalJson` javadoc 写「NaN/Inf 复合值 Go 无字节可匹配」——错把参考对象当成 `json.Marshal` 而非 Go `anyToString` 的完整行为：后者在 Marshal 报错后落 `fmt.Sprintf("%v")` 得 `[NaN 2]` 并照常 hash，C++ 写裸 `nan`，Java 写带引号 `"NaN"`，实测三方三种 shuffle 顺序。R1 报告其实已写明 Go 侧走 `%v`，我选「改文档」选项时把 Go 行为写反了。**判据**：复刻某个 Go 函数时，参考对象是它的调用者在那条路径上的完整行为（含 error 分支的 fallback），不是它调用的库函数。已登记 doc-gaps「非有限值进入复合 shuffle salt」。
