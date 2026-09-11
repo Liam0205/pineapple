@@ -10,7 +10,7 @@
 | #201 | 全部 item 顺序不同 | `ReorderShuffle.anyToString` 对 List/Map 用裸 `new ObjectMapper()`，`[28.0,42.0]`/`2.0E100` vs Go `[28,42]`/`2e+100`，salt 字节不同 | 新增 `GoFormat.marshalJson`（复用响应路径的 Go 兼容 mapper），shuffle 与 bench stub 改用 |
 | #202 | Go/Java 分页取到不同 item（`id_2` vs `id_20`） | `ReorderSort` 用 `Double.compare`：`-0.0 < 0.0`；Go/C++ 用 `<` 视为相等、稳定排序保原序；三个零恰在 `filter_paginate` 页边界 | 比较器改 `x<y?-1:x>y?1:0` |
 
-三个 fixture 文件各加用例（`reorder_sort.json` 2 例、`reorder_shuffle.json` 2 例、`transform_by_lua_edge_cases.json` 1 例），期望值由 Go 生成，由 **Go 与 Java 两个** fixture runner 消费（`pine-go/integration/fixture_test.go`、`FixtureTest.java`；pine-cpp 没有算子级 fixture runner，它只经 cross-validate 的 `fixtures/pipelines/` 比对——commit `48283ac7` 说明里的「all runtimes」不准确，审计 R1 指出）；Java 单测 `GoFormatMarshalJsonTest`（新）与 `TransformByLuaTypeIdentityTest`（+3 多 item 用例）。每处都做了 red-before（文件备份还原旧源码）/ green-after。
+三个 fixture 文件各加用例（`reorder_sort.json` 2 例、`reorder_shuffle.json` 3 例（第三例是审计 R1 补的整数字面量 salt）、`transform_by_lua_edge_cases.json` 1 例，另有 `fixtures/server_byte_exact/15` 覆盖响应路径的整数字面量），期望值由 Go 生成，由 **Go 与 Java 两个** fixture runner 消费（`pine-go/integration/fixture_test.go`、`FixtureTest.java`；pine-cpp 没有算子级 fixture runner，它只经 cross-validate 的 `fixtures/pipelines/` 比对——commit `48283ac7` 说明里的「all runtimes」不准确，审计 R1 指出）；Java 单测 `GoFormatMarshalJsonTest`（新，含审计后补的整数载体 / 非有限值 / `/stats` 形状三例）与 `TransformByLuaTypeIdentityTest`（+3 多 item 用例，审计后再 +2 `__newindex` 用例）。每处都做了 red-before（文件备份还原旧源码）/ green-after；审计补的门另做了 mutation 验证（把修法改回审计指出的错误形状，对应用例变红）。
 
 ## 过程：哪些动作真正把范围收敛了
 
@@ -40,6 +40,12 @@
 
 ## 未做 / 边界
 
-- 三个修复都只动 pine-java；Go 与 C++ 在三个 case 上本就字节一致，未改。
+- 三个修复加审计驱动的第四个修复（整数载体按 Go float64 拼写，`7be3c34f` + 后续把规则从 mapper 移到 payload 层）都只动 pine-java；Go 与 C++ 在三个 case 上本就字节一致，未改。
+
+## 本地盲审两轮查出的、我自己没看见的
+
+- **R1**：`marshalJson` 只对 `Double` 载体等价——Jackson 把请求里的整数字面量解成 `Integer`/`Long`/`BigInteger` 并原样进 frame，而我的 javadoc 写成了无条件等价。这正是 `must/conventions.md` 刚写下的「别让『修了』读成『全修了』」。实测 Go/C++ `[i1,i4,i3,i0,i2]` vs Java `[i0,i4,i3,i2,i1]`，且响应路径同样分歧（`bx15` 之前根本没有覆盖整数字面量 ≥ 2^53 的通道）。
+- **R2 阻塞**：我修 R1 时把 Long→float64 装在共享 mapper 上，而 `/stats` 的 `sum_ns`/`total_duration_ns` 是 Go int64、必须精确——commit message 里「此类值都远小于 2^53」这句是**想当然**：那是累计纳秒不是计数，2^53 ns ≈ 104 天。仓库里早有同型先例（`sortedShallow` 为「Go 对 map 排序、struct 不排」把 payload 与 `/stats` 分开处理），我没把它认出来。**判据**：改一个共享序列化器之前，先列出它的全部消费者及每个位置的 Go 类型；Go 规则取决于位置上的 Go 类型，Java 得按位置建模。
+- **R2 重要 ×2**：(a) 修 R1-M2 时把守卫分支的两次写改成 `set(NIL)`+`set(value)`，`set(NIL)` 会**删除**键，于是第二次写变成「缺失键写入」、被脚本的 `__newindex` 接走——两个既有测试各测一边（数字→字符串、`__newindex`），交集无覆盖；(b) 我在 commit message 里写「gopher-lua 与 C Lua 都 honour `__newindex`、Java only 绕过」，但 pine-go **默认后端是 wangshu**，其 `SetGlobal` 是 raw 写，实测矩阵：wangshu raw / gopher-lua honour / LuaJIT honour / Java(修后) honour。Go 自己两个后端不一致，「参考运行时怎么做」在这里没有单一答案；选边跟 Lua 语义与 C++ 标杆，wangshu 分歧登记 doc-gaps。**判据**：「Go 也如此」这类断言必须对**默认构建**实测，opt-in 后端不代表 Go。
 - fuzz 生成器未改：三个缺陷的触发形状（数字后接数字形字符串、复合值 salt、负零平局落页边界）生成器早已能产出（2026-05/07 起），只是概率低（各约 1/10000 轮），nightly 10k 轮三天各抓一个。fixture 是比调生成器概率更便宜的门。
 - 种子重放：`--rounds 362 --seed 2262930939` 与 `--rounds 161 --seed 4071164659` 本地全绿（362/362、161/161）。`--rounds 7172 --seed 1622586423` 单机需约 3 小时（0.7 轮/秒），未纳入本文的完成判据；#201 的修复由原 artifact case 三方字节一致 + fixture 红绿 + `GoFormatMarshalJsonTest` 钉住。

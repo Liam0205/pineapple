@@ -118,6 +118,13 @@
 - **可观察性**：fixture `transform_by_lua_edge_cases.json` 有「number to string via concatenation」用例但用的是整数值（三方一致），非整数值的 `tostring`/拼接没有任何通道覆盖；fuzz 生成器亦无此形状。
 - **待决策**：(a) 桥接层无法拦截（发生在脚本内部）；候选是在 pine-java 侧用 luaj 的 `LuaDouble` 替换点或注册自定义 `tostring`（BaseLib `tostring` 可覆写为 `%.14g` 等价实现，但 `..` 拼接走 `LuaDouble.tojstring` 覆写不到）；(b) 先补一个非整数 `tostring` 的 fixture 用例让分歧可见并接受红，或在 Lua 脚本约束里明文列为已知分歧。需要先量化用户脚本里 `tostring`/拼接非整数的出现频率再决定。
 
+### pine-go 两个 Lua 后端对宿主写全局是否触发 `__newindex` 不一致（#200 审计 R2 顺带发现，未修）
+
+- **现状**：脚本 `setmetatable(_G, {__newindex=...})` 后，宿主把 item 字段写入缺失全局：pine-go **默认** wangshu 后端 raw 写（`SetGlobal` → `tableSet` → `rawSet`，wangshu `internal/crescent/table.go` 头注释明写 raw 入口）、`-tags=lua_gopher` 触发 `__newindex`、pine-cpp LuaJIT 触发、pine-java（`TransformByLua.setGlobal` 非守卫分支 `globals.set`）触发。实测脚本见 `TransformByLuaTypeIdentityTest.hostGlobalWritesStillHonourNewindexOnGlobals` 的注释。
+- **为什么本次不选 raw**：Go 自己两个后端不一致，没有单一 Go 行为可对齐；Lua 语义（`lua_setglobal`）与标杆运行时 pine-cpp 都 honour，故 Java 跟它们。
+- **可观察性**：fuzz 生成器没有任何脚本给 `_G` 装 metatable，nightly 看不见；cross-validate 亦无。
+- **待决策**：给 pine-go 提 issue——是 wangshu `SetGlobal` 改走 `settable`（对齐 gopher-lua/LuaJIT），还是把「宿主写全局是 raw」定为契约并让 gopher-lua/C++/Java 都改 raw。两种都要配一个 `fixtures/pipelines/` 用例让 cross-validate 看见。
+
 ### 手写 config 的两处负空间：pine-cpp 拒绝 `pipeline_map: null` 与缺 `$metadata` 的算子，Go/Java 接受（issue #200 探针顺带发现）
 
 - **现状**：写最小探针时 `pipeline_config.pipeline_map` 用 `null`、`recall_static` 不带 `$metadata`，Go 与 Java 都正常执行，pine-cpp 分别报 `pine: config error: JSON value is not object` 与 `pine: config error: operator missing $metadata`。Apple DSL 编译产物两者都齐全，fuzz 生成器亦然，故三条通道都看不见。
