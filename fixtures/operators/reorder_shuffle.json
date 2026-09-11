@@ -143,6 +143,29 @@
       "expected": {
         "item_order": [3, 2, 4, 5, 1, 6, 7, 0]
       }
+    },
+    {
+      "name": "composite item key with integer literals past 2^53 hashes as Go float64 spelling (salt alpha)",
+      "params": {},
+      "metadata": {
+        "common_input": ["salt"],
+        "item_input": ["item_key"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": { "salt": "alpha" },
+        "items": [
+          { "item_id": "i0", "item_key": [9007199254740993, 1] },
+          { "item_id": "i1", "item_key": [1777288596209286259] },
+          { "item_id": "i2", "item_key": { "k": 123456789012345678901234567890 } },
+          { "item_id": "i3", "item_key": [7] },
+          { "item_id": "i4", "item_key": [2147483647, -2147483648] }
+        ]
+      },
+      "expected": {
+        "item_order": [1, 4, 3, 0, 2]
+      }
     }
   ]
 }
