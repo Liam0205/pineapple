@@ -62,8 +62,16 @@ public class ReorderSort extends AbstractOperator implements page.liam.pine.Cons
         for (int i = 0; i < n; i++) indices[i] = i;
 
         final double[] sortVals = vals;
+        // Not Double.compare: it orders -0.0 before +0.0, while Go's `<` in
+        // sort.SliceStable (and pine-cpp's std::stable_sort) treats them as
+        // equal and lets the stable sort keep input order. With a paginate
+        // downstream, the tie order decides which item crosses the page
+        // boundary (issue #202). Arrays.sort on Integer[] is TimSort, so
+        // the fallback to input order on ties matches the other runtimes.
         java.util.Arrays.sort(indices, (a, b) -> {
-            int cmp = Double.compare(sortVals[a], sortVals[b]);
+            double x = sortVals[a];
+            double y = sortVals[b];
+            int cmp = x < y ? -1 : (x > y ? 1 : 0);
             return ascending ? cmp : -cmp;
         });
 

@@ -78,6 +78,52 @@
       "expected": {
         "item_order": [1, 2, 0]
       }
+    },
+    {
+      "name": "negative zero ties with positive zero and keeps input order (asc)",
+      "params": { "order": "asc" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["score"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "zero_int", "score": 0 },
+          { "item_id": "neg_zero", "score": -0.0 },
+          { "item_id": "minus_one", "score": -1 },
+          { "item_id": "zero_float", "score": 0.0 },
+          { "item_id": "one", "score": 1 }
+        ]
+      },
+      "expected": {
+        "item_order": [2, 0, 1, 3, 4]
+      }
+    },
+    {
+      "name": "negative zero ties with positive zero and keeps input order (desc)",
+      "params": { "order": "desc" },
+      "metadata": {
+        "common_input": [],
+        "item_input": ["score"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": {},
+        "items": [
+          { "item_id": "neg_zero", "score": -0.0 },
+          { "item_id": "one", "score": 1 },
+          { "item_id": "zero_int", "score": 0 },
+          { "item_id": "minus_one", "score": -1 },
+          { "item_id": "zero_float", "score": 0.0 }
+        ]
+      },
+      "expected": {
+        "item_order": [1, 0, 2, 4, 3]
+      }
     }
   ]
 }
