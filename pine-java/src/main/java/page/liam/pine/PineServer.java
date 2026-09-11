@@ -769,7 +769,7 @@ public class PineServer {
             // — by UTF-8 BYTE order, not "alphabetically", which is the same
             // thing only for ASCII — while leaving the top-level response struct
             // field order alone.
-            // GoFormat.sorted / wrapPayload replace the local sortMapKeys and
+            // GoFormat.payload / wrapPayload replace the local sortMapKeys and
             // sortItemKeys helpers. Those used TreeMap, i.e. String.compareTo,
             // i.e. UTF-16 code-unit order — which disagrees with Go's UTF-8 byte
             // order for any key above the BMP (issue #183). The serializer-side
