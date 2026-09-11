@@ -30,7 +30,7 @@
 - **红绿检查后要重新编译**（→ `guides/investigation-to-fix-testing.md`「Nightly fuzz artifact 的三步归因」第 3 步）：文件备份还原旧源码跑 red-check、`cp` 回修复版后，`target/classes` 里是 red-check 那次编译的旧 class；紧接着黑盒重跑 artifact 得到「仍然分歧」，差点回头怀疑修法。单测框架自己编译所以看不出来，直接调 CLI 的验证才中招。
 - **同一类型的多条序列化路径按「字节去哪」分类**（→ 同上）：grep `new ObjectMapper()` 后按 进响应 / 进 hash 或比较 / 进日志 / 进配置解析 归类，前两类必须走 `GoFormat`。
 - **上游已修但从未发版**（→ `guides/investigation-to-fix-testing.md` 新增小节）：fork / classpath 遮蔽 / 桥接层守卫三选一的取舍，以及「守卫只覆盖被字节码证实的那条边、修不到的写进 doc-gaps 并在 javadoc 指过去」。
-- **IEEE 负零再次现身**（→ `must/conventions.md` 新增「数值排序比较按 IEEE `<`/`>`」节）：dedup（`-0.0 → +0.0` 归一化后再 hash，`memory/reflections/differential-fuzz-discoveries.md` 记过）与 sort（比较器视 `-0.0 == 0.0`、稳定排序保原序，本次）两处各自要守，策略相反但都对。shuffle 的 salt 路径**不做也不应做**归一化：pine-go `%g`、pine-java `formatG`、pine-cpp `go_format_g` 都拼出 `-0`，一致性来自「大家都拼 `-0`」，其历史在 `pine-java-parity-round-13.md` / `round-14.md`——若有人按 dedup 的样子给 shuffle「补」归一化，反而破坏 parity。
+- **IEEE 负零再次现身**（→ `must/conventions.md` 新增「数值排序比较按 IEEE `<`/`>`」节）：dedup（`-0.0 → +0.0` 归一化后再 hash，`memory/reflections/differential-fuzz-discoveries.md` 记过）与 sort（比较器视 `-0.0 == 0.0`、稳定排序保原序，本次）两处各自要守，策略相反但都对。shuffle 的 salt 路径**不做也不应做**归一化：pine-go `%g`、pine-java `formatG`、pine-cpp `go_format_g` 都拼出 `-0`，一致性来自「大家都拼 `-0`」；不要把 dedup 的归一化规则套到 shuffle 上，否则反而破坏 parity。该历史没有独立稳定文档，当前实现与本篇的实测描述是依据。
 
 ## 顺带发现、未修、已登记（`memory/doc-gaps.md`）
 
