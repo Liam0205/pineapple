@@ -84,9 +84,11 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
             return GoFormat.formatG(((Number) v).doubleValue());
         }
         if (v instanceof List || v instanceof Map) {
+            // Go: json.Marshal(v). Must be the Go-compatible mapper, not a
+            // plain ObjectMapper — the bytes are hashed, so "28.0" vs "28"
+            // reorders the whole result (issue #201).
             try {
-                return new com.fasterxml.jackson.databind.ObjectMapper()
-                        .writeValueAsString(v);
+                return GoFormat.marshalJson(v);
             } catch (Exception e) {
                 return v.toString();
             }

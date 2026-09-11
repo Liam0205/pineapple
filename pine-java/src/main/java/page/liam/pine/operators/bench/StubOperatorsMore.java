@@ -135,8 +135,11 @@ class ReorderTopnBoostStub extends AbstractOperator implements ConsumesRowSet, M
         if (v instanceof Boolean) return ((Boolean) v) ? "true" : "false";
         if (v instanceof Number) return GoFormat.formatG(((Number) v).doubleValue());
         if (v instanceof java.util.List || v instanceof java.util.Map) {
+            // Same mapper as reorder_shuffle_by_salt (issue #201): the Go
+            // stub hashes json.Marshal bytes, so a plain ObjectMapper here
+            // would rank composite ids differently from pine-go's stub.
             try {
-                return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(v);
+                return GoFormat.marshalJson(v);
             } catch (Exception e) {
                 return v.toString();
             }

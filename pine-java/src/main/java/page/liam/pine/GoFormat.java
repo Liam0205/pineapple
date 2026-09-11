@@ -607,6 +607,33 @@ public final class GoFormat {
         return Integer.compare(a.length(), b.length());
     }
 
+    // Shared, thread-safe after construction. Built once because the mapper
+    // carries the custom serializers and escape table above; constructing one
+    // per call would also be the slow path in the operators that use this.
+    private static final ObjectMapper GO_JSON_MARSHAL = createGoCompatMapper();
+
+    /**
+     * Replicates Go's {@code json.Marshal(v)} for a frame value: Go's number
+     * spelling ({@link #formatJsonNumber}), maps sorted by UTF-8 key order at
+     * every depth, and Go's HTML-safe escaping of {@code <>&}.
+     *
+     * <p>Use this whenever a composite (List/Map) frame value is turned into a
+     * string whose bytes feed a hash or a comparison — reorder_shuffle_by_salt
+     * hashes it for the item rank. A plain Jackson mapper writes {@code 28.0}
+     * and {@code 2.0E100} where Go writes {@code 28} and {@code 2e+100}, so the
+     * same Lua table {@code {item_score*2, item_score*3}} hashed to different
+     * ranks in the two runtimes and the shuffle came out in a different order
+     * (issue #201). The response path already used this mapper; this exposes
+     * the same rules to operator code so no second copy grows.
+     *
+     * @throws IOException when Jackson cannot serialize the value (Go's
+     *         json.Marshal errors in the same situations: NaN/Inf inside the
+     *         composite). Callers decide the fallback.
+     */
+    public static String marshalJson(Object v) throws IOException {
+        return GO_JSON_MARSHAL.writeValueAsString(wrapPayload(v));
+    }
+
     static ObjectMapper createGoCompatMapper() {
         ObjectMapper m = new ObjectMapper();
         m.getFactory().setCharacterEscapes(new CharacterEscapes() {

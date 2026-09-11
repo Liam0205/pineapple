@@ -91,6 +91,58 @@
       "expected": {
         "item_order": [1, 2, 0, 3]
       }
+    },
+    {
+      "name": "composite item key is hashed as Go json.Marshal bytes (salt alpha)",
+      "params": {},
+      "metadata": {
+        "common_input": ["salt"],
+        "item_input": ["item_key"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": { "salt": "alpha" },
+        "items": [
+          { "item_id": "i0", "item_key": [28.0, 42.0] },
+          { "item_id": "i1", "item_key": [2e100, 3e100] },
+          { "item_id": "i2", "item_key": { "b": 1.5, "a": 0.1 } },
+          { "item_id": "i3", "item_key": [1e-7, 1e21] },
+          { "item_id": "i4", "item_key": ["<x>&"] },
+          { "item_id": "i5", "item_key": [0.30000000000000004, -0.0] },
+          { "item_id": "i6", "item_key": { "z": [1.0, { "y": 2.0 }] } },
+          { "item_id": "i7", "item_key": [] }
+        ]
+      },
+      "expected": {
+        "item_order": [0, 5, 7, 4, 1, 3, 2, 6]
+      }
+    },
+    {
+      "name": "composite item key is hashed as Go json.Marshal bytes (salt beta)",
+      "params": {},
+      "metadata": {
+        "common_input": ["salt"],
+        "item_input": ["item_key"],
+        "common_output": [],
+        "item_output": []
+      },
+      "input": {
+        "common": { "salt": "beta" },
+        "items": [
+          { "item_id": "i0", "item_key": [28.0, 42.0] },
+          { "item_id": "i1", "item_key": [2e100, 3e100] },
+          { "item_id": "i2", "item_key": { "b": 1.5, "a": 0.1 } },
+          { "item_id": "i3", "item_key": [1e-7, 1e21] },
+          { "item_id": "i4", "item_key": ["<x>&"] },
+          { "item_id": "i5", "item_key": [0.30000000000000004, -0.0] },
+          { "item_id": "i6", "item_key": { "z": [1.0, { "y": 2.0 }] } },
+          { "item_id": "i7", "item_key": [] }
+        ]
+      },
+      "expected": {
+        "item_order": [3, 2, 4, 5, 1, 6, 7, 0]
+      }
     }
   ]
 }
