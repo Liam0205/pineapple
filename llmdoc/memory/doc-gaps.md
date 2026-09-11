@@ -132,6 +132,12 @@
 - **可观察性**：fuzz 生成器没有任何脚本给 `_G` 装 metatable，nightly 看不见；cross-validate 亦无。
 - **待决策**：给 pine-go 提 issue——是 wangshu `SetGlobal` 改走 `settable`（对齐 gopher-lua/LuaJIT），还是把「宿主写全局是 raw」定为契约并让 gopher-lua/C++/Java 都改 raw。两种都要配一个 `fixtures/pipelines/` 用例让 cross-validate 看见。
 
+### 超出 float64 范围的整数字面量：Go 解析即拒、Java 接受并输出带引号 `"Infinity"`（#201 终审 R17 发现，先于本 range 存在的负空间）
+
+- **现状**：请求里一个 400 位整数字面量，pine-go CLI/服务端在 `encoding/json` 解析处报 `json: cannot unmarshal number ... of type float64` 拒绝整个请求；pine-java 用 Jackson 解成 `BigInteger` 接受，`GoFormat.wrap(v, true)` 转 double 得 `±Infinity`，序列化器走带引号分支，响应 200 且字段为 `"Infinity"`。本 range 之前 Java 同样接受该请求（那时打印精确十进制），改变的是可观察输出形态而非接受与否。pine-cpp 行为未实测。
+- **可观察性**：fuzz 生成器与所有 fixture 都不产生超 float64 范围的整数字面量，nightly 与 cross-validate 看不见。
+- **待决策**：(a) Java 在请求解析处对齐 Go——`BigInteger` 超出 double 范围即拒绝整个请求，文案与 Go 的 `encoding/json` 不同（Go 文案本就不与另两方对齐，见「根级配置的五处残留分歧」的同类记录）；(b) 登记为接受分歧。与「根级配置残留分歧」同族（解析层负空间），建议一起裁决；`GoFormat.wrap` 的 BigInteger 注释指向本条。
+
 ### 手写 config 的两处负空间：pine-cpp 拒绝 `pipeline_map: null` 与缺 `$metadata` 的算子，Go/Java 接受（issue #200 探针顺带发现）
 
 - **现状**：写最小探针时 `pipeline_config.pipeline_map` 用 `null`、`recall_static` 不带 `$metadata`，Go 与 Java 都正常执行，pine-cpp 分别报 `pine: config error: JSON value is not object` 与 `pine: config error: operator missing $metadata`。Apple DSL 编译产物两者都齐全，fuzz 生成器亦然，故三条通道都看不见。
