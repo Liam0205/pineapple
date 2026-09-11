@@ -16,10 +16,11 @@ import java.util.Map;
  * be promoted to the JSON column first.
  *
  * <p>Typed dispatch is by exact runtime class (Double / String / Boolean),
- * matching pine-go's exact-type dispatch: JSON-sourced data always boxes
- * numbers as Double in this runtime, so the common case gets the typed
- * path, while other Number subtypes fall to the JSON column (downstream
- * contracts observe the concrete boxed type).
+ * matching pine-go's exact-type dispatch: the common case (fractional
+ * literals, every Lua-produced number) is Double and gets the typed path;
+ * integer literals arrive from Jackson as Integer / Long / BigInteger and
+ * fall to the JSON column (downstream contracts observe the concrete boxed
+ * type — GoFormat.payload converts them to Go's float64 spelling on output).
  */
 abstract class Column {
 

@@ -757,11 +757,16 @@ public final class GoFormat {
         // on Jackson's default path emitting "1.0E20" — the shape of issue #180.
         //
         // Scope of this claim, stated precisely because earlier versions of this
-        // comment overreached: these six registrations cover every carrier that
-        // a frame value can take on a response path. Frame values are Double or
-        // Float (pine-go row_frame.go, pine-java DataFrame/ColumnFrame), and
-        // arrays and primitives are covered so the mapper does not depend on
-        // which of those forms a caller happens to declare.
+        // comment overreached twice: these six registrations only need to
+        // cover Double and Float. Integer carriers do reach the frame —
+        // Jackson decodes request/resource/config literals to Integer, Long
+        // or BigInteger and Column.java keeps the exact class — but on the
+        // payload path payload()/wrapPayload() convert them to double
+        // BEFORE the mapper sees them (wrap(v, true); see payload()'s javadoc
+        // for why the rule lives there). On the /stats path a Long is a Go
+        // int64 and is deliberately left on Jackson's exact default. Arrays
+        // and primitives are covered so the mapper does not depend on which
+        // of those forms a caller happens to declare.
         //
         // NOT covered, deliberately: JsonNode carriers (DoubleNode, FloatNode,
         // DecimalNode) and BigDecimal, which still emit Jackson's default form.
