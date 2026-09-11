@@ -21,7 +21,10 @@
 # Covered: success envelope, empty items, empty common, validation-error envelope,
 # partial-result-on-execution-error, number precision and format regimes, key
 # escaping (non-BMP / HTML-special / control chars), deep nesting, null values at
-# every position, and a filtered multi-item projection.
+# every position, a filtered multi-item projection, integral floats above 2^53
+# produced by Lua (fixture 14), and integer LITERALS past 2^53 in the request
+# (fixture 15: Go decodes them to float64; Java must not print its Long /
+# BigInteger exactly).
 #
 # CANNOT be covered here, and this is a property of the response rather than a
 # gap to fill later:
