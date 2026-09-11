@@ -37,6 +37,7 @@
 1. luaj 脚本内部同 key 二次赋值（`t.k = 7; t.k = "123"`）同样被 coerce——桥接层修不到的残留。
 2. luaj `tostring()`/`..` 对非整数 double 走 float 精度（`784.6283`、`1e100`→`Infinity`、`2^53+1`→整数形），三运行时实测对照已写入。
 3. pine-cpp 拒绝手写 config 的 `pipeline_map: null` 与缺 `$metadata` 的算子，Go/Java 接受。
+4. pine-go 两个 Lua 后端对宿主写缺失全局是否触发 `__newindex` 不一致（默认 wangshu raw、gopher-lua honour；审计 R2 发现，见 doc-gaps 同名条目）。
 
 ## 未做 / 边界
 
