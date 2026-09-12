@@ -61,7 +61,15 @@ type recallTestOp struct {
 func (o *recallTestOp) Init(params map[string]any) error { return nil }
 func (o *recallTestOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
 	for _, item := range o.items {
-		out.AddItem(item)
+		// Copy before handing over: ApplyOutput appends the map into the frame
+		// by reference and injects `_source`, so reusing these maps across
+		// executions would pollute the operator's own state. Production recall
+		// operators copy for the same reason (operators/recall/static.go).
+		cp := make(map[string]any, len(item))
+		for k, v := range item {
+			cp[k] = v
+		}
+		out.AddItem(cp)
 	}
 	return nil
 }
@@ -129,16 +137,20 @@ func (o *warningOp) Execute(_ context.Context, _ *types.OperatorInput, out *type
 }
 
 // sleepOp sleeps for a duration to help test parallelism.
+// field is the common output field it writes; each instance writes its own
+// declared field name so two sleepOps stay independent in the DAG (a shared
+// field name would add a WAW edge and serialise them).
 type sleepOp struct {
 	d       time.Duration
 	started *atomic.Int64
+	field   string
 }
 
 func (o *sleepOp) Init(params map[string]any) error { return nil }
 func (o *sleepOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
 	o.started.Add(1)
 	time.Sleep(o.d)
-	out.SetCommon("done", true)
+	out.SetCommon(o.field, true)
 	return nil
 }
 
@@ -236,7 +248,7 @@ func TestRunParallelOps(t *testing.T) {
 
 	opA := &CompiledOperator{
 		Name:     "op_a",
-		Instance: &sleepOp{d: 50 * time.Millisecond, started: startedA},
+		Instance: &sleepOp{d: 50 * time.Millisecond, started: startedA, field: "a_done"},
 		Config: config.OperatorConfig{
 			TypeName:  "sleep",
 			Meta:      config.Metadata{CommonOutput: []string{"a_done"}},
@@ -245,7 +257,7 @@ func TestRunParallelOps(t *testing.T) {
 	}
 	opB := &CompiledOperator{
 		Name:     "op_b",
-		Instance: &sleepOp{d: 50 * time.Millisecond, started: startedB},
+		Instance: &sleepOp{d: 50 * time.Millisecond, started: startedB, field: "b_done"},
 		Config: config.OperatorConfig{
 			TypeName:  "sleep",
 			Meta:      config.Metadata{CommonOutput: []string{"b_done"}},
@@ -997,7 +1009,7 @@ func TestRun_OutputPool_NoLeakageWithAdditions(t *testing.T) {
 		Config: config.OperatorConfig{
 			TypeName:     "recall",
 			Recall:       true,
-			Meta:         config.Metadata{},
+			Meta:         config.Metadata{ItemOutput: []string{"id"}},
 			InputSpec:    &config.InputFieldSpec{},
 			OperatorType: "Recall",
 		},

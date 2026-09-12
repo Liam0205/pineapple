@@ -251,6 +251,17 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 				}
 			}
 
+			// Validate that every written field is declared in $metadata.
+			// Checked here rather than in ApplyOutput because the declared
+			// field lists live on the operator config, which the frame layer
+			// does not see.
+			if execErr == nil {
+				meta := cop.Config.Meta
+				if vErr := types.ValidateDeclaredOutputs(output, meta.CommonOutput, meta.ItemOutput); vErr != nil {
+					execErr = fmt.Errorf("output contract violation: %w", vErr)
+				}
+			}
+
 			duration := time.Since(startTime)
 			atomic.AddInt64(&activeOps, -1)
 			if em != nil {

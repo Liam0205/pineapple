@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 
 	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
@@ -152,6 +153,85 @@ func (t OperatorType) ValidateOutput(out *OperatorOutput) error {
 		return fmt.Errorf("operator type %s must not call %v", t, violations)
 	}
 	return nil
+}
+
+// ValidateDeclaredOutputs checks that every field the operator wrote is
+// declared in its $metadata output lists: common writes against commonOutput,
+// and item writes (SetItem, SetItemColumnFloat64, AddItem) against itemOutput.
+//
+// The DAG's hazard inference is derived entirely from the declared field lists
+// (see internal/dag.addEdges), so a write to an undeclared field carries no
+// RAW/WAW/WAR edge: nothing orders it against a concurrent writer of the same
+// name, and a downstream operator that declares the field as input gets no
+// dependency on the producer. Enforcing the declaration turns that silent
+// ordering hazard into a deterministic error at the same point where the
+// operator-type method restrictions are enforced (see ValidateOutput).
+//
+// Field names are reported sorted so the message is byte-identical across
+// runs and runtimes regardless of map iteration order.
+func ValidateDeclaredOutputs(out *OperatorOutput, commonOutput, itemOutput []string) error {
+	if undeclared := undeclaredCommonWrites(out, commonOutput); len(undeclared) > 0 {
+		return fmt.Errorf("operator wrote undeclared common output field(s) %v", undeclared)
+	}
+	if undeclared := undeclaredItemWrites(out, itemOutput); len(undeclared) > 0 {
+		return fmt.Errorf("operator wrote undeclared item output field(s) %v", undeclared)
+	}
+	return nil
+}
+
+func undeclaredCommonWrites(out *OperatorOutput, commonOutput []string) []string {
+	if len(out.commonWrites) == 0 {
+		return nil
+	}
+	declared := fieldSet(commonOutput)
+	var undeclared []string
+	for field := range out.commonWrites {
+		if _, ok := declared[field]; !ok {
+			undeclared = append(undeclared, field)
+		}
+	}
+	sort.Strings(undeclared)
+	return undeclared
+}
+
+func undeclaredItemWrites(out *OperatorOutput, itemOutput []string) []string {
+	if len(out.itemWrites) == 0 && len(out.colWrites) == 0 && len(out.addedItems) == 0 {
+		return nil
+	}
+	declared := fieldSet(itemOutput)
+	seen := make(map[string]struct{})
+	var undeclared []string
+	add := func(field string) {
+		if _, ok := declared[field]; ok {
+			return
+		}
+		if _, dup := seen[field]; dup {
+			return
+		}
+		seen[field] = struct{}{}
+		undeclared = append(undeclared, field)
+	}
+	for _, w := range out.itemWrites {
+		add(w.Field)
+	}
+	for _, cw := range out.colWrites {
+		add(cw.Field)
+	}
+	for _, item := range out.addedItems {
+		for field := range item {
+			add(field)
+		}
+	}
+	sort.Strings(undeclared)
+	return undeclared
+}
+
+func fieldSet(fields []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(fields))
+	for _, f := range fields {
+		set[f] = struct{}{}
+	}
+	return set
 }
 
 // Operator is the interface all operators must implement.
