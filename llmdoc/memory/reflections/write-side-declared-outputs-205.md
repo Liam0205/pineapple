@@ -28,6 +28,8 @@ member 在 Java/C++ 侧核实同一件事时发现这条只在 Go 成立：Java 
 
 **4. 读侧投影会掩盖症状，最小复现要让读者声明该字段。** 第一版探针里下游 reader 不声明 `undeclared_item`，读到 `<nil>`——是读侧投影拦住了，看起来"没问题"。真正的危险形状是**写者不声明、读者声明**：读者能读到，但图里没有边。改成这个形状后 40 轮里 reader 全部先于 writer 跑、报字段缺失——这不是竞态偶发，而是无边情况下调度器的稳定顺序恰好反了。
 
+**5. CI 首轮红在 `benchmark` job：`pine-go/benchmarks/` 独立 module 逃过了本地全量验证。** 本地 `go test ./...`、cross-validate 03/05/14、differential-fuzz 100 轮全绿后 push，CI `benchmark` job 报 `BenchmarkParallelRecall` 的两个 `recall_static` 用 `makeItems` 生成四字段却只声明两个。主 module 的 `./...` 不编译子 module，所以它是第一个真正没在本地跑过的消费者。这是该子 module 第三次以不同方式咬到 PR（#166 tidy、#160 文档命令、#205 行为变更），判据已进 `guides/standard-workflow.md` 3c：改运行时行为时本地补一次 `-benchtime=1x` 全量 benchmark。
+
 ## 双会话协作的形状（第一次，记下可复用的部分）
 
 - **同一工作树、按目录分域**：leader 只动 `pine-go/**`、`fixtures/**`、`llmdoc/**`、`doc/**`；member 只动 `pine-java/**`、`pine-cpp/**`。全部 `git add` / `commit` 由 leader 做，member 改完只报告。单域提交纪律因此天然成立——每个 commit 的文件集合就是一个人的目录。
