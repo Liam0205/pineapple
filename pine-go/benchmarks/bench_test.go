@@ -302,12 +302,17 @@ func BenchmarkParallelRecall(b *testing.B) {
 	// Two independent recalls — measures parallel scheduling benefit
 	cfg := makeConfig(
 		map[string]any{
+			// makeItems emits four fields per row; all four must be declared
+			// or the engine rejects the write (issue #205). Declaring them
+			// adds no edge between the two recalls — additive writers of the
+			// same field stay parallel — so the benchmark still measures
+			// parallel scheduling.
 			"recall_a": map[string]any{
 				"type_name": "recall_static",
 				"recall":    true,
 				"items":     makeItems(500),
 				"$metadata": map[string]any{
-					"item_output": []string{"item_id", "item_score"},
+					"item_output": []string{"item_id", "item_score", "item_status", "item_category"},
 				},
 			},
 			"recall_b": map[string]any{
@@ -315,7 +320,7 @@ func BenchmarkParallelRecall(b *testing.B) {
 				"recall":    true,
 				"items":     makeItems(500),
 				"$metadata": map[string]any{
-					"item_output": []string{"item_id", "item_score"},
+					"item_output": []string{"item_id", "item_score", "item_status", "item_category"},
 				},
 			},
 		},
