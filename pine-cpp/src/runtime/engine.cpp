@@ -575,6 +575,89 @@ void validate_output_against_type(const std::string& op_name, const std::string&
   throw ExecutionError(op_name, "type violation: operator type " + display_type + " must not call " + list);
 }
 
+// validate_declared_outputs mirrors pine-go types.ValidateDeclaredOutputs
+// (internal/types/operator.go, immediately after ValidateOutput). Every field
+// the operator wrote must appear in its $metadata output lists: common writes
+// against common_output, and item writes (set_item, set_item_column_double,
+// add_item) against item_output.
+//
+// The DAG's hazard inference is derived entirely from the declared field
+// lists, so a write to an undeclared field carries no RAW/WAW/WAR edge:
+// nothing orders it against a concurrent writer of the same name, and a
+// downstream operator that declares the field as input gets no dependency on
+// the producer. Enforcing the declaration turns that silent ordering hazard
+// into a deterministic error at the same point where the operator-type method
+// restrictions are enforced (see validate_output_against_type above).
+//
+// Error format (Go-compatible byte-exact):
+// `output contract violation: operator wrote undeclared common output field(s)
+// [a b]`. The bracketed list mimics Go's `%v` formatting of a []string (single
+// space separator, no quotes). Names are reported in ascending byte order:
+// std::set<std::string> orders by std::string::operator<, which is the same
+// byte comparison Go's sort.Strings does, so the message is identical across
+// runs and runtimes regardless of iteration order.
+//
+// The common channel is checked first and reported alone, matching Go.
+//
+// `_source` needs no exemption: it is injected into recall-added items inside
+// RowFrame/ColumnFrame::apply_output, which runs after this check, so it is
+// never present in out.added_items() here.
+void validate_declared_outputs(const std::string& op_name, const Metadata& meta, const OperatorOutput& out) {
+  auto format_list = [](const std::set<std::string>& fields) {
+    std::string list = "[";
+    for (auto it = fields.begin(); it != fields.end(); ++it) {
+      if (it != fields.begin()) {
+        list += " ";
+      }
+      list += *it;
+    }
+    list += "]";
+    return list;
+  };
+
+  if (!out.common_writes().empty()) {
+    const std::set<std::string> declared(meta.common_output.begin(), meta.common_output.end());
+    std::set<std::string> undeclared;
+    for (const auto& kv : out.common_writes()) {
+      if (declared.count(kv.first) == 0) {
+        undeclared.insert(kv.first);
+      }
+    }
+    if (!undeclared.empty()) {
+      throw ExecutionError(op_name,
+                           "output contract violation: operator wrote undeclared common output field(s) " +
+                               format_list(undeclared));
+    }
+  }
+
+  if (out.item_writes().empty() && out.column_writes().empty() && out.added_items().empty()) {
+    return;
+  }
+  const std::set<std::string> declared(meta.item_output.begin(), meta.item_output.end());
+  std::set<std::string> undeclared;
+  auto add = [&](const std::string& field) {
+    if (declared.count(field) == 0) {
+      undeclared.insert(field);
+    }
+  };
+  for (const auto& w : out.item_writes()) {
+    add(w.field);
+  }
+  for (const auto& cw : out.column_writes()) {
+    add(cw.field);
+  }
+  for (const auto& item : out.added_items()) {
+    for (const auto& kv : item) {
+      add(kv.first);
+    }
+  }
+  if (!undeclared.empty()) {
+    throw ExecutionError(op_name,
+                         "output contract violation: operator wrote undeclared item output field(s) " +
+                             format_list(undeclared));
+  }
+}
+
 // dispatch_with_recovery runs dispatch_operator and converts any non-pine::Error
 // exception into a PanicError carrying the operator name. Pine typed errors
 // (ExecutionError, RegistryError, etc.) propagate unchanged after ensuring
@@ -1024,6 +1107,10 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
         trace.has_output_snapshot = true;
       }
       validate_output_against_type(op.name, op.operator_type, out);
+      // Validate that every written field is declared in $metadata. Checked
+      // here rather than in apply_output because the declared field lists
+      // live on the operator config, which the frame layer does not see.
+      validate_declared_outputs(op.name, op.metadata, out);
 
       if (op.debug.value_or(false)) {
         auto dur = std::chrono::steady_clock::now() - start;
