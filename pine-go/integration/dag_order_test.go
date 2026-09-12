@@ -390,6 +390,10 @@ func dagTestConfig(operators map[string]any, pipeline []string) map[string]any {
 //   - testTransformOp always writes the `_seq_<name>` order sentinel to common.
 //   - testRecallOp AddItems the `items` param objects verbatim, so the item
 //     field names come from the config rather than from $metadata.
+//
+// It mutates the operator maps in place (including any nested `$metadata`
+// map literal the caller passed in) and is idempotent, so dagTestConfig can
+// call it on every build without the caller having to know.
 func declareTestOpWrites(operators map[string]any) {
 	for key, raw := range operators {
 		opCfg, ok := raw.(map[string]any)
