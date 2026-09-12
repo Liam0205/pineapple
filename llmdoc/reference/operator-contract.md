@@ -400,7 +400,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - 文案：`pine: execution error in operator "X": output contract violation: operator wrote undeclared item output field(s) [f1 f2]`（common 通道把 `item` 换成 `common`）。列表形状与既有 type violation 相同：方括号、单空格分隔、无引号无逗号。
 - 字段名**按字节序升序**、去重后报出——`commonWrites` 与 `AddItem` payload 都是 map，不排序就无法字节级锁定。Java 侧不能用裸 `String.compareTo`（UTF-16 code unit 序），要复用 UTF-8 字节序比较器。
 - **先查 common，有违规只报 common 并返回**；无违规再查 item 三条通道合并去重。两通道同时违规时只见 common 字段。
-- `_source` 不需要豁免：它在 `ApplyOutput` 内注入，晚于校验点。它出现在校验里只有一种可能——算子把已交给 `AddItem` 的 map 缓存起来又交了一次（frame 按引用追加并原地注入 `_source`）。生产 recall 算子交出前都拷贝一份（`pine-go/operators/recall/static.go`），自定义算子同样必须拷贝。
+- `_source` 不需要豁免：三方都在 `ApplyOutput` 内注入，晚于校验点。它出现在校验里的唯一可能**只在 pine-go 成立**——算子把已交给 `AddItem` 的 map 缓存起来又交了一次，而 Go 的 frame 按引用追加并原地注入 `_source`（`row_frame.go` / `column_frame.go`）；Java（`new LinkedHashMap<>(added)`）与 C++（`add_item` 按值接收）先拷贝再注入，同一份复用 map 在那两方永远通过。这是扩展 API 上的三方所有权不对等，跟踪于 `memory/doc-gaps.md`「`AddItem` 交出的 map 所有权」。结论对三方都成立：生产 recall 算子交出前都拷贝一份（`pine-go/operators/recall/static.go`），自定义算子同样必须拷贝。
 
 字段名来自运行时数据的算子（`recall_static` 的 `items` / `set_common` 键、`recall_resource` 的资源行键）不例外：声明必须覆盖所有可能出现的键。这条契约在 `recall_static` 的文件头注释里早已写着"必须声明"，但 #205 之前无任何强制。
 
