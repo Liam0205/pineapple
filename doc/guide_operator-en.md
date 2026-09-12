@@ -14,6 +14,8 @@ type Operator interface {
 - `Init`: Receives business parameters, performs one-time initialization
 - `Execute`: Called per request, reads from `input` and writes to `output`
 
+`Execute` may only touch fields declared in `$metadata`, and the engine enforces both sides: on the read side only `common_input` / `item_input` are projected into the operator; on the write side, after `Execute` returns, `SetCommon` fields must be in `common_output` and `SetItem` / `SetItemColumnFloat64` / `AddItem` fields must be in `item_output`, otherwise the write is rejected with an `ExecutionError` (`output contract violation: operator wrote undeclared item output field(s) [f1 f2]`). This is not a formality — the DAG's dependency edges are derived entirely from the declarations, so a write to an undeclared field has no edge protecting it. Operators whose field names come from runtime data (e.g. a recall that `AddItem`s rows straight from config or a resource) are not exempt: the declaration must cover every key that can appear.
+
 ## Registering an Operator
 
 Call `pine.Register()` in `init()`. All metadata fields are **required**:
