@@ -388,6 +388,22 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 `SetWarning` 与算子类型正交，用于非致命 warning。
 
+#### 写侧字段名必须在声明的输出里（issue #205）
+
+写入的每个字段名都必须出现在算子的 `$metadata` 输出列表中：`SetCommon` 的字段 ∈ `common_output`；`SetItem`、`SetItemColumnFloat64`、`AddItem` 三条 item 通道的字段 ∈ `item_output`。`RemoveItem` / `SetItemOrder` 不带字段名，不受此约束。
+
+这是算子诚实性契约的写侧一半，与读侧投影（"输入从声明的元数据投影"）对偶。它不是形式要求：DAG 冒险边完全由声明列表推出（`pine-go/internal/dag/dag.go:addEdges`），写了未声明的字段就没有任何 RAW/WAW/WAR 边保护它——同名并发写者不被串行化，下游声明该字段为输入的算子对生产者没有依赖。在这条被强制之前，唯一写死字段名的生产算子是 `transform_bench_cpu` / `transform_bench_sleep`（`_bench_result` / `_bench_slept`，无 build-tag 门控），用它们的配置必须声明这两个字段；仓内 `fixtures/benchmarks/` 全部已声明。
+
+执行时机与错误形状（三运行时一致，`fixtures/errors/runtime_undeclared_{item,common}_output.json` 以 `wrapping_exact` 钉住 go/java/cpp）：
+
+- 校验点紧跟算子类型方法校验之后、`ApplyOutput` 之前，且仅在此前无错误时执行。Go `pine-go/internal/types/operator.go:ValidateDeclaredOutputs`，调用点 `pine-go/internal/runtime/scheduler.go`（紧跟 `ValidateOutput`）；Java/C++ 在各自 type 校验的同一位置。校验点在 frame 之外，因为 frame 层看不到声明列表，而调度器调用点手里有算子配置——三方都是"`ApplyOutput` 签名拿不到、调用点拿得到"。
+- 文案：`pine: execution error in operator "X": output contract violation: operator wrote undeclared item output field(s) [f1 f2]`（common 通道把 `item` 换成 `common`）。列表形状与既有 type violation 相同：方括号、单空格分隔、无引号无逗号。
+- 字段名**按字节序升序**、去重后报出——`commonWrites` 与 `AddItem` payload 都是 map，不排序就无法字节级锁定。Java 侧不能用裸 `String.compareTo`（UTF-16 code unit 序），要复用 UTF-8 字节序比较器。
+- **先查 common，有违规只报 common 并返回**；无违规再查 item 三条通道合并去重。两通道同时违规时只见 common 字段。
+- `_source` 不需要豁免：它在 `ApplyOutput` 内注入，晚于校验点。它出现在校验里只有一种可能——算子把已交给 `AddItem` 的 map 缓存起来又交了一次（frame 按引用追加并原地注入 `_source`）。生产 recall 算子交出前都拷贝一份（`pine-go/operators/recall/static.go`），自定义算子同样必须拷贝。
+
+字段名来自运行时数据的算子（`recall_static` 的 `items` / `set_common` 键、`recall_resource` 的资源行键）不例外：声明必须覆盖所有可能出现的键。这条契约在 `recall_static` 的文件头注释里早已写着"必须声明"，但 #205 之前无任何强制。
+
 **整数值写入 frame 的拼写前提**：Go 侧 `validateValue` 放行 `int`/`int64`，响应里按 int64 精确打印；pine-java 的 payload 包装层把 `Long`/`Integer` 一律按 Go float64 拼写（因为解析进来的字面量在 Go 里本就是 float64）。两侧只在 |v| < 2^53 时字节相同。内置算子只写计数值（`transform_size`），不受影响；自定义算子要在 frame 放大整数（如 ID）时，pine-go / pine-java / pine-cpp 都以 double 写入，与 Lua bridge「number 出口一律 double」同一约定。规则原文见 `must/conventions.md`「跨运行时 shuffle anyToString 一致性」节的数字拼写边界。
 
 #### 批量列写（`SetItemColumnFloat64` / `setItemColumnDouble` / `set_item_column_double`）
@@ -406,7 +422,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - **整列或全无**：`len(vals)` 必须等于 frame 当时的 item 数，不匹配报 `SetItemColumnFloat64 "f" length N does not match item count M`（跨引擎字节一致）
 - **NaN/Inf 批量校验**先于任何写入（单次列写全有或全无），首错消息与逐元素路径相同：`item[i] write: field "f": NaN/Inf is not a valid JSON value`
 - **所有权转移**：apply 时列存 frame 直接 adopt 底层数组为列存储（零拷贝，全槽位 present，typed 读快路径可命中）；行存 frame 在一个锁窗口内逐行 scatter（装箱不可避免）。算子交出后**不得再读写该数组**
-- 对 `ValidateOutput` 计为 `SetItem`（Transform 可用，Recall/Filter/Observe 等非 item-write 类型违规）；debug 快照折叠进 `item_writes` 视图；data_parallel 分片的列写由 merge 折叠为带 offset 的逐元素写（分片是窗口，无法 adopt）
+- 对 `ValidateOutput` 计为 `SetItem`（Transform 可用，Recall/Filter/Observe 等非 item-write 类型违规）；对 `ValidateDeclaredOutputs` 的字段名与 `SetItem` 同入 `item_output` 对照；debug 快照折叠进 `item_writes` 视图；data_parallel 分片的列写由 merge 折叠为带 offset 的逐元素写（分片是窗口，无法 adopt）
 
 算子作者指引：整列计算型算子（normalize 等）优先用批量写；稀疏/条件写仍用 `SetItem`。Go 侧校验注意：不要用 `validateValue(field, any(v))` 逐元素校验——`any` 转换每元素装箱一次，吃掉批量写的收益；直接内联 `math.IsNaN/IsInf`。
 
@@ -620,10 +636,11 @@ Codegen 模板对参数序列化采用分类策略（`alwaysParams` / `condition
 
 - Apple 校验器（`apple/validator.py`）
 - 运行时输入投影（`pine-go/internal/dataframe/dataframe.go`）
+- 运行时写侧校验（`pine-go/internal/types/operator.go:ValidateDeclaredOutputs`，见「写侧字段名必须在声明的输出里」）
 - DAG 依赖推导（`pine-go/internal/dag/dag.go`）
 - 生成的算子文档（`pine-go/pkg/codegen/`）
 
-不正确的元数据因此可同时导致编译时和运行时的错误行为。
+不正确的元数据因此可同时导致编译时和运行时的错误行为。声明**少写**一个实际会写入的字段，现在是运行时确定性报错，而不再是并发下偶发的顺序错误。
 
 ## 跨运行时格式化（GoFormat）
 

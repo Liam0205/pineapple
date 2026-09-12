@@ -634,6 +634,19 @@ RowFrame 与 ColumnFrame 必须保持稀疏字段语义一致：某一 item 未�
 
 这些限制在 `Execute()` 返回后检查，是算子分类体系的运行时强制执行。
 
+### 写侧字段名校验（算子诚实性的第四条腿）
+
+DAG 推导的健全性建立在四个环节上：规则健全、`Build` 实现了规则、调度器尊重图、**算子诚实**（只读声明输入、只写声明输出、标记如实）。算子诚实在运行时有四处强制点：
+
+| 方面 | 强制点 |
+|---|---|
+| 读侧只能读声明字段 | `config.ComputeInputFieldSpec` + `BuildInput` 只投影声明字段 |
+| 写侧方法类别 | `OperatorType.ValidateOutput`（上表） |
+| 三个行集标记 | `pine.go` 加载时用 Go 接口断言覆盖配置、校验互斥 |
+| 写侧字段名 ∈ 声明输出 | `types.ValidateDeclaredOutputs`，紧跟 `ValidateOutput`（issue #205 前缺失） |
+
+第四条之所以属于 DAG 引擎而不只是算子 API 卫生：`addEdges` 只看声明列表，一个写了未声明字段的算子在图里**不存在**——没有 WAW/WAR 边阻止同名并发写者，下游声明该字段为输入的算子也没有 RAW 边。#205 之前这条只靠内置算子的构造（`MetadataAware` 按声明名写、Lua 按位置绑定）成立，对扩展 API 接入的自定义算子和字段名来自配置/资源数据的 recall 没有任何防线。校验覆盖 `SetCommon` / `SetItem` / `SetItemColumnFloat64` / `AddItem` 四条带字段名的写路径；`RemoveItem` / `SetItemOrder` 无字段名。错误形状、排序与通道优先级见 `reference/operator-contract.md`「写侧字段名必须在声明的输出里」。
+
 ### 为何分类体系对 DAG 推导重要
 
 DAG 构建器依赖算子类型（而非仅元数据字段）推导语义：
