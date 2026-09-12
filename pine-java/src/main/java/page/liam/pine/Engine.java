@@ -440,6 +440,17 @@ public class Engine {
             }
         }
 
+        // Validate that every written field is declared in $metadata. Checked
+        // here rather than in applyOutput because the declared field lists
+        // live on the operator config, which the frame layer does not see.
+        if (execErr == null && output != null) {
+            String violation = OutputContract.validateDeclaredOutputs(
+                    output, opCfg.metadata.commonOutput, opCfg.metadata.itemOutput);
+            if (violation != null) {
+                execErr = new PineErrors.OperatorException("output contract violation: " + violation);
+            }
+        }
+
         long duration = System.nanoTime() - startTime;
         ctx.activeOps.decrementAndGet();
         engineMetrics.activeOps.add(-1);
