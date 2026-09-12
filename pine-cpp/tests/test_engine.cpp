@@ -258,6 +258,215 @@ TEST_CASE("validate_output_against_type: Recall must not SetItem") {
   }
 }
 
+// ---------------------------------------------------------------------------
+// validate_declared_outputs (issue #205): every written field must be in
+// $metadata's common_output / item_output. Mirrors pine-go
+// types.ValidateDeclaredOutputs tests and pine-java OutputContractTest so the
+// runtimes enforce the same matrix with byte-identical messages. The helper
+// lives in an anonymous namespace in engine.cpp, so each case drives it
+// end-to-end through Engine::execute with a probe operator.
+// ---------------------------------------------------------------------------
+namespace {
+
+// Builds a single-operator pipeline whose $metadata declares exactly
+// `common_output` / `item_output` (JSON array literals, e.g. R"(["a"])").
+std::string single_op_config(const std::string& type_name, const std::string& common_output,
+                             const std::string& item_output) {
+  return std::string(R"({
+      "_PINEAPPLE_VERSION": "0.9.0",
+      "pipeline_config": {
+        "operators": {
+          "p": {
+            "type_name": ")") +
+         type_name + R"(",
+            "$metadata": {"common_output": )" +
+         common_output + R"(, "item_output": )" + item_output + R"(}
+          }
+        },
+        "pipeline_map": {"stage": {"pipeline": ["p"]}}
+      },
+      "pipeline_group": {"main": {"pipeline": ["stage"]}},
+      "flow_contract": {
+        "common_input": [],
+        "item_input": [],
+        "common_output": )" +
+         common_output + R"(,
+        "item_output": )" +
+         item_output + R"(
+      }
+    })";
+}
+
+// Runs the pipeline and returns the full error text, or "" when it succeeded.
+std::string execute_and_capture(const std::string& config, Request req) {
+  Engine engine(load_config_from_json(config));
+  try {
+    engine.execute(req);
+    return "";
+  } catch (const Error& e) {
+    return e.what();
+  }
+}
+
+// One probe per write path. Each writes a fixed field name; the test decides
+// whether that name is declared by varying the $metadata it emits.
+struct ProbeSetCommon : public pine::Operator {
+  void init(const pine::OperatorConfig&) override {
+  }
+  void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
+    out.set_common("probe_common", pine::Variant(1.0));
+  }
+};
+struct ProbeSetItem : public pine::Operator {
+  void init(const pine::OperatorConfig&) override {
+  }
+  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+    for (std::size_t i = 0; i < in.item_count(); ++i) {
+      out.set_item(static_cast<int>(i), "probe_item", pine::Variant(1.0));
+    }
+  }
+};
+struct ProbeColumnWrite : public pine::Operator {
+  void init(const pine::OperatorConfig&) override {
+  }
+  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+    out.set_item_column_double("probe_col", std::vector<double>(in.item_count(), 1.0));
+  }
+};
+struct ProbeAddItem : public pine::Operator, public pine::AdditiveWritesRowSet {
+  void init(const pine::OperatorConfig&) override {
+  }
+  void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
+    pine::Variant::object_t row;
+    row["undeclared_added"] = pine::Variant(1.0);
+    out.add_item(std::move(row));
+  }
+};
+// Writes on both channels and several item paths at once, to pin
+// common-first reporting plus item de-duplication and byte ordering.
+struct ProbeMixed : public pine::Operator {
+  void init(const pine::OperatorConfig&) override {
+  }
+  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+    out.set_common("bad_common", pine::Variant(1.0));
+    for (std::size_t i = 0; i < in.item_count(); ++i) {
+      out.set_item(static_cast<int>(i), "b", pine::Variant(1.0));
+      out.set_item(static_cast<int>(i), "a", pine::Variant(1.0));
+    }
+    out.set_item_column_double("b", std::vector<double>(in.item_count(), 1.0));
+  }
+};
+struct ProbeItemOnlyMixed : public pine::Operator {
+  void init(const pine::OperatorConfig&) override {
+  }
+  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+    for (std::size_t i = 0; i < in.item_count(); ++i) {
+      out.set_item(static_cast<int>(i), "b", pine::Variant(1.0));
+      out.set_item(static_cast<int>(i), "a", pine::Variant(1.0));
+    }
+    out.set_item_column_double("b", std::vector<double>(in.item_count(), 1.0));
+    // U+FFFD (EF BF BD) sorts before U+10000 (F0 90 80 80) in byte order —
+    // the order Go's sort.Strings reports; a UTF-16 comparison would flip it.
+    out.set_item(0, "\xF0\x90\x80\x80", pine::Variant(1.0));
+    out.set_item(0, "\xEF\xBF\xBD", pine::Variant(1.0));
+  }
+};
+
+void register_output_contract_probes() {
+  static bool registered = false;
+  if (registered) {
+    return;
+  }
+  static const pine::OperatorSchema s_common{
+      "probe205_set_common", pine::OpType::Transform, "test-only: writes common probe_common", {}};
+  static const pine::OperatorSchema s_item{
+      "probe205_set_item", pine::OpType::Transform, "test-only: writes item probe_item", {}};
+  static const pine::OperatorSchema s_col{
+      "probe205_column_write", pine::OpType::Transform, "test-only: whole-column probe_col", {}};
+  static const pine::OperatorSchema s_add{
+      "probe205_add_item", pine::OpType::Recall, "test-only: adds item with undeclared_added", {}};
+  static const pine::OperatorSchema s_mixed{
+      "probe205_mixed", pine::OpType::Transform, "test-only: violates both channels", {}};
+  static const pine::OperatorSchema s_item_mixed{
+      "probe205_item_mixed", pine::OpType::Transform, "test-only: several undeclared item paths", {}};
+  pine::register_operator_typed<ProbeSetCommon>(s_common);
+  pine::register_operator_typed<ProbeSetItem>(s_item);
+  pine::register_operator_typed<ProbeColumnWrite>(s_col);
+  pine::register_operator_typed<ProbeAddItem>(s_add);
+  pine::register_operator_typed<ProbeMixed>(s_mixed);
+  pine::register_operator_typed<ProbeItemOnlyMixed>(s_item_mixed);
+  registered = true;
+}
+
+Request one_item_request() {
+  Request req;
+  pine::Variant::object_t row;
+  row["id"] = pine::Variant(std::string("a"));
+  req.items.push_back(std::move(row));
+  return req;
+}
+
+}  // namespace
+
+TEST_CASE("validate_declared_outputs: set_common undeclared is rejected, declared accepted") {
+  register_output_contract_probes();
+  CHECK(execute_and_capture(single_op_config("probe205_set_common", R"(["declared"])", "[]"), Request{}) ==
+        "pine: execution error in operator \"p\": output contract violation: operator wrote undeclared "
+        "common output field(s) [probe_common]");
+  CHECK(execute_and_capture(single_op_config("probe205_set_common", R"(["probe_common"])", "[]"),
+                            Request{}) == "");
+}
+
+TEST_CASE("validate_declared_outputs: set_item undeclared is rejected, declared accepted") {
+  register_output_contract_probes();
+  CHECK(execute_and_capture(single_op_config("probe205_set_item", "[]", R"(["declared"])"),
+                            one_item_request()) ==
+        "pine: execution error in operator \"p\": output contract violation: operator wrote undeclared "
+        "item output field(s) [probe_item]");
+  CHECK(execute_and_capture(single_op_config("probe205_set_item", "[]", R"(["probe_item"])"),
+                            one_item_request()) == "");
+}
+
+TEST_CASE("validate_declared_outputs: whole-column write undeclared is rejected, declared accepted") {
+  register_output_contract_probes();
+  CHECK(execute_and_capture(single_op_config("probe205_column_write", "[]", R"(["declared"])"),
+                            one_item_request()) ==
+        "pine: execution error in operator \"p\": output contract violation: operator wrote undeclared "
+        "item output field(s) [probe_col]");
+  CHECK(execute_and_capture(single_op_config("probe205_column_write", "[]", R"(["probe_col"])"),
+                            one_item_request()) == "");
+}
+
+TEST_CASE("validate_declared_outputs: add_item undeclared is rejected, declared accepted") {
+  register_output_contract_probes();
+  // Full user-visible message, byte-identical to pine-go / pine-java for the
+  // same probe shape (operator "p_add" in the Go probe; "p" here).
+  CHECK(execute_and_capture(single_op_config("probe205_add_item", "[]", R"(["declared"])"), Request{}) ==
+        "pine: execution error in operator \"p\": output contract violation: operator wrote undeclared "
+        "item output field(s) [undeclared_added]");
+  // `_source` is injected by apply_output AFTER this check, so a recall whose
+  // added items are fully declared passes without any _source exemption.
+  CHECK(execute_and_capture(single_op_config("probe205_add_item", "[]", R"(["undeclared_added"])"),
+                            Request{}) == "");
+}
+
+TEST_CASE("validate_declared_outputs: common channel is reported alone and first") {
+  register_output_contract_probes();
+  // Both channels violate; item names must not leak into the message.
+  CHECK(execute_and_capture(single_op_config("probe205_mixed", "[]", "[]"), one_item_request()) ==
+        "pine: execution error in operator \"p\": output contract violation: operator wrote undeclared "
+        "common output field(s) [bad_common]");
+}
+
+TEST_CASE("validate_declared_outputs: item names deduped across paths, sorted by bytes") {
+  register_output_contract_probes();
+  // "b" arrives via two set_item calls and one column write → once. The list
+  // is Go's %v of a sorted []string: brackets, single space, no quotes.
+  CHECK(execute_and_capture(single_op_config("probe205_item_mixed", "[]", "[]"), one_item_request()) ==
+        "pine: execution error in operator \"p\": output contract violation: operator wrote undeclared "
+        "item output field(s) [a b \xEF\xBF\xBD \xF0\x90\x80\x80]");
+}
+
 TEST_CASE("Engine::execute honors external stop_token") {
   static const char* kCfg = R"({
       "_PINEAPPLE_VERSION": "0.9.0",
