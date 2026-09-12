@@ -199,6 +199,13 @@
   没有 CI 配置代码的测试层，加一个要连带决定它放哪个 job、以及是否要 mock runner toolcache 布局。
 - **过程记录**：`memory/reflections/agentic-setup-script-and-apt-mirror-rotation.md`
 
+### `AddItem` 交出的 map 所有权：Go 按引用追加并原地改写，Java/C++ 拷贝（issue #205 顺带发现）
+
+- **现状**：pine-go `RowFrame.ApplyOutput` / `ColumnFrame.ApplyOutput` 把 `AddItem` 交出的 map **按引用**追加进 frame，并原地注入 `_source`（`row_frame.go:258`、`column_frame.go:321`）；此后下游算子对该行的 `SetItem` 也写进同一个 map。pine-java `DataFrame.applyOutput` / `ColumnFrame.applyOutput` 在注入前 `new LinkedHashMap<>(added)`，pine-cpp `add_item` 按值接收。所以**同一个自定义 recall 算子如果缓存并复用 map**，在 Go 里配置会被 frame 状态逐轮污染，在 Java/C++ 里不会——这是扩展 API 上的三方行为不对等，且只在 Go 侧是缺陷形状。
+- **已做**：#205 的写侧字段名校验把 Go 侧这种复用变成确定性报错（复用的 map 第二轮会带着 `_source` 与下游写入的字段进校验）；`reference/operator-contract.md`「写侧字段名必须在声明的输出里」写明"自定义算子同样必须拷贝"。内置 recall 三方都拷贝（`recall_static` / `recall_resource`），不受影响。
+- **待决策**：是否让 Go 侧也在 `ApplyOutput` 拷贝一份对齐 Java/C++（多一次 map 分配，recall 是 item 数量级的热路径，需 bench 归因），还是把"交出即所有权转移、不得复用"写进三方 `AddItem` 契约并保持 Go 现状。前者消除不对等，后者零开销但把纪律推给下游。
+- **过程记录**：`memory/reflections/write-side-declared-outputs-205.md`
+
 ## 已关闭条目
 
 ### issue #193：`metrics.Provider` 契约定义与 metric `Help` 文案（已解决）
