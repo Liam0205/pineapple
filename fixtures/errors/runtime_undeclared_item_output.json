@@ -1,0 +1,37 @@
+{
+  "name": "Runtime undeclared item output rejection at output validation — Go/Java/C++ byte-exact",
+  "description": "recall_static derives item field names from its `items` config param rather than from $metadata, so it is the production operator through which a write to an undeclared field is reachable from config alone (issue #205). The DAG's hazard inference is built only from the declared field lists, so an undeclared write carries no RAW/WAW/WAR edge; the engine therefore rejects it right after the operator-type method check and before apply_output. `rank` is written by the items payload but absent from item_output. Field names in the message are sorted bytewise so the list is byte-identical across runtimes regardless of map iteration order.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "seed_items": {
+          "type_name": "recall_static",
+          "items": [
+            {"item_id": "a", "rank": 1},
+            {"item_id": "b", "rank": 2}
+          ],
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["seed_items"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id"]
+    }
+  },
+  "request": {"common": {}, "items": []},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "undeclared item output field",
+    "wrapping_exact": "pine: execution error in operator \"seed_items\": output contract violation: operator wrote undeclared item output field(s) [rank]",
+    "wrapping_exact_engines": ["go", "java", "cpp"]
+  }
+}

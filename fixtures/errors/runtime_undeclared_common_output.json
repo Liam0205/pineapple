@@ -1,0 +1,37 @@
+{
+  "name": "Runtime undeclared common output rejection at output validation — Go/Java/C++ byte-exact",
+  "description": "Companion to runtime_undeclared_item_output.json for the common channel (issue #205). recall_static's `set_common` keys are config-derived field names; recall_static's own doc comment already required them to be declared in common_output for the DAG to build read edges, but nothing enforced it. Two undeclared keys are used to lock the multi-field list shape: bytewise-sorted, space-separated, no quotes or commas — identical to the existing type-violation list format. The common channel is checked before the item channel, so a config violating both reports only the common fields.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "seed_items": {
+          "type_name": "recall_static",
+          "items": [
+            {"item_id": "a"}
+          ],
+          "set_common": {"request_id": "r-1", "trace_id": "t-1"},
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [],
+            "item_output": ["item_id"]
+          }
+        }
+      }
+    },
+    "pipeline_group": {"main": {"pipeline": ["seed_items"]}},
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [],
+      "common_output": [],
+      "item_output": ["item_id"]
+    }
+  },
+  "request": {"common": {}, "items": []},
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "undeclared common output field",
+    "wrapping_exact": "pine: execution error in operator \"seed_items\": output contract violation: operator wrote undeclared common output field(s) [request_id trace_id]",
+    "wrapping_exact_engines": ["go", "java", "cpp"]
+  }
+}
