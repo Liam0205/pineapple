@@ -148,7 +148,17 @@ func (o *testRecallOp) Execute(_ context.Context, _ *types.OperatorInput, out *t
 		time.Sleep(o.delay)
 	}
 	for _, item := range o.items {
-		out.AddItem(item)
+		// Copy before handing the map over: ApplyOutput appends the map into
+		// the frame by reference and injects `_source` into it, so reusing the
+		// Init-time map across executions would let frame state (and every
+		// downstream SetItem on that row) leak back into the operator config.
+		// Production recall operators copy for the same reason — see
+		// operators/recall/static.go.
+		cp := make(map[string]any, len(item))
+		for k, v := range item {
+			cp[k] = v
+		}
+		out.AddItem(cp)
 	}
 	end := time.Now()
 	execLogMu.Lock()
@@ -356,6 +366,7 @@ func init() {
 // ---------------------------------------------------------------------------
 
 func dagTestConfig(operators map[string]any, pipeline []string) map[string]any {
+	declareTestOpWrites(operators)
 	return map[string]any{
 		"_PINEAPPLE_VERSION": pine.Version,
 		"pipeline_config": map[string]any{
@@ -369,6 +380,69 @@ func dagTestConfig(operators map[string]any, pipeline []string) map[string]any {
 		},
 		"flow_contract": map[string]any{},
 	}
+}
+
+// declareTestOpWrites adds the fields the order-recording test operators write
+// unconditionally to their declared $metadata outputs. The engine rejects
+// writes to undeclared fields (see types.ValidateDeclaredOutputs), and these
+// operators write beyond their configured `_produce` lists:
+//
+//   - testTransformOp always writes the `_seq_<name>` order sentinel to common.
+//   - testRecallOp AddItems the `items` param objects verbatim, so the item
+//     field names come from the config rather than from $metadata.
+func declareTestOpWrites(operators map[string]any) {
+	for key, raw := range operators {
+		opCfg, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		meta, ok := opCfg["$metadata"].(map[string]any)
+		if !ok {
+			meta = map[string]any{}
+			opCfg["$metadata"] = meta
+		}
+		name, _ := opCfg["name"].(string)
+		if name == "" {
+			name = key
+		}
+		switch opCfg["type_name"] {
+		case "_test_transform":
+			meta["common_output"] = appendDeclared(meta["common_output"], "_seq_"+name)
+		case "_test_recall":
+			items, _ := opCfg["items"].([]any)
+			for _, r := range items {
+				item, ok := r.(map[string]any)
+				if !ok {
+					continue
+				}
+				for field := range item {
+					meta["item_output"] = appendDeclared(meta["item_output"], field)
+				}
+			}
+		}
+	}
+}
+
+// appendDeclared adds field to a $metadata field list (which may be absent, a
+// []string from a literal, or a []any after a JSON round-trip) unless present.
+func appendDeclared(existing any, field string) []string {
+	var fields []string
+	switch v := existing.(type) {
+	case []string:
+		fields = append(fields, v...)
+	case []any:
+		for _, e := range v {
+			if s, ok := e.(string); ok {
+				fields = append(fields, s)
+			}
+		}
+	}
+	for _, f := range fields {
+		if f == field {
+			return fields
+		}
+	}
+	return append(fields, field)
 }
 
 func mustBuildDAGEngine(t *testing.T, cfg map[string]any) *pine.Engine {
