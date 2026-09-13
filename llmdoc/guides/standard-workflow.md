@@ -55,7 +55,7 @@
 每完成一项变更立即验证：
 
 - 运行相关测试（`pytest`、`go test`）
-- **改了引擎运行时行为（任何能让既有 pipeline 报错的改动）时，Go 侧 `go test ./...` 不够**：`pine-go/benchmarks/` 是独立 module，主 module 的 `./...` 不会编译也不会跑它，而 CI 的 `benchmark` job 会。本地补一次 `cd pine-go/benchmarks && go test -tags=pine_bench -bench=. -benchtime=1x -run='^$' .`（1x 只求跑通不求数字，全部 80 余个 benchmark 一分钟内完成）。这是该子 module 第三次以不同方式咬到 PR：#166 手工 tidy 漏它、#160 文档命令找不到它、#205 行为变更后它的 `recall_static` 声明漏字段（`BenchmarkParallelRecall`），三次的共同根因都是"主 module 的常规命令看不见它"
+- **改了引擎运行时行为（任何能让既有 pipeline 报错的改动）时，Go 侧 `go test ./...` 不够**：`pine-go/benchmarks/` 是独立 module，主 module 的 `./...` 不会编译也不会跑它，而 CI 的 `benchmark` job 会。本地补一次 `cd pine-go/benchmarks && go test -tags=pine_bench -bench=. -benchtime=1x -run='^$' .`（`-benchtime=1x` 只求跑通不求数字，全量秒级）。这是该子 module 第三次以不同方式咬到 PR：#166 手工 tidy 漏它、#160 文档命令找不到它、#205 行为变更后它的 `recall_static` 声明漏字段（`BenchmarkParallelRecall`），三次的共同根因都是"主 module 的常规命令看不见它"
 - 提交前必须运行对应语言的 lint，并确认 0 issues：Go 项目运行 `golangci-lint run ./...`，Python 项目运行 `ruff check`
 - 确认无回归后再进入下一项
 - 如果涉及 codegen，修复后立即重生成并检查产物
