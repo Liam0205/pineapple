@@ -1,27 +1,25 @@
 package page.liam.pine;
 
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Write-time value check shared by {@link DataFrame} and {@link ColumnFrame}.
  * Mirrors pine-go {@code validateValue} (internal/dataframe/row_frame.go) and
- * pine-cpp {@code validate_value}: the messages are part of the cross-runtime
+ * pine-cpp {@code validate_frame_value}: the messages are part of the cross-runtime
  * error contract and must stay byte-identical.
  */
 final class FrameValues {
 
     /**
-     * Bound on the descent into nested composites. Values built from Lua or
-     * JSON are acyclic, but a custom operator can hand over a self-referencing
-     * map; hitting the bound abandons the whole scan (so a map with several
-     * self-keys stays linear, not exponential) and leaves the value to the
-     * serializer. Same bound as pine-go {@code maxCompositeScanDepth} and
-     * pine-cpp {@code kMaxCompositeScanDepth}.
+     * Bound on the descent into nested composites: a composite at this depth
+     * or deeper is not inspected (scalars are checked at any depth their
+     * parent reaches). The rule depends only on the value, never on
+     * iteration order. Same bound as pine-go {@code maxCompositeScanDepth}
+     * and pine-cpp {@code kMaxCompositeScanDepth}.
      */
     static final int MAX_COMPOSITE_SCAN_DEPTH = 1000;
-
-    private enum Scan { CLEAN, FOUND, TOO_DEEP }
 
     private FrameValues() {
     }
@@ -42,7 +40,7 @@ final class FrameValues {
             // {x * 2} whose element overflowed). Reject it with the scalar
             // message so every runtime fails at the same point with the
             // same bytes (issue #210). Only non-finite numbers are checked.
-            if (scan(v, 0) == Scan.FOUND) {
+            if (containsNonFinite(v, 0, new ArrayDeque<>())) {
                 return nonFiniteMessage(field);
             }
             return null;
@@ -66,23 +64,37 @@ final class FrameValues {
         return false;
     }
 
-    private static Scan scan(Object v, int depth) {
+    /**
+     * A custom operator can hand over a self-referencing map or list; a
+     * composite that is one of its own ancestors (by identity) is skipped,
+     * which keeps a map with several self-keys linear instead of exponential.
+     */
+    private static boolean containsNonFinite(Object v, int depth, ArrayDeque<Object> ancestors) {
         if (v instanceof Number) {
-            return isNonFinite((Number) v) ? Scan.FOUND : Scan.CLEAN;
+            return isNonFinite((Number) v);
         }
         if (!(v instanceof Map) && !(v instanceof List)) {
-            return Scan.CLEAN;
+            return false;
         }
         if (depth >= MAX_COMPOSITE_SCAN_DEPTH) {
-            return Scan.TOO_DEEP;
+            return false;
         }
-        Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (List<?>) v;
-        for (Object e : children) {
-            Scan r = scan(e, depth + 1);
-            if (r != Scan.CLEAN) {
-                return r;
+        for (Object a : ancestors) {
+            if (a == v) {
+                return false;
             }
         }
-        return Scan.CLEAN;
+        Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (List<?>) v;
+        ancestors.push(v);
+        try {
+            for (Object e : children) {
+                if (containsNonFinite(e, depth + 1, ancestors)) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            ancestors.pop();
+        }
     }
 }
