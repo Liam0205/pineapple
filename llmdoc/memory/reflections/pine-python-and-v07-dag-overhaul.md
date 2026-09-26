@@ -6,7 +6,7 @@ type: reflection
 
 ## 概述
 
-自 bd1354e 以来落地五项重大变更：(1) pine-python 完整第三运行时；(2) v0.7 DAG 语义重构（row_dependency → consumes_row_set + mutates_row_set + additive_writes_row_set）；(3) 跨验证从 7 层扩展到 11 层（+concurrent/raw-byte/hot-reload/redis-integration）；(4) CI 扩展（pine-python-test/fuzz/benchmark + differential-fuzz + nightly workflow）；(5) 版本同步范围扩展到 pine-go/pine-java/pine-python/apple/fixtures 五处。
+自 bd1354e 以来完成五项重大变更：(1) pine-python 完整第三运行时；(2) v0.7 DAG 语义重构（row_dependency → consumes_row_set + mutates_row_set + additive_writes_row_set）；(3) 跨验证从 7 层扩展到 11 层（+concurrent/raw-byte/hot-reload/redis-integration）；(4) CI 扩展（pine-python-test/fuzz/benchmark + differential-fuzz + nightly workflow）；(5) 版本同步范围扩展到 pine-go/pine-java/pine-python/apple/fixtures 五处。
 
 ## 教训
 

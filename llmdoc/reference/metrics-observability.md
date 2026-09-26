@@ -33,7 +33,7 @@
 ### pine-java
 
 - pine-java: 参考 `Registry` / `metrics/Provider.java` 模块。**指标名、Help 文案与 histogram 桶边界由
-  `scripts/check-metrics-help-parity.py` 守着**（接 `make lint`，纯文本扫描全部三方声明点，桶按 metric 名比对）。
+  `scripts/check-metrics-help-parity.py` 校验**（接 `make lint`，纯文本扫描全部三方声明点，桶按 metric 名比对）。
   注意 `scripts/cross-validate/13-metrics-parity.sh` **不**覆盖这些：它读 `/stats`，由 `runtime.Stats` 供给，
   与 `metrics.Provider` 是分离的两套机制，断言的是「算子从启动即可见且计数为零」这类 `Stats` 行为（issue #193）
 - `metrics/MetricsCollector.java` — 资源级指标聚合 Collector
@@ -110,7 +110,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 3. `LoggerAware`
 4. `MetricsAware`
 
-（Go 实际路径；Java 在 Metrics 之后还有 `ResourceAware`，C++ 的 Metadata/Debug 经 `init(op_cfg)` 携带、随后同样是 Logger → Metrics → Resource。完整对照见 `llmdoc/architecture/dag-engine.md` 不变量 11。）该顺序是承载性的。像 `pine-go/operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
+（Go 实际路径；Java 在 Metrics 之后还有 `ResourceAware`，C++ 的 Metadata/Debug 经 `init(op_cfg)` 携带、随后同样是 Logger → Metrics → Resource。完整对照见 `llmdoc/architecture/dag-engine.md` 不变量 11。）该顺序不可调换。像 `pine-go/operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
 
 ## 双通道观测模型
 
@@ -146,7 +146,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 
 - `pine_dag_executions_total{status=success|error}` — DAG 执行总次数，按成功/失败分标签
 - `pine_dag_execution_duration_seconds` — 单次 DAG 执行端到端耗时
-- `pine_dag_operators_executed` — 每次 DAG 执行中实际运行（非跳过、非取消）的算子数（histogram，桶边界以 `pine-go/internal/runtime/engine_metrics.go` 为准，并由 `scripts/check-metrics-help-parity.py` 跨运行时守护）
+- `pine_dag_operators_executed` — 每次 DAG 执行中实际运行（非跳过、非取消）的算子数（histogram，桶边界以 `pine-go/internal/runtime/engine_metrics.go` 为准，并由 `scripts/check-metrics-help-parity.py` 做跨运行时校验）
 
 DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度开始到所有算子完成的完整区间；`status` 标签由是否有 fatal error 决定；`operators_executed` 只计入 `!Skipped` 的 trace 条目。
 
@@ -219,7 +219,7 @@ DAG 级指标在 `scheduler.Run()` 结束时统一记录：计时覆盖从调度
 
 #### C++ 端的等价中间件
 
-C++ `Server::run()` 现在与 Go/Java 一致，无条件注入 `http_metrics_middleware`（`NopProvider` 兜底当 `metrics_provider` 为 nullptr），用户无需显式 `push_back`。middleware 同时写入外部 Provider 与内置 `HttpStats` 原子累加器（数据流入 `/stats.http` 子树）。`MiddlewareContext::status` 通过 `send_response` 内的 `thread_local` 指针写回。`Provider*` 由调用方持有，必须保证生命周期覆盖 server 运行期。
+C++ `Server::run()` 现在与 Go/Java 一致，无条件注入 `http_metrics_middleware`（`metrics_provider` 为 nullptr 时由 `NopProvider` 兜底），用户无需显式 `push_back`。middleware 同时写入外部 Provider 与内置 `HttpStats` 原子累加器（数据流入 `/stats.http` 子树）。`MiddlewareContext::status` 通过 `send_response` 内的 `thread_local` 指针写回。`Provider*` 由调用方持有，必须保证生命周期覆盖 server 运行期。
 
 `Middlewares` 与 metrics 注入是正交能力：middleware 包装发生在内部路由注册完成之后、`ListenAndServe` 启动之前，对 `/health`、`/execute`、`/stats`、`/dag` 一并生效，但不改变 `/stats` 数据来源、reload 计数逻辑或引擎内的 metrics provider 传递。
 
@@ -331,7 +331,7 @@ label 值取自 `DebugHolder.OperatorName()`，所以 Lua 算子的 metrics 注�
 | `pine_redis_command_duration_seconds` | Histogram(name, command, status) | 单次命令执行耗时（秒） |
 | `pine_redis_command_total` | Counter(name, command, status) | 单次命令执行计数 |
 
-`metrics_name` 为空（默认）时不发出任何指标，也不启动探针线程。探针在资源 `Start()` 时立即跑一次（probe-once-then-tick），随后固定 15s 一跳，三运行时一致——因此首个请求前指标即已就绪。
+`metrics_name` 为空（默认）时不发出任何指标，也不启动探针线程。探针在资源 `Start()` 时立即跑一次（probe-once-then-tick），随后固定每 15s 一次，三运行时一致——因此首个请求前指标即已就绪。
 
 ### per-command 指标 status taxonomy（三运行时一致）
 
@@ -344,7 +344,7 @@ label 值取自 `DebugHolder.OperatorName()`，所以 Lua 算子的 metrics 注�
 | `pool_timeout` | pool 获取连接 `pool_timeout_ms` 内无空闲（pine-go 走 go-redis pool wait error） |
 | `error` | 其它错误（连接被拒、协议错误、未分类异常） |
 
-**pine-cpp 已知缺口**：当前 cpp Redis client 抛出单一 `std::runtime_error` 类型，没有 timeout / pool-timeout / generic 的类型分层；`run_command<T>(...)` 模板内只能落 `error` 桶，timeout 与 pool-timeout 计数被合并到 error。这是 known follow-up——cpp client 需要引入错误类型分层（拆 `TimeoutError` / `PoolTimeoutError` / generic）才能修齐 status taxonomy。
+**pine-cpp 已知缺口**：当前 cpp Redis client 抛出单一 `std::runtime_error` 类型，没有 timeout / pool-timeout / generic 的类型分层；`run_command<T>(...)` 模板内只能记入 `error` 桶，timeout 与 pool-timeout 计数被合并到 error。这是 known follow-up——cpp client 需要引入错误类型分层（拆 `TimeoutError` / `PoolTimeoutError` / generic）才能修齐 status taxonomy。
 
 ### lifecycle 命令过滤（三运行时插桩位置非对称的等价契约）
 
@@ -354,7 +354,7 @@ per-command 指标只覆盖**业务命令**（GET / SET / DEL / EXPIRE / EXISTS 
 - **pine-java**：通过 `RedisConnectionResource.runCommand(name, action)` facade 包裹业务命令；client 内部的 lifecycle 命令不经过 facade，自然不计入指标
 - **pine-cpp**：通过 `Client::run_command<T>(name, fn)` 模板包裹业务命令；client 内部 AUTH / SELECT / PING 同样不经过模板
 
-cross-validate `scripts/cross-validate/16-resource-metrics.sh` 强断三运行时业务命令名集合一致；`/stats.resources` 子树中 `pine_redis_command_*` cells 因 facade 插桩位置（client 内 vs client 外）不同需在比较前剥离 `cmd_*` 标签——形状对齐由 section 16 维护，命名集合是契约的一部分。
+cross-validate `scripts/cross-validate/16-resource-metrics.sh` 强断言三运行时业务命令名集合一致；`/stats.resources` 子树中 `pine_redis_command_*` cells 因 facade 插桩位置（client 内 vs client 外）不同需在比较前剥离 `cmd_*` 标签——形状对齐由 section 16 维护，命名集合是契约的一部分。
 
 ### fan-out（Tee）路由
 

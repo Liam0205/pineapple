@@ -8,19 +8,19 @@
 
 ## 发现：三层根因
 
-### 根因 1（第一性）：逐元素 `Item()` 接口税抹平列存优势
+### 根因 1（第一性）：逐元素 `Item()` 接口开销抹平列存优势
 
 所有算子都通过 `OperatorInput.Item(i, field)`（`pine-go/internal/types/operator_io.go`）**逐元素**访问数据，每次调用 = `Frame.Item()` 的 RLock + columns map lookup + 边界检查。scan 分解实测（1000 items × 10 fields，Apple M5 Pro）：
 
 | 访问路径 | 耗时 | 说明 |
 |---|---|---|
-| 理想列扫描（列 hoist 出循环，单锁单查） | 262 ns | 列存应有的形态 |
+| 理想列扫描（列 hoist 出循环，单锁单查） | 262 ns | 列存应有的访问方式 |
 | typed `[]float64` 扫描 | 257 ns | typed columns 的上限 |
-| `ColumnFrame.Item()` 逐元素 | 7,210 ns | **理想形态的 27 倍** |
+| `ColumnFrame.Item()` 逐元素 | 7,210 ns | **理想情况的 27 倍** |
 | `RowFrame.Item()` 逐元素 | 9,347 ns | — |
 | ColumnFrame 逐元素去锁版 | 4,674 ns | 锁占 ~35%，map 查找是大头 |
 
-列存的连续内存优势在真实算子访问路径上只剩 ~23%（7.2 vs 9.3μs）——**每元素一次锁 + 一次 map 查列的接口税，把两种存储压到了同一量级**。列的"壳"对了，但访问模式还是行主序逐元素；这比 `[]any` interface 装箱更根本——装箱之前，接口形状就已经把优势吃掉了。
+列存的连续内存优势在真实算子访问路径上只剩 ~23%（7.2 vs 9.3μs）——**每元素一次锁 + 一次 map 查列的接口开销，把两种存储压到了同一量级**。列的"壳"对了，但访问模式还是行主序逐元素；这比 `[]any` interface 装箱更根本——装箱之前，接口形式就已经把优势吃掉了。
 
 ### 根因 2（实现级）：ColumnFrame 三处热路径是"行主序代码操作列存储"
 
@@ -52,16 +52,16 @@
 ## 解法分层
 
 1. **短期**（原型已验证）：ColumnFrame 三处列主序修复。
-2. **中期**：`OperatorInput` 批量列访问 API（一次锁 + 一次 lookup 拿整列），消除逐元素接口税——这是列存优势兑现的**前提闸门**。注意属跨引擎 API 面变更（pine-java / pine-cpp 的 ColumnFrame 同构），需跨引擎评估与 cross-validate 覆盖。
-3. **长期**：typed columns + arena（`llmdoc/memory/decisions/perf-evolution-roadmap.md` 第一步）。本次数据证明它**必须配合批量列访问 API 才能兑现**——typed `[]float64` 扫描 257ns 与 `[]any` 理想列扫描 262ns 几乎无差，单独做 typed columns 仍会被逐元素接口税吃掉。
+2. **中期**：`OperatorInput` 批量列访问 API（一次锁 + 一次 lookup 拿整列），消除逐元素接口开销——这是列存优势兑现的**前提条件**。注意属跨引擎 API 面变更（pine-java / pine-cpp 的 ColumnFrame 同构），需跨引擎评估与 cross-validate 覆盖。
+3. **长期**：typed columns + arena（`llmdoc/memory/decisions/perf-evolution-roadmap.md` 第一步）。本次数据证明它**必须配合批量列访问 API 才能兑现**——typed `[]float64` 扫描 257ns 与 `[]any` 理想列扫描 262ns 几乎无差，单独做 typed columns 仍会被逐元素接口开销吃掉。
 4. **使用判据**：transform-heavy + 大 N + 少结构变更 → column；recall/filter/sort 主导或小 N（如生产 calibrated 形状）→ row。
 
 ## 教训
 
 - **存储格式优势必须配套访问 API 才能兑现**：列存换了物理布局但没换访问接口，逐元素 `Item()` 让缓存友好性完全不可见。评估任何布局优化前，先确认访问路径是否会兑现它。
-- **微基准分解定位比端到端猜测高效**：把一次扫描拆成"理想列扫描 / typed / Item() / 去锁"四档，一轮 benchmark 就把接口税、锁税、map 税分离量化了。
+- **微基准分解定位比端到端猜测高效**：把一次扫描拆成"理想列扫描 / typed / Item() / 去锁"四档，一轮 benchmark 就把接口开销、锁开销、map 开销分离量化了。
 - **"列存实现"里也可能藏着行主序代码**：ColumnFrame 三处热路径都是 per-item 的 map lookup 模式，与存储布局南辕北辙。实现新存储格式时，热路径循环的主序方向要与布局一致。
-- **首错优先级是字节级对等契约**（呼应 `review-driven-build-input-error-ordering.md`）：BuildInput 校验优化保留 item-major 迭代顺序，只 hoist 列解析，避免翻转跨运行时首错优先级。
+- **首错优先级是字节级对等契约**（呼应 `review-driven-build-input-error-ordering.md`）：BuildInput 校验优化保留 item-major 迭代顺序，只 hoist 列解析，避免改变跨运行时首错优先级。
 
 ## 实现记录（2026-07-07，三引擎）
 
@@ -75,11 +75,11 @@
 
 三引擎共同语义契约：元素 i 与逐元素 `item(i, field)` 完全一致（含 item_defaults 对 nil 槽位的替换）；返回值只读、仅当次 Execute 有效；ColumnFrame 无 defaults 时 Go/Java 返回零拷贝视图（C++ 因 Variant 值类型天然拷贝）。10 个内置算子热循环同步改写（normalize/sort/shuffle/dedup/condition/resource_lookup/copy/observe_log/remote_pineapple/lua）。C++ 侧 BuildInput 校验与 item-write 路径本来就是批量写法（`validate_strict_items` bitmap 扫描），只移植了读侧。
 
-验证：cross-validate section 1/3/4/5/9/14 全绿（column-store 95/95）；三引擎 differential fuzz 120 rounds 零 divergence；fuzz 生成器补 defaults+nil 定向维度（`16440e8`）后 coverage 证实 `ItemColumn` defaults-copy 分支被真实覆盖（此前 0 命中——"fuzz 全绿"若无覆盖率背书可能是空转绿）。
+验证：cross-validate section 1/3/4/5/9/14 全绿（column-store 95/95）；三引擎 differential fuzz 120 rounds 零 divergence；fuzz 生成器补 defaults+nil 定向维度（`16440e8`）后 coverage 证实 `ItemColumn` defaults-copy 分支被真实覆盖（此前 0 命中——"fuzz 全绿"若无覆盖率背书可能并没有真正覆盖到）。
 
 ### 实现阶段的额外教训
 
-- **OperatorInput 持 spec 裸指针是隐性生命周期契约**：pine-cpp `test_remote_pineapple.cpp` 的 helper 把栈上 `InputFieldSpec` 传给 `build_operator_input` 后返回 OperatorInput，spec 悬垂——生产端 Engine 的 `input_specs_` map 拥有 spec 生命周期所以无恙，但测试侧无人守护。该潜伏 bug 被 `item_column` 新增的字段名比较触发为可复现 SIGSEGV，ASan 一次定位。教训：给持裸指针/引用的构造路径写测试 helper 时，必须复刻生产环境的所有权关系，而非最短代码。
+- **OperatorInput 持 spec 裸指针是隐性生命周期契约**：pine-cpp `test_remote_pineapple.cpp` 的 helper 把栈上 `InputFieldSpec` 传给 `build_operator_input` 后返回 OperatorInput，spec 悬垂——生产端 Engine 的 `input_specs_` map 拥有 spec 生命周期所以无恙，但测试侧没有任何保证。该潜伏 bug 被 `item_column` 新增的字段名比较触发为可复现 SIGSEGV，ASan 一次定位。教训：给持裸指针/引用的构造路径写测试 helper 时，必须复刻生产环境的所有权关系，而非最短代码。
 - **验证覆盖要量化不要感觉**："fuzz 跑过列存代码了吗"这个问题的正确回答方式是 `go build -cover` + `GOCOVERDIR` 实测函数级覆盖，而不是从生成器代码推断。实测发现主路径覆盖良好（ItemColumnView 75-87%）但 defaults-copy 分支 0 命中，遂补定向维度。
 - **flaky divergence 先排环境再怀疑代码**：机器 load 30+ 时 fuzz 出现 go-vs-java divergence（java rc=1），同 config 单独重跑 30 次全过、master 基线同样无法复现，判定为高负载下 JVM 子进程环境问题。与 benchmark-hygiene 的"跑前查 load"纪律同源——fuzz 也是负载敏感的。
 
@@ -89,17 +89,17 @@
 
 ### 补充教训
 
-- **跨引擎"对齐样板"不等于逐行照抄**：pine-cpp 折叠所有数值进 DoubleColumn 的前提是它的 Variant 数值只有 double；Go/Java 装箱保留 int vs float 且下游契约（`%T` 消息、dedup key）观察它。对等性定义在可观测输出上——各引擎用各自语言里最诚实的内部表示达成同一外部行为，这类分歧应在代码注释与 PR 里显式论证归档，而非硬抄。
+- **跨引擎"对齐样板"不等于逐行照抄**：pine-cpp 折叠所有数值进 DoubleColumn 的前提是它的 Variant 数值只有 double；Go/Java 装箱保留 int vs float 且下游契约（`%T` 消息、dedup key）观察它。对等性定义在可观测输出上——各引擎用各自语言里最诚实的内部表示达成同一外部行为，这类分歧应在代码注释与 PR 里显式论证并记录，而非照搬。
 - **翻译残留死代码是移植型 PR 的高发缺陷**：Java ReorderSort 从 Go entry struct 翻译时留下从未被读取的 `List<int[]>` 填充循环（每次排序 n 次无用分配），与 PR 自身的减分配目标矛盾，被 review bot 抓出。移植后应回读一遍"翻译产物里有没有源语言习惯的残留"。
 
 ## 第三阶段实现记录（2026-07-08，批量列写，issue #157 / PR #163）
 
-读侧闭环后补写侧对偶。先 profiling 归因过闸门（>15%）：transform-heavy 写侧占分配 ~24%（SetItem 装箱 137MB + `newColumnForValue` 重建 154MB + ItemWrite 记录 14MB），立项成立。三引擎同日实现 `SetItemColumnFloat64` / `setItemColumnDouble` / `set_item_column_double`：stage 2b 应用（逐元素写之后，同字段列写覆盖）、整列或全无长度校验、NaN/Inf 批量校验（首错消息与逐元素路径字节一致）、列存 adopt 零拷贝 / 行存 scatter、ValidateOutput 计为 SetItem、debug 快照折叠、并行分片 merge 折叠为逐元素写。`transform_normalize` 三引擎改用批量写。契约全文见 `llmdoc/reference/operator-contract.md`。
+读侧完成后补上对应的写侧。先用 profiling 归因，确认超过门槛（>15%）：transform-heavy 写侧占分配 ~24%（SetItem 装箱 137MB + `newColumnForValue` 重建 154MB + ItemWrite 记录 14MB），立项成立。三引擎同日实现 `SetItemColumnFloat64` / `setItemColumnDouble` / `set_item_column_double`：stage 2b 应用（逐元素写之后，同字段列写覆盖）、整列或全无长度校验、NaN/Inf 批量校验（首错消息与逐元素路径字节一致）、列存 adopt 零拷贝 / 行存 scatter、ValidateOutput 计为 SetItem、debug 快照折叠、并行分片 merge 折叠为逐元素写。`transform_normalize` 三引擎改用批量写。契约全文见 `llmdoc/reference/operator-contract.md`。
 
 pine-go transform-heavy 1000 对 master：列存 0.92ms → 0.70ms（-24%），allocs 12.1k → 4.1k（**-66%**），bytes -11%。验证：三引擎单测全绿（新增各引擎 column_write 专项测试 6-7 例）、cross-validate 3/4/5（95/95 + 95/95 + 30/30）、120 轮三引擎 fuzz 零 divergence、CI 全绿、review bot APPROVE 零问题。
 
 ### 本阶段教训
 
-- **Go 批量路径里 `any` 参数的隐性装箱税**：初版复用 `validateValue(field, any(v))` 做逐元素 NaN 校验，每元素一次 interface 装箱——批量写省下的分配被校验路径吃回三分之一。批量 API 的整条路径（含校验）都要保持 typed，直接内联 `math.IsNaN/IsInf`。
+- **Go 批量路径里 `any` 参数的隐性装箱开销**：初版复用 `validateValue(field, any(v))` 做逐元素 NaN 校验，每元素一次 interface 装箱——批量写省下的分配被校验路径吃回三分之一。批量 API 的整条路径（含校验）都要保持 typed，直接内联 `math.IsNaN/IsInf`。
 - **新写路径的消费点清单**：OperatorOutput 增加一类写记录时，消费点不止 ApplyOutput——`ValidateOutput`（类型合规）、debug 快照、并行分片 merge、`ItemWriteMap`/`itemWriteMap` 测试视图、`Reset`，六处全要折叠，漏一处就是隐性数据丢失。三引擎各自过一遍此清单。
 - **CI 卡死的判定与处置**：cpp-test 在 master 上通常 ~1.5 分钟，本次 pending 20+ 分钟且本地同配置（Debug + ctest）7 秒全绿，判定为 runner 卡死而非代码问题；`gh run cancel` 后该 run 收敛为 success（其余 job 已全绿）。先本地复现排除代码因素，再动 CI。

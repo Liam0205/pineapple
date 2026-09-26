@@ -8,21 +8,21 @@
 运行时引擎、收尾 llmdoc 同步、CI job 改名、bump v0.9.8，开 PR #65 并推进到 CI 全绿。
 
 代码实现（Go/Java/C++ 三引擎迁移、C++ `ResourceValue` 句柄通道）在更早会话完成；
-本会话聚焦设计决策落盘、commit 历史整理（reorder）、文档同步与发布流程。
+本会话聚焦设计决策写入文档、commit 历史整理（reorder）、文档同步与发布流程。
 
 ## 决策与取舍
 
 ### "难而正确"压过"小而易"
 
 issue #64 的 minimal proposal 是给 `transform_redis_get`/`set` 各加一个 `Close()`，
-复用 v0.9.7 的算子 `Closer`。这能止血泄漏，但是蚁穴方案——连接池本质是可共享、
+复用 v0.9.7 的算子 `Closer`。这能止血泄漏，但治标不治本——连接池本质是可共享、
 可声明、配置驱动的基础设施，绑死在算子实例上意味着每个算子各持一份连接、无法跨
 pipeline 复用、热重载语义割裂。最终选择更彻底的结构：**连接池归 ResourceManager，
 算子退化为纯计算按名借用**。
 
 由此固化出一条可复用的归属判据（已写入约定/设计文档）：
 **可共享 + 可声明 + 配置驱动 → ResourceManager；算子自身派生、独占 → Closer。**
-据此 Lua state pool 仍留在算子 `Closer`（算子私有、随引擎死），只有 Redis 迁走。
+据此 Lua state pool 仍留在算子 `Closer`（算子私有、随引擎销毁），只有 Redis 迁走。
 `Closer` 接口本身不删——它对 Lua 仍是 load-bearing。
 
 ## What Went Wrong / 踩到的坑
@@ -42,7 +42,7 @@ pipeline 复用、热重载语义割裂。最终选择更彻底的结构：**连
    Redis 文件格式违规在 commit 时无人拦截，直到 `git push` 触发 `.githooks/pre-push`
    跑 `clang-format --dry-run --Werror` 才报错（4 个文件）。C++ 代码若非由 C++ 主力
    流程产出，格式问题会一路潜伏。**改动 pine-cpp 后应例行 `clang-format -i`，或在
-   commit 前本地跑一次 pre-push 等价检查。** 修复落成独立的 `style(pine-cpp)` 单域
+   commit 前本地跑一次 pre-push 等价检查。** 修复做成独立的 `style(pine-cpp)` 单域
    commit（用户选"追加新 commit 而非 squash 回源 commit"，符合"新 commit 而非 amend"）。
 
 4. **分支保护核查路径**：用户问"能不能用 gh 改 required checks"。核查发现 master
@@ -67,11 +67,11 @@ pipeline 复用、热重载语义割裂。最终选择更彻底的结构：**连
 - **bump-version.sh 是发布标准路径**：跨 apple/_version.py、pine-go/version.go、
   pom.xml、pine-cpp kVersion、各 fixtures/testdata `_PINEAPPLE_VERSION` 同步（已不含
   pine-python），并跑 codegen+三语言测试+cross-validate。其 cpp 构建已用 `-j2`（OOM 防护）。
-  脚本不 commit/tag/push，需人工 review diff 后落 commit。
+  脚本不 commit/tag/push，需人工 review diff 后再 commit。
 
 ## Missing Docs or Signals
 
-1. **commit 阶段缺 clang-format gate**：质量门只在 pre-push，commit 时无提示。可考虑
+1. **commit 阶段缺 clang-format gate**：质量检查只在 pre-push，commit 时无提示。可考虑
    pre-commit 加 clang-format 检查，或在 `ci-quality-baseline.md` 标注"pine-cpp 改动
    commit 前手动 `clang-format -i`"。
 2. **CI job 命名与所测对象脱节的隐患**：`python-test`/`python-lint` 实际只测 `apple/`，

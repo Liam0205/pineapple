@@ -47,7 +47,7 @@ ResourceAware 注入发生在 Engine.execute 每次请求循环中（~line 270�
 
 ### 应提升到 `reference/operator-contract.md`
 - **GoFormat.sprint 阈值规格** -- 整数检测上界 1e6（非 Long.MAX_VALUE）；[1e6, 1e7) 范围 scientific-to-decimal 转换；>= 1e7 保持科学记数法。
-- **并行 shard Throwable 包装** -- 非 Exception Throwable 必须包装为 PineErrors.ExecutionError 并附带结构化上下文（shard index、operator name），不得丢为裸 RuntimeException。
+- **并行 shard Throwable 包装** -- 非 Exception Throwable 必须包装为 PineErrors.ExecutionError 并附带结构化上下文（shard index、operator name），不得退化为裸 RuntimeException。
 
 ### 暂留 memory
 - ParallelExecutor 中 shardToken.cancel() 的具体调用位置与 try-finally 结构

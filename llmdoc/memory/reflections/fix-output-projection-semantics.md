@@ -27,7 +27,7 @@
 ## Missing Docs or Signals
 - 已有且有帮助的信息：
   - `llmdoc/architecture/apple-compiler.md` 已强调 JSON 是 Python 与 Go 的持久边界，这帮助判断问题需要沿着跨语言契约链路排查，而不是只盯某一侧实现。
-  - `llmdoc/architecture/dag-engine.md` 已指出 `ToResult`/结果投影是 DataFrame 负责的运行时行为，因此很快能把落点收敛到 `internal/dataframe/`。
+  - `llmdoc/architecture/dag-engine.md` 已指出 `ToResult`/结果投影是 DataFrame 负责的运行时行为，因此很快能把排查范围收敛到 `internal/dataframe/`。
 - 缺失或需要更新的信息：
   - `llmdoc/architecture/apple-compiler.md` 目前未写明步骤 7 构建 `flow_contract` 时，`None` 会编码为 `[]`，以及这要求运行时把空列表解释为“空投影”而不是“全量投影”。
   - `llmdoc/architecture/dag-engine.md` 当前把 `ToResult` 的空输出列表语义写成“返回全部内容”，已与修复后的行为相反，需要更新为“空列表返回空结果”。

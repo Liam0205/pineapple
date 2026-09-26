@@ -45,7 +45,7 @@ type: reflection
 
 - **依赖 bump 必须走仓库自定义 tidy 入口,不要手工调用底层命令**——候选归入 `guides/` 下与 Go 依赖管理相关的条目(如有)或 `must/` 里的通用工程纪律。核心动作:bump 后除了跑封装入口,还可以反向核查 `grep -rn "旧版本号" --include="go.mod" --include="go.sum" .` 全仓扫一遍确认没有遗漏的 module。
 - **CI 失败优先级:先扫 review comments 再挖日志**——候选归入 `must/` 或既有的 CI 相关反馈条目旁,与"不要主动跑 check-pr-ci.sh"那条(`feedback_no_manual_check_pr_ci.md`)属同一主题域,可以合并考虑是否值得沉淀成一条"PR 出问题时的排查顺序"通用指引。
-- rc→stable 升级审计三件套(逐 commit 审上游 diff、go.mod 哈希对比证模块定义等价、双 tag 测试纪律)这次做对了,且"无关提交"也亲自核实过是真无关(`.githooks` 非库代码)——这部分不算问题,不需要 promotion,仅作为本次任务里正面对照记录。
+- rc→stable 升级审计三件套(逐 commit 审上游 diff、go.mod 哈希对比证模块定义等价、双 tag 测试纪律)这次做对了,且"无关提交"也亲自核实过确实无关(`.githooks` 非库代码)——这部分不算问题,不需要 promotion,仅作为本次任务里正面对照记录。
 
 ## Follow-up
 

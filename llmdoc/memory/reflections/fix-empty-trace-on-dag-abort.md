@@ -27,7 +27,7 @@
 ## Missing Docs or Signals
 - 已有且有帮助的信息：
   - `design_doc/bug_empty_trace_on_dag_abort.md` 先完成了根因分析，直接把修复范围收敛到 `Run()` 的返回路径，显著减少了试错。
-  - `llmdoc/architecture/dag-engine.md` 已说明取消后等待中的 goroutine 会提前停止，这帮助快速确认 bug 落在 trace 收尾而不是取消机制本身。
+  - `llmdoc/architecture/dag-engine.md` 已说明取消后等待中的 goroutine 会提前停止，这帮助快速确认 bug 出在 trace 收尾阶段而不是取消机制本身。
 - 缺失或需要更新的信息：
   - `llmdoc/architecture/dag-engine.md` 的错误处理/trace 段落此前没有写明：取消后未执行节点不会留下零值 trace，`Run()` 返回前会过滤空名称条目。
   - 稳定文档中还缺少一条更明确的流程信号：已有根因分析 design_doc 的 bug，应优先沿分析文档限定的最小修复面实施，避免无关重构。

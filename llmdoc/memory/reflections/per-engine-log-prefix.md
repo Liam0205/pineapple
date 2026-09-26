@@ -14,7 +14,7 @@
 
 ## What Went Wrong
 
-- **Go `Plan.logf` 的 calldepth 照抄了 3**：`log.Logger.Output(calldepth, ...)` 的 depth 要按包装层数逐层 +1。LoggerHolder.Logf 经两层（Logf→logOutput→Output）用 3 是对的；Plan.logf 只有一层包装（logf→Output），照抄 3 导致 Lshortfile 越过 goroutine body 指到 runtime 父帧（asm/proc.go），行号全错。用户当场问了"行号是不是不对了"，bot review 也抓到同一处。修复 `8e8a6913` 改为 2，并在两处注释里写清逐层推导。
+- **Go `Plan.logf` 的 calldepth 照抄了 3**：`log.Logger.Output(calldepth, ...)` 的 depth 要按包装层数逐层 +1。LoggerHolder.Logf 经两层（Logf→logOutput→Output）用 3 是对的；Plan.logf 只有一层包装（logf→Output），照抄 3 导致 Lshortfile 越过 goroutine body 指到 runtime 父帧（asm/proc.go），行号全错。用户马上问了"行号是不是不对了"，bot review 也抓到同一处。修复 `8e8a6913` 改为 2，并在两处注释里写清逐层推导。
 - **Java 把用户可控前缀拼进 printf 格式串**：`printf(prefix + format, args)` 让用户配置的 log_prefix 成为格式串一部分，含 `%` 的前缀（如 `"[100%] "`）运行时抛 UnknownFormatConversionException。Go 的 `log.New` 把 prefix 当字面量、C++ 用 `<<` 拼接，天然安全；只有 printf 家族有这个坑。修复 `00526343`：prefix 单独 `print` 或作为 `%s` 实参。
 - **首版差点漏掉 schema description 联动**：改 observe_log 行为后其 description 里的 "Go standard log" 已不属实，而这个字符串同时存在于三引擎 schema 源（Go schema / Java AllOperators / C++ OperatorSchema）和 codegen 产物（doc/operators），漏任何一处 cross-validate section 1 的 byte-equal gate 就会红。
 
@@ -40,7 +40,7 @@
 
 ## Follow-up
 
-- 由 recorder 把前三条 promotion 落到对应稳定文档并同步 index.md。
+- 由 recorder 把前三条 promotion 写入对应稳定文档并同步 index.md。
 - 下次为 #169/#172 这类嵌入场景做回归时，可顺手扫一遍剩余的包级 `sync.Once` 与静态可变状态，确认没有下一个 first-engine-wins。
 
 ## 第二轮：深度 code-review 修复（efbd43fd）
@@ -60,7 +60,7 @@
 
 ### 教训
 
-- **声明"跨运行时不变量"前先逐运行时核对代码**：文档写下的统一顺序是想象的规范而非事实——三家实际路径各不相同。正确姿势：先 grep 三运行时的注入代码确认真实顺序，能统一的统一实现（C++ 重排零行为影响），不能统一的（Go 无 Resource 接口）按运行时如实分别记录，抽出真正共同的不变量（"metadata/debug 先于 provider 注入"）。
+- **声明"跨运行时不变量"前先逐运行时核对代码**：文档写下的统一顺序是想象的规范而非事实——三家实际路径各不相同。正确做法：先 grep 三运行时的注入代码确认真实顺序，能统一的统一实现（C++ 重排零行为影响），不能统一的（Go 无 Resource 接口）按运行时如实分别记录，抽出真正共同的不变量（"metadata/debug 先于 provider 注入"）。
 - **同一契约在文档里只保留一份权威定义**：注入顺序在 4 处文档各自复述，改一处漏三处是结构性必然。修复后 dag-engine.md 不变量 11 是唯一完整定义，其余站点引用它。与第二轮"改语义全量 grep 文档面"同根：**复述的契约副本本身就是缺陷温床，发现时应收敛为单点定义 + 引用**。
 
 ## 第四轮：multi-pipeline 示例遗漏生产契约（1ffdb408）
@@ -70,7 +70,7 @@
 ### 教训
 
 - **示例代码受全部生产契约约束，"演示用"不是豁免理由**：6 项问题全是既有契约在示例里的遗漏——Java 忽略 `Result.error` 返回 200（抛/返回二分契约）、Go/Java 无 body 上限（#169 共享分发层安全契约）、C++ 裸 `::write` 无 `MSG_NOSIGNAL`（conventions.md 强制约定）、C++ 手拼错误 JSON 不转义、Java 前缀路由陷阱（#169 已修过一次的坑在示例里重现）、文档命令不可运行。示例被 README 推荐为"标准嵌入模式"，读者会原样复制——**示例里的契约缺口会成倍复制到下游**。写示例前应把该语言 bundled server 的 handler 逐行过一遍，把每个防御点显式搬过来或注释说明为何不需要。
-- **已修过的坑会在新代码里按原样重现**：Java `HttpServer` 最长前缀匹配陷阱在 #169 修过（`wrapHandler` 精确路径守卫），三个月后写示例时同一作者（我）在同一 API 上重蹈覆辙。修复记忆不会自动迁移到新调用点——凡用 `createContext` 必须条件反射式配 exact-path 守卫，这类"API 自带陷阱"应在写代码时 grep 仓库内既有用法照抄防御，而不是从 API 文档直觉出发。
+- **已修过的坑会在新代码里按原样重现**：Java `HttpServer` 最长前缀匹配陷阱在 #169 修过（`wrapHandler` 精确路径检查），三个月后写示例时同一作者（我）在同一 API 上重蹈覆辙。修复记忆不会自动迁移到新调用点——凡用 `createContext` 必须条件反射式配上 exact-path 检查，这类"API 自带陷阱"应在写代码时 grep 仓库内既有用法照抄防御，而不是从 API 文档直觉出发。
 - **文档里的命令必须逐条真实执行过**：Java 示例首版的编译命令用了不存在的 classpath（`mvn package` 不产 `target/dependency/`），审查者原样执行即失败。写"Compile & run"注释时要在干净 shell 里从仓库根逐条跑通，把真实可用的形式（`mvn dependency:build-classpath`）写进去——"看起来对"的命令等价于没有文档。
 - **冒烟验证要覆盖负空间**：首版冒烟只验证了 happy path（200/410/前缀隔离），6 个问题全部藏在负空间：超大 body、子路径、算子失败、客户端断连、含引号的错误消息。修复后的冒烟补齐了这些：413、`/api/feed/sub`→404、错误 JSON 可被 `json.tool` 解析、断连 5 次后进程存活。
 
@@ -82,5 +82,5 @@
 
 ### 教训
 
-- **写下规则的那个 commit 就要让自己合规**：第四轮把"示例纳入默认构建"晋升为稳定规则时，只有 C++/Go 满足，Java 不满足——规则落笔时应立即对全部运行时逐一核对，不合规的当场修掉或明确记录为待办。否则规则文档本身成为下一轮 review 的靶子。
+- **写下规则的那个 commit 就要让自己合规**：第四轮把"示例纳入默认构建"晋升为稳定规则时，只有 C++/Go 满足，Java 不满足——规则落笔时应立即对全部运行时逐一核对，不合规的立刻修掉或明确记录为待办。否则规则文档本身成为下一轮 review 的靶子。
 - **Maven 项目让 source tree 外的代码进默认构建的最小方案**：`build-helper-maven-plugin:add-test-source`——不新建 module、不动目录结构、test scope 天然隔离出 jar；比 example module（多一个 pom）或 exec/validate 阶段手工 javac（绕过增量编译与 IDE 感知）都轻。

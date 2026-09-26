@@ -25,7 +25,7 @@
 - **Java**（`GoFormat.createGoCompatMapper` 里的 Double 序列化器）：只特殊处理
   `-0.0` 和「整数值且在 ±2^53 内」两种情况，其余全部落到 Jackson `writeNumber`，
   按 `Double.toString` 格式化。Go 的 plain-decimal 区间一直延伸到 1e21，所以
-  **2^53 到 1e21 整个区间**都错，`< 1e-6` 的小数也全错拼法。
+  **2^53 到 1e21 整个区间**都错，`< 1e-6` 的小数写法也全错。
 - **C++ 缺陷一**（`pine-cpp/src/config/json.cpp` `go_format_json_number`）：
   `std::to_chars` 配 `chars_format::fixed` 打印的是**精确值**，而 Go
   `strconv.FormatFloat(d, 'f', -1, 64)` 的 precision=-1 意为「最短往返」。
@@ -49,7 +49,7 @@ chars_format::scientific   -> 1.0000000000000002e+20     (最短往返)
 ```
 
 **默认 overload 在量级大到不需要指数时会退化成精确打印**，只有 `scientific` 保证
-最短往返。最终方案：统一从 `scientific` 取数字，再自己摆小数点
+最短往返。最终方案：统一从 `scientific` 取数字，再自行放置小数点
 （`go_json_to_fixed` / `go_json_to_scientific` 共用同一个数字来源）。
 
 ### 3. Go 指数格式有不对称，必须实测
@@ -77,7 +77,7 @@ pine-java 有 `GoFormat.sprint` / `formatFloatF` / `formatG` 三个格式化器�
 
 即：同一个 double，仓库里有两套独立实现给出不同字符串。本次新增的
 `formatJsonNumber` 是第四条，所以测试里加了 `formatJsonNumberMatchesTheSerializer`
-钉住「序列化器不得持有规则的第二份拷贝」。
+锁定「序列化器不得持有规则的第二份拷贝」。
 
 `llmdoc/architecture/dag-engine.md`「跨运行时格式兼容（GoFormat）」节列了三个
 格式化器和消费者清单，**完全没提 JSON 输出路径**。读文档的人会以为 GoFormat 是
@@ -97,7 +97,7 @@ Java 输出 1.0E20                -> json.loads 得到 float -> re-dump 成 1e+2
 ```
 
 `_normalize_value` 只对 `float` 分支做 `round(v, 10)` 和小量级归零，`int` 原样
-穿过。所以只有**至少一侧输出整数形状字面量（无小数点无指数）**时分歧才可见。
+穿过。所以只有**至少一侧输出整数形式字面量（无小数点无指数）**时分歧才可见。
 实测各类分歧在归一化后的可见性：
 
 ```
@@ -125,7 +125,7 @@ cross-validate 侧的两条通道也都没拦住：
   ±2^53 内的整数值区间——**恰好是 Java 旧代码唯一处理对的那个区间**。
 
 结论：**声称「字节级对等」的校验，实际上在归一化之后比较**，校验强度与声明不符。
-修 #183 之前必须先决定字节通道怎么补，否则修完没有回归门。
+修 #183 之前必须先决定字节通道怎么补，否则修完没有回归检查。
 
 ### 6. 顺带发现 #183，判为不同缺陷、单独开 issue
 
@@ -162,7 +162,7 @@ md5 不同。逐字段查完发现 **600 个数字字面量全部一致**，差�
    `strconv 'e'` 与 `encoding/json` 的指数补零规则也不同。这类差异只能实测。
 4. **校验是按「解析后的对象」比的，声明是「字节级」。** 归一化（`sort_keys` +
    `round(v,10)` + int/float 分裂）把 key 顺序整维度、以及一部分数字拼写差异
-   直接抹掉。真字节通道存在但 fixture 覆盖太窄，且那个名叫 `number_precision` 的
+   直接抹掉。真正的字节通道存在但 fixture 覆盖太窄，且那个名叫 `number_precision` 的
    fixture 恰好只覆盖已经对的区间。
 
 ## Missing Docs or Signals
@@ -174,8 +174,8 @@ md5 不同。逐字段查完发现 **600 个数字字面量全部一致**，差�
 - `guides/ci-quality-baseline.md` 的 differential-fuzz 节描述了归一化机制，但没有
   写清**归一化抹掉了哪些维度**（key 顺序、数字拼写、float 第 11 位起的差异），
   也没有把 09-raw-byte 的 `[W]` 降级和 14-byte-exact 的 fixture 覆盖面写成一张
-  「哪条通道能钉住哪个属性」的表。这与 `guides/cross-layer-validation.md` 已有的
-  「fixture 比对器语义决定该层能钉住的属性」是同一条原则，只是没落到 fuzz 上。
+  「哪条通道能锁定哪个属性」的表。这与 `guides/cross-layer-validation.md` 已有的
+  「fixture 比对器语义决定该层能锁定的属性」是同一条原则，只是没应用到 fuzz 上。
 
 ## Promotion Candidates
 
@@ -187,9 +187,9 @@ md5 不同。逐字段查完发现 **600 个数字字面量全部一致**，差�
 - **必须修稳定文档：`architecture/dag-engine.md` 的 GoFormat 节**——补第四个入口
   `formatJsonNumber` 及其消费者（`createGoCompatMapper` → `RunCli` / `PineServer`），
   并写明四者阈值不同、不可互换；同时写明 JSON 路径不走 `formatFloatF`。
-- **进 `guides/ci-quality-baseline.md`：校验通道能钉住的属性表**——differential-fuzz
+- **进 `guides/ci-quality-baseline.md`：校验通道能锁定的属性表**——differential-fuzz
   归一化抹掉 key 顺序与部分数字拼写（含 int/float 分裂导致的检出偏斜）；
-  09-raw-byte 把 key-order-only 差异降级为警告；14-byte-exact 是唯一真字节通道但
+  09-raw-byte 把 key-order-only 差异降级为警告；14-byte-exact 是唯一真正的字节通道但
   本任务前只有 4 个 fixture，新增后 5 个。配一条纪律：**声称字节级对等的属性，必须有一条不归一化的
   通道覆盖**。
 - **进 `memory/doc-gaps.md`：字节级对等校验缺口**——待决策项，是给 fuzz 加不归一化
@@ -207,7 +207,7 @@ md5 不同。逐字段查完发现 **600 个数字字面量全部一致**，差�
 2. 给 `fixtures/server_byte_exact/` 补一个真正跨区间的数字 fixture（覆盖
    2^53~1e21 plain-decimal 段、`< 1e-6` 科学计数段、`>= 1e21` 段、1e-7/1e-9 指数
    trim、三位指数），当前 `04_number_precision.json` 只覆盖了原本就对的区间。
-3. 调用 `recorder` 落地上面三处稳定文档修改（dag-engine GoFormat 节、
+3. 调用 `recorder` 完成上面三处稳定文档修改（dag-engine GoFormat 节、
    ci-quality-baseline 通道表、guides 数值格式化事实），并在 doc-gaps 开条目。
 4. #183 的 pine-cpp 侧未测（只对了 go/java 这一对），需补测三方 key 顺序。
 

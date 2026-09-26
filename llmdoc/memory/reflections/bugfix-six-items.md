@@ -7,7 +7,7 @@
 - Expected outcome.
   - llmdoc 应足够支持快速定位编译器、codegen、E2E 与资源集成相关问题，减少 API 误判与测试设计试错。
 - Actual outcome.
-  - 现有 llmdoc 对 Apple 编译流水线、控制流降级、算子契约、codegen 生成链路提供了有效导航，帮助较快锁定 6 个问题的落点。
+  - 现有 llmdoc 对 Apple 编译流水线、控制流降级、算子契约、codegen 生成链路提供了有效导航，帮助较快锁定 6 个问题所在的位置。
   - 但在 SubFlow 具体 API、资源系统“谁实际消费 resource”、以及 Schema type 字符串与 codegen 映射边界上缺少明确说明，导致实现前仍发生一次 API 误用与若干额外核对。
 
 ## What Went Wrong
@@ -18,7 +18,7 @@
 
 ## Root Cause
 - 稳定文档覆盖了高层架构和核心不变量，但对“易误判的具体 API 入口”和“实现与文档之间的灰区”记录不足。
-- 文档更多描述系统应然结构，较少显式标记当前实现限制、未覆盖区和测试策略，因此调查报告能指出问题方向，但实施阶段仍需回到代码确认细节。
+- 文档更多描述系统应有的结构，较少显式标记当前实现限制、未覆盖区和测试策略，因此调查报告能指出问题方向，但实施阶段仍需回到代码确认细节。
 
 ## Missing Docs or Signals
 - 已有且有帮助的信息：
@@ -35,10 +35,10 @@
   - 在 `llmdoc/architecture/apple-compiler.md` 增补 SubFlow 使用说明与常见误区，明确 `Flow(sub_flows=[sf])` 是组合方式，并提示 `__getattr__` 动态分发可能掩盖 API 误用。
   - 在资源相关稳定文档中补一条当前实现说明：资源系统已有声明/注入链路，但暂无内置资源消费者；资源集成验证通常依赖测试专用算子，除非后续引入正式消费者。
   - 在 `llmdoc/reference/operator-contract.md` 增补“Schema type 与 codegen 支持矩阵”或最小约束列表，明确哪些 type 字符串会映射到 Python helper/default，避免 `"int"`/`"int64"` 这类漂移。
-  - 新增 `llmdoc/guides/` 文档，沉淀“从调查报告到修复落地”的测试策略：编译器校验类问题优先 validator/compiler 单测；运行时错误映射补负面 E2E；资源/上下文链路补专门集成测试；涉及 Schema 变更时同步 regenerate 并让 CI generated-diff/benchmark 一起覆盖。
+  - 新增 `llmdoc/guides/` 文档，沉淀“从调查报告到完成修复”的测试策略：编译器校验类问题优先 validator/compiler 单测；运行时错误映射补负面 E2E；资源/上下文链路补专门集成测试；涉及 Schema 变更时同步 regenerate 并让 CI generated-diff/benchmark 一起覆盖。
 - 更适合先保留在 memory：
   - 这次资源 E2E 只能通过测试算子验证，属于当前实现缺口；若后续引入正式资源消费者，再决定是否弱化该说明。
   - 本轮 6 项改动一次通过全量测试，说明前置调查充分；这是流程经验，可作为 memory 保留，不必写入架构文档。
 
 ## Follow-up
-- 写入本次 reflection，并建议后续优先补两类稳定文档：一是 `apple-compiler` 的 SubFlow/API 误区说明，二是面向调查结果落地的 `guides/` 测试补齐指南；待资源消费者与 schema type 支持边界进一步稳定后，再补充对应 reference 文档。
+- 写入本次 reflection，并建议后续优先补两类稳定文档：一是 `apple-compiler` 的 SubFlow/API 误区说明，二是面向调查结果实施修复的 `guides/` 测试补齐指南；待资源消费者与 schema type 支持边界进一步稳定后，再补充对应 reference 文档。

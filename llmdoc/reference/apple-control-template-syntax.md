@@ -49,13 +49,13 @@
 `apple/control.py` 中有两个稳定步骤：
 
 1. `extract_fields()` 只提取 `{{...}}` 内部的标识符，用于生成控制算子的 `common_input`
-2. `_strip_template()` 在生成 Lua 脚本前移除模板标记，因此最终发射到 `transform_by_lua` 的条件仍是普通 Lua 表达式
+2. `_strip_template()` 在生成 Lua 脚本前移除模板标记，因此最终输出到 `transform_by_lua` 的条件仍是普通 Lua 表达式
 
 例如：
 
 - DSL 条件：`{{experiment_group_value}} == "treatment"`
 - 提取的字段依赖：`["experiment_group_value"]`
-- 发射的 Lua 条件：`experiment_group_value == "treatment"`
+- 生成的 Lua 条件：`experiment_group_value == "treatment"`
 
 Go 运行时不需要理解模板语法；它只消费 Apple 编译后的普通 JSON 与 Lua 脚本。
 
@@ -84,7 +84,7 @@ flow.elseif_("{{fallback_enabled}} ~= nil and {{item_count}} > 10") \
     .fallback_op(...) \
 ```
 
-编译器会提取 `fallback_enabled` 与 `item_count` 两个字段，并在发射 Lua 前去掉模板标记。
+编译器会提取 `fallback_enabled` 与 `item_count` 两个字段，并在生成 Lua 前去掉模板标记。
 
 ## 迁移要点
 

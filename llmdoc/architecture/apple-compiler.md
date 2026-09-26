@@ -86,7 +86,7 @@ Apple 支持两种声明算子的方式。
 - 带类型的 `__call__` 签名，包含参数和元数据 kwargs
 - 最终调用 `BaseOp._apply()` 追加 `OpCall`
 - 与动态分发一致，在控制分支内声明时会继承当前活跃 branch 的 `skip` 字段列表，并把对应控制字段加入 `common_input`
-- `BaseOp._apply` 通过 `apple_generated/markers.lookup_markers(type_name)` 取出三元组并填回 `OpCall`；与 `_FlowBase._add_op` 的对称性刻意非对等——`_apply` 只对 `consumes_row_set` 暴露 True-OR widen knob，`mutates_row_set` / `additive_writes_row_set` 保持完全 registry-driven。后两者的真值由 Go 侧 `MutatesRowSet` / `AdditiveWritesRowSet` 接口断言确立，算子作者没有正当理由在 DSL 调用点手工翻动；如果未来希望对称放开，请同步审视该约束的源头
+- `BaseOp._apply` 通过 `apple_generated/markers.lookup_markers(type_name)` 取出三元组并填回 `OpCall`；与 `_FlowBase._add_op` 的对称性刻意非对等——`_apply` 只对 `consumes_row_set` 暴露 True-OR widen knob，`mutates_row_set` / `additive_writes_row_set` 保持完全 registry-driven。后两者的真值由 Go 侧 `MutatesRowSet` / `AdditiveWritesRowSet` 接口断言确立，算子作者没有正当理由在 DSL 调用点手工改动；如果未来希望对称放开，请同步审视该约束的源头
 
 这些是开发时的类型化编写便利，不是独立的执行路径。
 
@@ -153,18 +153,18 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 嵌套控制流中，内层控制算子自身也继承外层控制字段；内层业务算子的 `skip` 同时包含外层与内层控制字段。分支内嵌套 `SubFlow` 时，父级控制字段会在递归遍历时传播到整个子树。若 `SubFlow` 内部也定义控制流，编译器会用 SubFlow 路径前缀重命名内部控制字段，例如 `_ranking_if_1`，避免与外层或兄弟 SubFlow 冲突。
 
-`skip` 是控制流降级机制中的横切字段——它被四类路径共同读写：直接 attach（`_add_op` / `BaseOp._apply`）、SubFlow 继承（`_inject_inherited_skips(...)`）、字段重命名（`_rename_control_fields(...)` 产出的映射）、以及最终 JSON 发射。任何对 `skip` 类型或语义的变更都必须检查这四条路径的一致性。
+`skip` 是控制流降级机制中的横切字段——它被四类路径共同读写：直接 attach（`_add_op` / `BaseOp._apply`）、SubFlow 继承（`_inject_inherited_skips(...)`）、字段重命名（`_rename_control_fields(...)` 产出的映射）、以及最终 JSON 输出。任何对 `skip` 类型或语义的变更都必须检查这四条路径的一致性。
 
 运行时含义：
 
 - 控制算子返回 `false` 时分支应执行
 - 控制算子返回任意 Lua truthy 值时下游分支算子应跳过；只有 `nil` 和 `false` 视为 falsy
 
-因此调度器的 skip 约定是“skip 列表中任一字段只要为 truthy 即跳过”，单个分支算子的本地语义仍可视为 `truthy = 跳过`、`false/nil = 运行`。这与 `apple/control.py` 发射的 Lua prior-check 保持一致：`elseif_` 与 `else_` 不再使用严格 `(f == true)`，而是直接使用 `(f)`，从而允许上游控制字段在手写 JSON 或其他边界输入中以 `1` 等非 bool truthy 值参与分支互斥。
+因此调度器的 skip 约定是“skip 列表中任一字段只要为 truthy 即跳过”，单个分支算子的本地语义仍可视为 `truthy = 跳过`、`false/nil = 运行`。这与 `apple/control.py` 生成的 Lua prior-check 保持一致：`elseif_` 与 `else_` 不再使用严格 `(f == true)`，而是直接使用 `(f)`，从而允许上游控制字段在手写 JSON 或其他边界输入中以 `1` 等非 bool truthy 值参与分支互斥。
 
 ### Skip 字段三桶兼容矩阵（issue #74）
 
-`$metadata` 下与 skip 相关的三个桶在 Apple 编译器与三引擎运行时之间是 **"any of two" 接受**关系，禁止任一侧砍掉旧路径：
+`$metadata` 下与 skip 相关的三个桶在 Apple 编译器与三引擎运行时之间是 **"any of two" 接受**关系，禁止任一侧删掉旧路径：
 
 | 桶 | 含义 | Apple 写入路径 | Runtime 读取契约 |
 |----|-----|---------------|----------------|
@@ -176,7 +176,7 @@ DSL 层在用户调用 `end_if_()` 时还会立即做空分支校验：每个 br
 
 **runtime "any of two" 校验**：三引擎在 `validate_config` 阶段都接受 skip 字段出现在 `common_input` 或 `common_input_skip` 中的任一桶；如果都没有则报 `skip field "X" must also appear in $metadata.common_input or $metadata.common_input_skip` 错误。
 
-CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_duplicate_injection` 钉住 legacy 路径不被破坏；三引擎 cross-validate Section 05 通过统一错误文案钉住 "any of two" 校验契约。
+CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_duplicate_injection` 保证 legacy 路径不被破坏；三引擎 cross-validate Section 05 通过统一错误文案锁定 "any of two" 校验契约。
 
 ### 模板参数 `{{field}}` 插值（issue #74）
 
@@ -184,9 +184,9 @@ CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_dup
 
 #### 流水线侧契约
 
-- **L0 校验**：被 `Templatable=true` 的参数若包含模板标记，**整个值必须正好等于** `^\{\{(\w+)\}\}$`。`apple/validator.py::validate_templated_params` 在 compile 阶段 fail-fast 拒绝 `"tenant:{{tenant_id}}"`、`"{{a}}_{{b}}"` 这类"片段嵌入"形态，也拒绝嵌套在 list / dict 值里的 `{{...}}` marker（参见 `_find_nested_template_marker`；嵌套场景必须改走 `transform_by_lua` 显式构造）。
+- **L0 校验**：被 `Templatable=true` 的参数若包含模板标记，**整个值必须正好等于** `^\{\{(\w+)\}\}$`。`apple/validator.py::validate_templated_params` 在 compile 阶段 fail-fast 拒绝 `"tenant:{{tenant_id}}"`、`"{{a}}_{{b}}"` 这类"片段嵌入"写法，也拒绝嵌套在 list / dict 值里的 `{{...}}` marker（参见 `_find_nested_template_marker`；嵌套场景必须改走 `transform_by_lua` 显式构造）。
 - **元数据自动注入**：`apple/compiler.py::compile_op_params` 把 `{{field}}` 中的字段名追加到 `common_input_template` 桶（参见上文 Skip 字段三桶兼容矩阵）。Skip 字段三桶保证模板字段不会污染算子 `OperatorInput`，但 DAG 排序仍把它视作上游依赖。
-- **`{{field}}` 字段引用 helper**：`apple/control.py` 的 `extract_fields` / `_strip_template` 与 `apple/template.py` 服务于不同发射目标（Lua 表达式 vs. 字符串参数插值），目前刻意保持独立实现，统一计划记录在 issue #76 的 in-code TODO。
+- **`{{field}}` 字段引用 helper**：`apple/control.py` 的 `extract_fields` / `_strip_template` 与 `apple/template.py` 服务于不同输出目标（Lua 表达式 vs. 字符串参数插值），目前刻意保持独立实现，统一计划记录在 issue #76 的 in-code TODO。
 
 #### 算子 Schema 侧契约
 
@@ -202,9 +202,9 @@ CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_dup
 
 #### 三引擎运行时契约
 
-- **Build-time（plan 构建）**：各运行时在引擎构造时通过 `BuildTemplatedParamPlan` / `build_templated_param_plan` / `BuildTemplatedParamPlan` 把 `{{field}}` 解析为 `(operator, param, field)` 三元组并缓存到 `TemplatedPlans`，便于运行时按算子名直接查表。任何形状违规（非 bare marker、参数 `type` 不在 templatable scalar 白名单、字段未在 common frame 中可见等）都在此阶段抛 `ConfigError`，字节级前缀 `pine: config error: ...` 与跨运行时其他 ConfigError 一致。
-- **Runtime（请求级）**：每次 `Engine.Execute` 时，`ResolveTemplatedParams` / `resolve_templated_params` / `TemplateResolver.resolve` 从该请求 common frame 读取字段并经 GoFormat 跨运行字符串化（见下文），把结果暂存为 `OperatorInput.templated_param("name")`。算子 `Execute` 中只需读取 `input.templated_param("key_prefix")` 而不必感知是否模板化。
-- **Error 字节级对等**：解析阶段任何错误（字段缺失、值无法 coerce 到声明的 scalar type）必须包装为 `ExecutionError(op.name, inner)`，最终 CLI/HTTP 边界呈现为 `pine: execution error in operator "X": <inner>`。pine-cpp 在 `parallel_execute` 入口对 `resolve_templated_params` 抛出物做 try/catch + `ExecutionError(op.name, inner)` re-wrap；pine-go 在 `BuildTemplatedParamPlan` 上抛出 `ConfigError` 修复了 `pine: config error:` 前缀漂移。
+- **Build-time（plan 构建）**：各运行时在引擎构造时通过 `BuildTemplatedParamPlan` / `build_templated_param_plan` / `BuildTemplatedParamPlan` 把 `{{field}}` 解析为 `(operator, param, field)` 三元组并缓存到 `TemplatedPlans`，便于运行时按算子名直接查表。任何格式违规（非 bare marker、参数 `type` 不在 templatable scalar 白名单、字段未在 common frame 中可见等）都在此阶段抛 `ConfigError`，字节级前缀 `pine: config error: ...` 与跨运行时其他 ConfigError 一致。
+- **Runtime（请求级）**：每次 `Engine.Execute` 时，`ResolveTemplatedParams` / `resolve_templated_params` / `TemplateResolver.resolve` 从该请求 common frame 读取字段并经 GoFormat 做跨运行时一致的字符串化（见下文），把结果暂存为 `OperatorInput.templated_param("name")`。算子 `Execute` 中只需读取 `input.templated_param("key_prefix")` 而不必感知是否模板化。
+- **Error 字节级对等**：解析阶段任何错误（字段缺失、值无法 coerce 到声明的 scalar type）必须包装为 `ExecutionError(op.name, inner)`，最终 CLI/HTTP 边界呈现为 `pine: execution error in operator "X": <inner>`。pine-cpp 在 `parallel_execute` 入口对 `resolve_templated_params` 抛出的异常做 try/catch + `ExecutionError(op.name, inner)` re-wrap；pine-go 在 `BuildTemplatedParamPlan` 上抛出 `ConfigError` 修复了 `pine: config error:` 前缀漂移。
 
 #### 跨运行时 stringify 契约
 
@@ -214,7 +214,7 @@ CI 兜底：`apple/tests/test_compiler.py::TestInjectInheritedSkips::test_no_dup
 - pine-java: `GoFormat.sprint(v)`（含 Java 模板路径——`TemplateResolver` 直接走 `GoFormat.sprint`，避免历史上 float 走 `Double.toString` 产生 `12.5` vs `12.500000` 漂移）
 - pine-cpp: `go_format_g(v)` / `GoFormat::sprint(v)`
 
-cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 probe 钉住契约（详细 case 见脚本本身）：
+cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 probe 锁定契约（详细 case 见脚本本身）：
 
 - L0 fixture：bare-marker / non-bare-marker 配置三引擎 byte-exact
 - float-source stringify parity probe（修 H1 时新增）
@@ -225,7 +225,7 @@ cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 prob
 
 ### 嵌套控制流与 `inherited_skips`
 
-当编译器递归遍历 Flow/SubFlow 结构树时，`apple/compiler.py` 会沿 traversal 显式传递一份 `inherited_skips` 列表，用来承接当前节点所处的所有外层控制分支守卫。
+当编译器递归遍历 Flow/SubFlow 结构树时，`apple/compiler.py` 会沿 traversal 显式传递一份 `inherited_skips` 列表，用来承接当前节点所处的所有外层控制分支条件。
 
 稳定语义是：
 
@@ -236,7 +236,7 @@ cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 prob
 
 因此 `add_subflow()` 现在可以安全地放在控制分支里：编译器不再把 branch guard 停留在当前层，而是把它继续传播到子树中的所有叶子算子。
 
-该机制的目标不是改变 Go 侧调度协议，而是保证递归结构下控制语义与“若把所有算子手工写平”保持一致。
+该机制的目标不是改变 Go 侧调度协议，而是保证递归结构下控制语义与“若把所有算子手工展平”保持一致。
 
 ### SubFlow 内部控制字段的路径前缀化
 
@@ -309,7 +309,7 @@ cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 prob
 这一步同时确定两类稳定结果：
 
 - 全局算子顺序：供后续命名、校验和 Go 侧 DAG 基础序列使用
-- 层级结构账本：供后续发射 `pipeline_group.main.pipeline` 与 `pipeline_map`
+- 层级结构账本：供后续输出 `pipeline_group.main.pipeline` 与 `pipeline_map`
 
 递归遍历时，编译器还会把当前层级路径注入每个 `OpCall.subflow_path`：
 
@@ -328,7 +328,7 @@ cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 prob
 
 #### 3. `_inject_inherited_skips(local_ops, child_order, inherited_skips)`
 
-该 pass 负责把当前节点外层分支守卫传播到本层子树中的子算子声明。
+该 pass 负责把当前节点外层分支条件传播到本层子树中的子算子声明。
 
 稳定语义：
 
@@ -336,7 +336,7 @@ cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 prob
 - 同时把这些 skip 字段补入对应算子的 `common_input`
 - 必须在 `rename` 之后执行，确保追加的是最终字段名，而不是重命名前的原始控制字段
 
-这使“控制分支里再挂一个 SubFlow”与“手工把该 SubFlow 内算子写平到当前分支里”的控制语义保持一致。
+这使“控制分支里再挂一个 SubFlow”与“手工把该 SubFlow 内算子展平到当前分支里”的控制语义保持一致。
 
 #### 4. `_collect_exclusion_groups(node, field_renames, exclusion_groups)`
 
@@ -371,7 +371,7 @@ cross-validate `scripts/cross-validate/17-templated-params.sh` 通过以下 prob
 - 自动名使用 `{type_name}_{MD5[:6].upper()}`，其中 hash 输入为显式语义元组（排除 `code_info`），确保在不同源文件位置声明的相同语义算子获得相同名称
 - 自动名冲突时追加 `_N`
 
-这创建了后续所有阶段使用的有序命名序列。
+由此得到后续所有阶段使用的有序命名序列。
 
 ### 步骤 3：运行七项校验
 
@@ -546,7 +546,7 @@ AdditiveWritesRowSet 豁免（issue #72）：
 - 子流程算子：`operator 'transform_xxx' [recall/candidates]: ...`
 - 若带源码位置，还会在消息中出现 `defined at: path/to/file.py:123 ...`
 
-该定位信息只服务于 Apple compile-time 诊断，不参与 JSON 发射，也不会影响 Go 侧配置加载契约。它的目标是让深层 `SubFlow` 中的字段覆盖、写后未读、`data_parallel` 和参数-元数据一致性错误，都能直接指向“哪条子流程路径、哪一行声明代码”触发了问题。
+该定位信息只服务于 Apple compile-time 诊断，不参与 JSON 输出，也不会影响 Go 侧配置加载契约。它的目标是让深层 `SubFlow` 中的字段覆盖、写后未读、`data_parallel` 和参数-元数据一致性错误，都能直接指向“哪条子流程路径、哪一行声明代码”触发了问题。
 
 ### 4. 死代码检测
 
@@ -613,7 +613,7 @@ Apple 结构校验的目标是把明确的配置错误（非 Transform、有 com
 - 写后未读假设更早的写入是因果在先的
 - 死代码检测按声明序列推理下游消费
 
-这仅成立因为运行时的 DAG 构建也使用展平声明顺序作为冒险追踪和平局打破的基础序列。若编译时顺序和运行时顺序分歧，校验可能批准执行行为与分析不同的流水线。
+这仅成立因为运行时的 DAG 构建也使用展平声明顺序作为冒险追踪和打破平局的基础序列。若编译时顺序和运行时顺序分歧，校验可能批准执行行为与分析不同的流水线。
 
 ## 元数据和默认值语义
 
@@ -682,7 +682,7 @@ Apple 支持两层 debug 声明：
 - 刷新间隔
 - 参数
 
-Go 服务端资源管理器后续加载这些定义并将活值注入请求上下文。
+Go 服务端资源管理器后续加载这些定义并将运行时值注入请求上下文。
 
 ## 与 Go 代码生成的关系
 
@@ -704,13 +704,13 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
 
 1. **Apple 输出 JSON，而非可执行运行时对象。** 保持基于文件/Schema 的边界。
 2. **校验使用递归遍历产出的全局声明顺序。** 该顺序必须与运行时递归展开后的顺序保持对齐。
-3. **控制条件中的字段引用必须显式模板化。** `apple/control.py` 只会为 `{{field_name}}` 形式生成 `common_input` 依赖；Lua 发射前再移除模板标记。
+3. **控制条件中的字段引用必须显式模板化。** `apple/control.py` 只会为 `{{field_name}}` 形式生成 `common_input` 依赖；生成 Lua 前再移除模板标记。
 4. **下划线前缀字段保留。** 用户输出不应与编译器/运行时内部冲突。
 5. **资源引用在算子序列构建后校验。** 无声明的 `resource_name` 参数是编译错误。
 6. **动态分发在无生成 helper 时仍可用。** `apple_generated/` 是便利，不是语言核心。
 7. **`data_parallel` 约束采用双层校验。** Apple compile time 的 `validate_data_parallel` 与 Go 引擎加载期的 `validateDataParallel` 必须保持一致，以便同时提供 fail-fast 体验和运行时边界保护。
 8. **`sources` 引用也必须遵守声明顺序。** Apple compile time 的 `validate_sources_references` 只允许引用已经出现在当前算子之前的命名上游；不存在的名字报 `does not exist`，存在但尚未出现的名字报 `forward reference`。这保证显式 merge/source 边不会把 DAG 拉成“未来节点依赖过去节点”的因果倒置。
-9. **控制分支守卫会沿 SubFlow 递归传播，且 skip 采用 Lua truthiness。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工写平后的控制语义保持一致；`apple/control.py` 发射的 prior-check 与 Go 调度器的 skip 判定都以 Lua truthiness 为准，只有 `nil` 和 `false` 不触发跳过。
+9. **控制分支条件会沿 SubFlow 递归传播，且 skip 采用 Lua truthiness。** `apple/compiler.py` 通过 `inherited_skips` 把外层分支控制字段继续传给嵌套 `SubFlow` 中的算子，因此“控制分支里再 add_subflow()”与手工展平后的控制语义保持一致；`apple/control.py` 生成的 prior-check 与 Go 调度器的 skip 判定都以 Lua truthiness 为准，只有 `nil` 和 `false` 不触发跳过。
 10. **SubFlow 内部控制字段必须做路径去冲突。** 非顶层 `SubFlow` 中生成的 `_if_*` / `_else_*` 字段需要带路径前缀，避免与外层或兄弟子树的控制字段共用 common 域名称。
 11. **根级配置字段沿固定扩展路径下沉。** 顶层 `Flow(...)` 参数经 `apple/compiler.py` 步骤 9 条件写入根级 JSON，再由 `pine-go/internal/config/types.go` 的 `RootConfig` 消费；`storage_mode`、`log_prefix` 与 `debug` 都遵循这一模式。新增的根级**字符串**字段还要遵守三运行时共同的类型契约（present 但类型错 → 拒绝、`null`/缺省 → 默认值），见 `reference/root-config-string-fields.md`。
 
@@ -720,7 +720,7 @@ Apple 的类型化 helper 类从 Go 生成，而非反向。
     对其余三个根级字符串字段不成立。新增根级字符串字段时见
     `reference/root-config-string-fields.md`。
 12. **编译器 traversal 幂等。** `_traverse()` 的局部多 pass 不可修改原始 Flow/SubFlow 上的 `OpCall` 对象。当前通过复制本地 ops 并把重命名、skip 注入、互斥组收集拆成独立 pass 来保证 `compile_dict()` 可重复调用；如果后续新增 traversal 逻辑需要改写 IR，必须同样保持幂等。
-    - 测试覆盖要求应显式包含“同一 Flow 连续编译两次输出完全一致”的场景，并继续覆盖“控制分支内嵌 SubFlow”的路径：至少验证包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 侧效应在该路径上累积。
+    - 测试覆盖要求应显式包含“同一 Flow 连续编译两次输出完全一致”的场景，并继续覆盖“控制分支内嵌 SubFlow”的路径：至少验证包含 branch 内 `SubFlow` 的 `Flow` 连续多次 `compile_dict()` / `compile_to_json()` 结果一致，避免 skip 继承、控制字段重命名或其他 traversal 副作用在该路径上累积。
     - 当前测试拆分为四类：`TestCompileIdempotency` 覆盖重复编译稳定性；`TestRenameControlFields` 覆盖控制字段重命名 pass；`TestInjectInheritedSkips` 覆盖外层 skip 传播 pass；`TestCollectExclusionGroups` 覆盖闭合控制块的互斥组收集。
 
 ## 检索指针

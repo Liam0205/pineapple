@@ -34,7 +34,7 @@
 - JSON 根级 `log_prefix`
 - Go option `pine.WithLogPrefix(...)`
 
-优先级固定为 Go option 高于 JSON 配置。自 issue #172 起 `log_prefix` 是**引擎实例级**的：`NewEngine` 用最终值构造一个引擎私有的 `*log.Logger`（flags 为 `Ldate|Ltime|Lshortfile`，输出含 `file:line`），进程全局的 `log` 包不再被触碰。多个引擎同进程时各自保留自己的前缀（此前是 `sync.Once` 守护的 `log.SetPrefix()`——first-engine-wins，后构造引擎的前缀被静默忽略）。消费路径：`LoggerAware`/`LoggerHolder` 算子注入（`DebugHolder` 内嵌 `LoggerHolder`，`Logf`/`DebugLog` 以 calldepth 3 上报调用点行号）、scheduler 的 `[pine-debug]` 快照行（经 `runtime.Plan.Logger`）、`observe_log` 与 `transform_redis_set` 的诊断输出；`Engine.Logger()` 向嵌入方暴露该 logger。Java 对等：`Engine.logPrefix()` 实例字段 + `LoggerAware.setEngineLogPrefix`（旧的 `pine.log.prefix` System property 通道已删除——它从未被消费）。C++ 对等：既有实例成员 `log_prefix_` 现被 `[pine-debug]` 行与 `observe_log`（实现 `LoggerAware`）真正消费。
+优先级固定为 Go option 高于 JSON 配置。自 issue #172 起 `log_prefix` 是**引擎实例级**的：`NewEngine` 用最终值构造一个引擎私有的 `*log.Logger`（flags 为 `Ldate|Ltime|Lshortfile`，输出含 `file:line`），进程全局的 `log` 包不再被触碰。多个引擎同进程时各自保留自己的前缀（此前是 `sync.Once` 保护的 `log.SetPrefix()`——first-engine-wins，后构造引擎的前缀被静默忽略）。消费路径：`LoggerAware`/`LoggerHolder` 算子注入（`DebugHolder` 内嵌 `LoggerHolder`，`Logf`/`DebugLog` 以 calldepth 3 上报调用点行号）、scheduler 的 `[pine-debug]` 快照行（经 `runtime.Plan.Logger`）、`observe_log` 与 `transform_redis_set` 的诊断输出；`Engine.Logger()` 向嵌入方暴露该 logger。Java 对等：`Engine.logPrefix()` 实例字段 + `LoggerAware.setEngineLogPrefix`（旧的 `pine.log.prefix` System property 通道已删除——它从未被消费）。C++ 对等：既有实例成员 `log_prefix_` 现被 `[pine-debug]` 行与 `observe_log`（实现 `LoggerAware`）真正消费。
 
 全局 debug 的来源同样有两层：
 
@@ -226,7 +226,7 @@
 - `TestRowDepWithRecallAndBarrierCombined` — 覆盖 ConsumesRowSet、recall additive 写入与 MutatesRowSet reset 的组合，确认 `_row_set_` 哨兵在多阶段 item 集合变更下仍能表达正确因果关系。
 - `TestObserveInNestedSubFlowDoesNotBlock` — 覆盖嵌套 SubFlow 中的 observe 非阻塞语义，确认 observe 仍只建立 RAW 依赖，不会在复杂图形里意外产生 WAR 阻塞。
 
-这些测试的意义不只是增加 case 数量，而是把几个容易一起回归的核心不变量钉住：
+这些测试的意义不只是增加 case 数量，而是把几个容易一起回归的核心不变量锁定下来：
 
 - MutatesRowSet 算子仍序列化行集变异
 - recall 仍是 item 行集上的 additive writer
@@ -234,7 +234,7 @@
 - observe 仍是非阻塞读者，即使放进嵌套 SubFlow 或与 MutatesRowSet、control-flow 混合
 - `sources` 仍是对推导图的显式补边，而不是绕开 hazard / 行集标记规则的替代机制
 
-因此，`pine-go/internal/dag/dag_test.go` 现在既验证单点规则，也验证这些规则在真实流水线组合形态下不会互相破坏。
+因此，`pine-go/internal/dag/dag_test.go` 现在既验证单点规则，也验证这些规则在真实流水线组合情况下不会互相破坏。
 
 ### 隐式行集依赖测试
 
@@ -466,7 +466,7 @@ HTTP `GET /stats` 返回组合观测视图：
 
 #### `storage_mode` 的三层解释点（跨运行时契约）
 
-分派规则：**只有字面量 `"column"` 精确匹配才走列存，其余一切值都落行存**——包括空字符串与大小写不同的写法（`"Column"` / `"COLUMN"`）。契约定义方是 pine-go 的 `NewFrame`：`switch` + `default: newRowFrame`，`default` 分支接受一切输入、不报错。非法值现在在配置加载期就被拒绝、到不了这里，但 `default` 分支仍然是这条规则的定义处，三方都复刻了它。
+分派规则：**只有字面量 `"column"` 精确匹配才走列存，其余一切值都走行存**——包括空字符串与大小写不同的写法（`"Column"` / `"COLUMN"`）。契约定义方是 pine-go 的 `NewFrame`：`switch` + `default: newRowFrame`，`default` 分支接受一切输入、不报错。非法值现在在配置加载期就被拒绝、到不了这里，但 `default` 分支仍然是这条规则的定义处，三方都复刻了它。
 
 三处**分派**点，**任何改动必须三处同时改**：
 
@@ -479,10 +479,10 @@ HTTP `GET /stats` 返回组合观测视图：
 | 层 | 位置 | 作用 |
 |---|---|---|
 | 类型层（配置解析） | `pine-go/internal/config/types.go`（struct tag）、`pine-java/.../Config.java`（`rootString`）、`pine-cpp/src/config/config.cpp`（`require_string`） | 拒绝 present 但类型不是字符串的值；`null` 与缺省保持默认 |
-| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误抢先） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度的类型错上就失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 的具体分界由用例断言，见下方指针 |
-| 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余落行存 |
+| 值层（配置校验） | `pine-go/internal/config/load.go`、`pine-java/.../Config.java` 的 `validate`、`pine-cpp/src/config/config.cpp` 的 `validate_storage_mode`（在 `load_config_from_json` 里、四个类型检查之后、算子解析之前调用，**不在 `validate_config` 里**——放那里会让算子错误先报出来） | 白名单：只接受 `"row"` / `"column"` / 空字符串 / 缺省，其余拒绝。三方都把值层排在**根级**类型层之后、算子解析之前。**注意只对根级成立**：pine-go 的 `encoding/json` 在任意深度遇到类型错误都会失败，而 **pine-cpp** 的值检查排在嵌套解析之前，所以「非法 `storage_mode` + 嵌套字段类型错」时 pine-cpp 报值错、另两方报嵌套类型错。pine-java 的具体分界由用例断言，见下方指针 |
+| 分派层（frame factory） | 上面那三处 | 只有字面量 `"column"` 走列存，其余走行存 |
 
-pine-java 落在 pine-go 与 pine-cpp 之间，分界取决于**读取器**而不是字段形状。**这条规则不在这里
+pine-java 落在 pine-go 与 pine-cpp 之间，分界取决于**读取器**而不是字段结构。**这条规则不在这里
 复述**——它由 `StorageModeValidationTest.nestedTypeErrorPrecedenceDependsOnWhetherTheReadThrows`
 按**三类读取器**各自断言（`asText()`/`asBoolean()` 强转、`readStringList` 抛错、`.fields()` 空迭代），
 改任一类的行为会让那条用例变红。它不是逐字段穷举——审计第十二轮指出原来这里写「逐字段」是过度声称，
@@ -498,20 +498,20 @@ pine-java 落在 pine-go 与 pine-cpp 之间，分界取决于**读取器**而�
 | 输入 | 三方行为 |
 |---|---|
 | `"row"` / `"column"` | 接受，按分派规则选存储 |
-| 空字符串、键缺省 | 接受，落行存（`""` 是 pine-go 的零值，缺省与 `null` 都到达这里） |
+| 空字符串、键缺省 | 接受，走行存（`""` 是 pine-go 的零值，缺省与 `null` 都到达这里） |
 | `null` | 接受，保持默认 |
 | 其他字符串（拼错、大小写不同、带空格） | 值层拒绝，错误文案三方**字节相同** |
 | 数字 / 布尔 / 数组 / 对象 | 类型层拒绝 |
 
 **三处已知例外，都不在 #187 的范围内，但读这张表的人需要知道：**
 
-- **`debug`**：唯一的另一个根级标量，布尔，仍是修前那个样子：pine-go 拒绝错误类型；**pine-java 的 `asBoolean()` 强转**——`1` 与 `"true"` 会真的把 debug 打开，
+- **`debug`**：唯一的另一个根级标量，布尔，仍保持修复前的行为：pine-go 拒绝错误类型；**pine-java 的 `asBoolean()` 强转**——`1` 与 `"true"` 会真的把 debug 打开，
   `"yes"` / `[1]` 强转成 false；pine-cpp 的 `is_bool()` 守卫静默忽略、保持关闭。**三方三种行为**（实测）。
   见 `reference/root-config-string-fields.md`。
 - **键名大小写**：pine-go 的 `encoding/json` 在精确匹配失败时会**忽略大小写**回退匹配 struct tag，
   所以 `{"STORAGE_MODE":"colunm"}` 被 pine-go 绑到 `StorageMode` 并**拒绝**，而 pine-java 的
   `root.has()` 与 pine-cpp 的 `parent.find()` 都是精确匹配、根本看不到这个键，于是**接受**。
-  `Storage_Mode` / `Log_Prefix` / `_pineapple_version` / `DEBUG` 同型（实测）。
+  `Storage_Mode` / `Log_Prefix` / `_pineapple_version` / `DEBUG` 情况相同（实测）。
   与重复键那条一样，这也是**本次改动新引入的可见差异**：改动前没人看类型，Go 把 `STORAGE_MODE`
   绑到哪里都无后果。跟踪于 `memory/doc-gaps.md`。
 - **重复键**：同一个键在 JSON 里出现两次时，pine-go 与 pine-java 取**后者**，而 pine-cpp 的
@@ -528,12 +528,12 @@ pine-java 落在 pine-go 与 pine-cpp 之间，分界取决于**读取器**而�
 
 **Apple DSL 侧是第一道防线**：`apple/flow.py` 的 `_VALID_STORAGE_MODES` 在编译期就拒绝非法值。运行时层的两层校验是第二道防线，覆盖手写 JSON 与其他非 DSL 来源的配置。
 
-分派选中哪个实现**对进程外部完全不可观察**：行列存输出对等本身是设计契约（cross-validate section 4 断言），`/stats` 与 `/dag` 都不含 storage 字段。因此**分派层**的回归门只能落在各运行时自己的 factory 单测上，跨运行时通道对它恒绿；**值层与类型层**的拒绝行为反过来是外部可观察的（错误响应），由各运行时的 validation 单测加 cross-validate section 21 共同钉住。推理细节见 `guides/ci-quality-baseline.md`。
+分派选中哪个实现**对进程外部完全不可观察**：行列存输出对等本身是设计契约（cross-validate section 4 断言），`/stats` 与 `/dag` 都不含 storage 字段。因此**分派层**的回归检查只能放在各运行时自己的 factory 单测里，跨运行时通道对它总是通过；**值层与类型层**的拒绝行为反过来是外部可观察的（错误响应），由各运行时的 validation 单测加 cross-validate section 21 共同保证。推理细节见 `guides/ci-quality-baseline.md`。
 
 历史（都已对齐，无歧义地属于过去）：
 
 - issue #179 之前，**分派方向**三方不同：pine-java 用 `equalsIgnoreCase`，`"Column"` 走列存；pine-cpp 写成 `if (== "row") ... else ColumnFrame`，任何拼错都走列存。同一份手写 JSON 在三个运行时选到不同的物理存储。已由 commit `90982071` 统一到 pine-go 的 `default: newRowFrame`。
-- issue #179 到 #187 之间，非法字符串值被三方**静默接受并落行存**。当时刻意不做 fail-fast，理由是只改 pine-java / pine-cpp 就是引入新分歧，而三方同改属独立决策。#187 做了三方同改，这半段结束。
+- issue #179 到 #187 之间，非法字符串值被三方**静默接受并走行存**。当时刻意不做 fail-fast，理由是只改 pine-java / pine-cpp 就是引入新分歧，而三方同改属独立决策。#187 做了三方同改，这半段结束。
 - issue #187 之前，**类型层**三方各不相同，且 pine-cpp 与自己不一致：只有 `storage_mode` 调 throwing 的 `as_string()` 会抛 `ConfigError`，`log_prefix` 与两个 `_PINEAPPLE_*` 有 `is_string()` 守卫、静默忽略类型错误；pine-java 用 `asText()` 强转（`123` 变成 `"123"`、数组/对象变成 `""`），也就是 pine-go 直接拒绝的配置在 pine-java 里带着编造出来的值跑起来了。
 
 ### 并发安全
@@ -565,7 +565,7 @@ Frame 实现内部自行保证并发安全，调度器不持有外部 frame 锁�
 
 #### Operator-visible input 排除集合的跨运行时对齐
 
-Operator-visible input 排除集合（skip 控制字段 + `common_input_template` 源字段 + `common_input_skip`）在三运行时里通过**不同实现路径**兑现同一契约：
+Operator-visible input 排除集合（skip 控制字段 + `common_input_template` 源字段 + `common_input_skip`）在三运行时里通过**不同实现路径**实现同一契约：
 
 - pine-go / pine-java：`BuildInput` 阶段构建 `common` map 时**直接丢弃**排除字段（materialize-time exclusion），`input.Common(field)` 在字段名不在 map 中时返回 nil。
 - pine-cpp：`OperatorInput` 是懒代理，`common(field)` 直查 frame——**必须在读路径显式 gate** 排除集合（`InputFieldSpec::excluded_common`），否则算子看到 raw frame 值。issue #174 首次暴露该差异：`reorder_shuffle_by_salt` 以 `metadata.common_input` 构 salt，pine-cpp 未 gate 时读到 skip 字段 `_skip_branch=false` 而 pine-go/pine-java 读到 nil，salt 分歧 → 排序分歧 → 下游整链 cascading。
@@ -645,7 +645,7 @@ DAG 推导的健全性建立在四个环节上：规则健全、`Build` 实现�
 | 三个行集标记 | `pine.go` 加载时用 Go 接口断言覆盖配置、校验互斥 |
 | 写侧字段名 ∈ 声明输出 | `types.ValidateDeclaredOutputs`，紧跟 `ValidateOutput`（issue #205 前缺失） |
 
-第四条之所以属于 DAG 引擎而不只是算子 API 卫生：`addEdges` 只看声明列表，一个写了未声明字段的算子在图里**不存在**——没有 WAW/WAR 边阻止同名并发写者，下游声明该字段为输入的算子也没有 RAW 边。#205 之前这条只靠内置算子的构造（`MetadataAware` 按声明名写、Lua 按位置绑定）成立，对扩展 API 接入的自定义算子和字段名来自配置/资源数据的 recall 没有任何防线。校验覆盖 `SetCommon` / `SetItem` / `SetItemColumnFloat64` / `AddItem` 四条带字段名的写路径；`RemoveItem` / `SetItemOrder` 无字段名。错误形状、排序与通道优先级见 `reference/operator-contract.md`「写侧字段名必须在声明的输出里」。
+第四条之所以属于 DAG 引擎而不只是算子 API 卫生：`addEdges` 只看声明列表，一个写了未声明字段的算子在图里**不存在**——没有 WAW/WAR 边阻止同名并发写者，下游声明该字段为输入的算子也没有 RAW 边。#205 之前这条只靠内置算子的构造（`MetadataAware` 按声明名写、Lua 按位置绑定）成立，对扩展 API 接入的自定义算子和字段名来自配置/资源数据的 recall 没有任何防线。校验覆盖 `SetCommon` / `SetItem` / `SetItemColumnFloat64` / `AddItem` 四条带字段名的写路径；`RemoveItem` / `SetItemOrder` 无字段名。错误格式、排序与通道优先级见 `reference/operator-contract.md`「写侧字段名必须在声明的输出里」。
 
 ### 为何分类体系对 DAG 推导重要
 
@@ -733,7 +733,7 @@ Server 是 struct-based 设计：`Server` 结构体封装所有可变状态（sn
 - **Lua state pool 生命周期缺口 — 已修复**：`pine-go/operators/lua/pool.go` 的 `statePool` 暴露 `Close()`，与 `pine.Engine.Close()` 协同释放。0.9.7 起放弃了池内对全部已发出 state 的 retention（旧 `allStates` 切片），`Close()` 只把 `closed` 标志原子翻转——已借出但尚未归还的 state 会在请求结束、`unique_ptr`/GC 销毁链上被回收。该方案避免了 retention slice 在长尾 hot-reload 后造成的 cgo 累积内存增长，同时保留"hot-reload 后不再发新 state"的不变量。
 - **Engine 退役统一走 `Engine.Close()`**：三运行时（pine-go `Engine.Close()`、pine-java `Engine.close()`、pine-cpp `Engine::close()`）在 hot-reload swap 与 graceful shutdown 时遍历 `CompiledOperator.Instance`，对实现 `Closer`（详见 `llmdoc/reference/operator-contract.md`）的算子触发 `Close()`，单算子失败聚合上报但不阻断后续算子。各 server 实现在锁外触发旧引擎的 `Close()`，避免阻塞 reload 路径。
 - **Lua baseline global 恢复不完整 — 已修复**：Lua pool 现在在每个 state 借出时记录该 state 的基线快照，并在 Return 时执行完整 baseline restoration，而不只是删除新增 global key。这样即使请求代码覆盖了已有全局变量，也会在归还时恢复，避免跨请求污染。
-- **`data_parallel` 能力门由引擎加载期强制执行 — 已修复**：`pine-go/pine.go` 的 `validateDataParallel` 现在在 `data_parallel > 1` 时要求算子实例实现 `ConcurrentSafe`。Apple 编译器不再维护并发安全 blocklist，只保留结构性校验（Transform + 无 `common_output`），从而把能力判定收敛到 Go 的单一事实源。`transform_normalize` 因依赖全集语义而保持未实现 `ConcurrentSafe`。
+- **`data_parallel` 能力检查由引擎加载期强制执行 — 已修复**：`pine-go/pine.go` 的 `validateDataParallel` 现在在 `data_parallel > 1` 时要求算子实例实现 `ConcurrentSafe`。Apple 编译器不再维护并发安全 blocklist，只保留结构性校验（Transform + 无 `common_output`），从而把能力判定收敛到 Go 的单一事实源。`transform_normalize` 因依赖全集语义而保持未实现 `ConcurrentSafe`。
 
 ### 接受的跨引擎设计差异
 
@@ -745,9 +745,9 @@ Server 是 struct-based 设计：`Server` 结构体封装所有可变状态（sn
   - **pine-cpp**：`vector<LuaVM*> free_vms_` + `vector<unique_ptr> all_vms_`（`lua_pool.hpp`），**无上限**，进程生命周期持有
 
   接受差异的理由：
-  1. **指标层对等**：5 元组计数器（`borrow_count` / `reuse_count` / `create_count` / `return_count` / `active_count`）三引擎已锁字节级一致（H6/M10 cross-validate）
-  2. **端到端持平**：2026-06-24 calibrated 三 fixture × 三引擎复测，Java(LuaJC, 无上限 pool) 123-127 QPS、Go(wangshu, 双层 pool) 121-122 QPS、cpp(LuaJIT, 无上限 pool) 225-234 QPS——Java 和 cpp 都**没有因为"无上限 pool"在端到端被惩罚**；常驻内存上限差异在 calibrated 形状下不可观测
-  3. **跨语言机制无可移植近似**：Go 的 "sync.Pool 在 STW GC 清空"行为在 Java（SoftReference 触发条件不同 + 仅 Java 可行）和 C++（无 GC，需要 jthread + idle TTL 后台 shrink）都只能近似，不能严格等价。issue #91 的方案 C（warm/cold + idle TTL）端到端预期落 noise 带，与 #119 outputPool 同属"隔离层胜出但端到端不可见"的 perf-evolution-roadmap 校准事实 2 范畴
+  1. **指标层对等**：5 元组计数器（`borrow_count` / `reuse_count` / `create_count` / `return_count` / `active_count`）三引擎已锁定为字节级一致（H6/M10 cross-validate）
+  2. **端到端持平**：2026-06-24 calibrated 三 fixture × 三引擎复测，Java(LuaJC, 无上限 pool) 123-127 QPS、Go(wangshu, 双层 pool) 121-122 QPS、cpp(LuaJIT, 无上限 pool) 225-234 QPS——Java 和 cpp 都**没有因为"无上限 pool"在端到端被惩罚**；常驻内存上限差异在 calibrated 场景下不可观测
+  3. **跨语言机制无可移植近似**：Go 的 "sync.Pool 在 STW GC 清空"行为在 Java（SoftReference 触发条件不同 + 仅 Java 可行）和 C++（无 GC，需要 jthread + idle TTL 后台 shrink）都只能近似，不能严格等价。issue #91 的方案 C（warm/cold + idle TTL）端到端预期落在噪声范围内，与 #119 outputPool 同属"隔离层胜出但端到端不可见"的 perf-evolution-roadmap 校准事实 2 范畴
   4. **生产无 OOM 痛点**：长时间运行下 Java/cpp pool 累积致内存压力的数据驱动报告未出现
 
   重启对齐的触发条件：生产出现 Java/cpp pool 长时间运行 RSS 单调爬升 / OOM 数据。届时走 issue #91 方案 C 路径（warm/cold + idle TTL + per-引擎适配机制）。
@@ -915,8 +915,8 @@ Pine-Java 注册全部内置算子（`AllOperators.java`），与 Pine-Go `pine-
 
 这个分裂正是 issue #180 能长期存在的条件：读文档的人会以为 GoFormat 是格式化的单一事实源，而 JSON 数字实际走的是序列化器自带的一套 double 逻辑；讽刺之处在于 `formatFloatF` 对 1e20 本来就给出正确答案（内部有 `BigDecimal.toPlainString` 平铺），只是 JSON 路径从来没调它。修复后的契约：
 
-- 序列化器对**所有** `Double` 值（含 `0` 与 `-0.0`）都走 `writeRawValue(formatJsonNumber(...))`，不再有任何一条分支落回 Jackson `writeNumber`
-- 测试 `GoJsonNumberParityTest.formatJsonNumberMatchesTheSerializer` 钉住「序列化器不得持有格式化规则的第二份拷贝」
+- 序列化器对**所有** `Double` 值（含 `0` 与 `-0.0`）都走 `writeRawValue(formatJsonNumber(...))`，不再有任何一条分支回退到 Jackson `writeNumber`
+- 测试 `GoJsonNumberParityTest.formatJsonNumberMatchesTheSerializer` 锁定「序列化器不得持有格式化规则的第二份拷贝」
 - 跨语言等价实现见 `pine-cpp/src/config/json.cpp`（`go_format_json_number`）；两处实现共同依赖的实测事实见 `llmdoc/reference/number-formatting-parity.md`
 
 同一个 mapper 还承载 JSON **object key 顺序**对等（issue #183）：`GoFormat` 里的 `SortedByUtf8` / `payload` / `sorted` / `sortedShallow` / `wrapPayload` / `compareUtf8` 显式建模 Go「map 排序、struct 保持声明顺序」这条二分——payload 包 `SortedByUtf8`、envelope 保持 `LinkedHashMap`，`PineServer` 与 `RunCli` 两个入口共用同一 comparator（此前 `PineServer` 本地那套 `TreeMap` helper 已删）。key 顺序与数字格式是同一条序列化路径上**两组互不相干的规则**，改任一组时不要顺手动另一组。规则细节、Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 为何不可用、以及 pine-cpp 哪条路径天然满足、哪条（`/stats` 手写拼接）需要显式排序，见 `llmdoc/reference/json-key-order-parity.md`。
@@ -986,13 +986,13 @@ Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`Ope
 
 ### Pine-C++ 功能对等
 
-`pine-cpp/` 提供完整对等的 C++ 运行时，与 Go/Java 共享同一 JSON 配置格式和 fixture 财富。
+`pine-cpp/` 提供完整对等的 C++ 运行时，与 Go/Java 共享同一 JSON 配置格式和 fixture 集。
 
 核心差异（独有特性，不影响对等语义）：
 
 - **调度模型**：ready-queue 双隔离线程池（DAG pool + shard pool），而非 Go 的 goroutine 或 Java 的 Virtual Thread；data_parallel 通过 sharded workers 实现
 - **数据表示**：ColumnFrame（`src/dataframe/column_frame.cpp`），基于 ColumnStore + Column 类型层级 + validity bitmap；所有算子通过 OperatorOutput write-log + `apply_output()` 写回
-- **错误分级**：PanicError 包装 unexpected exception，与 Go/Java 的 `PanicError` 对等。`ExecutionError`/`PanicError` 多继承 `std::nested_exception`，通过 `include/pine/error_chain.hpp` 的 `pine::error_as<T>()` 走链
+- **错误分级**：PanicError 包装 unexpected exception，与 Go/Java 的 `PanicError` 对等。`ExecutionError`/`PanicError` 多继承 `std::nested_exception`，通过 `include/pine/error_chain.hpp` 的 `pine::error_as<T>()` 遍历异常链
 
 功能覆盖（与 Go/Java 对等）：HTTP server `/execute`/`/stats`/`/dag`/`/health`、配置热加载（mtime-polling）、所有交叉验证层接入、codegen、DAG 可视化、全算子覆盖。
 

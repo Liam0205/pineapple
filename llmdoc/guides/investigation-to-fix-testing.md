@@ -90,10 +90,10 @@ issue #179 的实例：`pine-cpp/tests/test_row_frame.cpp` 原有一行断言非
 | 初版 | 「三方一致」 | 漏了 pine-java 的强转 |
 | 审计第九轮 | 「叶子字段一致、容器字段不一致」 | 8 个标量叶子也不一致 |
 | 审计第十轮 | 「只有容器字段不一致」 | 同上，方向反了 |
-| 最终 | 不写类别，改成一条用例 | 分界是**读取器**（`asText()` 强转 / `readStringList` 抛错），不是字段形状 |
+| 最终 | 不写类别，改成一条用例 | 分界是**读取器**（`asText()` 强转 / `readStringList` 抛错），不是字段结构 |
 
 **判据：同一条跨运行时描述被审计连续改错两次之后，不要再改措辞——写成一条断言它的用例。**
-用例改不对会变红，句子改不对只会悄悄变成假的。本例落在
+用例改不对会变红，句子改不对只会悄悄变成假的。本例对应的用例是
 `StorageModeValidationTest.nestedTypeErrorPrecedenceDependsOnWhetherTheReadThrows`，
 并且它断言的是**已接受的限制**本身，不是要求去修——见 `memory/doc-gaps.md`。
 
@@ -113,7 +113,7 @@ issue #179 把这条纪律逐级放宽了两次，每次都是被下一轮审计
 只搜代码必然漏。可行做法是搜这条声明的**语义关键词**（本例：`storage_mode` 与 `column` 同现的所有行），
 而不是搜某段注释的原文——原文在每一层的措辞都不同，只有语义是共通的。
 
-**改文档里的引文时，不要用正则或按行替换——整段重写。** issue #179 的审计里同一句引文被我腰斩了
+**改文档里的引文时，不要用正则或按行替换——整段重写。** issue #179 的审计里同一句引文被我截断了
 **两次**，机制相同：第一次用正则在未闭合的引文内部追加注记，第二次改成按行替换、只换掉两行里的第一行，
 留下的后半行把刚被否定的半句原文又贴了回去，于是同一段里既说「不含这半句」又紧接着出现这半句。
 
@@ -126,7 +126,7 @@ issue #179 把这条纪律逐级放宽了两次，每次都是被下一轮审计
 把它变成了错的。它不是预存缺陷，属于本次改动的清理范围。判据：**改完一个跨运行时差异后，搜一遍
 还有谁在描述这个差异。**
 
-issue #179 的直接教训：改掉分派点附近的两处反向注释后，`pine-cpp/include/pine/frame.hpp` 的类文件头注释里还活着第三份同样的表述，与改掉那处只差 90 行。根因是按 grep 命中的「分派点附近」清理，没有对同一文件通读。这与 issue #183 的「`/stats` 漏两轮」同型：都是按「issue 举的那个点」清理，而不是按「这条声明出现在哪里」清理。
+issue #179 的直接教训：改掉分派点附近的两处反向注释后，`pine-cpp/include/pine/frame.hpp` 的类文件头注释里还留着第三份同样的表述，与改掉那处只差 90 行。根因是按 grep 命中的「分派点附近」清理，没有对同一文件通读。这与 issue #183 的「`/stats` 漏两轮」同型：都是按「issue 举的那个点」清理，而不是按「这条声明出现在哪里」清理。
 
 ## 「由 X 保证 / 由 section N 锁定」这类断言必须能追到具体脚本行
 
@@ -142,13 +142,13 @@ metrics-parity。但 `scripts/cross-validate/13-metrics-parity.sh` 读的是 `/s
 `runtime.Stats` 供给，与 `metrics.Provider` 是分离的两套机制；它断言的是「算子从启动即可见且计数
 为零」这类 `Stats` 行为，跟 histogram 的桶无关。三方桶数组当时逐值相同，但那是源码巧合，任一方
 改动不会让任何检查变红。处置：把断言改成陈述事实，并按
-`guides/ci-quality-baseline.md`「无人可见的属性必然腐烂」判断该不该补门。
+`guides/ci-quality-baseline.md`「无人可见的属性必然腐烂」判断该不该补检查。
 
 同一次核对里另外两处断言是**真的**，一并记下来避免下一个人重复排查：
 
 | 位置 | 断言 | 核对结果 |
 |---|---|---|
-| `design_doc/08_observability.md` 资源级指标 fan-out 段 | 该行为由 cross-validate section 16 锁定 | 准确。断言范围限定在 `/stats.resources`，section 16 确实钉住它 |
+| `design_doc/08_observability.md` 资源级指标 fan-out 段 | 该行为由 cross-validate section 16 锁定 | 准确。断言范围限定在 `/stats.resources`，section 16 确实覆盖了它 |
 | `guides/ci-quality-baseline.md` 的 Metrics Parity section 段 | section 13 覆盖 pre-init 与 `/stats` 数值一致性 | 准确。描述与脚本实际断言一致 |
 
 顺带的纪律：**核对过的断言把结论写进 commit message 或文档**（标明「已核对、不必重查」），
@@ -164,7 +164,7 @@ metrics-parity。但 `scripts/cross-validate/13-metrics-parity.sh` 读的是 `/s
 issue #193 的实例：默认 provider 丢弃一切观测、内置 collector 不读 `HistogramOpts.Buckets`，
 两条都被我当缺陷写进了 issue。实际都是有意的——nop 实现的注释明写 `zero overhead`，collector
 从设计上就不是直方图后端（只聚合 count + sum，供 `/stats.resources` 用）。承认这个前提之后，
-六条候选「缺陷」里四条塌缩成一条「缺文档」，工作量与风险都大幅下降。
+六条候选「缺陷」里四条归结为一条「缺文档」，工作量与风险都大幅下降。
 
 **这一步的真正价值是避免修掉正确的东西。** 把有意设计当缺陷"修好"，代价不只是白做，还会破坏它
 原本承担的契约（本例里就是默认路径的零开销）。与「既存断言与参考实现相反时的处置顺序」同族：
@@ -172,11 +172,11 @@ issue #193 的实例：默认 provider 丢弃一切观测、内置 collector 不
 
 ## 断言装箱类型 vs 断言契约
 
-类型断言（`assertInstanceOf` / `assertEquals(42L, ...)` 这类带宿主语言类型的写法）**只有在被断言的那个 class 本身是外部可观察契约时才成立**。否则它冻的是内部实现细节，实现被改正确时反而变红，产生「修对了看起来像回归」的信号反转。
+类型断言（`assertInstanceOf` / `assertEquals(42L, ...)` 这类带宿主语言类型的写法）**只有在被断言的那个 class 本身是外部可观察契约时才成立**。否则它固定的是内部实现细节，实现被改正确时反而变红，产生「修对了看起来像回归」的信号反转。
 
-issue #189/#190 的实例：六处断言（`TransformByLuaTypeIdentityTest` 三处、`TransformByLuaBaselineTest` 两处、`TransformByLuaCompilerBackendTest` 一处）用 `assertInstanceOf(Long.class, ...)` / `assertEquals(42L, ...)` 冻住了 Lua number 的装箱类型。而各运行时 Lua bridge 的 number 出口一律是 double、无整数分支（pine-go 对所有 Lua number 返回 `float64`，pine-cpp 用 `lua_tonumber`），所以 `Long` 从来不是跨运行时契约，只是 pine-java 的内部表示。这些断言把内部表示冻成了伪契约，去掉窄化这个正确修复因此先表现为一批测试变红。
+issue #189/#190 的实例：六处断言（`TransformByLuaTypeIdentityTest` 三处、`TransformByLuaBaselineTest` 两处、`TransformByLuaCompilerBackendTest` 一处）用 `assertInstanceOf(Long.class, ...)` / `assertEquals(42L, ...)` 固定了 Lua number 的装箱类型。而各运行时 Lua bridge 的 number 出口一律是 double、无整数分支（pine-go 对所有 Lua number 返回 `float64`，pine-cpp 用 `lua_tonumber`），所以 `Long` 从来不是跨运行时契约，只是 pine-java 的内部表示。这些断言把内部表示固化成了伪契约，去掉窄化这个正确修复因此先表现为一批测试变红。
 
-值得注意的是这几处断言部分来自 #175：那次用 `assertInstanceOf` 保护 string-vs-number 类型身份是对的（必须区分 `"42"` 与 `42`），但顺带把 number 分支的 box 类型也冻住了，**超出了它要保护的属性**。
+值得注意的是这几处断言部分来自 #175：那次用 `assertInstanceOf` 保护 string-vs-number 类型身份是对的（必须区分 `"42"` 与 `42`），但顺带把 number 分支的 box 类型也固定住了，**超出了它要保护的属性**。
 
 判据：**写类型断言时说明这个 class 为什么是契约；说不出来就改成断值与序列化形式。** 本次改法：
 
@@ -186,7 +186,7 @@ assertEquals(42.0, intOut);
 assertEquals("42", GoFormat.formatJsonNumber((Double) intOut));
 ```
 
-序列化形式是外部真正可观察的东西，也顺带覆盖了「2^53 以下零变化」这个需要证明的属性。反向的例子同样要认：`TransformByLuaTypeIdentityTest` 里 string 分支的 `assertInstanceOf` **是**契约（`"42"` 必须是 `String`），不要顺手一起改掉。详见 `memory/reflections/lua-integral-double-narrowing-189-190.md`。
+序列化形式是外部真正可观察的东西，也顺带覆盖了「2^53 以下零变化」这个需要证明的属性。反向的例子同样要注意：`TransformByLuaTypeIdentityTest` 里 string 分支的 `assertInstanceOf` **是**契约（`"42"` 必须是 `String`），不要顺手一起改掉。详见 `memory/reflections/lua-integral-double-narrowing-189-190.md`。
 
 ## 同一运行时内部也会有行为分歧
 
@@ -199,9 +199,9 @@ assertEquals("42", GoFormat.formatJsonNumber((Double) intOut));
 
 ## Nightly fuzz artifact 的三步归因（issue #200/#201/#202）
 
-三个 nightly 分歧同一周到达，症状形状各异（一个值的类型、整个顺序、分页取到不同 item），根因也各不相干；能把它们各自收敛到一行代码，靠的是下面三步的顺序，而不是读代码的敏锐度。
+三个 nightly 分歧同一周到达，症状各异（一个值的类型、整个顺序、分页取到不同 item），根因也各不相干；能把它们各自收敛到一行代码，靠的是下面三步的顺序，而不是读代码的敏锐度。
 
-1. **先把统计数字当噪声**。三份报告都是 `row=…/0 column=…/1`，看起来是列存专属；本地把 `storage_mode` 翻成 `row` 重跑，三个 case 全部照样分歧。分层统计在 n=1 时不构成归因证据，动手前先在两种模式下复现一次，再决定要不要读列存代码。
+1. **先把统计数字当噪声**。三份报告都是 `row=…/0 column=…/1`，看起来是列存专属；本地把 `storage_mode` 改成 `row` 重跑，三个 case 全部照样分歧。分层统计在 n=1 时不构成归因证据，动手前先在两种模式下复现一次，再决定要不要读列存代码。
 2. **最小复现不出来时，差别在数据不在算子**。#200 用同样的 Lua 脚本、同样的 `item_defaults` 写了四个最小配置全绿；按 triage playbook 从尾部截断原 pipeline，砍到 `recall + op_6` 两个算子仍红——说明触发条件在 recall 的**数据**里。对比后发现是 item 顺序：原 case 里 item 0 是 null→取默认值 784.6（number），item 1 才是那个大整数字符串；最小配置把字符串放在第一位。于是把「哪个值在前」当变量做顺序实验，六个变体一次定位到「数字槽之后的数字形字符串」。判据：算子集合已经最小、仍不复现，就换成对**数据形状/顺序**二分。
 3. **红绿检查之后重新编译**。用文件备份把 `TransformByLua.java` 换回旧版跑 red-check、再 `cp` 回修复版，`target/classes` 里留下的是 red-check 那次编译的**旧 class**；紧接着黑盒重跑 artifact 得到「仍然分歧」的假结论，差点回头怀疑修法。判据：任何「恢复源文件」动作之后、任何黑盒验证之前，先跑一次构建；测试框架自己会编译所以单测看不出来，直接调 CLI/二进制的验证才会中招。这与 `guides/ci-quality-baseline.md`「长跑 differential-fuzz 期间不得触碰构建产物」是同一个变量（构建产物与源码不同步）的两个方向。
 
@@ -223,7 +223,7 @@ issue 之间"follow-up to #N"之类的引用关系是作者主观叙事，**不�
 止血 workaround 的阈值（如"arena 多大算 fat、该 drop"）**不要拍脑袋取值**，用一个 probe 测试实测标定：
 
 - 写最小 probe 复现"多大输入把被测量推过候选阈值"，取**实测拐点**而非估计值
-- 阈值留足余量，让 steady-state **绝不误触发**（本仓实例：取 16× 默认 initial arena，使健康稳态永不命中、只有真 ballooned 的 state 被 drop）
+- 阈值留足余量，让 steady-state **绝不误触发**（本仓实例：取 16× 默认 initial arena，使健康稳态永不命中、只有真正 ballooned 的 state 被 drop）
 - probe 实测数据本身属任务专属、易过时，**只留在 reflection / probe 测试**，不写进稳定文档当权威常量；稳定文档侧引用代码常量出处即可（如 `pool_wangshu.go` 的 `arenaDropThresholdKB`）
 
 ### rc 升级评估：必读上游 issue close comments / release notes
@@ -238,14 +238,14 @@ rc / 大版本升级时，"源码看到 API 表面到位"和"issue 真的从根�
 
 拆除 workaround 前**先问**："上游修的是 workaround 防御的 root cause，还是只是 workaround 用的 proxy 观测量？"
 
-- **前者 → 真拆**：上游 API 真等价替换原 workaround 的目标行为
-- **后者 → 只换判据**：原 workaround 防御的 root cause 上游只解一半，需保留 workaround 框架、只把判据 / 观测量换成上游新暴露的真观测面
+- **前者 → 真正拆除**：上游 API 真正等价替换原 workaround 的目标行为
+- **后者 → 只换判据**：原 workaround 防御的 root cause 上游只解一半，需保留 workaround 框架、只把判据 / 观测量换成上游新暴露的真实观测面
 
 本仓双范例（同一升级窗口内）：
-- cadence-sweep **真拆**：原 workaround 目标"让 GC accounting 上的 bytes 真去 sweep"，上游 `MaybeCollectNow()` 真等价替换（host-callable GC trigger），整个 `gcCadenceWangshu` / `collectProg` / `gcReturnCount` 拆除
-- drop-fat-state **只换判据**：原 workaround 目标"sustained-fat state 不能让它一直占着 fat backing slab"，上游 `Arena.Compact()` 只解了 transient peak 那一半、sustained-fat 仍 latch；workaround 框架保留，判据从 `GCCountKB`（proxy，sweep 前活跃量）→ `ArenaCapKB`（真观测面，post-Compact cap）
+- cadence-sweep **真正拆除**：原 workaround 目标"让 GC accounting 上的 bytes 真正被 sweep"，上游 `MaybeCollectNow()` 真正等价替换（host-callable GC trigger），整个 `gcCadenceWangshu` / `collectProg` / `gcReturnCount` 拆除
+- drop-fat-state **只换判据**：原 workaround 目标"sustained-fat state 不能让它一直占着 fat backing slab"，上游 `Arena.Compact()` 只解了 transient peak 那一半、sustained-fat 仍 latch；workaround 框架保留，判据从 `GCCountKB`（proxy，sweep 前活跃量）→ `ArenaCapKB`（真实观测面，post-Compact cap）
 
-工程信号：**顺序耦合消失是好信号**——若新 API 取代旧 hack 是真的，原 workaround 的脆弱顺序约束（"采样必须早于 sweep"之类）应自然消失；若仍需保留，说明没真取代。本仓 drop-fat-state 判据迁移后旧顺序耦合天然消失，是新设计有效的证据。
+工程信号：**顺序耦合消失是好信号**——若新 API 取代旧 hack 是真的，原 workaround 的脆弱顺序约束（"采样必须早于 sweep"之类）应自然消失；若仍需保留，说明没有真正取代。本仓 drop-fat-state 判据迁移后旧顺序耦合天然消失，是新设计有效的证据。
 
 ### 上游已修但从未发版：守卫放在自己能控制的最窄边界
 

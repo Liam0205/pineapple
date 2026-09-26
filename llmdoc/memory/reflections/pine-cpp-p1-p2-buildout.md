@@ -16,19 +16,19 @@ type: reflection
 
 llmdoc 在这一阶段全程未更新：`architecture/pine-cpp-runtime.md` 仍停留在 MVP 描述，`reference/metrics-observability.md` 仅描述 pine-go 通道，`overview/project-overview.md` 把 pine-cpp 描述为"已启动建设"，`must/conventions.md` 的注册副作用条目和入口点描述都不包含 pine-cpp。
 
-`pine-cpp-mvp-to-full-runtime.md` 是上一轮已经识别出大面积偏差但 **尚未被 recorder 落地** 的 reflection（仍处于未提交状态）。本轮在它之上额外累积了 18 个 commit。
+`pine-cpp-mvp-to-full-runtime.md` 是上一轮已经识别出大面积偏差但 **尚未由 recorder 写入稳定文档** 的 reflection（仍处于未提交状态）。本轮在它之上额外累积了 18 个 commit。
 
 ---
 
 ## 关键教训
 
-### 1. "上一轮 reflection 未落地"是新偏差的放大器
+### 1. "上一轮 reflection 未写入稳定文档"是新偏差的放大器
 
 `pine-cpp-mvp-to-full-runtime.md` 提到"在新运行时的开发开始时，预先为关键数据类型和执行模型留章节占位符"，但因为它的 recorder 步骤被跳过，文档主体没有更新，下一轮（P1/P2）开发又继续在偏差状态下工作，差距进一步扩大。
 
 reflection 不写入稳定文档时，对未来的提醒作用近乎为零——LLM 在 startup 阅读 must/overview 时不会读 reflections。
 
-**避免方式**：reflection + recorder 必须连续完成；任何 reflection 在未落地前，下一次 llmdoc 更新应优先处理上一轮悬挂的 promotion 项，再处理新增 delta。
+**避免方式**：reflection + recorder 必须连续完成；任何 reflection 在写入稳定文档之前，下一次 llmdoc 更新应优先处理上一轮悬挂的 promotion 项，再处理新增 delta。
 
 ### 2. "C++ 不在 pine-go 边界内"的隐含心理是偏差源
 
@@ -60,7 +60,7 @@ P2 系列的多数提交是 pine-go pkg 的逐项对等迁移（pkg/metrics、pk
 
 ## Promotion 候选（合并上一轮悬挂项 + 本轮新增）
 
-### 必须落地到 `architecture/pine-cpp-runtime.md`
+### 必须写入 `architecture/pine-cpp-runtime.md`
 
 - 删除 "MVP 边界" 章节，替换为 "已实现能力" 段落，覆盖：
   - HTTP server `/execute` `/stats` `/dag` `/health`、ServerConfig 五项 timeout flag、`-max-body-size`、middleware 注入与内置 http_metrics middleware、graceful shutdown 与 `in_flight_` 计数
@@ -74,7 +74,7 @@ P2 系列的多数提交是 pine-go pkg 的逐项对等迁移（pkg/metrics、pk
 - 测试策略一节补 4 个 CI job（cpp-build / cpp-sanitizer / cpp-lint / cpp-test）以及当前 cross-validate cpp 覆盖范围
 - 错误对等契约一节补"CLI stderr 前缀（error reading config / error creating engine / execution error: ...）与 pine-go 字节级一致"
 
-### 必须落地到 `reference/metrics-observability.md`
+### 必须写入 `reference/metrics-observability.md`
 
 - 在权威文件段落补 pine-cpp 文件：
   - `pine-cpp/include/pine/metrics.hpp`
@@ -84,19 +84,19 @@ P2 系列的多数提交是 pine-go pkg 的逐项对等迁移（pkg/metrics、pk
 - 在"内置 HTTP 请求指标中间件"段落补充：四运行时同名指标与桶；C++ 端通过 `pine::server::http_metrics_middleware(provider)` 显式注入到 `ServerConfig::middlewares`，区别于 Go 默认内置在 mux 包装层
 - 在"双通道观测模型"段落补充：pine-cpp scheduler peak_concurrency 已通过 `Engine::peak_concurrency()` 暴露到 `/stats.scheduler`
 
-### 必须落地到 `must/conventions.md`
+### 必须写入 `must/conventions.md`
 
 - "注册基于副作用" 段落补 C++ 的 `PINE_REGISTER_OPERATOR` 宏与 operators 静态库链接模型
 - 跨运行时引用统一改写为"各运行时"或显式列出 Go/Java/Python/C++，删除"三运行时"硬编码
 - "外部 I/O 与并发安全默认值"补 C++ 的 graceful shutdown 在 `Server::stop()` 中等待 `in_flight_ == 0` 或 5s 超时
 - 新增条款：禁止在文档主体硬编码运行时数量与 cross-validate 层数
 
-### 必须落地到 `overview/project-overview.md`
+### 必须写入 `overview/project-overview.md`
 
-- 把 pine-cpp 从"规划中"改为"已落地的第四运行时"，并在入口点段落新增 `pineapple-cpp-run` / `pineapple-cpp-render-dag` / `pineapple-cpp-server`（含 timeout / max-body-size flag）
+- 把 pine-cpp 从"规划中"改为"已实现的第四运行时"，并在入口点段落新增 `pineapple-cpp-run` / `pineapple-cpp-render-dag` / `pineapple-cpp-server`（含 timeout / max-body-size flag）
 - "为何如此拆分"段落保留 pine-cpp 作为标杆运行时定位的描述
 
-### 必须落地到 `guides/ci-quality-baseline.md`
+### 必须写入 `guides/ci-quality-baseline.md`
 
 - 在 CI workflow 表格补 cpp-build / cpp-sanitizer / cpp-lint / cpp-test 四个 job 行
 - 在 cross-validate 段落记录当前 cpp 覆盖范围（codegen-schema、render-dag、execution、column-store、error、server-http、cancellation、concurrent、raw-byte、hot-reload、redis-integration、extensibility-parity、metrics-parity 中接入 cpp 的 section 列表）
@@ -113,7 +113,7 @@ P2 系列的多数提交是 pine-go pkg 的逐项对等迁移（pkg/metrics、pk
 
 ## 下次类似任务的检查清单
 
-1. **每次 llmdoc:update 任务开始时，先扫描 `llmdoc/memory/reflections/` 中存在但未落地（即对应稳定文档仍体现旧状态）的 reflection；优先合并落地，再处理新 delta。**
+1. **每次 llmdoc:update 任务开始时，先扫描 `llmdoc/memory/reflections/` 中存在但未写入稳定文档（即对应稳定文档仍体现旧状态）的 reflection；优先合并写入，再处理新 delta。**
 
 2. **新增运行时能力（HTTP 路由、新 CI job、新数据类型、新 server flag、新中间件）的 commit 必须在同一 PR 中携带 llmdoc delta。如果当时跳过，commit message 必须显式打 `docs-debt` 标签。**
 

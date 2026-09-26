@@ -4,13 +4,13 @@
 
 与其他 memory 文档的分工：单次任务的经验教训进 `memory/reflections/`；已经定下来的取舍进 `memory/decisions/`；**尚未决定、需要跟踪的**进本文件。
 
-条目关闭时把结论落到对应稳定文档，本文件只留一条指向该文档的短条目（放「已关闭条目」节），不保留原来的现状描述。
+条目关闭时把结论写进对应稳定文档，本文件只留一条指向该文档的短条目（放「已关闭条目」节），不保留原来的现状描述。
 
 ## 开放条目
 
 ### clang-format 没有 CI job（缺少 CI 检查）
 
-- **现状**：`grep -rn "clang-format\|fmt-check" .github/workflows/` 零命中。`make fmt-check` 里的 clang-format 检查在 CI 里没有任何对应 job；`cpp-lint` job 只做 `-Werror` 严格构建 + trailing whitespace/tab/结尾换行卫生 + 相邻字面量拼接排查。C++ 格式当前只由本地 `pre-commit` hook 守着（staged 文件粒度、可用 `--no-verify` 绕过），且本机默认未安装 clang-format 时 `make all` 会在 `fmt-check` 处 Error 127 中止
+- **现状**：`grep -rn "clang-format\|fmt-check" .github/workflows/` 零命中。`make fmt-check` 里的 clang-format 检查在 CI 里没有任何对应 job；`cpp-lint` job 只做 `-Werror` 严格构建 + trailing whitespace/tab/结尾换行卫生 + 相邻字面量拼接排查。C++ 格式当前只靠本地 `pre-commit` hook 检查（staged 文件粒度、可用 `--no-verify` 绕过），且本机默认未安装 clang-format 时 `make all` 会在 `fmt-check` 处 Error 127 中止
 - **已做**：`guides/ci-quality-baseline.md` 的 C++ lint 节已改成准确表述（此前把 clang-format 写在 CI `cpp-lint` 描述旁边，读起来像有 CI 覆盖）
 - **待决策**：是否给 CI 加 fmt-check job。需要一并回答：CI runner 上 clang-format 版本如何锁定（版本差异会产生格式漂移假失败）、是否要求本机安装成为开发前置条件（否则 `make all` 仍会 127 中止）
 - **历史**：`memory/reflections/redis-resourcemanager-migration-and-pine-python-removal.md` 记过"clang-format commit 阶段无 gate"，issue #122/#160（2026-07-25）进一步确认 CI 阶段也无 gate
@@ -24,8 +24,8 @@
 ### 审计 scratch 副本的磁盘成本没有归属
 
 - **现状**：`close-local-code-review` 工作流每轮 blind review 都指示 reviewer `cp -a` 一份仓库快照到自己的 scratch 目录（因为外部清理进程会删原快照）。单份副本 1–1.7GB，**创建有明确指令、销毁没有归属**，所以副本只累积不清理。issue #187/#188 跑测试时 `Disk quota exceeded`，清掉 #180/#183/#179 三轮遗留的 17GB 才跑得动
-- **待决策**：清理责任放哪一层。两个候选：(a) 每轮审计闭环后由 reviewer 清理自己那轮的副本；(b) 任务结束时由主 agent 统一清一次。(a) 更及时但要改 reviewer 指令且每轮都可能漏，(b) 更容易保证执行但审计跨度内配额仍可能被打爆
-- **判据**：这不是偶发事故——N 轮审计之后必然打爆配额，只是 N 多大取决于配额（#183 单独跑了 14 轮、#179 跑了 6 轮）。属工作流运维成本，需要一个明确的清理触发点写进审计工作流文档
+- **待决策**：清理责任放哪一层。两个候选：(a) 每轮审计结束后由 reviewer 清理自己那轮的副本；(b) 任务结束时由主 agent 统一清一次。(a) 更及时但要改 reviewer 指令且每轮都可能漏，(b) 更容易保证执行但审计跨度内配额仍可能被耗尽
+- **判据**：这不是偶发事故——N 轮审计之后必然耗尽配额，只是 N 多大取决于配额（#183 单独跑了 14 轮、#179 跑了 6 轮）。属工作流运维成本，需要一个明确的清理触发点写进审计工作流文档
 - **约束**：清理是删除操作，执行前需要用户确认具体路径
 
 ### 根级配置的五处残留分歧：`debug`、重复键、键名大小写、多字段报错顺序、嵌套类型 vs 值错误层级（issue #187 审计发现）
@@ -47,7 +47,7 @@
     `pipeline_group.main.pipeline`、`sources`、`flow_contract.common_input`、`data_parallel`）。
     根因是 pine-go 的 `encoding/json` 在**任意深度**的类型错上就让整份 unmarshal 失败，
     而 pine-cpp 的 `validate_storage_mode` 只排在**四个根级**类型检查之后、嵌套解析之前。
-    **pine-java 落在中间**，分界是「抛错 vs 强转」而不是「叶子 vs 容器」：`readStringList` 读的
+    **pine-java 介于两者之间**，分界是「抛错 vs 强转」而不是「叶子 vs 容器」：`readStringList` 读的
     数组字段会抛错、于是与 pine-go 一致；而 `asText()` / `asBoolean()` 读的 8 个标量叶子
     （`type_name` / `recall` / `debug` / `consumes_row_set` / `mutates_row_set` /
     `additive_writes_row_set` / `for_branch_control` / `skip`）以及 `.fields()` 读的容器字段
@@ -58,7 +58,7 @@
     （pass 1 全树只查类型、pass 2 值白名单、pass 3 语义），代价是重构 `load_config_from_json`
     与 `parse_operator` 的抛错分层。
   - **多字段报错顺序**：两个以上根级字段同时类型错时，报错点名哪个字段可观察。pine-java 与
-    pine-cpp 已对齐（同一检查顺序，两侧单测按相邻对钉住全部四个位置），但 **pine-go 无法用任何
+    pine-cpp 已对齐（同一检查顺序，两侧单测按相邻对锁定全部四个位置），但 **pine-go 无法用任何
     固定顺序匹配**——`encoding/json` 点名的是**在 JSON 文档里最先出现**的那个错误字段，答案随
     输入键序变化（实测：同样三个坏字段、两种键序，pine-go 分别点名 `log_prefix` 与 `storage_mode`）。
     这也是它不能做成 cross-validate error fixture 的原因：section 05 要求三方匹配同一子串。
@@ -70,7 +70,7 @@
     显式拒绝非精确匹配的键。后者更接近「严格 schema」的方向，但 `encoding/json` 没有开关，
     需要自己先解析成 `map[string]json.RawMessage` 再校验键名。
   - (d) 多字段报错顺序中 pine-go 的输入序依赖**不打算修**：要改就得放弃 struct unmarshal、
-    改成手工遍历，代价远超收益。建议长期就按「java==cpp 有契约、pine-go 无」记账，而不是列为待办。
+    改成手工遍历，代价远超收益。建议长期就按「java==cpp 有契约、pine-go 无」记录，而不是列为待办。
 - **不在 #187 范围内**：#187 的授权范围是「统一所有根级**字符串**字段的类型处理」，这五条都超出。
   最后一条（嵌套层级）由用户在审计第六轮明确决定记录而不修，理由是两遍解析的重构代价超出本 range。
 
@@ -88,7 +88,7 @@
   没有并进 #189/#190 的修复范围。
 - **待决策**：(a) 是否把 Java 侧改成与 Go 同轴（按静态类型分派）——改动小，但需要先确认 Java 侧拿到的是什么静态类型，
   Jackson 解出的 JSON number 在 Java 里没有 Go 那种 float64/int64 之分，所以"同轴"未必可直接平移；
-  (b) 是否给 codegen 加一条带大整数浮点默认值的 spec 作为回归门——这会先变红，需要 (a) 一起做。
+  (b) 是否给 codegen 加一条带大整数浮点默认值的 spec 作为回归检查——这会先变红，需要 (a) 一起做。
 - **不在 #189/#190 范围内**：那两条是 `/execute` 响应体的字节契约；codegen 输出是另一条通道。
 
 ### Lua 侧负零在三方的表现不一致（issue #189/#190 审计发现，先于本 range 存在）
@@ -109,12 +109,12 @@
 - **上游状态**：luaj 提交 `b8aaaafb`（2018-10-31，"Check the type before reusing a NumberValueEntry"，Fixes luaj#20）已修；Maven Central `org.luaj:luaj-jse` 最新仍是 3.0.1（2017），无含修复的发行版。
 - **为什么不在桥接层修**：见 `guides/investigation-to-fix-testing.md`「上游已修但从未发版」——fork/jitpack 引入无审计浮动来源、master `LuaTable` 与 3.0.1 其他类不兼容、classpath 遮蔽依赖 jar 顺序。
 - **可观察性**：fuzz 生成器的 Lua 脚本（`LUA_ITEM_FUNCTIONS` 等）都是「读全局 → 返回」，不做同 key 二次赋值，所以这条残留对 nightly 不可见；用户脚本会撞到。
-- **待决策**：(a) 等一个可审计的 luaj 发行版（或 pin 到具体 commit 的自建 artifact）后整体升级，届时 `setGlobal` 守卫可拆——拆除判别按「上游修的是 root cause」走真拆；(b) 在用户文档的 Lua 脚本约束（`reference/operator-contract.md` 5.1 交集节）加一条「同一 key 不要先赋 number 再赋数字形 string」——代价低但只是提醒；(c) 给 fuzz 生成器加一个「脚本内同 key 二次赋值」形状让残留可见，代价是 nightly 会持续红直到 (a) 落地。
+- **待决策**：(a) 等一个可审计的 luaj 发行版（或 pin 到具体 commit 的自建 artifact）后整体升级，届时 `setGlobal` 守卫可拆——拆除时按「上游修的是 root cause」这一判据真正拆掉；(b) 在用户文档的 Lua 脚本约束（`reference/operator-contract.md` 5.1 交集节）加一条「同一 key 不要先赋 number 再赋数字形 string」——代价低但只是提醒；(c) 给 fuzz 生成器加一个「脚本内同 key 二次赋值」形状让残留可见，代价是 nightly 会持续红直到 (a) 完成。
 
 ### luaj `tostring(number)` / `..` 拼接对非整数 double 走 float 精度（issue #200 调查顺带实测，未修）
 
 - **现状**：各运行时实测（pine-go wangshu / pine-cpp LuaJIT 经 `pineapple-run`，luaj 经 pine-java RunCli，脚本 `tostring(x) .. '|' .. (x .. '')`）：`784.628302` → Go/C++ `784.628302`、Java `784.6283`；`1e100` → Go/C++ `1e+100`、Java `Infinity`；`2^53+1` → Go/C++ `9.007199254741e+15`、Java `9007199254740992`；`3` → 各运行时都是 `3`。机制：Lua 5.1 的 `tostring` 是 `%.14g`；luaj `LuaDouble.tojstring` 对整数值打印 long（所以 |v| ≥ 1e14 起与 `%.14g` 的指数形式分歧）、对非整数值经 `float` 转字符串（7 位有效数字，且 |v| > 3.4e38 溢出成 `Infinity`）。
-- **与 #200 的关系**：不同机制（数字→字符串格式化 vs 表槽位复用），发现于 #200 的 `tostring(item_tag)` 探针，本次未修、未开门。
+- **与 #200 的关系**：不同机制（数字→字符串格式化 vs 表槽位复用），发现于 #200 的 `tostring(item_tag)` 探针，本次未修、未加检查。
 - **可观察性**：fixture `transform_by_lua_edge_cases.json` 有「number to string via concatenation」用例但用的是整数值（各运行时一致），非整数值的 `tostring`/拼接没有任何通道覆盖；fuzz 生成器亦无此形状。
 - **待决策**：(a) 桥接层无法拦截（发生在脚本内部）；候选是在 pine-java 侧用 luaj 的 `LuaDouble` 替换点或注册自定义 `tostring`（BaseLib `tostring` 可覆写为 `%.14g` 等价实现，但 `..` 拼接走 `LuaDouble.tojstring` 覆写不到）；(b) 先补一个非整数 `tostring` 的 fixture 用例让分歧可见并接受红，或在 Lua 脚本约束里明文列为已知分歧。需要先量化用户脚本里 `tostring`/拼接非整数的出现频率再决定。
 
@@ -123,7 +123,7 @@
 - **现状**：`reorder_shuffle_by_salt` 的 item key 是复合值且内含 NaN/±Inf 时（frame 写入校验只拒绝标量非有限值、不下钻复合，故只能由 Lua `return {0/0, x}` 产生），pine-go / pine-cpp / pine-java 喂 hash 的字节各不相同：pine-go `anyToString` 的 `json.Marshal` 报错后落 `fmt.Sprintf("%v")` 得 `[NaN 2]`；pine-cpp `dump_json` 写裸 `nan`/`inf`；pine-java `GoFormat.marshalJson` 写带引号 `"NaN"`/`"Infinity"`。实测 8 个 item（seed 2/5/7 的 key 含 NaN/Inf/嵌套 NaN，salt `alpha`）：Go `[5,8,2,4,7,6,3,1]`、C++ `[5,8,4,6,7,3,1,2]`、Java `[5,8,4,6,2,3,7,1]`。
 - **基线**：本 range 之前 Java 用裸 Jackson 同样写 `"NaN"`，C++ 一直写 `nan`；#201 修的是有限值的拼写，这条没变。审计 R6 指出本 range 的 javadoc 曾把它写成「Go 无字节可匹配、有意如此」——错在把参考对象当成 `json.Marshal` 而非 Go `anyToString` 的完整行为（含 fallback）；措辞已改为「已知分歧」。
 - **可观察性**：fuzz 生成器的 Lua 脚本不产生 NaN/Inf；无 fixture 覆盖；nightly 看不见。
-- **待决策**：(a) pine-cpp 与 pine-java 都复刻 Go 的 `%v` fallback（Java 已有 `GoFormat.sprint` 可产出 `[NaN 2]` 形状，但 map 形状 `map[a:1.5 b:NaN]` 与非整数 `%v` 拼写还需对齐；C++ 需在 `any_to_string` 里对含非有限值的复合走 `%v` 路径）；(b) pine-go / pine-cpp / pine-java 都在 shuffle 入口对含非有限值的复合 salt 统一报错（比复刻 `%v` 更容易钉住，但改变可观察行为）；(c) 记录为接受分歧。任一选择都要补一条 `fixtures/pipelines/` 用例让 cross-validate 能看见。需先确认 Go `%v` 对 map 的排序（Go 1.12+ 按 key 排）与 pine-go 最低 Go 版本。
+- **待决策**：(a) pine-cpp 与 pine-java 都复刻 Go 的 `%v` fallback（Java 已有 `GoFormat.sprint` 可产出 `[NaN 2]` 形状，但 map 形状 `map[a:1.5 b:NaN]` 与非整数 `%v` 拼写还需对齐；C++ 需在 `any_to_string` 里对含非有限值的复合走 `%v` 路径）；(b) pine-go / pine-cpp / pine-java 都在 shuffle 入口对含非有限值的复合 salt 统一报错（比复刻 `%v` 更容易用测试锁定，但改变可观察行为）；(c) 记录为接受分歧。任一选择都要补一条 `fixtures/pipelines/` 用例让 cross-validate 能看见。需先确认 Go `%v` 对 map 的排序（Go 1.12+ 按 key 排）与 pine-go 最低 Go 版本。
 
 ### pine-go 两个 Lua 后端对宿主写全局是否触发 `__newindex` 不一致（#200 审计 R2 顺带发现，未修）
 
@@ -134,7 +134,7 @@
 
 ### 超出 float64 范围的整数字面量：Go 解析即拒、Java 接受并输出带引号 `"Infinity"`（#201 终审 R17 发现，先于本 range 存在的负空间）
 
-- **现状**：请求里一个 400 位整数字面量，pine-go CLI/服务端在 `encoding/json` 解析处报 `json: cannot unmarshal number ... of type float64` 拒绝整个请求；pine-java 用 Jackson 解成 `BigInteger` 接受，`GoFormat.wrap(v, true)` 转 double 得 `±Infinity`，序列化器走带引号分支，响应 200 且字段为 `"Infinity"`。本 range 之前 Java 同样接受该请求（那时打印精确十进制），改变的是可观察输出形态而非接受与否。pine-cpp 行为未实测。
+- **现状**：请求里一个 400 位整数字面量，pine-go CLI/服务端在 `encoding/json` 解析处报 `json: cannot unmarshal number ... of type float64` 拒绝整个请求；pine-java 用 Jackson 解成 `BigInteger` 接受，`GoFormat.wrap(v, true)` 转 double 得 `±Infinity`，序列化器走带引号分支，响应 200 且字段为 `"Infinity"`。本 range 之前 Java 同样接受该请求（那时打印精确十进制），改变的是可观察的输出形式而非接受与否。pine-cpp 行为未实测。
 - **可观察性**：fuzz 生成器与所有 fixture 都不产生超 float64 范围的整数字面量，nightly 与 cross-validate 看不见。
 - **待决策**：(a) Java 在请求解析处对齐 Go——`BigInteger` 超出 double 范围即拒绝整个请求，文案与 Go 的 `encoding/json` 不同（Go 文案本就不与另两方对齐，见「根级配置的五处残留分歧」的同类记录）；(b) 登记为接受分歧。与「根级配置残留分歧」同族（解析层负空间），建议一起裁决；`GoFormat.wrap` 的 BigInteger 注释指向本条。
 
@@ -156,7 +156,7 @@
   消费者都需要这个语义）；而 `FilterCondition` **自己把比较两侧都归一到 double**——Go 那边两侧都
   经 `encoding/json` 成了 float64，所以不对称本就属于比较点、不属于格式化器。
 - **结果：两条路径同时与 Go 一致**，四个 `sprint` 消费者（模板参数、`filter_condition`、Redis 键、
-  Redis 成员值）全部不再分歧。两侧各有 mutation 验证的门：去掉 `FilterCondition` 的归一化会重现原
+  Redis 成员值）全部不再分歧。两侧各有经过 mutation 验证的检查：去掉 `FilterCondition` 的归一化会重现原
   分歧，去掉 `sprint` 的装箱分支会让 `sprintPreservesIntegralBoxSpellingLikeGoDoes` 变红。
 - **教训**：我把「共享格式化器的输出」当成了唯一可调的旋钮，于是得出「必须二选一」。真正的自由度在
   **比较点是否自己归一化**。声称「两个约束无法同时满足」之前，先确认约束真的作用在同一个地方。
@@ -166,11 +166,11 @@
 - **现状**：`scripts/differential-fuzz.py:1810` 在检测到「同一配置在 row 与 column 存储下输出不同」时
   递增 `stats["cross_storage_diverge"]`，但这个计数器**从不出现在结尾摘要里**、**不进 `failed_rounds`**、
   **不影响退出码**。也就是说一次跨存储分歧只会在 stdout 里闪过一行，nightly 依然报绿。
-- **为什么值得记**：这与 #189/#190 是同一族问题——**检测到了却没有让任何门变红**。本次刚给 fuzz 加了
+- **为什么值得记**：这与 #189/#190 是同一族问题——**检测到了却没有让任何检查变红**。本次刚给 fuzz 加了
   `REPRODUCE:` 行来解决「失败无法复现」，而这一条是「失败根本不算失败」。
 - **待决策**：(a) 把 `cross_storage_diverge` 计入 `failed_rounds` 并写进摘要（最直接，但需先确认历史上
-  是否有长期存在的跨存储分歧——若有，加门会立刻让 nightly 变红，那本身是需要单独排期的信息）；
-  (b) 只打进摘要、暂不影响退出码，先观察若干轮 nightly 再决定是否升级为门。
+  是否有长期存在的跨存储分歧——若有，加上这道检查会立刻让 nightly 变红，那本身是需要单独排期的信息）；
+  (b) 只打进摘要、暂不影响退出码，先观察若干轮 nightly 再决定是否升级为硬性检查。
 - **不在 #189/#190 范围内**：那两条是 go-vs-java 的数字拼写；这条是同一运行时内 row-vs-column 的
   报告机制，且先于本 range 存在（`git log -S` 可查）。
 
@@ -210,11 +210,11 @@
 
 ### issue #193：`metrics.Provider` 契约定义与 metric `Help` 文案（已解决）
 
-- **结论**：已修，issue #193 / commit `67890029`。契约权威单副本落 `pine-go/pkg/metrics/metrics.go` 的 package doc，pine-java / pine-cpp 接口注释与 `design_doc/08_observability.md` 只留指针（并发那条刻意三方各重复一遍，理由见 `must/conventions.md` 的「这个模式不只适用于 codegen」）；`Help` 文案全部对齐 pine-go 并由 `scripts/check-metrics-help-parity.py` 接 `make lint` 守着；一处失效文档断言已改为陈述事实。能力边界落 `reference/metrics-observability.md`、两条纪律落 `guides/ci-quality-baseline.md` 与 `guides/investigation-to-fix-testing.md`。桶边界那半随后由同一脚本一并守住（按 metric 名比对，见上面「已解决」条目）
+- **结论**：已修，issue #193 / commit `67890029`。契约权威单副本写在 `pine-go/pkg/metrics/metrics.go` 的 package doc，pine-java / pine-cpp 接口注释与 `design_doc/08_observability.md` 只留指针（并发那条刻意三方各重复一遍，理由见 `must/conventions.md` 的「这个模式不只适用于 codegen」）；`Help` 文案全部对齐 pine-go 并由 `scripts/check-metrics-help-parity.py` 接入 `make lint` 检查；一处失效文档断言已改为陈述事实。能力边界写入 `reference/metrics-observability.md`、两条纪律写入 `guides/ci-quality-baseline.md` 与 `guides/investigation-to-fix-testing.md`。桶边界那半随后由同一脚本一并覆盖（按 metric 名比对，见上面「已解决」条目）
 
 ### issue #187：运行时层 fail-fast 拒绝非法 `storage_mode`（已解决）
 
-- **结论**：已修，issue #187 / commit `b0dee3bb`。三方在**配置加载层**一律拒绝非法 `storage_mode`（只接受 `"row"` / `"column"` / 空 / 缺省），错误文案字节相同；值白名单刻意放在 config 校验层而非 frame factory，使 #179 的 dispatch 规则保持不变。规则、三层解释点、Go 白名单常量重复定义的原因都已落 `architecture/dag-engine.md` 的 `storage_mode` 节
+- **结论**：已修，issue #187 / commit `b0dee3bb`。三方在**配置加载层**一律拒绝非法 `storage_mode`（只接受 `"row"` / `"column"` / 空 / 缺省），错误文案字节相同；值白名单刻意放在 config 校验层而非 frame factory，使 #179 的 dispatch 规则保持不变。规则、三层解释点、Go 白名单常量重复定义的原因都已写入 `architecture/dag-engine.md` 的 `storage_mode` 节
 - **实际范围比本条目描述更宽**：条目的决策输入 (a) 预见到「不只是加值白名单、还要先统一类型处理」，本次两半一起做了。类型层规则（present 但类型错 → 拒绝、`null`/缺省 → 默认值）适用于**全部四个根级字符串字段**而不只是 `storage_mode`，另立 `reference/root-config-string-fields.md` 承载
 - **用户可见契约已同步**：`doc/guide_pipeline{,-en}.md` 原先写「手写 JSON 的非法值被三方静默接受并落行存」，已改为拒绝，旧行为保留一小段标注为 #187 之前的历史
 - **过程记录**：`memory/reflections/config-validation-and-byte-exact-coverage-187-188.md`
@@ -227,13 +227,13 @@
 
 ### issue #179：`storage_mode` 非法值兜底跨运行时分歧（已解决）
 
-- **结论**：已修，commit `90982071`。三方**分派**统一为「只有字面量 `"column"` 精确匹配才走列存、其余一切落行存」，以 pine-go `NewFrame` 的 `switch` + `default: newRowFrame` 为基准。规则与三处分派点已落 `architecture/dag-engine.md` 的 `storage_mode` 节
+- **结论**：已修，commit `90982071`。三方**分派**统一为「只有字面量 `"column"` 精确匹配才走列存、其余一切落行存」，以 pine-go `NewFrame` 的 `switch` + `default: newRowFrame` 为基准。规则与三处分派点已写入 `architecture/dag-engine.md` 的 `storage_mode` 节
 - **当时刻意保留静默兜底、不做 fail-fast** 的理由（只改两侧就是新分歧、三方同改属独立决策）已由 issue #187 处理掉；分派规则本身没变，非法值现在在加载期就被拒绝、不可达。见上一条已关闭条目
-- **顺带沉淀**：这个属性的外部可观察面为空（行列存输出对等把差别吸收掉、`/stats` 与 `/dag` 无 storage 字段），门只能放在各运行时 factory 单测；两条相关纪律进了 `guides/ci-quality-baseline.md`，「既存断言与参考实现相反时先定基准」与「修错误注释按声明出现位置清理」进了 `guides/investigation-to-fix-testing.md`
+- **顺带沉淀**：这个属性的外部可观察面为空（行列存输出对等把差别吸收掉、`/stats` 与 `/dag` 无 storage 字段），检查只能放在各运行时 factory 单测；两条相关纪律进了 `guides/ci-quality-baseline.md`，「既存断言与参考实现相反时先定基准」与「修错误注释按声明出现位置清理」进了 `guides/investigation-to-fix-testing.md`
 - **过程记录**：`memory/reflections/storage-mode-dispatch-parity-179.md`
 
 ### issue #183：Java object key 插入顺序 vs Go 排序（已解决）
 
-- **结论**：已修，commit `3d92e968`（pine-java 实现）+ `c1ae534c`（校验通道）。规则已落 `reference/json-key-order-parity.md`：Go 对 map 排序、对 struct 保持声明顺序，Java 侧用 `GoFormat.SortedByUtf8` 显式建模这条二分；排序键是 UTF-8 字节序（`GoFormat.compareUtf8`），Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 与任何 `TreeMap` 写法都不能用
+- **结论**：已修，commit `3d92e968`（pine-java 实现）+ `c1ae534c`（校验通道）。规则已写入 `reference/json-key-order-parity.md`：Go 对 map 排序、对 struct 保持声明顺序，Java 侧用 `GoFormat.SortedByUtf8` 显式建模这条二分；排序键是 UTF-8 字节序（`GoFormat.compareUtf8`），Jackson `ORDER_MAP_ENTRIES_BY_KEYS` 与任何 `TreeMap` 写法都不能用
 - **原条目里那个未知项已查清，而且答案是两半**：pine-cpp 侧当时「尚未比对过」，本次补了三方比对。走 `Variant` writer 的响应（`/execute`，含 BMP 外 key）**本来就对**——`json_writer.cpp` 的 `std::sort` 配 `std::string` 的 `<` 即字节序。但 `/stats` 是**手写拼接 JSON、不走 writer**，顶层、`server` 与 `operators` 三处都按书写顺序输出，本次一并修了。教训：**「某个运行时天然满足」只对具体代码路径成立，不对整个运行时成立**；`operators` 那处是加了校验检查之后才暴露的，而且第一版检查用的 fixture 算子名恰好已是字典序，所以连新加的检查都漏了它一轮
 - **过程记录**：`memory/reflections/json-key-order-parity-183.md`

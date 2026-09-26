@@ -28,7 +28,7 @@ type: reflection
 
 ## Promotion 候选
 
-### 已同步到到 `architecture/pine-cpp-runtime.md`
+### 已同步到 `architecture/pine-cpp-runtime.md`
 - `MetricsAware` 接口（`Engine` 预创建后自动注入）与 `StatsProvider` 接口
 - `transform_by_remote_pineapple` 算子：基于 `libcurl` 实现 SSRF 安全保护、HTTP POST 超时与最大体积限制
 - Lua 集成：`StatePool` 提供按需 `LuaVM` 分配与借用，维护 baseline globals 快照并在释放时清理变异
@@ -39,4 +39,4 @@ type: reflection
 
 ---
 
-此 reflection 代表 P3 阶段前 4 个 commit 按规补充进了现有的体系文档，不会造成架构文档滞后。
+此 reflection 代表 P3 阶段前 4 个 commit 按约定补充进了现有的体系文档，不会造成架构文档滞后。

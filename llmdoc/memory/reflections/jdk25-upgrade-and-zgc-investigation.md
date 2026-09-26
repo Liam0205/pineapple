@@ -18,11 +18,11 @@ type: reflection
 
 | 路径 | 预期 | 实际 |
 | --- | --- | --- |
-| A (ZGC) | calibrated stddev 35ms 应该是 G1 STW 来源，ZGC 收紧 stddev、QPS 持平或微升 | calibrated 形态下 net loss **−5.5% / −7.1% / −5.5%** QPS，stddev 无变化，证伪 |
+| A (ZGC) | calibrated stddev 35ms 应该是 G1 STW 来源，ZGC 收紧 stddev、QPS 持平或微升 | calibrated 负载下 net loss **−5.5% / −7.1% / −5.5%** QPS，stddev 无变化，证伪 |
 | B (JDK 25) | LuaJ 3.0.1 + BCEL 6.10.0 可能因 25 verifier 严格化而炸 | 246 tests / 0 failures，含 luajc/luac 双后端等价测试，风险证伪 |
 | C (A+B) | 取决于 A 的结果 | A 证伪后直接不需要 |
 
-最终落地：commit `62475e27`（B：bump target 25 + CI + README）+ `c157242a`（脚本 `JAVA_BENCH_OPTS` 环境变量钩子，用于以后 JVM flag 实验）。**ZGC 不切默认**。
+最终改动：commit `62475e27`（B：bump target 25 + CI + README）+ `c157242a`（脚本 `JAVA_BENCH_OPTS` 环境变量钩子，用于以后 JVM flag 实验）。**ZGC 不切默认**。
 
 ## 实测数据点（GC log 实跑，可复用）
 
@@ -45,7 +45,7 @@ stddev 33–36ms，G1 与 ZGC 无差。
 - ZGC concurrent phase：108 events / 总 **1087 ms** / 34 个 >10 ms。
 - 2C cgroup 下 1087 ms concurrent ≈ **6.7% CPU 偷窃**，与 −5~7% QPS 吻合。
 
-→ G1 STW 根本不够大（max 12.82 ms），stddev 35ms 完全不是 GC 来源。ZGC 的 0.022ms STW 收益被 concurrent CPU 偷窃在 2C cgroup 下完全吃回去且倒贴。
+→ G1 STW 根本不够大（max 12.82 ms），stddev 35ms 完全不是 GC 来源。ZGC 的 0.022ms STW 收益被 concurrent CPU 偷窃在 2C cgroup 下完全抵消，还额外造成损失。
 
 ## What Went Wrong
 
@@ -55,7 +55,7 @@ stddev 33–36ms，G1 与 ZGC 无差。
 
 ### 2. ZGC 适用场景未在调研前列检查表
 
-ZGC 优势场景（≥16 G 堆 / ≥8 C 核 / 1–10 ms 单请求 / 延迟敏感）与 pine-java 当前形态（4 G 堆 / 2 C cgroup / 单请求 100+ ms / throughput-bound）完全反向。如果调研前先列 ZGC 适用场景 vs 当前 deployment shape，30 秒就能判 "我们这种形态根本不该切 ZGC"。
+ZGC 优势场景（≥16 G 堆 / ≥8 C 核 / 1–10 ms 单请求 / 延迟敏感）与 pine-java 当前部署情况（4 G 堆 / 2 C cgroup / 单请求 100+ ms / throughput-bound）完全相反。如果调研前先列 ZGC 适用场景 vs 当前 deployment shape，30 秒就能判断 "我们这种部署根本不该切 ZGC"。
 
 ### 3. benchmark host runtime 与 maven target 脱节未先确认
 
@@ -73,7 +73,7 @@ ZGC 优势场景（≥16 G 堆 / ≥8 C 核 / 1–10 ms 单请求 / 延迟敏感
 
 ### deployment-shape vs GC-shape 匹配检查缺失
 
-JVM tuning 选型应先做"我们的部署形态匹配该 GC 的适用场景吗"检查，这是 GC 选型的零号问题。直接跳到"试一下 ZGC"就跳过了零号问题。
+JVM tuning 选型应先做"我们的部署方式匹配该 GC 的适用场景吗"检查，这是 GC 选型的零号问题。直接跳到"试一下 ZGC"就跳过了零号问题。
 
 ### LTS→LTS 升级风险评估不应纯靠直觉
 
@@ -81,26 +81,26 @@ LuaJ + BCEL 这类字节码生成依赖在跨大版本 JDK 升级时确实是合
 
 ### compile target ≠ runtime
 
-发版数据基线、bench 报告、README 数字这些"实际跑在哪个 JVM 上"，与 pom 的 `<maven.compiler.target>` 是两件事。任何 JVM 升级讨论先 `java -version` + `mvn help:effective-pom | grep target`，两条命令把状态钉死。
+发版数据基线、bench 报告、README 数字这些"实际跑在哪个 JVM 上"，与 pom 的 `<maven.compiler.target>` 是两件事。任何 JVM 升级讨论先 `java -version` + `mvn help:effective-pom | grep target`，两条命令就能把状态确认清楚。
 
 ## Missing Docs or Signals
 
-1. **没有 GC 选型决策档**：pine-java 当前用 G1，但没有任何文档说明为什么用 G1、什么形态下应该重新评估切 ZGC/Shenandoah/Parallel。下次再有人问"能不能切 ZGC"，会从零重做这次调研。
-2. **`benchmark-hygiene.md` 缺 "stddev 来源校准"段**：calibrated 形态下 stddev 33–36ms 是 **应用层** 来源（IO、调度、Lua 调用栈），不是 GC 来源，但当前 guide 没说清楚。
+1. **没有 GC 选型决策档**：pine-java 当前用 G1，但没有任何文档说明为什么用 G1、什么情况下应该重新评估切 ZGC/Shenandoah/Parallel。下次再有人问"能不能切 ZGC"，会从零重做这次调研。
+2. **`benchmark-hygiene.md` 缺 "stddev 来源校准"段**：calibrated 负载下 stddev 33–36ms 是 **应用层** 来源（IO、调度、Lua 调用栈），不是 GC 来源，但当前 guide 没说清楚。
 3. **没有"compile target vs runtime version 必须分别核对"的明文规范**：未来再有 JDK / Maven / Gradle 升级讨论，这个坑会被踩第二次。
 
 ## Promotion Candidates
 
 ### 应立即新增到 `decisions/pine-java-gc-choice.md`
 
-- **结论**：4 G 堆 / 2 C cgroup / throughput-bound 形态下保持 G1（默认）。ZGC 与 Shenandoah 不切。
+- **结论**：4 G 堆 / 2 C cgroup / throughput-bound 场景下保持 G1（默认）。ZGC 与 Shenandoah 不切。
 - **实验证据**：附本次 A 实验 QPS 表 + G1 / ZGC GC log 实测数据点。
 - **重新评估触发条件**：堆 ≥16 G **或** 核心数 ≥8 **或** 单请求目标 P99 ≤10 ms **或** 出现 G1 STW max >50 ms 的生产证据。任一条触发就重做选型。
 - **JAVA_BENCH_OPTS 实验入口**：commit `c157242a` 给后续 GC flag 实验铺路，未来再起类似讨论直接用此钩子复跑 A 实验。
 
 ### 应补到 `guides/benchmark-hygiene.md`
 
-- **calibrated stddev 来源校准**：calibrated 形态下 stddev 33–36 ms 的主导来源是应用层（IO、调度、Lua 调用栈），G1 STW 贡献 <10 ms。诊断 stddev 之前先采 GC log 验明出处，避免"stddev 高 → 怀疑 GC → 切 GC"这条错误链路被复制。
+- **calibrated stddev 来源校准**：calibrated 负载下 stddev 33–36 ms 的主导来源是应用层（IO、调度、Lua 调用栈），G1 STW 贡献 <10 ms。诊断 stddev 之前先采 GC log 验明出处，避免"stddev 高 → 怀疑 GC → 切 GC"这条错误链路被复制。
 
 ### 应补到 `must/conventions.md`（JVM 工具链段）
 
@@ -115,4 +115,4 @@ LuaJ + BCEL 这类字节码生成依赖在跨大版本 JDK 升级时确实是合
 
 1. **本次任务实际已完成的部分**：commit `62475e27`（target 25 + CI + README）+ `c157242a`（JAVA_BENCH_OPTS 钩子），ZGC 不切。
 2. **建议在下一次 llmdoc 更新中执行**：新增 `decisions/pine-java-gc-choice.md`、给 `benchmark-hygiene.md` 补 "stddev 来源校准" 段、给 `conventions.md` 补 "compile target vs runtime version" 一句。
-3. **方法论沉淀**：以后任何 "切 X 性能优化" 类提案，强制三件套——(a) X 的适用场景表 vs 当前 deployment shape、(b) 当前形态的 baseline 指标 + 假设的瓶颈来源采证、(c) 最小复现 A/B 数据。三件套缺一项就不进决策。
+3. **方法论沉淀**：以后任何 "切 X 性能优化" 类提案，强制三件套——(a) X 的适用场景表 vs 当前 deployment shape、(b) 当前部署的 baseline 指标 + 假设的瓶颈来源采证、(c) 最小复现 A/B 数据。三件套缺一项就不进决策。

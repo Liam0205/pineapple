@@ -32,7 +32,7 @@ conventions.md 写明"三层交叉验证"（Schema/Config/Execution），但实�
 
 ## Root Cause
 
-1. **路径引用缺乏间接层** -- llmdoc 直接使用文件系统路径引用 fixture 和源文件。monorepo 重构复盘（`monorepo-restructure-and-java-infra.md`）中已提出"逻辑前缀映射"方案，但未落地执行。同类问题再次发生证明"识别问题"和"解决问题"之间的执行差距。
+1. **路径引用缺乏间接层** -- llmdoc 直接使用文件系统路径引用 fixture 和源文件。monorepo 重构复盘（`monorepo-restructure-and-java-infra.md`）中已提出"逻辑前缀映射"方案，但一直未付诸执行。同类问题再次发生证明"识别问题"和"解决问题"之间的执行差距。
 
 2. **活跃演进功能使用定量描述** -- "三层"是一个在某个时间点准确但注定会过时的描述。对于快速迭代的框架，应使用通用描述 + 指向实际脚本的检索指针（如"详见 scripts/cross-validate.sh"），避免文档中的数字需要频繁手动同步。
 

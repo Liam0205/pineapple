@@ -21,7 +21,7 @@ type: reflection
 
 触发：用户指出 Section 13 中 Go/Java/Python 将内置 metrics 绑定在 Server Core 中做启动检验，而 C++ 的 HTTP layer 不注入默认的 http_metrics 路由中间件。
 
-用户决策选择方案 D：/stats 新增 http 子树（双通道观测模型），采用 `map<string,...>` schema，sum_ns 使用 int64 纳秒。Go baseline 优先落地定义 schema，其余三方按 Go schema 对齐。
+用户决策选择方案 D：/stats 新增 http 子树（双通道观测模型），采用 `map<string,...>` schema，sum_ns 使用 int64 纳秒。Go baseline 先行实现并定义 schema，其余三方按 Go schema 对齐。
 
 cross-validate Section 13 metrics parity 从 6 项扩展到 9 项（新增 [7] requests_total / [8] duration count / [9] schema shape）。
 
@@ -46,7 +46,7 @@ cross-validate Section 13 metrics parity 从 6 项扩展到 9 项（新增 [7] r
 ### 主题 A
 
 - **预期**：用户认为 Go/Java/Python 三方已 default-on http metrics，仅 C++ 落后。
-- **实际**：辨识后发现 Java 仍是 conditional（`if (metricsProvider != null)` 守卫），Python 完全没有 metrics Provider 抽象也没有 http_metrics middleware。四方状态各不相同，差异远比用户描述的大。
+- **实际**：辨识后发现 Java 仍是 conditional（`if (metricsProvider != null)` 判断），Python 完全没有 metrics Provider 抽象也没有 http_metrics middleware。四方状态各不相同，差异远比用户描述的大。
 
 ### 主题 B
 
@@ -59,7 +59,7 @@ cross-validate Section 13 metrics parity 从 6 项扩展到 9 项（新增 [7] r
 
 ### 1. 跨语言状态辨识盲区
 
-用户原话以为"Go/Java/Python 都 default-on，只 C++ 落后"。直接采信这一描述会导致只修 C++ 一方。实际 grep + 代码读核实后，四方状态各异：Go default-on、Java conditional、Python 完全缺失、C++ working tree 半改。
+用户原话以为"Go/Java/Python 都 default-on，只 C++ 落后"。直接采信这一描述会导致只修 C++ 一方。实际 grep + 代码读核实后，四方状态各异：Go default-on、Java conditional、Python 完全缺失、C++ working tree 只改了一半。
 
 ### 2. R2 审计"合理差异"的误判
 
@@ -71,7 +71,7 @@ R2 审计时将"C++ 没有 errors.As 等价能力"标为合理差异。根因是
 
 ### 4. worker agent 启动失败
 
-主题 A 尝试用 worker agent 并行启动 Java/Python/cpp 三方落地，但 worker agent 因 `xhigh` effort 配置失败，主线程亲自接手完成。复杂跨语言改造中 worker agent 的启动失败导致额外的回滚和上下文切换成本。
+主题 A 尝试用 worker agent 并行启动 Java/Python/cpp 三方实现，但 worker agent 因 `xhigh` effort 配置失败，主线程亲自接手完成。复杂跨语言改造中 worker agent 的启动失败导致额外的回滚和上下文切换成本。
 
 ---
 
@@ -101,7 +101,7 @@ C++ 标准库的设计意图是"若无 nested，则不做任何事"，但实现�
 
 ### 2. Cross-validate 第二种验证模式
 
-之前 Section 1-14 全部是 fixture-driven HTTP 字节对比（第一种模式）。Section 15 首次使用"四方各跑一个 probe binary，统一 stdout 字符串比对"的方式，覆盖"语言层 API 形态"差异（cause chain 不在 HTTP 接口可见，JSON 序列化为 string 已字节级一致，但语言层 unwrap 能力是否可用需要独立探针）。
+之前 Section 1-14 全部是 fixture-driven HTTP 字节对比（第一种模式）。Section 15 首次使用"四方各跑一个 probe binary，统一 stdout 字符串比对"的方式，覆盖"语言层 API 形式"差异（cause chain 不在 HTTP 接口可见，JSON 序列化为 string 已字节级一致，但语言层 unwrap 能力是否可用需要独立探针）。
 
 这标志着 cross-validate 框架从"HTTP 接口行为对比"扩展到"运行时内部 API 能力对比"。
 

@@ -19,7 +19,7 @@
 
 ## 跑后检查
 
-- 再 `uptime` 一次：load 飙升说明 bench 留了尾巴（残留进程/线程）
+- 再 `uptime` 一次：load 飙升说明 bench 没清理干净（残留进程/线程）
 - 杀进程后必须用 `pgrep -f <name>` + `uptime` 双确认。教训：detached worker 线程在主线程死后继续 spin，曾吃满 16 核（累计 25391 CPU 分钟）污染整天 bench 数据，先得出完全错误的负优化结论
 - atop 历史打点可回溯验证任意 bench 时段的真实 load：`atop -r /var/log/atop/atop_YYYYMMDD -b HH:MM -P CPL`
 
@@ -49,11 +49,11 @@
 两者是不同种类，不可互换：
 
 - **calibrated**（`realistic_for_you_calibrated*`）：实质特征是每个算子带 `bench_profile`（真实流量画像 + 依赖 bench stub 算子）。它是生产性能决策的唯一裁判
-- **合成 guardrail**：职责是守护某条代码路径不静默整体退化，**不是生产代理**。其上测出的 delta **不得作为优化收益声明**
+- **合成 guardrail**：职责是防止某条代码路径静默地整体退化，**不是生产代理**。其上测出的 delta **不得作为优化收益声明**
 
-现有 guardrail：`fixtures/benchmarks/transform_heavy_1000_{config,request}.json`（一个 `recall_static` + 8 个链式 `transform_normalize`，`storage_mode: column` 钉死，N=1000）。补的缺口是——所有 calibrated fixture 都声明 `storage_mode: row`（对它们 N≈10 的生产情况是正确选择），导致列存批量列访问路径此前没有任何 nightly 守护者。受 ±5-7% 二进制布局噪声限制，它只能防住"列存路径整体崩了"（~20-35% 量级），细粒度回归仍归 `pine-go/benchmarks/bench_storage_ab_test.go` 的 `BenchmarkStorageAB_TransformHeavy_*`。
+现有 guardrail：`fixtures/benchmarks/transform_heavy_1000_{config,request}.json`（一个 `recall_static` + 8 个链式 `transform_normalize`，固定 `storage_mode: column`，N=1000）。补的缺口是——所有 calibrated fixture 都声明 `storage_mode: row`（对它们 N≈10 的生产情况是正确选择），导致列存批量列访问路径此前没有任何 nightly 覆盖。受 ±5-7% 二进制布局噪声限制，它只能防住"列存路径整体崩了"（~20-35% 量级），细粒度回归仍归 `pine-go/benchmarks/bench_storage_ab_test.go` 的 `BenchmarkStorageAB_TransformHeavy_*`。
 
-写新合成 fixture 时，根级 `_comment` 应明写"synthetic, not a performance verdict"及其守护范围。
+写新合成 fixture 时，根级 `_comment` 应明写"synthetic, not a performance verdict"及其覆盖范围。
 
 另注意 issue 措辞陷阱：#160 标题写 "column-favorable **calibrated** fixture"，但合成 fixture 没有 `bench_profile`、不依赖 bench stub 算子，从构造上不可能是 calibrated（issue body 自己纠正为 "synthetic guardrail"）。按标题做会污染"calibrated 是唯一裁判"的判据——issue 标题不是规格。
 

@@ -1,17 +1,17 @@
 # pine-java GC 选型决策
 
-记录 2026-06-26 JDK 25 升级 + ZGC 评估收口后确定的 pine-java GC 选型决策。本文档覆盖"JVM 进程参数 / GC 选型"层，与 `perf-evolution-roadmap.md`（引擎侧 typed-ColumnFrame / common-mode / VM 适配层）互补不冲突。
+记录 2026-06-26 JDK 25 升级 + ZGC 评估结束后确定的 pine-java GC 选型决策。本文档覆盖"JVM 进程参数 / GC 选型"层，与 `perf-evolution-roadmap.md`（引擎侧 typed-ColumnFrame / common-mode / VM 适配层）互补不冲突。
 
 ## 决策
 
-**保持 JDK 21+ 默认的 G1 GC**，不切 ZGC、不切 Shenandoah、不切 Parallel。仅当后续 deployment 形态发生质变且重测后明确有正向证据时才重启选型。
+**保持 JDK 21+ 默认的 G1 GC**，不切 ZGC、不切 Shenandoah、不切 Parallel。仅当后续 deployment 配置发生质变且重测后明确有正向证据时才重启选型。
 
-## 当前部署形态
+## 当前部署配置
 
 - 堆：4 G 上限
 - CPU：2 C cgroup（`pine-bench-server.unit` 隔离单元）
 - 单请求延迟：100+ ms（DAG 38-op + per-item Lua + stub I/O）
-- 负载形态：**throughput-bound**（QPS 决策），不是 latency-bound
+- 负载类型：**throughput-bound**（QPS 决策），不是 latency-bound
 - JVM：OpenJDK 25 runtime（v0.10.10 起 compile target 同步升 25，见 commit `62475e27`）
 - GC：JDK 21+ 默认 G1
 
@@ -41,15 +41,15 @@ stddev 33–36 ms，G1 与 ZGC 无差。
 ## 根因
 
 1. **G1 已无长 pause 痛点**：max STW 12.82 ms ≪ calibrated stddev 35 ms，整体 STW budget 远小于 stddev。stddev 35 ms **完全不是 GC 来源**，因此切任何 GC 都无法收紧 stddev。
-2. **ZGC trade-off 在小核 cgroup 下输**：ZGC 把 STW 换成 concurrent CPU 工作，2 C cgroup 下 6.7% CPU 被 concurrent phase 偷走，直接体现为 QPS −5~7%。STW 的 580× 收益对 100+ ms 单请求不可见。
-3. **ZGC 适用场景与当前形态反向**：ZGC 优势在 ≥16 G 堆 / ≥8 C 核 / 1–10 ms 单请求 / 延迟敏感 SLO；pine-java 当前 4 G / 2 C / 100+ ms / throughput-bound 完全反向。
+2. **ZGC trade-off 在小核 cgroup 下处于劣势**：ZGC 把 STW 换成 concurrent CPU 工作，2 C cgroup 下 6.7% CPU 被 concurrent phase 偷走，直接体现为 QPS −5~7%。STW 的 580× 收益对 100+ ms 单请求不可见。
+3. **ZGC 适用场景与当前配置相反**：ZGC 优势在 ≥16 G 堆 / ≥8 C 核 / 1–10 ms 单请求 / 延迟敏感 SLO；pine-java 当前 4 G / 2 C / 100+ ms / throughput-bound 完全相反。
 4. **calibrated stddev 35 ms 与 GC 无关**：实测主导源是 DAG 38-op 调度抖动 + LuaJ JIT warmup + 网络抖动，证伪了"ZGC 收紧 stddev"的先验假设。详见 `llmdoc/guides/benchmark-hygiene.md` "stddev 来源校准"。
 
 ## 重启选型的触发条件
 
 以下任一条触发即重做 GC 选型评估：
 
-- **deployment 形态变更**：堆 ≥16 G **或** 核心数 ≥8 **或** 单请求目标 P99 ≤10 ms（latency-bound SLO 出现）
+- **deployment 配置变更**：堆 ≥16 G **或** 核心数 ≥8 **或** 单请求目标 P99 ≤10 ms（latency-bound SLO 出现）
 - **G1 worst-case pause 失控**：生产数据显示 G1 STW max > 50 ms
 - **calibrated stddev 主导源转移到 GC**：重测 GC log 验证 STW 总贡献接近 stddev 量级（当前 STW total 远小于 stddev × bench duration 时不触发）
 
@@ -57,15 +57,15 @@ stddev 33–36 ms，G1 与 ZGC 无差。
 
 ## 不该做的实验
 
-- `-XX:+UseSerialGC`：单线程必输，无对比价值。
+- `-XX:+UseSerialGC`：单线程必然落后，无对比价值。
 - Shenandoah：与 ZGC 同类 concurrent trade-off，且 OpenJDK 25 Temurin 不默认 ship，引入额外依赖且预期与 ZGC 同向负优化。
-- Parallel GC：throughput-only、无 concurrent class unloading、与 G1 同型号但更老，无替换收益。
+- Parallel GC：throughput-only、无 concurrent class unloading、与 G1 同类但更老，无替换收益。
 
 ## 与 perf-evolution-roadmap 的关系
 
 - `llmdoc/memory/decisions/perf-evolution-roadmap.md` 圈定**引擎侧**演进（typed-ColumnFrame / common-mode 列内核 / VM 适配层），其性能假设建立在"运行环境层稳定"之上。
 - 本决策圈定**运行环境层**（JVM 进程参数 / GC 选型），是 roadmap 假设的底座。
-- 两者互补不冲突；任何引擎侧优化的 calibrated 数据均需声明 GC 形态（当前 G1），跨 GC 比较不可直接套用。
+- 两者互补不冲突；任何引擎侧优化的 calibrated 数据均需声明所用 GC（当前 G1），跨 GC 比较不可直接套用。
 
 ## 引用
 

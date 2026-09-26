@@ -22,7 +22,7 @@
 
 ## Root Cause
 - Apple 自动命名依赖 `OpCall` 的 `repr()`，因此 dataclass 字段集的任何变化都会影响哈希结果；这是当前命名机制的脆弱点，而不是这次实现特有的问题。
-- 前一轮关于 `data_parallel` 的工作重点在运行时框架和 Go 侧约束，DSL 编译器文档更新项虽然已被识别，但没有在同一任务内完成闭环，说明“运行时能力新增后同步检查声明侧文档”还不是一个被强约束的收尾步骤。
+- 前一轮关于 `data_parallel` 的工作重点在运行时框架和 Go 侧约束，DSL 编译器文档更新项虽然已被识别，但没有在同一任务内完成，说明“运行时能力新增后同步检查声明侧文档”还不是一个被强约束的收尾步骤。
 
 ## Missing Docs or Signals
 - `llmdoc/architecture/apple-compiler.md` 需要明确补充三点：

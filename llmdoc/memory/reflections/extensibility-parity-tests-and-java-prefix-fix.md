@@ -6,7 +6,7 @@ type: reflection
 
 ## Task
 
-在 audit-extensibility-blindspot 复盘后，落地具体修复与测试：
+在 audit-extensibility-blindspot 复盘后，完成具体修复与测试：
 
 1. 修复 Java HttpServer prefix-match 语义泄露（`8cd448a`）：`/health/sub/path` 因 longest-prefix 匹配命中 `/health` context 返回 200，需要 exact-path guard。
 2. 新增 cross-validate 第 12 层 `12-extensibility-parity.sh`（`0ae4756`）：6 项检查覆盖 404 状态/body/content-type 对等、POST 未知路径、多任意路径、深层嵌套路径。

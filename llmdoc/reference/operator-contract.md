@@ -182,11 +182,11 @@ C++ 侧提供注册路径：
 
 新增任何 Redis client / 资源失败路径（AUTH 失败 / SELECT 失败 / dial 超时 / pool 等待超时 / 命令执行错误等）都必须走完`fail_on_error=false → connected()==false → 借用层视为不可用 → 算子静默降级`链路。审计 review 时强制核对：
 
-- client 抛错路径必须 close fd 并把 `connected()` 翻成 false（pine-cpp Client 的 AUTH/SELECT 失败 try/catch 是 reference 实现，详见 `pine-cpp/src/runtime/redis_client.cpp`）
+- client 抛错路径必须 close fd 并把 `connected()` 置为 false（pine-cpp Client 的 AUTH/SELECT 失败 try/catch 是 reference 实现，详见 `pine-cpp/src/runtime/redis_client.cpp`）
 - 错误必须 surface 为 `output.SetWarning(...)` 而不是 panic 或 fatal
 - `fail_on_error=true` 路径继续抛 `ExecutionError`，与默认路径分支独立
 
-历史教训：pine-cpp 0.10.10 之前 AUTH/SELECT 失败留下半连接（fd 未关、`connected()` 仍为 true），后续借用此 client 时直接发命令失败、绕过静默降级；新增 client 失败路径时必须按本契约 close fd + 翻 `connected()`。
+历史教训：pine-cpp 0.10.10 之前 AUTH/SELECT 失败留下半连接（fd 未关、`connected()` 仍为 true），后续借用此 client 时直接发命令失败、绕过静默降级；新增 client 失败路径时必须按本契约 close fd 并把 `connected()` 置为 false。
 
 ## 保留 JSON/配置键
 
@@ -259,7 +259,7 @@ C++ 侧提供注册路径：
 
 | 运行时 | 接口 | 使用方式 |
 |---|---|---|
-| pine-go | `types.LoggerAware`（`SetEngineLogger(*log.Logger)`） | 嵌入 `pine.LoggerHolder` 自动满足，调用 `Logf(format, args...)`；`DebugHolder` 已内嵌 `LoggerHolder`，DebugAware 算子免费获得 |
+| pine-go | `types.LoggerAware`（`SetEngineLogger(*log.Logger)`） | 嵌入 `pine.LoggerHolder` 自动满足，调用 `Logf(format, args...)`；`DebugHolder` 已内嵌 `LoggerHolder`，DebugAware 算子自动获得 |
 | pine-java | `LoggerAware`（`setEngineLogPrefix(String)`） | 继承 `AbstractOperator` 后调用 `logf(format, args...)` |
 | pine-cpp | `LoggerAware`（`set_engine_log_prefix(const std::string&)`） | 实现接口存下 prefix，输出行自行前置（参考 `pine-cpp/operators/observe/observe_log.cpp`） |
 
@@ -330,7 +330,7 @@ Java 在 `MetricsAware` 之后还有 `ResourceAware`；C++ 的 metadata/debug �
 
 #### 批量列访问（`ItemColumn` / `itemColumn` / `item_column`）
 
-一次调用返回某 item 字段的整列值（一次锁 + 一次列解析，替代逐元素 `Item()` 循环的 per-element 锁税 + map 查找税——这是列存连续布局优势的兑现点，详见 `memory/reflections/column-vs-row-parity-investigation.md`）。三引擎方法名与返回类型：
+一次调用返回某 item 字段的整列值（一次锁 + 一次列解析，替代逐元素 `Item()` 循环中每个元素都要付出的加锁开销 + map 查找开销——列存连续布局的优势正是在这里体现出来，详见 `memory/reflections/column-vs-row-parity-investigation.md`）。三引擎方法名与返回类型：
 
 | 引擎 | 方法 | 返回 | Frame 层扩展点 |
 |---|---|---|---|
@@ -341,7 +341,7 @@ Java 在 `MetricsAware` 之后还有 `ResourceAware`；C++ 的 metadata/debug �
 语义契约（三引擎一致）：
 
 - 元素 i 与逐元素 `Item(i, field)` **完全一致**，含 item_defaults 对 nil 槽位的替换
-- 返回值**只读**，仅在当次 Execute 内有效——Go/Java 下 ColumnFrame 无 defaults 时返回零拷贝视图（逃逸出锁的安全性依赖 DAG 冒险排序：写同字段的算子与行集变异算子已与读者串行化）；**禁止变异或在 Execute 结束后滞留引用**
+- 返回值**只读**，仅在当次 Execute 内有效——Go/Java 下 ColumnFrame 无 defaults 时返回零拷贝视图（逃逸出锁的安全性依赖 DAG 冒险排序：写同字段的算子与行集变异算子已与读者串行化）；**禁止变异或在 Execute 结束后继续持有引用**
 - 缺失字段返回全 nil 列（与 `Item()` 的 nil-on-absent 一致）
 - 兼容 data_parallel 分片窗口（offset/count 平移）
 
@@ -362,7 +362,7 @@ Java 在 `MetricsAware` 之后还有 `ResourceAware`；C++ 的 metadata/debug �
 | `common_defaults` | `common_defaults` | `CommonDefaults` | `commonDefaults` | `common_defaults` |
 | `item_defaults` | `item_defaults` | `ItemDefaults` | `itemDefaults` | `item_defaults` |
 
-当涉及字段模式相关的 JSON 键名变更时，必须同步检查此表中所有列。历史教训：v0.9.0 翻转默认模式时运行时完成迁移但 Apple DSL 侧遗漏，导致声明能力丧失（详见 `memory/reflections/v090-nullable-strict-apple-desync.md`）。
+当涉及字段模式相关的 JSON 键名变更时，必须同步检查此表中所有列。历史教训：v0.9.0 切换默认模式时运行时完成迁移但 Apple DSL 侧遗漏，导致声明能力丧失（详见 `memory/reflections/v090-nullable-strict-apple-desync.md`）。
 
 ### Pine-C++ OperatorInput 投影层
 
@@ -394,10 +394,10 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 这是算子诚实性契约的写侧一半，与读侧投影（"输入从声明的元数据投影"）对偶。它不是形式要求：DAG 冒险边完全由声明列表推出（`pine-go/internal/dag/dag.go:addEdges`），写了未声明的字段就没有任何 RAW/WAW/WAR 边保护它——同名并发写者不被串行化，下游声明该字段为输入的算子对生产者没有依赖。在这条被强制之前，唯一写死字段名的生产算子是 `transform_bench_cpu` / `transform_bench_sleep`（`_bench_result` / `_bench_slept`，无 build-tag 门控），用它们的配置必须声明这两个字段；仓内 `fixtures/benchmarks/` 全部已声明。
 
-执行时机与错误形状（三运行时一致，`fixtures/errors/runtime_undeclared_{item,common}_output.json` 以 `wrapping_exact` 钉住 go/java/cpp）：
+执行时机与错误格式（三运行时一致，`fixtures/errors/runtime_undeclared_{item,common}_output.json` 以 `wrapping_exact` 锁定 go/java/cpp 三方行为）：
 
 - 校验点紧跟算子类型方法校验之后、`ApplyOutput` 之前，且仅在此前无错误时执行。Go `pine-go/internal/types/operator.go:ValidateDeclaredOutputs`，调用点 `pine-go/internal/runtime/scheduler.go`（紧跟 `ValidateOutput`）；Java/C++ 在各自 type 校验的同一位置。校验点在 frame 之外，因为 frame 层看不到声明列表，而调度器调用点手里有算子配置——三方都是"`ApplyOutput` 签名拿不到、调用点拿得到"。
-- 文案：`pine: execution error in operator "X": output contract violation: operator wrote undeclared item output field(s) [f1 f2]`（common 通道把 `item` 换成 `common`）。列表形状与既有 type violation 相同：方括号、单空格分隔、无引号无逗号。
+- 文案：`pine: execution error in operator "X": output contract violation: operator wrote undeclared item output field(s) [f1 f2]`（common 通道把 `item` 换成 `common`）。列表格式与既有 type violation 相同：方括号、单空格分隔、无引号无逗号。
 - 字段名**按字节序升序**、去重后报出——`commonWrites` 与 `AddItem` payload 都是 map，不排序就无法字节级锁定。Java 侧不能用裸 `String.compareTo`（UTF-16 code unit 序），要复用 UTF-8 字节序比较器。
 - **先查 common，有违规只报 common 并返回**；无违规再查 item 三条通道合并去重。两通道同时违规时只见 common 字段。
 - `_source` 不需要豁免：三方都在 `ApplyOutput` 内注入，晚于校验点。它出现在校验里的唯一可能**只在 pine-go 成立**——算子把已交给 `AddItem` 的 map 缓存起来又交了一次，而 Go 的 frame 按引用追加并原地注入 `_source`（`row_frame.go` / `column_frame.go`）；Java（`new LinkedHashMap<>(added)`）与 C++（`add_item` 按值接收）先拷贝再注入，同一份复用 map 在那两方永远通过。这是扩展 API 上的三方所有权不对等，跟踪于 `memory/doc-gaps.md`「`AddItem` 交出的 map 所有权」。结论对三方都成立：生产 recall 算子交出前都拷贝一份（`pine-go/operators/recall/static.go`），自定义算子同样必须拷贝。
@@ -416,7 +416,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 | pine-java | `OperatorOutput.setItemColumnDouble(field, vals)` | `double[]` |
 | pine-cpp | `OperatorOutput::set_item_column_double(field, vals)` | `std::vector<double>`（值传递，move 交接） |
 
-语义契约（三引擎一致，由各引擎 column_write 测试钉死）：
+语义契约（三引擎一致，由各引擎 column_write 测试保证）：
 
 - **应用时机 stage 2b**：在逐元素 item writes 之后、removals 之前；同字段"列写覆盖逐元素写"是确定性顺序语义
 - **整列或全无**：`len(vals)` 必须等于 frame 当时的 item 数，不匹配报 `SetItemColumnFloat64 "f" length N does not match item count M`（跨引擎字节一致）
@@ -540,12 +540,12 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 - **复合类型双向支持**：host slice/list/array → Lua array table（1-indexed），host map/dict → Lua hash table。Lua table 在 `fromLua` 时按"数字键 1..N 连续"判定为 array，否则为 map。
 - **非字符串 key 拒绝**：Lua table 含非 string key（如 `{[10]=1}` 或 `{[true]='bad'}`）时，`fromLua` 返回 `lua: table has non-string key of type "<type>"` 错误。各运行时的报错文案在字节级一致，由 `fixtures/errors/runtime_lua_non_string_table_key.json` 锁定。
 - **标量分派必须用真实类型标签，绝不用 coercion 谓词**（issue #175）：luaj 的 `isnumber()`/`isstring()` 是 Lua coercion 查询——`LuaString.isnumber()` 对任何数字形字符串为 true、`LuaNumber.isstring()` 恒为 true——用它们分派会把数字形字符串路由进 number 分支（类型身份丢失，>2^53 经 `todouble()` 往返精度损坏）。唯一无歧义分派是 `v.type() == TNUMBER/TSTRING`。三宿主库语义对照：gopher-lua Go type switch = 标签；wangshu `Is*` = kind 标签；luaj `is*` = coercion——同形 API 语义相反，审计 bridge 时逐个 `is*()` 调用判定属于哪类。回归由 `TransformByLuaTypeIdentityTest`（Java 类身份 assertInstanceOf）+ `fixtures/pipelines/lua_string_number_identity.json`（cross-validate section 3/9 类型保留比对）+ fuzzer identity 通路三层锁定。
-- **pine-java host→VM 写全局必须走 `TransformByLua.setGlobal`，不直接 `globals.set`**（issue #200）：luaj 3.0.1 的 `LuaTable.NumberValueEntry.set` 用 `value.tonumber()` 决定是否复用数字槽——又是 coercion——于是同一个 string key 上**先写 number 再写数字形 string**，读回来是 number（`"1777288596209286259"` 写在 `784.6` 之上 → 脚本看到 `1777288596209286144`）。这是与 #175 不同的维度：#175 是逐个值的派发谓词，#200 是**槽位跨 item 的状态**——单 item 的 identity 测试永远绿，六个 item 里第二个才红。上游 luaj 提交 `b8aaaafb`（2018-10-31）已在 `set` 前加 `type() == TNUMBER` 守卫，但 Maven Central 最新仍是 3.0.1（2017），故守卫落在桥接层：新值是 TSTRING 且旧槽是 TNUMBER 时先置 nil 再写。受影响面（按 3.0.1 字节码核实）：只有 number 槽 → string 值这一条边；`NormalEntry`/`IntKeyEntry.set` 原样存值，`defaultEntry` 工厂只对 TNUMBER 值建 `NumberValueEntry`，数组下标与新 key 都不受影响。**桥接层修不到的残留**：脚本自身的赋值（`t.k = 7; t.k = "123"` 得 number）走同一条 VM 路径，只能靠 luaj 升级/fork 解决，登记在 `memory/doc-gaps.md`。回归由 `TransformByLuaTypeIdentityTest.numericStringAfterNumberInSameGlobalStaysString` 等三个多 item 用例 + `fixtures/operators/transform_by_lua_edge_cases.json` 的 #200 用例锁定。
+- **pine-java host→VM 写全局必须走 `TransformByLua.setGlobal`，不直接 `globals.set`**（issue #200）：luaj 3.0.1 的 `LuaTable.NumberValueEntry.set` 用 `value.tonumber()` 决定是否复用数字槽——又是 coercion——于是同一个 string key 上**先写 number 再写数字形 string**，读回来是 number（`"1777288596209286259"` 写在 `784.6` 之上 → 脚本看到 `1777288596209286144`）。这是与 #175 不同的维度：#175 是逐个值的派发谓词，#200 是**槽位跨 item 的状态**——单 item 的 identity 测试永远通过，六个 item 里到第二个才失败。上游 luaj 提交 `b8aaaafb`（2018-10-31）已在 `set` 前加 `type() == TNUMBER` 检查，但 Maven Central 最新仍是 3.0.1（2017），故这道检查放在桥接层：新值是 TSTRING 且旧槽是 TNUMBER 时先置 nil 再写。受影响面（按 3.0.1 字节码核实）：只有 number 槽 → string 值这一条边；`NormalEntry`/`IntKeyEntry.set` 原样存值，`defaultEntry` 工厂只对 TNUMBER 值建 `NumberValueEntry`，数组下标与新 key 都不受影响。**桥接层修不到的残留**：脚本自身的赋值（`t.k = 7; t.k = "123"` 得 number）走同一条 VM 路径，只能靠 luaj 升级/fork 解决，登记在 `memory/doc-gaps.md`。回归由 `TransformByLuaTypeIdentityTest.numericStringAfterNumberInSameGlobalStaysString` 等三个多 item 用例 + `fixtures/operators/transform_by_lua_edge_cases.json` 的 #200 用例锁定。
 - **空表约定**：Lua 空 table 在三运行时一致编码为空 array `[]`（而非空 map `{}`），避免跨运行时 JSON 序列化产生差异。
 - **Sequence 检测严格性**（pine-go）：`fromLua` 要求 `1..N` 严格连续才识别为 array，遇到 `nil` 中断即降级为 map（避免误判稀疏数组）。
 - **错误前缀去重**（pine-go）：`fromLua` 的内部错误已带 `lua:` 前缀，外层 `executeForItem` / `executeForCommon` 不再二次包裹。
 
-`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。标量类型身份路径由 `fixtures/pipelines/lua_string_number_identity.json` 与 fuzzer 的 `LUA_IDENTITY_ITEM_FUNCTION` + flow_contract 投影（使字段值进入差分比对面）覆盖。issue #174 的排除契约由 `fixtures/pipelines/shuffle_salt_reads_skip_field.json` 与 `fixtures/pipelines/shuffle_salt_reads_common_input_skip.json` 钉住：`reorder_shuffle_by_salt` 用 `metadata.common_input` 构 salt 时，排除字段的值和顶层 `skip` 字段名都不得进入算子可见输入；debug/trace 快照也不得泄漏同一排除集合。
+`fixtures/operators/transform_by_lua_tables.json` 与 `scripts/differential-fuzz.py` 的 `LUA_ITEM_FUNCTIONS` table-aware 用例（`#item_tags`、`for i=1,#item_vals`、return `{a, b}`）覆盖该转换路径，由 differential fuzz 与 cross-validate 持续验证。标量类型身份路径由 `fixtures/pipelines/lua_string_number_identity.json` 与 fuzzer 的 `LUA_IDENTITY_ITEM_FUNCTION` + flow_contract 投影（使字段值进入差分比对面）覆盖。issue #174 的排除契约由 `fixtures/pipelines/shuffle_salt_reads_skip_field.json` 与 `fixtures/pipelines/shuffle_salt_reads_common_input_skip.json` 锁定：`reorder_shuffle_by_salt` 用 `metadata.common_input` 构 salt 时，排除字段的值和顶层 `skip` 字段名都不得进入算子可见输入；debug/trace 快照也不得泄漏同一排除集合。
 
 ### Lua Pool Baseline 重置契约（仅覆盖字符串键 globals）
 
@@ -615,7 +615,7 @@ Pine-Java 的 `Codegen.java` 支持双模式生成：
 
 两侧 codegen 输出保持一致（`operators.py`、`resources.py`、`__init__.py`、`doc/operators/`）。
 
-任何对 Schema 形状、参数类型/默认值或注册表内容的变更都应随后重新生成。CI 通过 generated-diff 门控检查新鲜度。
+任何对 Schema 结构、参数类型/默认值或注册表内容的变更都应随后重新生成。CI 通过 generated-diff 门控检查新鲜度。
 
 此外，`pine-go/pkg/codegen/template.go` 中的 `pythonType()` 会把 Schema 参数定义里的 `Type` 字段映射为 Python 类型注解。当前支持的映射为：`"string"` → `str`、`"int"` / `"int64"` → `int`、`"float64"` → `float`、`"bool"` → `bool`；未识别的类型会回退为 `Any`。新增算子参数类型时，需要同时确认 codegen 映射已覆盖，否则生成的 Python helper 会退化为宽泛类型。
 
@@ -659,7 +659,7 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 
 新增算子若对用户值做字符串转换，且该结果参与跨运行时比较（Redis key、fixture 断言），应使用 GoFormat。
 
-模板参数（`ParamSpec.Templatable`，参见 [apple-compiler.md 模板参数 `{{field}}` 插值](../architecture/apple-compiler.md)）的运行时插值同样走 GoFormat：pine-go `fmt.Sprint(v)`、pine-java `GoFormat.sprint(v)`（**模板路径必须显式走 sprint，不要落回 `Double.toString()`**——历史上 float 字段直接走 `Double.toString` 会产生 `12.5` vs `12.500000` 跨运行时漂移）、pine-cpp `go_format_g(v)`。当前已声明为 `Templatable=true` 的参数：`transform_redis_get.key_prefix`、`transform_redis_set.key_prefix`、`transform_redis_set.ttl`、`filter_truncate.top_n`；新增可模板化参数时，需要同步在 cross-validate `scripts/cross-validate/17-templated-params.sh` 加 stringify parity probe。
+模板参数（`ParamSpec.Templatable`，参见 [apple-compiler.md 模板参数 `{{field}}` 插值](../architecture/apple-compiler.md)）的运行时插值同样走 GoFormat：pine-go `fmt.Sprint(v)`、pine-java `GoFormat.sprint(v)`（**模板路径必须显式走 sprint，不要退回到 `Double.toString()`**——历史上 float 字段直接走 `Double.toString` 会产生 `12.5` vs `12.500000` 跨运行时漂移）、pine-cpp `go_format_g(v)`。当前已声明为 `Templatable=true` 的参数：`transform_redis_get.key_prefix`、`transform_redis_set.key_prefix`、`transform_redis_set.ttl`、`filter_truncate.top_n`；新增可模板化参数时，需要同步在 cross-validate `scripts/cross-validate/17-templated-params.sh` 加 stringify parity probe。
 
 ## 参数模板化（`Templatable` / `templatable`）
 
@@ -674,7 +674,7 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 - 参数 `Type` 必须为以下标量类型之一：`string` / `int` / `int64` / `float` / `float64` / `bool`（权威清单见 `apple/validator.py::_TEMPLATABLE_SCALAR_TYPES` 与 `pine-go/internal/runtime/template.go::templatableScalarTypes`）
 - DSL 端整值必须正好等于 `^\{\{(\w+)\}\}$`，违规在 Apple 编译期 fail-fast
 - 模板字段名会被 Apple 编译器自动追加到 `common_input_template` 桶，不进入算子 `OperatorInput`
-- Build-time 形状违规 → `ConfigError`；runtime 解析失败 → `ExecutionError` 由引擎包装算子名
+- Build-time 结构违规 → `ConfigError`；runtime 解析失败 → `ExecutionError` 由引擎包装算子名
 - 算子 `Execute` 中通过 `input.templated_param("param_name")` 读取已解析值；返回类型与声明的 scalar type 对应（string→`string` / int·int64→`int64` / float·float64→`float64` / bool→`bool`）；若 build plan 未命中该参数（未声明 Templatable / DSL 未写模板），返回默认空值或非匹配类型 —— 作者应保留类型断言作为 defense-in-depth（参见 `transform_redis_get` 三引擎 `unreachable` 注释）
 - **非 string scalar（int/int64/float/float64/bool）模板化参数的 Init 校验必须只接受 bare marker**：为让 `^\{\{(\w+)\}\}$` 标记能穿过 Init 的类型检查、交给 `BuildTemplatedParamPlan` 在运行时按请求覆写，Init 的 string 分支必须仅放行 bare marker，其余字符串（如手写的 `"top_n": "not_a_number"`）必须以 `<op>: <param> must be numeric` 报错——否则会静默 coerce 到 0，破坏 T3 前的错误契约。判定走各运行时的 canonical helper：Go `runtime.IsBareMarker`、Java `TemplateResolver.isBareMarker`、C++ `is_bare_marker`（`pine/template.hpp`）。错误文案三引擎须 byte-exact 一致（参见 `filter_truncate.top_n`、`transform_redis_set.ttl`）。
 
@@ -691,7 +691,7 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 **§3 行为分支决定型** — 取值改变算子的代码路径，每条分支在 build 期可能被预校验或被 DAG 利用。运行时变 → build 期"我们不会走这条分支"的假设作废。
 代表：`data_type`（"string"/"set"/"list"）、`direction`（"common_to_item"/...）、`method`、`order`（"asc"/"desc"）、`strategy`。
 
-**§4 行为开关 / 模式标志型** — 表达算子的工作模式；跨请求变化通常是配置错配而非数据驱动，且会让观测/日志/告警语义糊。
+**§4 行为开关 / 模式标志型** — 表达算子的工作模式；跨请求变化通常是配置错配而非数据驱动，且会让观测/日志/告警语义变得模糊。
 代表：`fail_on_error`、`debug`、各种 `*_mode` / `*_policy`、`log_prefix`。
 
 **§5 build 期校验前提型** — 参数本身参与 Apple 编译期或 runtime build 期的不变量检查（DAG 依赖推导、metadata 一致性、ConcurrentSafe 校验等）。模板化等于把"已校验"重新打开成"未知"。
@@ -702,7 +702,7 @@ Java 算子需要生成与 Go 运行时一致的字符串表示时（如 Redis k
 
 **共性判据（一句话）**：如果参数取值变化会让 build 期的某条假设作废，就不能模板化。
 
-**适用画像**：剩下的"业务数据型 scalar param"才是 templatable 的天然受益者——取值变化只改业务数据流，不改算子语义/拓扑/分支。典型代表是 ID/key 类业务标识、字符串拼接位、业务驱动的阈值或限额。
+**适用情形**：剩下的"业务数据型 scalar param"才是 templatable 的天然受益者——取值变化只改业务数据流，不改算子语义/拓扑/分支。典型代表是 ID/key 类业务标识、字符串拼接位、业务驱动的阈值或限额。
 
 参考 review checklist（添加 `Templatable: true` 前问自己）：
 

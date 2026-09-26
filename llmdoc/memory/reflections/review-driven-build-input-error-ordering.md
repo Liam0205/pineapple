@@ -2,11 +2,11 @@
 
 ## Task
 - 在 `chore/bench_and_doc` 分支上核实并修复一份本地代码评审意见（`.code-review/from-2a22de1/from-2a22de1-to-eb393d5.md`，结论 REQUEST_CHANGES）提出的两处问题：pine-cpp `build_operator_input` 的输入字段校验报错顺序对等回归，以及 `scripts/cpp-tsan-smoke.sh` 的死变量。
-- 两项均核实属实并修复，重点是前者——它是一个穿越锁优化战役、revert 之后仍存活到 HEAD（eb393d5）的静默错误对等回归。
+- 两项均核实属实并修复，重点是前者——它是一个穿越锁优化专项、revert 之后仍存活到 HEAD（eb393d5）的静默错误对等回归。
 
 ## Expected vs Actual
 - Expected：三运行时 `build_operator_input` 的输入字段校验顺序应一致——`strict_common → nullable_common → strict_item → nullable_item`（"先 common 后 item"）。这正是 Go/Java（`RowFrame.BuildInput` / `ColumnFrame.BuildInput` / `DataFrame.buildInput`）以及 base commit `2a22de1` 时 C++ 的行为。当一个算子同时违反 strict common 与 strict item 时，规范的首个错误应是 common 错。
-- Actual：锁优化 commit `eab4415`（"collapse build_operator_input read locks into a single window"）为把 strict_common + nullable_common + nullable_item 收进**一个** `with_read_lock` 共享锁窗口（降低 N×M 次取锁），把自带取锁的 `validate_strict_items`（因 `shared_mutex` 非递归，必须在窗口外）挪到了**窗口之前**。顺序因此翻转为 `strict_item → strict_common → nullable_common → nullable_item`——strict_item 被提到了 common 之前。后续 per-call 锁形态 revert（`3c87bd6`）保留了这个单窗口结构，回归一路存活到 HEAD。结果：当 common 与 strict item **同时**违反时，新版 C++ 先抛 item 错（`required field "X" is nil on item[i]`），Go/Java 先抛 common 错（`required field "Y" is nil in common`），违反了字节级错误对等契约。
+- Actual：锁优化 commit `eab4415`（"collapse build_operator_input read locks into a single window"）为把 strict_common + nullable_common + nullable_item 收进**一个** `with_read_lock` 共享锁窗口（降低 N×M 次取锁），把自带取锁的 `validate_strict_items`（因 `shared_mutex` 非递归，必须在窗口外）挪到了**窗口之前**。顺序因此翻转为 `strict_item → strict_common → nullable_common → nullable_item`——strict_item 被提到了 common 之前。后续 per-call 加锁方式 revert（`3c87bd6`）保留了这个单窗口结构，回归一路存活到 HEAD。结果：当 common 与 strict item **同时**违反时，新版 C++ 先抛 item 错（`required field "X" is nil on item[i]`），Go/Java 先抛 common 错（`required field "Y" is nil in common`），违反了字节级错误对等契约。
 
 ## What Went Wrong
 - **性能重构顺带翻转了错误语义，且 perf review 未回头复核 error-parity**：`eab4415` 的目标纯粹是降低取锁次数，但因 `validate_strict_items` 必须移到锁窗口外而隐式改变了四阶段的相对先后。锁窗口合并的正确性论证只覆盖了"数据读取一致"，没有覆盖"多阶段校验的先后顺序一致"。
@@ -17,11 +17,11 @@
 ## Root Cause
 - 错误对等契约此前只被建模到"在哪个阶段报错 + 最终错误文本"两个维度，**没有把"同阶段/多违反同时发生时首个报错的判定顺序"显式列为契约的一部分**。于是锁优化时无人意识到调整 `validate_strict_items` 的位置会触碰外部契约。
 - error fixture 的覆盖思维停在"每条校验路径各测一次单违反"，没有"多条校验路径同时违反、断言谁先报"的用例，导致跨运行时报错优先级分歧是结构性无防护的。
-- 锁优化战役（见 `bench-lock-optimization-campaign.md`）的复盘聚焦性能面与 fixture 代表性，对 `eab4415` 顺带翻转报错顺序这一副作用毫无记录——副作用直到三周后的代码评审才被发现，说明性能改动触及校验路径时缺少一条强制的语义回归检查项。
+- 锁优化专项（见 `bench-lock-optimization-campaign.md`）的复盘聚焦性能面与 fixture 代表性，对 `eab4415` 顺带翻转报错顺序这一副作用毫无记录——副作用直到三周后的代码评审才被发现，说明性能改动触及校验路径时缺少一条强制的语义回归检查项。
 
-## 修复（已落地、已验证）
+## 修复（已完成、已验证）
 1. **恢复顺序**（`pine-cpp/src/dataframe/operator_input.cpp` 的 `build_operator_input`）：窗口1 做 strict_common + nullable_common；窗口外做 `validate_strict_items`（`shared_mutex` 非递归，必须独立取锁）；窗口2 做 nullable_item。最终恢复 `strict_common → nullable_common → strict_item → nullable_item`，并在源码注释中固化该顺序。热路径（nullable_item × N 行 × M 字段）仍是单窗口，性能收益保留。
-2. **新增双违反回归 fixture** `fixtures/errors/runtime_build_input_common_before_item.json`：算子同时声明 strict_common `["c"]` 与 strict_item `["x"]`，请求 `{"common":{}, "items":[{}]}` 同时违反两者，断言 `wrapping_exact` = `pine: execution error in operator "build_input_common_before_item": required field "c" is nil in common`（common 胜出），`wrapping_exact_engines: [go, java, cpp]`。已用 Go 与修复后 C++ 实跑确认一致；补上 `c` 后单 item 违反才报 `x is nil on item[0]`，反证双违反真实存在、回归版会输出 item 错从而被该 fixture 拦截。
+2. **新增双违反回归 fixture** `fixtures/errors/runtime_build_input_common_before_item.json`：算子同时声明 strict_common `["c"]` 与 strict_item `["x"]`，请求 `{"common":{}, "items":[{}]}` 同时违反两者，断言 `wrapping_exact` = `pine: execution error in operator "build_input_common_before_item": required field "c" is nil in common`（common 胜出），`wrapping_exact_engines: [go, java, cpp]`。已用 Go 与修复后 C++ 实际运行确认一致；补上 `c` 后单 item 违反才报 `x is nil on item[0]`，反证双违反真实存在、回归版会输出 item 错从而被该 fixture 拦截。
 3. **删除 tsan 死变量**（`scripts/cpp-tsan-smoke.sh` 顶部的 `PARALLEL`/`ITERATIONS`）：重构后实际循环改用 per-spec `iters`/`par`，环境变量覆盖已静默失效。
 4. 验证：C++ 全套 doctest 211 cases / 110133 assertions 全过；clang-format 合规。
 
@@ -38,6 +38,6 @@
 4. 交叉引用并补全既有反思 `llmdoc/memory/reflections/bench-lock-optimization-campaign.md` 的**盲点**：它详尽复盘了锁优化的性能面与 fixture 代表性，但完全没记录 `eab4415` 锁窗口合并顺带翻转了 `build_operator_input` 报错顺序这一副作用——该副作用直到三周后的代码评审才暴露，是"性能正确性论证只覆盖数据读取、未覆盖校验顺序"的典型案例。
 
 ## Follow-up
-- 由 recorder 落地上述文档修正：精确化 `pine-cpp-runtime.md:111` 的四阶段顺序、补"首错优先级"为对等契约、订正 `validate_strict_items` 方法名（`pine-cpp-runtime.md:112` + `operator-contract.md:319`）。
+- 由 recorder 完成上述文档修正：精确化 `pine-cpp-runtime.md:111` 的四阶段顺序、补"首错优先级"为对等契约、订正 `validate_strict_items` 方法名（`pine-cpp-runtime.md:112` + `operator-contract.md:319`）。
 - 在 `bench-lock-optimization-campaign.md` 追加一句交叉引用，指明 `eab4415` 的报错顺序副作用及本反思的修复出处。
 - 后续把"perf 改动触及校验路径需复核 error-parity"与"error fixture 需含多违反优先级用例"沉淀进 `cross-layer-validation` 指南的检查清单。

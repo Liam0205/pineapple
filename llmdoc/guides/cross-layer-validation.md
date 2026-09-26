@@ -13,7 +13,7 @@
 
 ## 1. 枚举 JSON 边界类型空间
 
-只要值会跨 Python -> JSON -> Go 传递，就不要只按“理想类型”验证。必须显式检查 JSON 的 6 种基础形态：
+只要值会跨 Python -> JSON -> Go 传递，就不要只按“理想类型”验证。必须显式检查 JSON 的 6 种基础类型：
 
 - `string`
 - `float64`
@@ -135,13 +135,13 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 
 编程 API 类扩展点（函数指针/闭包，如 custom Route 的 `Ingress`/`Egress` 适配器）无法从黑盒直接构造——cross-validate 只能起 server 二进制发 HTTP 请求，没法注入代码。解法：各引擎 server 二进制加一个统一的演示开关（Go `-demo-routes` / Java `-Dpine.demoRoutes=true` / C++ `-demo-routes`），启用时注册一条行为完全对齐的演示路由（`POST /api/echo`），把编程扩展点物化为可黑盒观测的 HTTP 行为。`scripts/cross-validate/20-custom-routes.sh` 对成功响应、405、400、404、HTTP metrics label、`watch=false` 开关做跨运行时（Go/Java/C++）字节比对。
 
-适用条件：扩展点本身是代码而非配置时（配置类扩展点直接用 fixture 驱动即可）。该模式补上了"能力等价"审计维度中编程扩展点无法落到可执行验证的缺口。来源：issue #169，详见 `memory/reflections/upstream-serverplus-custom-routes.md`。
+适用条件：扩展点本身是代码而非配置时（配置类扩展点直接用 fixture 驱动即可）。该模式补上了"能力等价"审计维度中编程扩展点无法转化为可执行验证的缺口。来源：issue #169，详见 `memory/reflections/upstream-serverplus-custom-routes.md`。
 
 ### 对等验证要覆盖执行路径的可观测副作用
 
 响应字节一致不代表执行路径对等。历史案例（issue #169 第二轮 review）：pine-cpp 的 custom route 直接调 `engine_->execute` 旁路了 `execute_with_trace`，scheduler `run_count` 与算子 exec/skip 统计全部不计数（Go/Java 正常计数），而 `/api/echo` 的响应与另两引擎完全一致——section 20 首版只查 HTTP metrics label，7/7 绿也没发现。
 
-要求：black-box 对等检查除响应字节外，应包含 `/stats` 中 scheduler/operator 统计的**增量比对**（发请求前后各取一次 `/stats`，断言各运行时增量一致）。现为 `scripts/cross-validate/20-custom-routes.sh` 的 check [7]。判断原则：凡是新入口/新分发路径接入引擎执行，就要问"它是否走了与内置端点相同的共享执行路径"，并用可观测副作用（统计、trace、指标）钉住答案。
+要求：black-box 对等检查除响应字节外，应包含 `/stats` 中 scheduler/operator 统计的**增量比对**（发请求前后各取一次 `/stats`，断言各运行时增量一致）。现为 `scripts/cross-validate/20-custom-routes.sh` 的 check [7]。判断原则：凡是新入口/新分发路径接入引擎执行，就要问"它是否走了与内置端点相同的共享执行路径"，并用可观测副作用（统计、trace、指标）确认答案。
 
 ### 可选测试臂必须 fail-closed
 
@@ -171,27 +171,27 @@ E2E 检查不是只看“有没有报错”，而要完整追踪：
 - 断言编译产物 JSON 包含正确的键名
 - 断言运行时行为符合声明语义（如 strict 字段传 nil → 运行时报错）
 
-教训来源：v0.9.0 将 InputFieldSpec 默认从 Strict 翻转为 Nullable，运行时 JSON 键从 `nullable_common`/`nullable_item` 改为 `strict_common`/`strict_item`，但 Apple DSL 侧未同步——编译器仍 emit 旧键名，运行时静默忽略，Strict 模式声明能力丧失。详见 `memory/reflections/v090-nullable-strict-apple-desync.md`。
+教训来源：v0.9.0 将 InputFieldSpec 默认从 Strict 切换为 Nullable，运行时 JSON 键从 `nullable_common`/`nullable_item` 改为 `strict_common`/`strict_item`，但 Apple DSL 侧未同步——编译器仍 emit 旧键名，运行时静默忽略，Strict 模式声明能力丧失。详见 `memory/reflections/v090-nullable-strict-apple-desync.md`。
 
-## 8. fixture 比对器语义决定该层能钉住的属性
+## 8. fixture 比对器语义决定该层能锁定的属性
 
-各验证层的比对器行为不同，决定了该层**能**钉住什么属性：
+各验证层的比对器行为不同，决定了该层**能**锁定什么属性：
 
-- Go operator-fixture 比对器用 `fmt.Sprintf("%v")` 把一切字符串化；Java `FixtureTest` 对非 Number 字符串化——两者天生看不见 `"42"` vs `42` 的类型漂移，只能钉**值级对等**
-- Java `PipelineFixtureTest` 对非 Number 对**类型敏感**；cross-validate 的 `normalize_json` 保持 string vs number 区分——**类型身份**类属性只能在这两层钉住
+- Go operator-fixture 比对器用 `fmt.Sprintf("%v")` 把一切字符串化；Java `FixtureTest` 对非 Number 字符串化——两者天生看不见 `"42"` vs `42` 的类型漂移，只能锁定**值级对等**
+- Java `PipelineFixtureTest` 对非 Number 对**类型敏感**；cross-validate 的 `normalize_json` 保持 string vs number 区分——**类型身份**类属性只能在这两层锁定
 
-选择在哪一层钉住哪个属性（值级对等 vs 类型身份）前，先核对该层比对器的实际行为；层边界是设计决策，应显式写下（如 fixture 顶层 `_comment` 键或单测注释）。历史案例（issue #175）：Lua 标量类型身份由 Java 单测（`assertInstanceOf`）+ pipeline fixture 钉住，operator fixture 只钉值级，边界用 fixture 内 `_comment` 固化。详见 `memory/reflections/lua-type-tag-dispatch-and-fuzz-blindspot.md`。
+选择在哪一层锁定哪个属性（值级对等 vs 类型身份）前，先核对该层比对器的实际行为；层边界是设计决策，应显式写下（如 fixture 顶层 `_comment` 键或单测注释）。历史案例（issue #175）：Lua 标量类型身份由 Java 单测（`assertInstanceOf`）+ pipeline fixture 锁定，operator fixture 只锁定值级，边界用 fixture 内 `_comment` 固化。详见 `memory/reflections/lua-type-tag-dispatch-and-fuzz-blindspot.md`。
 
 ### 共享 fixture 时各 runner 的比较宽松度是隐藏变量
 
-同一份 fixture 被多个运行时的 runner 读取时，**它不是同一道门**：各 runner 自己实现比较函数，宽松度不同，于是宽松的一侧长期绿灯、严格的一侧会因与契约无关的表示变更而失败。
+同一份 fixture 被多个运行时的 runner 读取时，**它不是同一道检查**：各 runner 自己实现比较函数，宽松度不同，于是宽松的一侧长期绿灯、严格的一侧会因与契约无关的表示变更而失败。
 
 实测差别（issue #189/#190）：
 
 | runner | 标量 | 容器（List/Map） |
 |---|---|---|
 | Go fixture runner（`pine-go/integration/fixture_test.go` 等，`pipeline_fixture_test.go`） | `fmt.Sprintf("%v")`，int 与 float 不可分（float64 `10` 打印成 `10`） | 同上 |
-| Java `FixtureTest.assertValueEquals` | 对 `Number` 做数值比较（带容差） | 曾落到 `String.valueOf`，`Double.toString` 带 `.0` |
+| Java `FixtureTest.assertValueEquals` | 对 `Number` 做数值比较（带容差） | 曾走 `String.valueOf`，`Double.toString` 带 `.0` |
 
 后果：`[10.0, 15.0]` 与 fixture 字面量 `[10, 15]` 仅因装箱格式化就在 Java 侧失败，而 Go 侧因 `%v` 恰好抹掉 int/float 之分一直通过——两边读的是同一份「期望值」。已修为 Java 侧对 List/Map 递归调用 `assertValueEquals`，也就是对容器做它对标量早就在做的事。
 

@@ -10,11 +10,11 @@
 - Actual：隔离后差距为 1.9-4.1x，证实引擎框架开销稀释了 50-70% 的实际算子差距。资源算子顺利实现，`resource_name` 命名约定与 `ValidateResourceDeps` 自然衔接。Item 17 经验证已是 v2 格式，无需操作。
 
 ## What Went Wrong
-- 先前 inventory 中列出了大量已完成的"待办"（12/14 个文档类条目和 golangci-lint v2），根因是从 reflection 文件提取 promotion candidates 时没有交叉验证稳定文档的当前状态。这是 reflection 作为时间快照的固有问题——后续 llmdoc:update 已将这些建议落地，但 reflection 中的文字不会自动标记为"已完成"。
+- 先前 inventory 中列出了大量已完成的"待办"（12/14 个文档类条目和 golangci-lint v2），根因是从 reflection 文件提取 promotion candidates 时没有交叉验证稳定文档的当前状态。这是 reflection 作为时间快照的固有问题——后续 llmdoc:update 已将这些建议落实，但 reflection 中的文字不会自动标记为"已完成"。
 - 隔离 benchmark 需要从 registry 获取 Lua 算子实例，但 `BuildOperator` 在 `internal/` 下未暴露。通过新增 `pine.BuildOperator` 公共包装器解决——这个 API 缺口应在 operator-contract 中记录。
 
 ## Root Cause
-- inventory 幻觉：reflection 的 "Promotion Candidates" 是写入时的建议，不是实时状态。缺少"已落地"标记机制。
+- inventory 幻觉：reflection 的 "Promotion Candidates" 是写入时的建议，不是实时状态。缺少"已完成"标记机制。
 - BuildOperator 未暴露：项目初期只有引擎内部需要构建算子，外部消费者（benchmark、测试工具）的需求未被考虑。
 
 ## Missing Docs or Signals

@@ -21,7 +21,7 @@
 1. **假设"没有直接等价物 = 不需要"** -- 忽略了替代实现路径。CancellationToken 不需要与 Go 的 context.Context 完全等效，只需在关键循环点提供检查即可发挥取消作用。
 2. **Lua pool 清理策略未考虑并发观测者** -- Globals.next() 是单线程遍历设计；在池化环境中多个线程可能同时持有引用或观测全局表状态。目标 key 跟踪是更安全的确定性清理方案。
 3. **LuaJ 的内部依赖关系未被文档化** -- 沙箱白名单决策（保留/移除哪些 Lib）缺少对 LuaJ 内部编译链路依赖的完整理解。
-4. **流程纪律不足** -- "accepted design difference" 的标记没有经过用户确认回路。
+4. **流程纪律不足** -- "accepted design difference" 的标记没有经过用户确认环节。
 
 ## Missing Docs or Signals
 - `architecture/dag-engine.md` Pine-Java 章节缺少：
@@ -56,4 +56,4 @@
 ## Follow-up
 - 更新 `architecture/dag-engine.md` Pine-Java 小节，补充 CancellationToken、DebugAware/MetricsAware、NopProvider、可配置 body size。
 - 更新 `reference/operator-contract.md` 补充 Java 算子 CancellationToken 参数与可选注入接口。
-- 建立流程规则：任何 "accepted design difference" 标记必须在反馈给用户后才能落定，禁止单方面判定。
+- 建立流程规则：任何 "accepted design difference" 标记必须在反馈给用户后才能确定，禁止单方面判定。
