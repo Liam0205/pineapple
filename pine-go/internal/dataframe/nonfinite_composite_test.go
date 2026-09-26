@@ -64,8 +64,8 @@ func TestApplyOutputAcceptsFiniteComposite(t *testing.T) {
 
 // A self-referencing map (only a custom operator can build one) must not
 // hang or overflow the stack. Two self-keys make a naive scan exponential;
-// the ancestor check skips a composite that contains itself, while the
-// NaN in a sibling is still found.
+// the depth-aware seen set skips a composite already scanned at the same or
+// a shallower depth, while the NaN in a sibling is still found.
 func TestValidateValueSelfReferencingMapTerminates(t *testing.T) {
 	m := map[string]any{}
 	m["a"] = m
