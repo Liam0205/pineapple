@@ -345,25 +345,35 @@ const maxCompositeScanDepth = 1000
 //
 // A custom operator can hand over a value whose composites are shared or
 // form a cycle (a Lua- or JSON-built value is always a tree). Each composite
-// is identified the way encoding/json identifies it for its cycle check (map
-// pointer; slice data pointer + length) and remembered with the shallowest
-// depth it was scanned at. Reaching it again at the same or a greater depth
-// cannot find anything new — every descendant was already inspected with at
-// least as much depth budget — so it is skipped. That keeps the scan linear in
-// the number of distinct composites for any sharing pattern or cycle, and the
-// verdict still depends only on the value, not on iteration order. Pointers
-// and interfaces are unwrapped through the same bookkeeping, so a pointer
-// that refers to itself terminates too.
+// is remembered (see compositeID) with the shallowest depth it was scanned
+// at. Reaching it again at the same or a greater depth cannot find anything
+// new — every descendant was already inspected with at least as much depth
+// budget — so it is skipped; reaching it shallower rescans it, which keeps
+// the depth semantics identical to walking the value as a tree. So there is
+// no path enumeration: each composite is scanned at most once per distinct
+// depth it is reached at, bounded by maxCompositeScanDepth, and never more
+// than the encoder would expand it. The verdict depends only on the value,
+// not on iteration order. Pointers and interfaces go through the same
+// bookkeeping, so a pointer that refers to itself terminates too.
 func containsNonFinite(v any) bool {
 	var s nonFiniteScanner
 	return s.scan(v, 0)
 }
 
+// compositeID identifies a composite the way encoding/json's cycle check
+// does: the reference plus its type. The type matters because two different
+// references can share an address and length — &arr and &arr[0], or s and
+// s[0][:1] — while covering different data.
 type compositeID struct {
-	ptr  uintptr
-	len  int
-	kind reflect.Kind
+	ptr uintptr
+	len int
+	typ reflect.Type
 }
+
+var (
+	anySliceType = reflect.TypeOf([]any(nil))
+	anyMapType   = reflect.TypeOf(map[string]any(nil))
+)
 
 // nonFiniteScanner records each composite with the shallowest depth it was
 // scanned at: inline for the first few (the common case — a Lua table of a
@@ -423,7 +433,7 @@ func (s *nonFiniteScanner) scan(v any, depth int) bool {
 		if depth >= maxCompositeScanDepth || len(x) == 0 {
 			return false
 		}
-		if !s.enter(compositeID{uintptr(unsafe.Pointer(unsafe.SliceData(x))), len(x), reflect.Slice}, depth) {
+		if !s.enter(compositeID{uintptr(unsafe.Pointer(unsafe.SliceData(x))), len(x), anySliceType}, depth) {
 			return false
 		}
 		for _, e := range x {
@@ -436,7 +446,7 @@ func (s *nonFiniteScanner) scan(v any, depth int) bool {
 		if depth >= maxCompositeScanDepth || len(x) == 0 {
 			return false
 		}
-		if !s.enter(compositeID{ptr: reflect.ValueOf(x).Pointer(), kind: reflect.Map}, depth) {
+		if !s.enter(compositeID{ptr: reflect.ValueOf(x).Pointer(), typ: anyMapType}, depth) {
 			return false
 		}
 		for _, e := range x {
@@ -468,7 +478,7 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 		if rv.IsNil() || depth >= maxCompositeScanDepth {
 			return false
 		}
-		if !s.enter(compositeID{ptr: rv.Pointer(), kind: reflect.Pointer}, depth) {
+		if !s.enter(compositeID{ptr: rv.Pointer(), typ: rv.Type()}, depth) {
 			return false
 		}
 		return s.scanElem(rv.Elem(), depth+1)
@@ -481,7 +491,7 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 	}
 	switch rv.Kind() {
 	case reflect.Map:
-		if !s.enter(compositeID{ptr: rv.Pointer(), kind: reflect.Map}, depth) {
+		if !s.enter(compositeID{ptr: rv.Pointer(), typ: rv.Type()}, depth) {
 			return false
 		}
 		iter := rv.MapRange()
@@ -492,7 +502,7 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 		}
 		return false
 	case reflect.Slice:
-		if !s.enter(compositeID{ptr: rv.Pointer(), len: rv.Len(), kind: reflect.Slice}, depth) {
+		if !s.enter(compositeID{ptr: rv.Pointer(), len: rv.Len(), typ: rv.Type()}, depth) {
 			return false
 		}
 	}
