@@ -35,6 +35,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -141,8 +142,17 @@ func pipelineHandler(rt *server.Server) http.HandlerFunc {
 	}
 }
 
+// writeJSON encodes before writing the status line: streaming straight
+// into w would commit the status first, so a value the encoder rejects
+// would reach the client as that status with an empty body.
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(v); err != nil {
+		buf.Reset()
+		_ = json.NewEncoder(&buf).Encode(map[string]string{"error": "response encoding error: " + err.Error()})
+		status = http.StatusInternalServerError
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(buf.Bytes())
 }
