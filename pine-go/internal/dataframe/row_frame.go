@@ -341,28 +341,76 @@ func validateValue(field string, value any) error {
 const maxCompositeScanDepth = 1000
 
 // containsNonFinite reports whether v holds a NaN or ±Inf in any composite
-// within maxCompositeScanDepth. A custom operator can hand over a
-// self-referencing map or slice; a composite that is one of its own
-// ancestors is skipped (the encoder reports the cycle), which keeps a map
-// with several self-keys linear instead of exponential. Identity follows
-// encoding/json's cycle check: map pointer, or slice data pointer + length.
-// A shared but acyclic sub-value is scanned once per path to it, exactly as
-// the encoder serialises it once per path.
+// within maxCompositeScanDepth.
+//
+// A custom operator can hand over a value whose composites are shared or
+// form a cycle (a Lua- or JSON-built value is always a tree). Each composite
+// is identified the way encoding/json identifies it for its cycle check (map
+// pointer; slice data pointer + length) and remembered with the shallowest
+// depth it was scanned at. Reaching it again at the same or a greater depth
+// cannot find anything new — every descendant was already inspected with at
+// least as much depth budget — so it is skipped. That keeps the scan linear in
+// the number of distinct composites for any sharing pattern or cycle, and the
+// verdict still depends only on the value, not on iteration order. Pointers
+// and interfaces are unwrapped through the same bookkeeping, so a pointer
+// that refers to itself terminates too.
 func containsNonFinite(v any) bool {
-	var buf [16]compositeID
-	return scanNonFinite(v, 0, buf[:0])
+	var s nonFiniteScanner
+	return s.scan(v, 0)
 }
 
 type compositeID struct {
-	ptr uintptr
-	len int
+	ptr  uintptr
+	len  int
+	kind reflect.Kind
+}
+
+// nonFiniteScanner records each composite with the shallowest depth it was
+// scanned at: inline for the first few (the common case — a Lua table of a
+// handful of values — never allocates), then in a map.
+type nonFiniteScanner struct {
+	small [16]seenComposite
+	n     int
+	more  map[compositeID]int
+}
+
+type seenComposite struct {
+	id    compositeID
+	depth int
 }
 
 func isNonFiniteFloat(f float64) bool { return math.IsNaN(f) || math.IsInf(f, 0) }
 
-// scanNonFinite classifies v found at composite depth `depth`; anc holds the
-// identities of the composites on the path from the root.
-func scanNonFinite(v any, depth int, anc []compositeID) bool {
+// enter reports whether the composite id at depth still needs scanning and
+// records it.
+func (s *nonFiniteScanner) enter(id compositeID, depth int) bool {
+	for i := 0; i < s.n; i++ {
+		if s.small[i].id == id {
+			if s.small[i].depth <= depth {
+				return false
+			}
+			s.small[i].depth = depth
+			return true
+		}
+	}
+	if s.more != nil {
+		if d, ok := s.more[id]; ok && d <= depth {
+			return false
+		}
+		s.more[id] = depth
+		return true
+	}
+	if s.n < len(s.small) {
+		s.small[s.n] = seenComposite{id, depth}
+		s.n++
+		return true
+	}
+	s.more = map[compositeID]int{id: depth}
+	return true
+}
+
+// scan classifies v found at composite depth `depth`.
+func (s *nonFiniteScanner) scan(v any, depth int) bool {
 	switch x := v.(type) {
 	case nil, bool, string, int, int8, int16, int32, int64,
 		uint, uint8, uint16, uint32, uint64:
@@ -375,13 +423,11 @@ func scanNonFinite(v any, depth int, anc []compositeID) bool {
 		if depth >= maxCompositeScanDepth || len(x) == 0 {
 			return false
 		}
-		id := compositeID{uintptr(unsafe.Pointer(unsafe.SliceData(x))), len(x)}
-		if onPath(anc, id) {
+		if !s.enter(compositeID{uintptr(unsafe.Pointer(unsafe.SliceData(x))), len(x), reflect.Slice}, depth) {
 			return false
 		}
-		anc = append(anc, id)
 		for _, e := range x {
-			if scanNonFinite(e, depth+1, anc) {
+			if s.scan(e, depth+1) {
 				return true
 			}
 		}
@@ -390,35 +436,42 @@ func scanNonFinite(v any, depth int, anc []compositeID) bool {
 		if depth >= maxCompositeScanDepth || len(x) == 0 {
 			return false
 		}
-		id := compositeID{ptr: reflect.ValueOf(x).Pointer()}
-		if onPath(anc, id) {
+		if !s.enter(compositeID{ptr: reflect.ValueOf(x).Pointer(), kind: reflect.Map}, depth) {
 			return false
 		}
-		anc = append(anc, id)
 		for _, e := range x {
-			if scanNonFinite(e, depth+1, anc) {
+			if s.scan(e, depth+1) {
 				return true
 			}
 		}
 		return false
 	}
-	return scanNonFiniteReflect(reflect.ValueOf(v), depth, anc)
+	return s.scanReflect(reflect.ValueOf(v), depth)
 }
 
-// scanNonFiniteReflect covers the slice/map/element types a custom Go
-// operator can build beyond []any / map[string]any: named float types
-// (`type score float64`), pointers and interfaces are unwrapped the way
-// encoding/json unwraps them.
-func scanNonFiniteReflect(rv reflect.Value, depth int, anc []compositeID) bool {
-	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
-		if rv.IsNil() {
-			return false
-		}
-		rv = rv.Elem()
-	}
+// scanReflect covers the value types a custom Go operator can build beyond
+// []any / map[string]any: named float types (`type score float64`),
+// arrays, and pointers / interfaces, unwrapped the way encoding/json
+// unwraps them. Each pointer hop counts as a level, like a composite, so a
+// chain of pointers is bounded by the same depth and a self-referencing
+// pointer is caught by the seen set.
+func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 	switch rv.Kind() {
 	case reflect.Float32, reflect.Float64:
 		return isNonFiniteFloat(rv.Float())
+	case reflect.Interface:
+		if rv.IsNil() {
+			return false
+		}
+		return s.scanElem(rv.Elem(), depth)
+	case reflect.Pointer:
+		if rv.IsNil() || depth >= maxCompositeScanDepth {
+			return false
+		}
+		if !s.enter(compositeID{ptr: rv.Pointer(), kind: reflect.Pointer}, depth) {
+			return false
+		}
+		return s.scanElem(rv.Elem(), depth+1)
 	case reflect.Slice, reflect.Array, reflect.Map:
 	default:
 		return false
@@ -426,45 +479,36 @@ func scanNonFiniteReflect(rv reflect.Value, depth int, anc []compositeID) bool {
 	if depth >= maxCompositeScanDepth || rv.Len() == 0 {
 		return false
 	}
-	if rv.Kind() != reflect.Array {
-		id := compositeID{ptr: rv.Pointer()}
-		if rv.Kind() == reflect.Slice {
-			id.len = rv.Len()
-		}
-		if onPath(anc, id) {
+	switch rv.Kind() {
+	case reflect.Map:
+		if !s.enter(compositeID{ptr: rv.Pointer(), kind: reflect.Map}, depth) {
 			return false
 		}
-		anc = append(anc, id)
-	}
-	if rv.Kind() == reflect.Map {
 		iter := rv.MapRange()
 		for iter.Next() {
-			if scanNonFiniteElem(iter.Value(), depth+1, anc) {
+			if s.scanElem(iter.Value(), depth+1) {
 				return true
 			}
 		}
 		return false
+	case reflect.Slice:
+		if !s.enter(compositeID{ptr: rv.Pointer(), len: rv.Len(), kind: reflect.Slice}, depth) {
+			return false
+		}
 	}
+	// An array is a value, not a reference: it cannot be shared or cyclic
+	// on its own, so it needs no identity.
 	for i := 0; i < rv.Len(); i++ {
-		if scanNonFiniteElem(rv.Index(i), depth+1, anc) {
+		if s.scanElem(rv.Index(i), depth+1) {
 			return true
 		}
 	}
 	return false
 }
 
-func scanNonFiniteElem(e reflect.Value, depth int, anc []compositeID) bool {
+func (s *nonFiniteScanner) scanElem(e reflect.Value, depth int) bool {
 	if e.CanInterface() {
-		return scanNonFinite(e.Interface(), depth, anc)
+		return s.scan(e.Interface(), depth)
 	}
-	return scanNonFiniteReflect(e, depth, anc)
-}
-
-func onPath(anc []compositeID, id compositeID) bool {
-	for _, a := range anc {
-		if a == id {
-			return true
-		}
-	}
-	return false
+	return s.scanReflect(e, depth)
 }
