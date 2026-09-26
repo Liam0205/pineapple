@@ -708,7 +708,7 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offs
     // Message body must match pine-go/parallel.go:65, pine-java
     // ParallelExecutor.java:85, and pine-python parallel.py:86-88
     // byte-for-byte — PanicError values are part of the cross-runtime
-    // contract (memory: "运行时错误对等需字节级一致").
+    // contract (runtime error parity must be byte-exact).
     throw PanicError(op_name,
                      "data_parallel shard emitted added_items, item_order, or common "
                      "writes; only item_writes / removed_items / warnings are allowed");

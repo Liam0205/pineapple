@@ -18,10 +18,11 @@ namespace pine {
 // single MVP impl.)
 
 enum class OpType { Recall, Transform, Filter, Merge, Reorder, Observe };
-const char* op_type_to_string(OpType t);         // "recall" / "transform" / ...
-const char* op_type_to_schema_string(OpType t);  // "Recall" / "Transform" / ... (首字母大写,用于 schema JSON)
+const char* op_type_to_string(OpType t);  // "recall" / "transform" / ...
+// Capitalised form used in the schema JSON.
+const char* op_type_to_schema_string(OpType t);  // "Recall" / "Transform" / ...
 
-// --- Marker 空基类 (Commit B 完成后会被真正的接口取代) ---
+// --- Empty marker base classes (to be replaced by the real interfaces once Commit B lands) ---
 struct ConsumesRowSet {};
 struct MutatesRowSet {};
 struct AdditiveWritesRowSet {};
