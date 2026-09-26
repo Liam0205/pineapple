@@ -56,14 +56,20 @@ final class FrameValues {
     }
 
     /**
-     * Whether n is written as a non-finite number. Every frame Number reaches
-     * the response as a double: Double / Float as themselves, the JDK
-     * floating-point accumulators through their double value, and every other
-     * Number (Integer, Long, BigInteger, BigDecimal, ...) through
-     * {@code GoFormat.wrap(v, true)}'s {@code doubleValue()} conversion to
-     * Go's float64 spelling. So a BigInteger or BigDecimal beyond the double
-     * range (e.g. {@code new BigDecimal("1e400")}) is written as "Infinity"
-     * and is rejected here too; integral types below 2^1024 never are.
+     * Whether n's double value is non-finite. One rule for every Number and
+     * every position: Double / Float, the JDK floating-point accumulators,
+     * and BigInteger / BigDecimal beyond the double range (e.g.
+     * {@code new BigDecimal("1e400")}); integral types below 2^1024 never
+     * are.
+     *
+     * <p>How such a big number is written depends on where it sits.
+     * {@code GoFormat.wrap(v, true)} descends only into Map and List and
+     * converts the Numbers there to double for Go's float64 spelling, so under
+     * maps and lists it is written as "Infinity". Inside a Set, Map.Entry,
+     * array or AtomicReference, which wrap does not enter, Jackson writes it
+     * as an exact decimal ({@code 1E+400}). Rejecting it there too is
+     * deliberate and conservative: no float64 runtime can hold the value,
+     * and the verdict should not depend on the container.
      */
     private static boolean isNonFinite(Number n) {
         double d = n.doubleValue();
