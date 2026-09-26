@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 跨引擎 CLI benchmark — 简单版本，直接调用 CLI 测量端到端延迟。
-# 包含进程启动开销，适合 sanity check 而非精确性能对比。
+# Cross-engine CLI benchmark — a simple version that calls each CLI directly to
+# measure end-to-end latency. Includes process start-up cost, so it is suited to
+# sanity checks rather than precise performance comparisons.
 #
 # Usage: scripts/cross-engine-bench-cli.sh [--iterations N] [--tiers small,medium,large]
 set -euo pipefail
@@ -10,7 +11,7 @@ FIXTURES_DIR="${REPO_ROOT}/fixtures/benchmarks"
 ITERATIONS=10
 TIERS="small,medium,large"
 
-# ─── 参数解析 ─────────────────────────────────────────────────────────────────
+# ─── Argument parsing ─────────────────────────────────────────────────────────
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,14 +25,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ─── 检查 fixtures 是否存在 ──────────────────────────────────────────────────
+# ─── Check that the fixtures exist ────────────────────────────────────────────
 
 if [[ ! -d "$FIXTURES_DIR" ]] || [[ -z "$(ls "$FIXTURES_DIR"/*_config.json 2>/dev/null)" ]]; then
   echo "[fixtures] 生成 benchmark fixtures..."
   python3 "${REPO_ROOT}/scripts/bench-generate-fixtures.py"
 fi
 
-# ─── 构建引擎 ─────────────────────────────────────────────────────────────────
+# ─── Build the engines ────────────────────────────────────────────────────────
 
 echo "[build] 编译 Go 引擎..."
 mkdir -p "${REPO_ROOT}/bin"
@@ -41,7 +42,7 @@ echo "[build] 编译 Java 引擎..."
 (cd "${REPO_ROOT}/pine-java" && mvn package -q -DskipTests -Dmaven.javadoc.skip=true)
 echo
 
-# ─── 获取 Java classpath ──────────────────────────────────────────────────────
+# ─── Resolve the Java classpath ───────────────────────────────────────────────
 
 JAVA_JAR="${REPO_ROOT}/pine-java/target/pine-0.7.0.jar"
 JAVA_DEPS=$(cd "${REPO_ROOT}/pine-java" && mvn dependency:build-classpath -q -DincludeScope=runtime -Dmdep.outputFile=/dev/stdout 2>/dev/null || echo "")
@@ -51,14 +52,14 @@ else
   JAVA_CP="${JAVA_JAR}"
 fi
 
-# ─── 时间测量辅助函数 ────────────────────────────────────────────────────────
+# ─── Timing helper ────────────────────────────────────────────────────────────
 
 time_ms() {
-  # 返回当前时间毫秒数
+  # Print the current time in milliseconds
   python3 -c "import time; print(int(time.perf_counter() * 1000))"
 }
 
-# ─── 单次执行函数 ────────────────────────────────────────────────────────────
+# ─── Single-run helpers ───────────────────────────────────────────────────────
 
 run_go() {
   local config="$1" request="$2"
@@ -70,7 +71,7 @@ run_java() {
   java -cp "$JAVA_CP" page.liam.pine.RunCli -config "$config" -request "$request" > /dev/null 2>&1
 }
 
-# ─── Benchmark 执行 ──────────────────────────────────────────────────────────
+# ─── Run the benchmark ────────────────────────────────────────────────────────
 
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  Pineapple Cross-Engine CLI Benchmark                       ║"
@@ -86,7 +87,7 @@ IFS=',' read -ra TIER_LIST <<< "$TIERS"
 for config_file in "${FIXTURES_DIR}"/*_config.json; do
   fixture_name="$(basename "$config_file" _config.json)"
 
-  # 层级过滤
+  # Filter by tier
   tier="${fixture_name%%_*}"
   skip=true
   for t in "${TIER_LIST[@]}"; do

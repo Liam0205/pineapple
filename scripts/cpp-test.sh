@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
-# pine-cpp 测试入口:CMake configure + 编译 pine_cpp_tests + ctest。
+# pine-cpp test entry point: CMake configure + build pine_cpp_tests + ctest.
 #
-# 与"Makefile 不内联多步命令"原则对齐(顶层 Makefile 自陈第 6 行):
-# 具体步骤位于 scripts/*.sh,Makefile 只做命名与组合。
+# Follows the "no inline multi-step recipes in the Makefile" rule (see the design
+# notes at the top of the top-level Makefile): the actual steps live in
+# scripts/*.sh; the Makefile only names and composes them.
 #
-# 用法:
+# Usage:
 #   bash scripts/cpp-test.sh [PARALLEL=N]
 #
-# 环境变量 / 参数:
-#   PARALLEL  传给 cmake --build -j 的并发数;默认 12(对照顶层 Makefile $(PARALLEL))。
-#             也接受 `PARALLEL=N` 形式作为单参数(便于 `make cpp-test PARALLEL=$(nproc)`
-#             直接转发)。
+# Environment variables / arguments:
+#   PARALLEL  Parallelism passed to cmake --build -j; defaults to 12 (matches
+#             $(PARALLEL) in the top-level Makefile). Also accepted as a single
+#             `PARALLEL=N` argument, so `make cpp-test PARALLEL=$(nproc)` can
+#             forward it directly.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# 解析 PARALLEL,环境变量优先,然后扫单参数 `PARALLEL=N` 兼容形式。
+# Resolve PARALLEL: the environment variable first, then a `PARALLEL=N` argument.
 PARALLEL="${PARALLEL:-12}"
 for arg in "$@"; do
   case "$arg" in
@@ -25,8 +27,9 @@ done
 
 cd "$REPO_ROOT"
 
-# Debug 配置 + 启用测试 target;CMAKE_POLICY_VERSION_MINIMUM 同顶层 Makefile,
-# 兼容仓库内打的旧版 CMakeLists 子目录(若有)。
+# Debug build with the test target enabled. CMAKE_POLICY_VERSION_MINIMUM matches
+# the top-level Makefile, for compatibility with any older CMakeLists
+# subdirectories vendored into the repo.
 cmake -S pine-cpp -B pine-cpp/build-tests \
     -DCMAKE_BUILD_TYPE=Debug \
     -DPINE_CPP_BUILD_TESTS=ON \

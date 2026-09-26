@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# pine-go 性能基准入口。
+# pine-go benchmark entry point.
 #
-# benchmarks 已拆为独立 go module (pine-go/benchmarks/go.mod),
-# 默认走子 module; 传 `./internal/...` 等参数可以指向主 module 内的基准。
+# benchmarks live in a separate go module (pine-go/benchmarks/go.mod) and that
+# submodule is the default; pass an argument such as `./internal/...` to target
+# benchmarks inside the main module instead.
 #
-# 子 module 内的 BenchmarkCalibrated 在 //go:build pine_bench 下(BenchmarkIsolated /
-# BenchmarkLuaVsGo / BenchmarkSmallPipeline 等不带 tag),所以脚本默认带 pine_bench
-# tag,确保 `make bench` 与 `scripts/go-bench.sh` 不会静默跳过 Calibrated 这一档。
-# 后端对照用 TAGS=lua_gopher 追加(见 bench-lua-backends.sh)。
+# BenchmarkCalibrated in the submodule sits behind //go:build pine_bench (while
+# BenchmarkIsolated / BenchmarkLuaVsGo / BenchmarkSmallPipeline etc. carry no tag),
+# so the script passes the pine_bench tag by default; otherwise `make bench` and
+# `scripts/go-bench.sh` would silently skip the Calibrated tier.
+# For a backend comparison, add TAGS=lua_gopher (see bench-lua-backends.sh).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -22,6 +24,6 @@ else
   TARGET="$BENCH"
 fi
 
-# TAGS 追加在 pine_bench 之上,保留 -tags='pine_bench lua_gopher' 这种组合的可能。
+# TAGS is added on top of pine_bench, so combinations like -tags='pine_bench lua_gopher' still work.
 TAGS="${TAGS:-}"
 go test -tags="pine_bench${TAGS:+ $TAGS}" -bench=. -benchmem -count=3 -run='^$' "$TARGET" "$@"

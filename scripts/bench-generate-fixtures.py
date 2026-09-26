@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""生成跨引擎 benchmark fixture 文件。
+"""Generate the cross-engine benchmark fixture files.
 
-将三个层级（small/medium/large）的管道配置和请求分别写入 fixtures/benchmarks/。
-每个 fixture 包含 config（管道配置，可直接用于 server 启动）和 request（HTTP 请求体）。
+Writes the pipeline config and the request for each tier (small/medium/large) into
+fixtures/benchmarks/. Each fixture has a config (the pipeline config, usable
+directly to start a server) and a request (the HTTP request body).
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ ITEM_FIELDS = ["item_id", "item_score", "item_status", "item_category", "item_pr
 
 
 def make_items(n: int, *, offset: int = 0) -> list[dict]:
-    """生成 N 个测试 item，item_id 从 offset 开始编号。"""
+    """Generate N test items, numbering item_id from offset."""
     items = []
     for i in range(n):
         items.append({
@@ -38,7 +39,7 @@ def make_items(n: int, *, offset: int = 0) -> list[dict]:
 # ─── Small pipeline: recall → filter → sort (3 ops) ─────────────────────────
 
 def small_config(num_items: int) -> dict:
-    """小管道：recall_static → filter_truncate → reorder_sort"""
+    """Small pipeline: recall_static → filter_truncate → reorder_sort"""
     return {
         "_PINEAPPLE_VERSION": VERSION,
         "pipeline_config": {
@@ -53,7 +54,7 @@ def small_config(num_items: int) -> dict:
                 },
                 "filter": {
                     "type_name": "filter_truncate",
-                    "top_n": num_items,  # 保留全部
+                    "top_n": num_items,  # keep everything
                     "$metadata": {
                         "item_input": ["item_id"],
                         "item_output": ["item_id", "item_score"],
@@ -79,14 +80,14 @@ def small_config(num_items: int) -> dict:
 
 
 def small_request() -> dict:
-    """小管道请求：recall_static 内嵌 items，所以请求体为空。"""
+    """Small pipeline request: recall_static embeds the items, so the request body is empty."""
     return {"common": {}, "items": []}
 
 
 # ─── Medium pipeline: recall_a + recall_b → merge → dispatch → normalize → sort (6 ops) ──
 
 def medium_config(num_items: int) -> dict:
-    """中管道：两路 recall → merge_dedup → transform_dispatch → transform_normalize
+    """Medium pipeline: two recalls → merge_dedup → transform_dispatch → transform_normalize
     → reorder_sort
     """
     half = num_items // 2
@@ -155,7 +156,7 @@ def medium_config(num_items: int) -> dict:
 
 
 def medium_request() -> dict:
-    """中管道请求：需要 common.scene"""
+    """Medium pipeline request: needs common.scene"""
     return {"common": {"scene": "bench"}, "items": []}
 
 
@@ -169,7 +170,7 @@ end
 
 
 def large_config(num_items: int) -> dict:
-    """大管道：recall_a + recall_b → merge → copy → dispatch → lua_transform
+    """Large pipeline: recall_a + recall_b → merge → copy → dispatch → lua_transform
     → normalize → filter → sort → truncate
     """
     half = num_items // 2
@@ -276,23 +277,24 @@ def large_config(num_items: int) -> dict:
 
 
 def large_request() -> dict:
-    """大管道请求：需要 common.scene"""
+    """Large pipeline request: needs common.scene"""
     return {"common": {"scene": "bench"}, "items": []}
 
 
 # ─── Transform-heavy pipeline: recall → 8 × chained normalize (9 ops) ────────
 
-# 这条链子里每个 normalize 读上一个的输出字段，所以 DAG 是严格串行的，
-# 每一步都要把同一列全表扫一遍——列存最占优的形状。
+# Each normalize in this chain reads the previous one's output field, so the DAG is
+# strictly sequential and every step scans the same column across the whole table —
+# the workload shape where column storage has the biggest advantage.
 TRANSFORM_CHAIN_LEN = 8
 
 
 def transform_heavy_config(num_items: int) -> dict:
-    """Transform 密集管道：recall_static → 8 个链式 transform_normalize。
+    """Transform-heavy pipeline: recall_static → 8 chained transform_normalize.
 
-    形状对齐 pine-go/benchmarks/bench_storage_ab_test.go 的
-    transformHeavyConfig：recall 之后不做任何结构变更（不删、不重排、不新增），
-    只反复做字段级扫描。
+    Same shape as transformHeavyConfig in pine-go/benchmarks/bench_storage_ab_test.go:
+    no structural changes after the recall (no removals, reordering or additions),
+    only repeated field-level scans.
     """
     operators: dict = {
         "recall": {
@@ -321,8 +323,9 @@ def transform_heavy_config(num_items: int) -> dict:
 
     return {
         "_PINEAPPLE_VERSION": VERSION,
-        # 根级 _comment：各运行时的根级解析都是「按已知键取值」，未知键忽略。
-        # 注意不能放进单个 operator 对象里，那一层会报 unknown parameter。
+        # Root-level _comment: every runtime parses the root by known keys and ignores
+        # unknown ones. It must not go inside an operator object, where it would be
+        # rejected as an unknown parameter.
         "_comment": (
             "SYNTHETIC column-mode guardrail, NOT a production proxy. Shape mirrors "
             "transformHeavyConfig in pine-go/benchmarks/bench_storage_ab_test.go: one "
@@ -340,8 +343,9 @@ def transform_heavy_config(num_items: int) -> dict:
             "thresholds stay in benchmark-hygiene.md, which has a maintainer; this "
             "file is generated, so nobody would come back to update them here."
         ),
-        # 护栏的核心：把这个 fixture 钉在列存上。想在同一份报表里读出行列比值，
-        # 跑 scripts/bench-cross-runtime.sh --modes "row,column"。
+        # The whole point of this guardrail: pin the fixture to column storage. To read
+        # a row/column ratio from a single report, run
+        # scripts/bench-cross-runtime.sh --modes "row,column".
         "storage_mode": "column",
         "pipeline_config": {
             "operators": operators,
@@ -352,9 +356,11 @@ def transform_heavy_config(num_items: int) -> dict:
         "pipeline_group": {
             "main": {"pipeline": ["stage1"]},
         },
-        # 必须把链尾字段投影出去。空 item_output 会让 ToResult 把每个 item 投影成
-        # 空对象（空输出列表就是空输出，不回退成「返回全部字段」），那样序列化成本
-        # 被抹掉，整条 transform 链也变成没人读的死写入。
+        # The last field in the chain must be projected out. An empty item_output makes
+        # ToResult project every item to an empty object (an empty output list means
+        # empty output; it does not fall back to "return every field"), which would
+        # erase the serialisation cost and turn the whole transform chain into dead
+        # writes that nobody reads.
         "flow_contract": {
             "item_output": ["item_id", f"item_score_n{TRANSFORM_CHAIN_LEN - 1}"],
         },
@@ -362,24 +368,25 @@ def transform_heavy_config(num_items: int) -> dict:
 
 
 def transform_heavy_request() -> dict:
-    """Transform 密集管道请求：items 内嵌在 recall_static 里，flow_contract 无 common_input。"""
+    """Transform-heavy pipeline request: items are embedded in recall_static; no common_input."""
     return {"common": {}, "items": []}
 
 
-# ─── 生成所有 fixtures ────────────────────────────────────────────────────────
+# ─── Generate every fixture ───────────────────────────────────────────────────
 
 FIXTURES = [
-    # (名称, 配置生成函数, 请求生成函数, item 数量列表)
+    # (name, config builder, request builder, item counts)
     ("small", small_config, small_request, [10, 50, 100]),
     ("medium", medium_config, medium_request, [100, 500, 1000]),
     ("large", large_config, large_request, [100, 500, 1000, 5000]),
-    # 合成的列存护栏，不是生产代理；理由见 transform_heavy_config 的 _comment。
+    # Synthetic column-storage guardrail, not a production proxy;
+    # see the _comment in transform_heavy_config.
     ("transform_heavy", transform_heavy_config, transform_heavy_request, [1000]),
 ]
 
 
 def write_fixture(name: str, config: dict, request: dict, output_dir: Path):
-    """将 config 和 request 分别写入独立文件。"""
+    """Write the config and the request to separate files."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = output_dir / f"{name}_config.json"
@@ -399,7 +406,7 @@ def main():
     generated = []
 
     for tier, config_fn, request_fn, item_counts in FIXTURES:
-        # 用零填充保证文件名自然排序
+        # Zero-pad so file names sort naturally
         max_width = len(str(max(item_counts)))
         for n in item_counts:
             name = f"{tier}_{str(n).zfill(max_width)}"

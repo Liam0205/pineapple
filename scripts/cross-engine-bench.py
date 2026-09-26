@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""跨引擎 Benchmark Runner — 基于 HTTP server 的统一性能对比。
+"""Cross-engine benchmark runner — a unified performance comparison over each engine's HTTP server.
 
-使用方式:
+Usage:
     python3 scripts/cross-engine-bench.py [options]
 
-选项:
-    --iterations N          每个 fixture 的顺序请求次数 (默认 200)
-    --concurrency C         并发等级列表 (默认 "1,4,16,64")
-    --fixtures-dir PATH     benchmark fixture 目录 (默认 fixtures/benchmarks)
-    --engines ENGINES       要测试的引擎列表 (默认 "go,java")
-    --output PATH           结果 JSON 文件路径 (默认 bench-results.json)
-    --skip-build            跳过引擎编译步骤
-    --warmup N              预热请求数 (默认 20)
-    --tiers TIERS           仅测试指定层级 (如 "small,medium")
+Options:
+    --iterations N          Sequential requests per fixture (default 200)
+    --concurrency C         Concurrency levels (default "1,4,16,64")
+    --fixtures-dir PATH     Benchmark fixture directory (default fixtures/benchmarks)
+    --engines ENGINES       Engines to test (default "go,java")
+    --output PATH           Result JSON path (default bench-results.json)
+    --skip-build            Skip building the engines
+    --warmup N              Warm-up requests (default 20)
+    --tiers TIERS           Only test these tiers (e.g. "small,medium")
 
-工作流:
-    1. 构建 Go binary 和 Java jar
-    2. 依次启动每个引擎的 HTTP server
-    3. 对每个 fixture 发送顺序/并发请求，测量延迟
-    4. 输出 Markdown 对比表 + JSON 详细结果
+Workflow:
+    1. Build the Go binary and the Java jar
+    2. Start each engine's HTTP server in turn
+    3. Send sequential/concurrent requests for every fixture and measure latency
+    4. Print Markdown comparison tables + detailed JSON results
 """
 
 from __future__ import annotations
@@ -42,16 +42,16 @@ from typing import Generator
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = REPO_ROOT / "fixtures" / "benchmarks"
 
-# 端口分配
+# Port assignment
 PORTS = {"go": 9001, "java": 9002}
 
 
-# ─── 数据结构 ─────────────────────────────────────────────────────────────────
+# ─── Data structures ──────────────────────────────────────────────────────────
 
 
 @dataclass
 class LatencyResult:
-    """单引擎单 fixture 的延迟统计。"""
+    """Latency stats for one engine on one fixture."""
 
     engine: str
     fixture: str
@@ -67,7 +67,7 @@ class LatencyResult:
 
 @dataclass
 class ThroughputResult:
-    """单引擎单 fixture 的吞吐量统计。"""
+    """Throughput stats for one engine on one fixture."""
 
     engine: str
     fixture: str
@@ -81,18 +81,18 @@ class ThroughputResult:
 
 @dataclass
 class BenchResults:
-    """完整 benchmark 结果。"""
+    """Full benchmark results."""
 
     timestamp: str = ""
     latency: list[LatencyResult] = field(default_factory=list)
     throughput: list[ThroughputResult] = field(default_factory=list)
 
 
-# ─── 引擎管理 ─────────────────────────────────────────────────────────────────
+# ─── Engine management ────────────────────────────────────────────────────────
 
 
 def build_engines(engines: list[str], skip_build: bool = False):
-    """编译引擎。"""
+    """Build the engines."""
     if skip_build:
         print("[build] 已跳过编译步骤")
         return
@@ -122,7 +122,7 @@ def build_engines(engines: list[str], skip_build: bool = False):
 
 
 def _wait_for_port(port: int, timeout: float = 30.0) -> bool:
-    """等待端口可访问。"""
+    """Wait until the port accepts connections."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -134,7 +134,7 @@ def _wait_for_port(port: int, timeout: float = 30.0) -> bool:
 
 
 def _health_check(port: int) -> bool:
-    """检查 /health 端点。"""
+    """Check the /health endpoint."""
     try:
         req = urllib.request.Request(f"http://127.0.0.1:{port}/health")
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -147,7 +147,7 @@ def _health_check(port: int) -> bool:
 def start_engine(
     engine: str, config_path: str, port: int
 ) -> Generator[subprocess.Popen | None, None, None]:
-    """启动引擎 server，返回进程句柄。用 context manager 自动清理。"""
+    """Start an engine server and yield its process handle; the context manager cleans it up."""
     proc: subprocess.Popen | None = None
     env = os.environ.copy()
 
@@ -181,7 +181,7 @@ def start_engine(
 
         elif engine == "java":
             jar_path = REPO_ROOT / "pine-java" / "target" / "pine-0.7.0.jar"
-            # 获取 classpath
+            # Resolve the classpath
             cp_result = subprocess.run(
                 [
                     "mvn",
@@ -215,14 +215,14 @@ def start_engine(
             yield None
             return
 
-        # 等待 server 就绪
+        # Wait for the server to be ready
         if not _wait_for_port(port, timeout=30.0):
             print(f"  [error] {engine} server 未能在 30s 内启动 (port {port})")
             proc.kill()
             yield None
             return
 
-        # 额外 health check
+        # Extra health check
         if not _health_check(port):
             print(f"  [warn] {engine} server 端口开放但 /health 返回异常")
 
@@ -238,11 +238,11 @@ def start_engine(
                 proc.wait()
 
 
-# ─── 请求发送 ─────────────────────────────────────────────────────────────────
+# ─── Sending requests ─────────────────────────────────────────────────────────
 
 
 def send_request(port: int, request_body: bytes) -> tuple[float, bool]:
-    """发送单次 /execute 请求，返回 (延迟ms, 是否成功)。"""
+    """Send one /execute request and return (latency in ms, success)."""
     url = f"http://127.0.0.1:{port}/execute"
     req = urllib.request.Request(
         url,
@@ -253,7 +253,7 @@ def send_request(port: int, request_body: bytes) -> tuple[float, bool]:
     start = time.perf_counter()
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            resp.read()  # 消费 response body
+            resp.read()  # drain the response body
             elapsed = (time.perf_counter() - start) * 1000.0
             return elapsed, resp.status == 200
     except (urllib.error.HTTPError, urllib.error.URLError, Exception):
@@ -261,7 +261,7 @@ def send_request(port: int, request_body: bytes) -> tuple[float, bool]:
         return elapsed, False
 
 
-# ─── Benchmark 逻辑 ──────────────────────────────────────────────────────────
+# ─── Benchmark logic ──────────────────────────────────────────────────────────
 
 
 def run_latency_bench(
@@ -272,12 +272,12 @@ def run_latency_bench(
     iterations: int,
     warmup: int,
 ) -> LatencyResult:
-    """对单引擎单 fixture 执行顺序延迟 benchmark。"""
-    # 预热
+    """Run the sequential latency benchmark for one engine on one fixture."""
+    # Warm up
     for _ in range(warmup):
         send_request(port, request_body)
 
-    # 正式测量
+    # Measure
     latencies = []
     errors = 0
     for _ in range(iterations):
@@ -320,7 +320,7 @@ def run_throughput_bench(
     concurrency: int,
     duration_seconds: float = 5.0,
 ) -> ThroughputResult:
-    """对单引擎单 fixture 执行并发吞吐量 benchmark。"""
+    """Run the concurrent throughput benchmark for one engine on one fixture."""
     total = 0
     errors = 0
     latencies: list[float] = []
@@ -362,20 +362,20 @@ def run_throughput_bench(
     )
 
 
-# ─── Fixture 加载 ────────────────────────────────────────────────────────────
+# ─── Fixture loading ──────────────────────────────────────────────────────────
 
 
 def discover_fixtures(
     fixtures_dir: Path, tiers: list[str] | None = None
 ) -> list[tuple[str, Path, Path]]:
-    """发现所有 benchmark fixture，返回 (name, config_path, request_path) 列表。"""
+    """Discover every benchmark fixture and return a list of (name, config_path, request_path)."""
     fixtures = []
     for config_path in sorted(fixtures_dir.glob("*_config.json")):
         name = config_path.stem.replace("_config", "")
         request_path = fixtures_dir / f"{name}_request.json"
         if not request_path.exists():
             continue
-        # 按层级过滤
+        # Filter by tier
         if tiers:
             tier = name.split("_")[0]
             if tier not in tiers:
@@ -384,12 +384,12 @@ def discover_fixtures(
     return fixtures
 
 
-# ─── 输出格式化 ───────────────────────────────────────────────────────────────
+# ─── Output formatting ────────────────────────────────────────────────────────
 
 
 def print_latency_table(results: list[LatencyResult], engines: list[str]):
-    """输出延迟对比 Markdown 表。"""
-    # 按 fixture 分组
+    """Print the latency comparison as a Markdown table."""
+    # Group by fixture
     fixtures = sorted(set(r.fixture for r in results))
 
     print("\n## Latency Comparison (sequential requests)\n")
@@ -427,7 +427,7 @@ def print_latency_table(results: list[LatencyResult], engines: list[str]):
 
 
 def print_throughput_table(results: list[ThroughputResult], engines: list[str]):
-    """输出吞吐量对比 Markdown 表。"""
+    """Print the throughput comparison as a Markdown table."""
     fixtures = sorted(set(r.fixture for r in results))
     concurrencies = sorted(set(r.concurrency for r in results))
 
@@ -483,7 +483,7 @@ def print_throughput_table(results: list[ThroughputResult], engines: list[str]):
 
 
 def save_results(results: BenchResults, output_path: Path):
-    """保存结果到 JSON。"""
+    """Save the results as JSON."""
     data = {
         "timestamp": results.timestamp,
         "latency": [
@@ -556,7 +556,7 @@ def main():
     print(f"  预热: {args.warmup}")
     print()
 
-    # 生成 fixtures（如果不存在）
+    # Generate the fixtures if they do not exist
     if not args.fixtures_dir.exists() or not list(args.fixtures_dir.glob("*_config.json")):
         print("[fixtures] 生成 benchmark fixtures...")
         subprocess.run(
@@ -564,19 +564,19 @@ def main():
             check=True,
         )
 
-    # 发现 fixtures
+    # Discover the fixtures
     fixtures = discover_fixtures(args.fixtures_dir, tiers)
     if not fixtures:
         print("[error] 未找到任何 benchmark fixture")
         sys.exit(1)
     print(f"[fixtures] 发现 {len(fixtures)} 个 fixture")
 
-    # 编译引擎
+    # Build the engines
     build_engines(engines, skip_build=args.skip_build)
 
     results = BenchResults(timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"))
 
-    # ─── 逐引擎测试 ──────────────────────────────────────────────────────
+    # ─── Test each engine ───────────────────────────────────────────────
     for engine in engines:
         port = PORTS[engine]
         print(f"\n{'─' * 40}")
@@ -601,7 +601,7 @@ def main():
                     )
                     continue
 
-                # 延迟测试
+                # Latency test
                 if not args.throughput_only:
                     print(f"    延迟测试 ({args.iterations} iterations, {args.warmup} warmup)...")
                     lat = run_latency_bench(
@@ -621,7 +621,7 @@ def main():
                             f"p99={lat.p99_ms:.2f}ms"
                         )
 
-                # 吞吐量测试
+                # Throughput test
                 if not args.latency_only:
                     for conc in concurrencies:
                         print(
@@ -645,7 +645,7 @@ def main():
                                 f"errors={tp.errors}"
                             )
 
-    # ─── 输出结果 ──────────────────────────────────────────────────────
+    # ─── Print the results ──────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("RESULTS")
     print("=" * 60)
