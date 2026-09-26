@@ -228,7 +228,7 @@ else:
         fi
       fi
 
-      # [3a] Audit M6: 有量后再 scrape — fire 3 /execute rounds and verify
+      # [3a] Audit M6: scrape again under traffic — fire 3 /execute rounds and verify
       #      the resources subtree still resolves to the same key shape with
       #      up=1. This catches "borrowing the client races with the probe
       #      goroutine and corrupts the metrics view" (the kind of regression

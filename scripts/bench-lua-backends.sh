@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
-# wangshu vs gopher-lua 后端对比 benchmark。
+# wangshu vs gopher-lua backend benchmark.
 #
-# 在同机同时段串行连跑两个 Lua 后端(由 build tag 选择),用 benchstat 给出
-# 统计显著的 delta。calibrated fixture 是后端选型的唯一裁判(见
-# llmdoc/guides/benchmark-hygiene.md);默认跑 BenchmarkCalibrated,也可用
-# -bench 覆盖为 synthetic 的 BenchmarkIsolated / BenchmarkLuaVsGo。
+# Runs the two Lua backends (selected by build tag) back to back on the same
+# machine in the same time window, then reports statistically significant deltas
+# with benchstat. The calibrated fixture is the only reference for choosing a
+# backend (see llmdoc/guides/benchmark-hygiene.md); BenchmarkCalibrated runs by
+# default, and -bench can switch to the synthetic BenchmarkIsolated / BenchmarkLuaVsGo.
 #
-# 用法:
+# Usage:
 #   scripts/bench-lua-backends.sh [-bench PATTERN] [-count N] [-procs N] [-serial]
 #
-# 选项:
-#   -bench PATTERN  传给 go test -bench 的正则(默认 BenchmarkCalibrated)
-#   -count N        每后端采样次数(默认 10)
-#   -procs N        GOMAXPROCS(默认 4;对照 synthetic 同口径)。仅作用于
-#                   GOMAXPROCS,bench 不分 cpu 维度——非 serial 模式下不传 -cpu,
-#                   依赖 BenchmarkCalibrated/Isolated 内部不调用 b.RunParallel
-#                   保持单 cpu 列输出,避免 benchstat 看到混合维度。
-#   -serial         等价 -procs 1,额外加 -cpu=1 显式锁死单 cpu 列,去除 DAG
-#                   调度抖动,隔离 Lua 路径
-#   -keep DIR       结果输出目录(默认临时目录,跑完打印路径)
+# Options:
+#   -bench PATTERN  Regex passed to go test -bench (default BenchmarkCalibrated)
+#   -count N        Samples per backend (default 10)
+#   -procs N        GOMAXPROCS (default 4, same as the synthetic runs). Only sets
+#                   GOMAXPROCS; the benchmark has no cpu dimension — -cpu is not
+#                   passed outside serial mode, relying on BenchmarkCalibrated/Isolated
+#                   not calling b.RunParallel to keep a single cpu column, so
+#                   benchstat never sees mixed dimensions.
+#   -serial         Same as -procs 1, plus -cpu=1 to pin a single cpu column
+#                   explicitly, removing DAG scheduling jitter and isolating the Lua path
+#   -keep DIR       Output directory (default: a temp dir, printed when done)
 #
-# 前置依赖:
+# Prerequisites:
 #   - benchstat: go install golang.org/x/perf/cmd/benchstat@latest
-#   - pine_bench build tag 下的 stub 算子(operators/bench/),让 calibrated
-#     fixture 无需真实 MySQL/Redis/Datahub 即可 in-process 跑。
+#   - the stub operators behind the pine_bench build tag (operators/bench/), so the
+#     calibrated fixture runs in-process without a real MySQL/Redis/Datahub.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -45,7 +47,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# benchstat 解析:优先 PATH,回退 GOPATH/bin。
+# Locate benchstat: PATH first, then fall back to GOPATH/bin.
 BENCHSTAT="$(command -v benchstat || true)"
 if [[ -z "$BENCHSTAT" ]]; then
   CAND="$(go env GOPATH)/bin/benchstat"
@@ -61,7 +63,7 @@ mkdir -p "$OUTDIR"
 GOPHER_OUT="$OUTDIR/gopher.txt"
 WANGSHU_OUT="$OUTDIR/wangshu.txt"
 
-# ─── 跑前卫生检查(见 benchmark-hygiene.md) ──────────────────────────────
+# ─── Pre-run environment check (see benchmark-hygiene.md) ─────────────────
 echo "==> Pre-flight:"
 uptime
 if pgrep -af 'go test.*-bench' | grep -vq -e grep -e "$$"; then
@@ -73,19 +75,19 @@ echo
 COMMON_FLAGS=(-run='^$' -bench="$BENCH_PATTERN" -benchmem -count="$COUNT")
 [[ "$PROCS" == 1 ]] && COMMON_FLAGS+=(-cpu=1)
 
-# ─── 后端 A: gopher-lua(opt-in lua_gopher tag,作为 benchstat 基线) ──────────
+# ─── Backend A: gopher-lua (opt-in lua_gopher tag, the benchstat baseline) ──
 echo "==> [1/2] gopher-lua (GOMAXPROCS=$PROCS, count=$COUNT, bench=$BENCH_PATTERN)"
 ( cd "$BENCH_DIR" && GOMAXPROCS="$PROCS" go test -tags='pine_bench lua_gopher' "${COMMON_FLAGS[@]}" ./... ) \
   | tee "$GOPHER_OUT" | tail -3
 echo
 
-# ─── 后端 B: wangshu(默认 tag) ─────────────────────────────────────────────
+# ─── Backend B: wangshu (default tag) ──────────────────────────────────────
 echo "==> [2/2] wangshu (GOMAXPROCS=$PROCS, count=$COUNT, bench=$BENCH_PATTERN)"
 ( cd "$BENCH_DIR" && GOMAXPROCS="$PROCS" go test -tags=pine_bench "${COMMON_FLAGS[@]}" ./... ) \
   | tee "$WANGSHU_OUT" | tail -3
 echo
 
-# ─── 跑后卫生检查 + 统计对比 ──────────────────────────────────────────────
+# ─── Post-run environment check + statistical comparison ──────────────────
 echo "==> Post-flight:"
 uptime
 echo
