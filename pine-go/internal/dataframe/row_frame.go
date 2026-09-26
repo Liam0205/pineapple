@@ -461,7 +461,7 @@ func (s *nonFiniteScanner) scan(v any, depth int) bool {
 
 // scanReflect covers the value types a custom Go operator can build beyond
 // []any / map[string]any: named float types (`type score float64`),
-// arrays, and pointers / interfaces, unwrapped the way encoding/json
+// arrays, structs, and pointers / interfaces, unwrapped the way encoding/json
 // unwraps them. Each pointer hop counts as a level, like a composite, so a
 // chain of pointers is bounded by the same depth and a self-referencing
 // pointer is caught by the seen set.
@@ -482,6 +482,8 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 			return false
 		}
 		return s.scanElem(rv.Elem(), depth+1)
+	case reflect.Struct:
+		return s.scanStruct(rv, depth)
 	case reflect.Slice, reflect.Array, reflect.Map:
 	default:
 		return false
@@ -510,6 +512,31 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 	// on its own, so it needs no identity.
 	for i := 0; i < rv.Len(); i++ {
 		if s.scanElem(rv.Index(i), depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
+// scanStruct descends into the struct fields encoding/json would encode:
+// exported fields, plus embedded (anonymous) fields whose promoted fields may
+// be exported even when the embedded type itself is not; a field tagged
+// `json:"-"` (exactly) is skipped. Like an array, a struct is a value and
+// needs no identity; it counts as one level.
+func (s *nonFiniteScanner) scanStruct(rv reflect.Value, depth int) bool {
+	if depth >= maxCompositeScanDepth {
+		return false
+	}
+	t := rv.Type()
+	for i := 0; i < rv.NumField(); i++ {
+		f := t.Field(i)
+		if !f.IsExported() && !f.Anonymous {
+			continue
+		}
+		if f.Tag.Get("json") == "-" {
+			continue
+		}
+		if s.scanReflect(rv.Field(i), depth+1) {
 			return true
 		}
 	}

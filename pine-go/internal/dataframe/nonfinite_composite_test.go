@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -229,5 +230,63 @@ func TestValidateValueSameAddressDifferentTypeNotConflated(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		assertErr(t, validateValue("f", map[string]any{"a": &arr[0], "b": &arr}), want)
 		assertErr(t, validateValue("f", map[string]any{"a": s[0][:1], "b": s}), want)
+	}
+}
+
+type nfEmbedded struct{ E float64 }
+type nfEmbeddedHidden struct{ e float64 }
+type nfInner struct{ V float64 }
+
+type nfStruct struct {
+	nfEmbedded
+	X      float64
+	S      float64 `json:",string"`
+	D      float64 `json:"-"`
+	M      float64 `json:"-,"` //nolint:staticcheck // SA5008: the field named "-" is the case under test
+	Ptr    *nfInner
+	Named  namedFloat
+	hidden float64
+}
+
+type nfStructHiddenEmbed struct {
+	nfEmbeddedHidden
+}
+
+// Custom Go operators can nest structs in a composite; encoding/json encodes
+// their exported fields (including ones promoted from an embedded struct and
+// fields tagged "-,"), so a non-finite value there must be rejected at write
+// time. Fields encoding/json skips — unexported, or tagged exactly "-" — must
+// not trigger a rejection, or the write check would refuse values the
+// encoder accepts.
+func TestValidateValueStructFields(t *testing.T) {
+	inf := math.Inf(1)
+	const want = `field "f": NaN/Inf is not a valid JSON value`
+	rejected := map[string]nfStruct{
+		"exported":        {X: inf},
+		"string_option":   {S: inf},
+		"dash_comma_name": {M: inf},
+		"embedded":        {nfEmbedded: nfEmbedded{E: inf}},
+		"pointer_field":   {Ptr: &nfInner{V: inf}},
+		"named_float":     {Named: namedFloat(inf)},
+	}
+	for name, v := range rejected {
+		t.Run(name, func(t *testing.T) {
+			assertErr(t, validateValue("f", []any{v}), want)
+			assertErr(t, validateValue("f", []any{&v}), want)
+		})
+	}
+	for name, v := range map[string]any{
+		"dash":            nfStruct{D: inf},
+		"unexported":      nfStruct{hidden: inf},
+		"embedded_hidden": nfStructHiddenEmbed{nfEmbeddedHidden{e: inf}},
+	} {
+		t.Run("accepted/"+name, func(t *testing.T) {
+			if err := validateValue("f", []any{v}); err != nil {
+				t.Fatalf("value encoding/json accepts was rejected: %v", err)
+			}
+			if _, err := json.Marshal([]any{v}); err != nil {
+				t.Fatalf("precondition: json.Marshal should accept this value: %v", err)
+			}
+		})
 	}
 }
