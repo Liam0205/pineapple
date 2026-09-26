@@ -24,7 +24,7 @@ type: reflection
 
 1. **手工 `go get` + `go mod tidy` 只覆盖了当前所在的 module,没有触达 `pine-go/benchmarks/`。** 事后发现 `pine-go/Makefile` 里 `tidy` target 本就明确覆盖两个 module:
    ```
-   tidy: ## go mod tidy(主 module + benchmarks 子 module) + git diff 守门
+   tidy: ## go mod tidy (main module + benchmarks submodule) + git diff check
        go mod tidy
        cd benchmarks && go mod tidy
    ```
