@@ -88,7 +88,7 @@ pine-java `FrameValues.checkValue`、pine-cpp `src/dataframe/frame_values.hpp:va
 pine-java 写 `"Infinity"`、pine-cpp 写裸 `inf`。现在三方都递归扫描数组与对象，
 报错字节与标量完全相同（`item[i] write: field "f": NaN/Inf is not a valid JSON value`），
 由 `fixtures/errors/runtime_nonfinite_in_composite_write*.json` 在行存与列存下锁定。
-扫描深度上限三方都是 1000 层（与 Go `encoding/json` 的循环检测起点一致），超过上限的部分不再检查。
+扫描深度上限三方都是 1000 层（与 Go `encoding/json` 的循环检测起点一致）：深度 ≥ 1000 的复合值不再下钻，但它的兄弟节点照常检查，所以结论只取决于值本身、与 map 遍历顺序无关（pine-go 的 map 遍历是随机的，早期实现曾在这里出现单引擎非确定性，本地审查发现后修掉）。超过上限的那部分留给序列化层，三方在那里本来就不一致（Jackson 在 1000 层拒绝、Go 编码失败）。pine-go / pine-java 的自定义算子能交出自引用的 map 或 list，扫描用「祖先路径上的同一对象」判环并跳过，避免指数级遍历。
 
 剩下唯一能绕过校验的入口是**请求里直接带非有限数值**，而这条路上 pine-go 与
 pine-cpp 都在解析阶段就拒绝整个请求（C++ 的 `from_chars` 返回
