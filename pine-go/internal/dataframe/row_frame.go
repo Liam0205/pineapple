@@ -336,8 +336,8 @@ func validateValue(field string, value any) error {
 // any depth their parent reaches). The rule depends only on the value, never
 // on map iteration order, so a given value is always either rejected here or
 // left to the encoder. Same bound as pine-java MAX_COMPOSITE_SCAN_DEPTH and
-// pine-cpp kMaxCompositeScanDepth, and as encoding/json's
-// startDetectingCyclesAfter.
+// pine-cpp kMaxCompositeScanDepth; 1000 is also Jackson's default nesting
+// limit, so pine-java's serializer rejects anything deeper anyway.
 const maxCompositeScanDepth = 1000
 
 // containsNonFinite reports whether v holds a NaN or ±Inf in any composite
@@ -363,9 +363,7 @@ func containsNonFinite(v any) bool {
 // compositeID identifies a composite by its reference plus its type. The
 // type matters because two different references can share an address and
 // length — &arr and &arr[0], or s and s[0][:1] — while covering different
-// data. encoding/json's cycle check keys maps and slices by address only
-// (only pointers carry the type there); that is enough to detect a cycle,
-// but not to skip a value as already scanned, which is what this key is for.
+// data; without it the narrower one, once scanned, would hide the wider one.
 type compositeID struct {
 	ptr uintptr
 	len int
