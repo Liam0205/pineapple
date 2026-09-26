@@ -360,10 +360,12 @@ func containsNonFinite(v any) bool {
 	return s.scan(v, 0)
 }
 
-// compositeID identifies a composite the way encoding/json's cycle check
-// does: the reference plus its type. The type matters because two different
-// references can share an address and length — &arr and &arr[0], or s and
-// s[0][:1] — while covering different data.
+// compositeID identifies a composite by its reference plus its type. The
+// type matters because two different references can share an address and
+// length — &arr and &arr[0], or s and s[0][:1] — while covering different
+// data. encoding/json's cycle check keys maps and slices by address only
+// (only pointers carry the type there); that is enough to detect a cycle,
+// but not to skip a value as already scanned, which is what this key is for.
 type compositeID struct {
 	ptr uintptr
 	len int
