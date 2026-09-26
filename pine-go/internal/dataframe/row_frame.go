@@ -306,12 +306,115 @@ func validateValue(field string, value any) error {
 		string:
 		return nil
 	case []any, map[string]any:
+		// Fast path for the shapes Lua and JSON produce; the reflect
+		// branch below covers other slice/map types.
+		if nonFiniteScan(value, 0) == scanFound {
+			return fmt.Errorf("field %q: NaN/Inf is not a valid JSON value", field)
+		}
 		return nil
 	}
 	rv := reflect.ValueOf(value)
 	switch rv.Kind() {
 	case reflect.Slice, reflect.Map:
+		// A composite can still carry NaN/±Inf (e.g. a Lua table
+		// `{x * 2}` whose element overflowed), which json.Marshal rejects
+		// at response time. Reject it here with the scalar message so
+		// every runtime fails at the same point with the same bytes
+		// (issue #210). Element types are not checked — only
+		// non-finite numbers.
+		if nonFiniteScan(value, 0) == scanFound {
+			return fmt.Errorf("field %q: NaN/Inf is not a valid JSON value", field)
+		}
 		return nil
 	}
 	return fmt.Errorf("field %q: unsupported type %T", field, value)
+}
+
+// maxCompositeScanDepth bounds the descent into nested composites. Values
+// built from Lua or JSON are acyclic, but a custom operator can hand over a
+// self-referencing map; hitting the bound abandons the whole scan (so a
+// self-referencing map with several self-keys stays linear, not
+// exponential) and leaves that value to the encoder, which reports the cycle.
+// Matches encoding/json's startDetectingCyclesAfter; pine-java and pine-cpp
+// use the same bound.
+const maxCompositeScanDepth = 1000
+
+type scanResult int
+
+const (
+	scanClean scanResult = iota
+	scanFound
+	scanTooDeep
+)
+
+// nonFiniteElem classifies one element of a composite at depth+1. The
+// scalar cases are handled inline so the common shape (a table of numbers
+// and strings) costs no call per element; only nested composites recurse.
+func nonFiniteElem(e any, depth int) scanResult {
+	switch x := e.(type) {
+	case float64:
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return scanFound
+		}
+		return scanClean
+	case nil, bool, string:
+		return scanClean
+	}
+	return nonFiniteScan(e, depth+1)
+}
+
+// nonFiniteScan reports whether v holds a NaN or ±Inf at any depth up to
+// maxCompositeScanDepth. scanTooDeep aborts the scan as a whole.
+func nonFiniteScan(v any, depth int) scanResult {
+	switch x := v.(type) {
+	case nil, bool, string, int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64:
+		return scanClean
+	case float64:
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return scanFound
+		}
+		return scanClean
+	case float32:
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return scanFound
+		}
+		return scanClean
+	}
+	if depth >= maxCompositeScanDepth {
+		return scanTooDeep
+	}
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			if r := nonFiniteElem(e, depth); r != scanClean {
+				return r
+			}
+		}
+		return scanClean
+	case map[string]any:
+		for _, e := range x {
+			if r := nonFiniteElem(e, depth); r != scanClean {
+				return r
+			}
+		}
+		return scanClean
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < rv.Len(); i++ {
+			if r := nonFiniteScan(rv.Index(i).Interface(), depth+1); r != scanClean {
+				return r
+			}
+		}
+	case reflect.Map:
+		iter := rv.MapRange()
+		for iter.Next() {
+			if r := nonFiniteScan(iter.Value().Interface(), depth+1); r != scanClean {
+				return r
+			}
+		}
+	}
+	return scanClean
 }
