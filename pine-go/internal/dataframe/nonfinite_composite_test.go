@@ -268,6 +268,15 @@ type nfEmbeddedPtr struct {
 	*nfEmbedded
 }
 
+// nfShadowed's X shadows the promoted nfShadowInner.X, so encoding/json
+// writes only the outer field.
+type nfShadowInner struct{ X float64 }
+
+type nfShadowed struct {
+	nfShadowInner
+	X float64
+}
+
 // nfMarshalScore encodes a non-finite value as a string, so json.Marshal
 // accepts it.
 type nfMarshalScore float64
@@ -287,6 +296,17 @@ func (v nfTextScore) MarshalText() ([]byte, error) { return []byte("score"), nil
 type nfMarshalStruct struct{ V float64 }
 
 func (p *nfMarshalStruct) MarshalJSON() ([]byte, error) { return []byte(`"custom"`), nil }
+
+// A shadowed promoted field is still scanned (see scanStruct): the one
+// documented case where the write check rejects a value json.Marshal
+// accepts. Pinned so that changing it is a deliberate decision.
+func TestValidateValueShadowedFieldIsConservative(t *testing.T) {
+	v := []any{nfShadowed{nfShadowInner: nfShadowInner{X: math.Inf(1)}, X: 1}}
+	if _, err := json.Marshal(v); err != nil {
+		t.Fatalf("precondition: json.Marshal drops the shadowed field and should accept: %v", err)
+	}
+	assertErr(t, validateValue("f", v), `field "f": NaN/Inf is not a valid JSON value`)
+}
 
 // A typed float slice or map (an embedding vector, named scores) is read
 // element by element with Float(), not boxed per element: the check costs no
