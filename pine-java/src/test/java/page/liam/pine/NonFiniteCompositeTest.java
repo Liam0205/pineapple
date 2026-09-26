@@ -1,6 +1,7 @@
 package page.liam.pine;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -131,5 +132,40 @@ class NonFiniteCompositeTest {
         assertEquals("field \"f\": NaN/Inf is not a valid JSON value",
             FrameValues.checkValue("f", nest(Double.NaN, FrameValues.MAX_COMPOSITE_SCAN_DEPTH)));
         assertNull(FrameValues.checkValue("f", nest(Double.NaN, FrameValues.MAX_COMPOSITE_SCAN_DEPTH + 1)));
+    }
+
+    /**
+     * A ring of k maps, each pointing twice at the next, has 2^k paths; a
+     * per-path walk never finishes at k=40. Only a custom operator can build
+     * it. Mirrors pine-go TestValidateValueSharedCyclicGraphIsLinear.
+     */
+    @Test
+    @Timeout(value = 5, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void sharedCyclicGraphIsLinear() {
+        int k = 40;
+        List<Map<String, Object>> ms = new ArrayList<>();
+        for (int i = 0; i < k; i++) {
+            ms.add(new HashMap<>());
+        }
+        for (int i = 0; i < k; i++) {
+            Map<String, Object> next = ms.get((i + 1) % k);
+            ms.get(i).put("a", next);
+            ms.get(i).put("b", next);
+        }
+        assertNull(FrameValues.checkValue("f", ms.get(0)));
+        ms.get(k - 1).put("bad", Double.NaN);
+        assertEquals("field \"f\": NaN/Inf is not a valid JSON value", FrameValues.checkValue("f", ms.get(0)));
+    }
+
+    /** A shared sub-value first reached deep and later shallow is rescanned from the shallower depth. */
+    @Test
+    void sharedSubvalueRescannedFromShallowerDepth() {
+        List<Object> shared = new ArrayList<>();
+        shared.add(nest(Double.NaN, 3));
+        Object deepPath = nest(shared, FrameValues.MAX_COMPOSITE_SCAN_DEPTH - 2);
+        List<Object> v = new ArrayList<>();
+        v.add(deepPath);
+        v.add(shared);
+        assertEquals("field \"f\": NaN/Inf is not a valid JSON value", FrameValues.checkValue("f", v));
     }
 }

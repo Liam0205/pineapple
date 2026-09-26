@@ -1,6 +1,6 @@
 package page.liam.pine;
 
-import java.util.ArrayDeque;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,7 +40,7 @@ final class FrameValues {
             // {x * 2} whose element overflowed). Reject it with the scalar
             // message so every runtime fails at the same point with the
             // same bytes (issue #210). Only non-finite numbers are checked.
-            if (containsNonFinite(v, 0, new ArrayDeque<>())) {
+            if (new Scanner().containsNonFinite(v, 0)) {
                 return nonFiniteMessage(field);
             }
             return null;
@@ -65,36 +65,63 @@ final class FrameValues {
     }
 
     /**
-     * A custom operator can hand over a self-referencing map or list; a
-     * composite that is one of its own ancestors (by identity) is skipped,
-     * which keeps a map with several self-keys linear instead of exponential.
+     * A custom operator can hand over a value whose maps / lists are shared
+     * or form a cycle (a Lua- or JSON-built value is always a tree). Each
+     * composite is remembered by identity with the shallowest depth it was
+     * scanned at; reaching it again at the same or a greater depth cannot find
+     * anything new, so it is skipped. That keeps the scan linear in the number
+     * of distinct composites for any sharing pattern or cycle, matching pine-go.
+     * The map is only allocated once a composite nests another one.
      */
-    private static boolean containsNonFinite(Object v, int depth, ArrayDeque<Object> ancestors) {
-        if (v instanceof Number) {
-            return isNonFinite((Number) v);
+    private static final class Scanner {
+        private IdentityHashMap<Object, Integer> seen;
+
+        private boolean enter(Object composite, int depth) {
+            if (seen == null) {
+                seen = new IdentityHashMap<>();
+            } else {
+                Integer d = seen.get(composite);
+                if (d != null && d <= depth) {
+                    return false;
+                }
+            }
+            seen.put(composite, depth);
+            return true;
         }
-        if (!(v instanceof Map) && !(v instanceof List)) {
-            return false;
-        }
-        if (depth >= MAX_COMPOSITE_SCAN_DEPTH) {
-            return false;
-        }
-        for (Object a : ancestors) {
-            if (a == v) {
+
+        boolean containsNonFinite(Object v, int depth) {
+            if (v instanceof Number) {
+                return isNonFinite((Number) v);
+            }
+            if (!(v instanceof Map) && !(v instanceof List)) {
                 return false;
             }
-        }
-        Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (List<?>) v;
-        ancestors.push(v);
-        try {
+            if (depth >= MAX_COMPOSITE_SCAN_DEPTH) {
+                return false;
+            }
+            Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (List<?>) v;
+            boolean nested = false;
             for (Object e : children) {
-                if (containsNonFinite(e, depth + 1, ancestors)) {
+                if (e instanceof Number) {
+                    if (isNonFinite((Number) e)) {
+                        return true;
+                    }
+                } else if (e instanceof Map || e instanceof List) {
+                    nested = true;
+                }
+            }
+            if (!nested) {
+                return false;
+            }
+            if (!enter(v, depth)) {
+                return false;
+            }
+            for (Object e : children) {
+                if ((e instanceof Map || e instanceof List) && containsNonFinite(e, depth + 1)) {
                     return true;
                 }
             }
             return false;
-        } finally {
-            ancestors.pop();
         }
     }
 }
