@@ -118,12 +118,13 @@
 - **可观察性**：fixture `transform_by_lua_edge_cases.json` 有「number to string via concatenation」用例但用的是整数值（各运行时一致），非整数值的 `tostring`/拼接没有任何通道覆盖；fuzz 生成器亦无此形状。
 - **待决策**：(a) 桥接层无法拦截（发生在脚本内部）；候选是在 pine-java 侧用 luaj 的 `LuaDouble` 替换点或注册自定义 `tostring`（BaseLib `tostring` 可覆写为 `%.14g` 等价实现，但 `..` 拼接走 `LuaDouble.tojstring` 覆写不到）；(b) 先补一个非整数 `tostring` 的 fixture 用例让分歧可见并接受红，或在 Lua 脚本约束里明文列为已知分歧。需要先量化用户脚本里 `tostring`/拼接非整数的出现频率再决定。
 
-### 非有限值进入复合 shuffle salt 时 pine-go / pine-cpp / pine-java 字节各不相同（#201 最终审计发现，先于本 range 存在，未修）
+### 非有限值进入复合 shuffle salt 时 pine-go / pine-cpp / pine-java 字节各不相同（#201 最终审计发现，先于本 range 存在；#210 已堵住 Lua 来源，请求来源未修）
 
-- **现状**：`reorder_shuffle_by_salt` 的 item key 是复合值且内含 NaN/±Inf 时（frame 写入校验只拒绝标量非有限值、不下钻复合，故只能由 Lua `return {0/0, x}` 产生），pine-go / pine-cpp / pine-java 喂 hash 的字节各不相同：pine-go `anyToString` 的 `json.Marshal` 报错后落 `fmt.Sprintf("%v")` 得 `[NaN 2]`；pine-cpp `dump_json` 写裸 `nan`/`inf`；pine-java `GoFormat.marshalJson` 写带引号 `"NaN"`/`"Infinity"`。实测 8 个 item（seed 2/5/7 的 key 含 NaN/Inf/嵌套 NaN，salt `alpha`）：Go `[5,8,2,4,7,6,3,1]`、C++ `[5,8,4,6,7,3,1,2]`、Java `[5,8,4,6,2,3,7,1]`。
+- **现状**：`reorder_shuffle_by_salt` 的 item key 是复合值且内含 NaN/±Inf 时（issue #210 之前 frame 写入校验只拒绝标量非有限值、不下钻复合，所以 Lua `return {0/0, x}` 就能产生；现在只剩请求直接带入这一条路，见下面「#210 之后」），pine-go / pine-cpp / pine-java 喂 hash 的字节各不相同：pine-go `anyToString` 的 `json.Marshal` 报错后落 `fmt.Sprintf("%v")` 得 `[NaN 2]`；pine-cpp `dump_json` 写裸 `nan`/`inf`；pine-java `GoFormat.marshalJson` 写带引号 `"NaN"`/`"Infinity"`。实测 8 个 item（seed 2/5/7 的 key 含 NaN/Inf/嵌套 NaN，salt `alpha`）：Go `[5,8,2,4,7,6,3,1]`、C++ `[5,8,4,6,7,3,1,2]`、Java `[5,8,4,6,2,3,7,1]`。
 - **基线**：本 range 之前 Java 用裸 Jackson 同样写 `"NaN"`，C++ 一直写 `nan`；#201 修的是有限值的拼写，这条没变。审计 R6 指出本 range 的 javadoc 曾把它写成「Go 无字节可匹配、有意如此」——错在把参考对象当成 `json.Marshal` 而非 Go `anyToString` 的完整行为（含 fallback）；措辞已改为「已知分歧」。
-- **可观察性**：fuzz 生成器的 Lua 脚本不产生 NaN/Inf；无 fixture 覆盖；nightly 看不见。
-- **待决策**：(a) pine-cpp 与 pine-java 都复刻 Go 的 `%v` fallback（Java 已有 `GoFormat.sprint` 可产出 `[NaN 2]` 形状，但 map 形状 `map[a:1.5 b:NaN]` 与非整数 `%v` 拼写还需对齐；C++ 需在 `any_to_string` 里对含非有限值的复合走 `%v` 路径）；(b) pine-go / pine-cpp / pine-java 都在 shuffle 入口对含非有限值的复合 salt 统一报错（比复刻 `%v` 更容易用测试锁定，但改变可观察行为）；(c) 记录为接受分歧。任一选择都要补一条 `fixtures/pipelines/` 用例让 cross-validate 能看见。需先确认 Go `%v` 对 map 的排序（Go 1.12+ 按 key 排）与 pine-go 最低 Go 版本。
+- **#210 之后**：三方的写入校验已递归扫描复合值，算子（含 Lua）再也写不进含非有限数的复合值，这条分歧的 Lua 来源已堵住。剩下的唯一来源是**请求**：pine-java 的 Jackson 把 `{"k": [1e400, 2]}` 解析成 `[Infinity, 2]` 且请求数据不经过写入校验，实测 shuffle 顺序与 pine-go / pine-cpp（二者在解析阶段就拒绝请求）不同。它是 `reference/number-formatting-parity.md`「非有限值」节记录的请求解析层分歧的一个表现，修法随那条走（让 pine-java 也在解析阶段拒绝非有限请求），不再需要在 shuffle 里单独决策。
+- **可观察性**：fuzz 生成器的 Lua 脚本本身不写 NaN/Inf，但数值溢出能产生（#210 就是 `item_defaults` 取 float64 最大值再乘 2）；无 fixture 覆盖 shuffle 这一路；nightly 看不见。
+- **待决策**：随「请求解析层」那条一起定：让 pine-java 在请求解析阶段拒绝非有限数（与 pine-go / pine-cpp 一致）后，这条分歧的最后一个来源也消失，届时关闭本条目。在那之前不再考虑在 shuffle 里复刻 Go 的 `%v` fallback 或单独报错。
 
 ### pine-go 两个 Lua 后端对宿主写全局是否触发 `__newindex` 不一致（#200 审计 R2 顺带发现，未修）
 
