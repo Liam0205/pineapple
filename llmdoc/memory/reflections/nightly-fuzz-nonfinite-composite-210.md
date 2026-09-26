@@ -26,12 +26,13 @@
 - **同一次审查的两条小问题**：pine-go 的 reflect 分支原来只认内建 `float64`，命名浮点类型（`type score float64`）、指针元素、数组都漏检，现在按 `encoding/json` 的方式解指针/接口、按 kind 判浮点；新增的稳定文档写了「三运行时」，按 `must/conventions.md`「禁止硬编码定量描述」改为列名字。
 - **终审阶段的两轮小问题**：r7-final 指出 `must/conventions.md` 仍引用已删掉的 `ColumnFrame.checkValue`、两处测试注释还写着「ancestor check」；r8-final 指出 pine-go 的 reflect 扫描不进入 struct（`[]any{struct{X float64}{+Inf}}` 写入放行、`json.Marshal` 才失败）。后者按 `encoding/json` 的字段规则补了 struct 分支：导出字段与嵌入字段（嵌入的未导出类型也要进，它的导出字段会被提升），跳过标签恰为 `-` 的字段（`-,` 是字段名叫 `-`，要扫）；两条「会编码」的规则在 json v1（`GOEXPERIMENT=nojsonv2`）与 v2 下实测一致。只有自定义 Go 算子能构造出 struct；C++ 的 `Variant` 没有 struct。
 - **第三轮终审（r9-final）又翻出两条，方向相反**：(1) r8 补的 struct 分支和 r1 补的 reflect 分支把扫描范围做得比 `encoding/json` **宽**——自带 `MarshalJSON` / `MarshalText` 的类型（编码器调方法，可能把 Inf 编成字符串）、嵌入的未导出非 struct（编码器忽略）、被外层同名字段遮住的提升字段（编码器丢弃），这些值以前能写入能编码，修完反而在写入时被拒，是回退。修法：带 marshaler 的类型（含指针接收者）不下钻、嵌入字段只放行 struct / struct 指针；字段遮蔽规则不复刻，注释写明是偏保守的误拒。(2) pine-java 只下钻 `Map` / `List`，嵌套的 `double[]` / `Object[]` 被当成「非数」放行，而响应 mapper 逐元素序列化，输出 `[[1,"Infinity"]]`；此前 reflection 写的「POJO 本来就走 `unsupported value type`」只对顶层值成立。现在嵌套 Java 数组按 list 扫描（`Object[]` 走身份记录，自指数组同样终止），嵌套 POJO 仍不检查。
+- **第四轮终审（r10-final）证明上一条只修了「点名的那一种」**：r9 指出嵌套数组，修的时候只加了数组，没有按「Jackson 会展开什么」穷举；r10 实测嵌套的 `LinkedHashSet` / `ArrayDeque` / `Map.values()` / `AtomicReference` 照样把 NaN 带到 `[["NaN"]]`（重要级，正是 #210 在 pine-java 上的原症状）。这次先写探针让 `GoFormat.marshalJson` 逐个序列化候选类型、看哪些被展开，再据此定清单：任意 `Collection`、`Map.Entry`、`AtomicReference`（按内容）、`DoubleAdder` / `DoubleAccumulator`（按数字）；`Iterator` 与非 `Collection` 的 `Iterable` 也会被展开，但遍历可能消耗它或执行任意代码，刻意不扫，写进注释。同一轮的小问题：pine-go reflect 分支对 `[]float32` 这类带类型切片逐元素 `Interface()` 装箱，128 维 embedding 每次检查 128 次分配，而本文「零新增分配」只在 `[]any` / `map[string]any` 上测过；改为元素是无 marshaler 的浮点时直接 `Float()` 读取（map 复用一个元素槽），`TestValidateValueTypedFloatSlicesDoNotAllocatePerElement` 与 `BenchmarkApplyOutput_TypedFloatSliceItemWrites` 锁定。
 - **三方各抽一份共享实现**：Go 两种 frame 本来就共用 `validateValue`；Java 新建 `FrameValues`（原来 `DataFrame` / `ColumnFrame` 各有一份相同的 `checkValue`），C++ 新建 `src/dataframe/frame_values.hpp`（原来 `row_frame.cpp` / `column_frame.cpp` 各一份）。
 - **pine-go `writeJSON` 先编码到 buffer**。原实现先 `WriteHeader(status)` 再流式编码，编码失败时客户端收到的是「200 + 空 body」。改为先编码、失败则回 500 + 错误 body；成功路径用同一个 `json.Encoder` 写 buffer，字节与流式输出完全相同（`TestWriteJSON_BufferedBytesMatchStreaming` 锁定 HTML 转义与结尾换行）。#210 修完后 `/execute` 已不会再走到编码失败，这一改是防御性的，但同一个 `writeJSON` 也服务所有其他端点。`examples/multi-pipeline` 有一份一样的 `writeJSON`，按「示例受全部生产契约约束」一起改。
 
 ## 性能
 
-microbench `BenchmarkApplyOutput_CompositeItemWrites`（新增，每个 item 写一个 2 元素数组 + 一个 2 键 map，1000 item）：行存 +77%、列存 +109%，全部是遍历 map/slice 本身的成本，零新增分配。只写标量的 `ItemWrites` / `Additions` 在 +1%～+3% 以内。把元素判断内联进循环（`nonFiniteElem`）没有带来可测的改善，热点在 map 迭代器，不在函数调用。
+microbench `BenchmarkApplyOutput_CompositeItemWrites`（新增，每个 item 写一个 2 元素数组 + 一个 2 键 map，1000 item）：行存 +77%、列存 +109%，全部是遍历 map/slice 本身的成本，零新增分配。「零新增分配」最初只在 `[]any` / `map[string]any` 上测过，带类型的 `[]float32` 其实逐元素装箱，r10-final 查出后修掉；`BenchmarkApplyOutput_TypedFloatSliceItemWrites`（每 item 一个 128 维 `[]float32`）现在行存 0 allocs/op。只写标量的 `ItemWrites` / `Additions` 在 +1%～+3% 以内。把元素判断内联进循环（`nonFiniteElem`）没有带来可测的改善，热点在 map 迭代器，不在函数调用。
 
 性能决策以 calibrated fixture 为准（`guides/benchmark-hygiene.md`）：`BenchmarkCalibrated` 三个变体 6 轮 A/B（同机、交替跑），全部 `~`（p=0.31），分配数与字节数不变。结论：复合值扫描在生产 proxy 上不可见，microbench 的倍数只说明「写复合值的纯写入路径」这一段变慢了。
 
@@ -41,5 +42,5 @@ microbench `BenchmarkApplyOutput_CompositeItemWrites`（新增，每个 item 写
 - **去掉一道防线前，先列出它顺带防住的东西。** 「超限整次放弃」被当成只是为了截断深度，删掉它时没意识到它同时是对路径爆炸的唯一防护。删改早退、上限、预算这类逻辑时，要对照最坏输入（环、共享子结构、自指指针）逐项确认复杂度。
 - **截断/提前返回的结论不能依赖遍历顺序。** 「遇到第一个非 clean 就返回」在只有一种非 clean 结果时没问题，一旦有两种（找到 / 太深），map 的遍历顺序就决定了结论。凡是在无序容器上做带早退的遍历，都要确认多种早退原因之间的优先级与顺序无关。
 
-- **写入校验对「值的形状」要和序列化器看齐——两个方向都要。** 序列化器会下钻复合值，校验也必须下钻；只校验顶层等于把一半的输入空间放给了序列化层，而序列化层恰好是三方最不一致的地方。反过来，校验下钻到序列化器不会看的地方（有自定义 marshaler 的类型、编码器忽略的字段）就会拒绝合法值。补一个分支时，要同时列出「序列化器会编码而我没查」和「我查了而序列化器不编码」两张清单，r8 / r9 两轮终审恰好各踩一边。
+- **写入校验对「值的形状」要和序列化器看齐——两个方向都要。** 序列化器会下钻复合值，校验也必须下钻；只校验顶层等于把一半的输入空间放给了序列化层，而序列化层恰好是三方最不一致的地方。反过来，校验下钻到序列化器不会看的地方（有自定义 marshaler 的类型、编码器忽略的字段）就会拒绝合法值。补一个分支时，要同时列出「序列化器会编码而我没查」和「我查了而序列化器不编码」两张清单，r8 / r9 两轮终审恰好各踩一边。清单要靠探针对照序列化器实测得出，不要只补审查点名的那一个类型（r9 → r10 的教训）；「零分配」这类性能结论也要按值的形状分别测。
 - **「只能由 X 产生」这类来源断言要附带可观察性判断。** 原 doc-gap 写「fuzz 的 Lua 脚本不产生 NaN/Inf」，没考虑到默认值 + 算术溢出同样能产生。凡是「这个值只能从哪里来」的论断，都应列出所有能写该值的入口再下结论（与 `must/conventions.md`「跨运行时缺陷动手前必须实测受影响面」同族）。
