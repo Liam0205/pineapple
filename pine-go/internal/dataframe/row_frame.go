@@ -505,8 +505,13 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 	if depth >= maxCompositeScanDepth || rv.Len() == 0 {
 		return false
 	}
-	// Float elements (an embedding []float32, a map of named scores) are read
-	// with Float() rather than boxed through scanElem one by one.
+	// Elements that can never be a float ([]string, []byte, map[string]int,
+	// ...) need no visit at all, and float elements (an embedding []float32, a
+	// map of named scores) are read with Float(); neither is boxed through
+	// scanElem one by one.
+	if holdsNoFloat(rv.Type().Elem()) {
+		return false
+	}
 	floatElems := isPlainFloat(rv.Type().Elem())
 	switch rv.Kind() {
 	case reflect.Map:
@@ -590,6 +595,20 @@ func (s *nonFiniteScanner) scanStruct(rv reflect.Value, depth int) bool {
 		if s.scanReflect(rv.Field(i), depth+1) {
 			return true
 		}
+	}
+	return false
+}
+
+// holdsNoFloat reports whether a value of type t can never be or contain a
+// float: bool, integer, complex and string kinds (encoding/json rejects
+// complex on its own). Such an element is skipped whether or not it has a
+// custom marshaler, since it cannot be non-finite either way.
+func holdsNoFloat(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Complex64, reflect.Complex128, reflect.String:
+		return true
 	}
 	return false
 }

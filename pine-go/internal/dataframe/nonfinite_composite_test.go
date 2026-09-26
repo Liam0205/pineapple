@@ -309,8 +309,9 @@ func TestValidateValueShadowedFieldIsConservative(t *testing.T) {
 }
 
 // A typed float slice or map (an embedding vector, named scores) is read
-// element by element with Float(), not boxed per element: the check costs no
-// allocation beyond the scanner itself. Elements with their own marshaler
+// element by element with Float(), and one whose elements can never be a
+// float ([]string, []byte, map[string]int) is not visited at all; neither is
+// boxed per element, so the check costs no allocation beyond the scanner. Elements with their own marshaler
 // still go to the encoder.
 func TestValidateValueTypedFloatSlicesDoNotAllocatePerElement(t *testing.T) {
 	const want = `field "f": NaN/Inf is not a valid JSON value`
@@ -324,7 +325,13 @@ func TestValidateValueTypedFloatSlicesDoNotAllocatePerElement(t *testing.T) {
 	// The bound is a small constant per check, not one per element (the old
 	// boxing path measured 128 for vec and 64 for the map); a map scan
 	// allocates one reusable element slot.
-	for name, v := range map[string]any{"float32": vec, "named": scores, "map": byName, "array": []any{arr}} {
+	strs := make([]string, 1000)
+	blob := make([]byte, 1<<16)
+	counts := map[string]int{"a": 1, "b": 2}
+	for name, v := range map[string]any{
+		"float32": vec, "named": scores, "map": byName, "array": []any{arr},
+		"strings": strs, "bytes": blob, "int_map": counts, "nested_strings": []any{strs, blob},
+	} {
 		allocs := testing.AllocsPerRun(100, func() {
 			if err := validateValue("f", v); err != nil {
 				t.Fatal(err)
