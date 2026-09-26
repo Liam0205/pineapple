@@ -79,12 +79,23 @@ Go 的 `encoding/json` 对非有限 float64 直接报 `UnsupportedValueError`，
 | pine-cpp | `inf` / `-inf` / `nan`（裸 token） | 否 |
 | pine-java | `"Infinity"` / `"-Infinity"` / `"NaN"`（带引号字符串） | 是 |
 
-**为什么不统一**：正常路径上三者都不会走到这里——写入侧有 NaN/Inf 校验
-（pine-cpp 在 `engine.cpp` 的 `validate_output`、pine-go 在 `row_frame.go`）。
-唯一能绕过校验的入口是**请求里直接带非有限数值**，而这条路上 pine-go 与
+**为什么不统一**：正常路径上三者都不会走到这里——算子输出合并进 frame 时
+（`ApplyOutput` / `applyOutput` / `apply_output` 的 common、逐元素 item、新增 item
+三类写入）有 NaN/Inf 校验，入口分别是 pine-go `internal/dataframe/row_frame.go:validateValue`、
+pine-java `FrameValues.checkValue`、pine-cpp `src/dataframe/frame_values.hpp:validate_frame_value`；
+批量列写入在同一处用内联循环校验。issue #210 之前这道校验**只看标量**，Lua 返回的
+复合值（如 `{x * 2}` 里某个元素溢出成 `+Inf`）能绕过去，一直带到序列化：pine-go 编码失败、
+pine-java 写 `"Infinity"`、pine-cpp 写裸 `inf`。现在三方都递归扫描数组与对象，
+报错字节与标量完全相同（`item[i] write: field "f": NaN/Inf is not a valid JSON value`），
+由 `fixtures/errors/runtime_nonfinite_in_composite_write*.json` 在行存与列存下锁定。
+扫描深度上限三方都是 1000 层（与 Go `encoding/json` 的循环检测起点一致），超过上限的部分不再检查。
+
+剩下唯一能绕过校验的入口是**请求里直接带非有限数值**，而这条路上 pine-go 与
 pine-cpp 都在解析阶段就拒绝整个请求（C++ 的 `from_chars` 返回
-`result_out_of_range`），只有 Jackson 会把 `1e400` 静默 coerce 成 `Infinity`。
-也就是说分歧的成因在**请求解析层**，不在数字格式化层，修格式化不能消除它。
+`result_out_of_range`），只有 Jackson 会把 `1e400` 静默 coerce 成 `Infinity`，
+嵌套在复合值里（如 `{"s": [1e400]}`）也一样。请求数据不经过 `ApplyOutput`，
+所以写入校验管不到它。也就是说剩下这条分歧的成因在**请求解析层**，不在数字格式化层，
+修格式化不能消除它。
 
 **pine-java 选带引号字符串**的理由是：那条路上已经不可能与 Go 字节对等
 （Go 会拒绝请求），剩下唯一可争取的属性是"响应仍是可解析的 JSON"。曾经有一版让
