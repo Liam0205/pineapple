@@ -108,6 +108,31 @@ func BenchmarkApplyOutput_CompositeItemWrites(b *testing.B) {
 	}
 }
 
+// A custom operator writing a per-item embedding vector: the reflect path
+// must not box each float.
+func BenchmarkApplyOutput_TypedFloatSliceItemWrites(b *testing.B) {
+	common, items := makeBenchItems(benchItems, benchFields)
+	vec := make([]float32, 128)
+	for i := range vec {
+		vec[i] = float32(i)
+	}
+	for _, tm := range testModes {
+		b.Run(tm.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				f := NewFrame(tm.mode, common, items)
+				out := types.NewOperatorOutput()
+				for j := 0; j < benchItems; j++ {
+					out.SetItem(j, "field_0", vec)
+				}
+				b.StartTimer()
+				_ = f.ApplyOutput(out, "bench_op", false)
+			}
+		})
+	}
+}
+
 func BenchmarkApplyOutput_Removals(b *testing.B) {
 	common, items := makeBenchItems(benchItems, benchFields)
 	for _, tm := range testModes {

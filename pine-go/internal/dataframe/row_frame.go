@@ -505,12 +505,25 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 	if depth >= maxCompositeScanDepth || rv.Len() == 0 {
 		return false
 	}
+	// Float elements (an embedding []float32, a map of named scores) are read
+	// with Float() rather than boxed through scanElem one by one.
+	floatElems := isPlainFloat(rv.Type().Elem())
 	switch rv.Kind() {
 	case reflect.Map:
 		if !s.enter(compositeID{ptr: rv.Pointer(), typ: rv.Type()}, depth) {
 			return false
 		}
 		iter := rv.MapRange()
+		if floatElems {
+			ev := reflect.New(rv.Type().Elem()).Elem()
+			for iter.Next() {
+				ev.SetIterValue(iter)
+				if isNonFiniteFloat(ev.Float()) {
+					return true
+				}
+			}
+			return false
+		}
 		for iter.Next() {
 			if s.scanElem(iter.Value(), depth+1) {
 				return true
@@ -521,6 +534,14 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 		if !s.enter(compositeID{ptr: rv.Pointer(), len: rv.Len(), typ: rv.Type()}, depth) {
 			return false
 		}
+	}
+	if floatElems {
+		for i := 0; i < rv.Len(); i++ {
+			if isNonFiniteFloat(rv.Index(i).Float()) {
+				return true
+			}
+		}
+		return false
 	}
 	// An array is a value, not a reference: it cannot be shared or cyclic
 	// on its own, so it needs no identity.
@@ -571,6 +592,13 @@ func (s *nonFiniteScanner) scanStruct(rv reflect.Value, depth int) bool {
 		}
 	}
 	return false
+}
+
+// isPlainFloat reports whether t is a float kind that encoding/json writes as
+// a number (no MarshalJSON / MarshalText of its own).
+func isPlainFloat(t reflect.Type) bool {
+	k := t.Kind()
+	return (k == reflect.Float32 || k == reflect.Float64) && !hasCustomMarshaler(t)
 }
 
 func hasCustomMarshaler(t reflect.Type) bool {
