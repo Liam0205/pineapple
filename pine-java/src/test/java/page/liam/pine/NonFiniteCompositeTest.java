@@ -3,12 +3,17 @@ package page.liam.pine;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.DoubleAdder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -198,6 +203,44 @@ class NonFiniteCompositeTest {
         assertNull(FrameValues.checkValue("f", listOf(new Object[]{"s", null})));
         assertEquals("field \"f\": unsupported value type: [D",
             FrameValues.checkValue("f", new double[]{Double.NaN}));
+    }
+
+    /**
+     * Every nested value the response mapper expands into a JSON container —
+     * any Collection, Map.Entry, AtomicReference — and the floating-point
+     * accumulators it writes as numbers are scanned, matching pine-go's
+     * rejection of the equivalent nested values.
+     */
+    @Test
+    void nestedCollectionsAndReferencesAreScanned() {
+        String want = "field \"f\": NaN/Inf is not a valid JSON value";
+        Map<String, Object> hm = new HashMap<>();
+        hm.put("k", Double.NaN);
+        DoubleAdder adder = new DoubleAdder();
+        adder.add(Double.POSITIVE_INFINITY);
+        List<Object> nested = List.of(
+            new LinkedHashSet<>(List.of(Double.NaN)),
+            new ArrayDeque<>(List.of(1.0, Double.POSITIVE_INFINITY)),
+            hm.values(),
+            Map.entry("k", Double.NaN),
+            new AtomicReference<>(Double.NaN),
+            new AtomicReference<>(List.of(Double.NEGATIVE_INFINITY)),
+            adder);
+        for (Object v : nested) {
+            assertEquals(want, FrameValues.checkValue("f", listOf(v)), v.getClass().getName());
+        }
+        assertEquals(want, FrameValues.checkValue("f", adder));
+        assertNull(FrameValues.checkValue("f",
+            List.of(new TreeSet<>(List.of(1.0, 2.0)), Map.entry("k", "v"), new AtomicReference<>(null))));
+    }
+
+    /** An AtomicReference that refers to itself terminates. */
+    @Test
+    @Timeout(value = 5, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void selfReferencingAtomicReferenceTerminates() {
+        AtomicReference<Object> r = new AtomicReference<>();
+        r.set(r);
+        assertNull(FrameValues.checkValue("f", listOf(r)));
     }
 
     /** An Object[] that contains itself terminates, like a self-referencing map. */
