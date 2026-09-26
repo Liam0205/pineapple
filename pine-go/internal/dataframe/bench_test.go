@@ -86,6 +86,28 @@ func BenchmarkApplyOutput_ItemWrites(b *testing.B) {
 	}
 }
 
+// Composite values go through the recursive non-finite scan (issue #210);
+// the shape mirrors a Lua function returning a small table per item.
+func BenchmarkApplyOutput_CompositeItemWrites(b *testing.B) {
+	common, items := makeBenchItems(benchItems, benchFields)
+	for _, tm := range testModes {
+		b.Run(tm.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				f := NewFrame(tm.mode, common, items)
+				out := types.NewOperatorOutput()
+				for j := 0; j < benchItems; j++ {
+					out.SetItem(j, "field_0", []any{float64(j) * 2, float64(j) * 3})
+					out.SetItem(j, "field_1", map[string]any{"a": float64(j), "b": "x"})
+				}
+				b.StartTimer()
+				_ = f.ApplyOutput(out, "bench_op", false)
+			}
+		})
+	}
+}
+
 func BenchmarkApplyOutput_Removals(b *testing.B) {
 	common, items := makeBenchItems(benchItems, benchFields)
 	for _, tm := range testModes {
