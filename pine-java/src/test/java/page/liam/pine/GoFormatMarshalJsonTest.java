@@ -94,8 +94,9 @@ class GoFormatMarshalJsonTest {
         // Pins the CURRENT behaviour so the javadoc cannot drift from it; it
         // is a known divergence, not a contract. Go's shuffle anyToString
         // hashes fmt.Sprintf("%v") = "[NaN +Inf]" here and pine-cpp writes
-        // bare nan; see the entry on non-finite values in a composite shuffle
-        // salt in llmdoc/memory/doc-gaps.md. When that entry is resolved this assertion changes with it.
+        // bare nan; see the non-finite "shuffle salt" entry (#201) in
+        // llmdoc/memory/doc-gaps.md. When that entry is resolved this
+        // assertion changes with it.
         assertEquals("[\"NaN\",\"Infinity\"]", GoFormat.marshalJson(list(Double.NaN, Double.POSITIVE_INFINITY)));
     }
 
