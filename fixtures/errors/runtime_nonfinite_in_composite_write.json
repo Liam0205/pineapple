@@ -1,0 +1,68 @@
+{
+  "name": "Runtime NaN/Inf nested in a composite write — Go/Java/C++ byte-exact",
+  "description": "Issue #210. A Lua table whose element overflows to +Inf (item_score defaults to float64 max, then * 2) used to pass the write-time check because only scalars were inspected: pine-go then failed to encode the response, pine-java emitted a quoted \"Infinity\" and pine-cpp emitted bare inf (invalid JSON). apply_output now scans composites and rejects them with the scalar message, so all three runtimes fail at the same write with the same bytes. The row that overflows is item[0] (item_score null -> default).",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "overflow_in_table": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function compute()\n  return {item_score * 2, item_score * 3}\nend",
+          "function_for_item": "compute",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [
+              "item_score"
+            ],
+            "item_output": [
+              "item_result"
+            ]
+          },
+          "item_defaults": {
+            "item_score": 1.7976931348623157e+308
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "overflow_in_table"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [
+        "item_score"
+      ],
+      "common_output": [],
+      "item_output": [
+        "item_score",
+        "item_result"
+      ]
+    }
+  },
+  "request": {
+    "common": {},
+    "items": [
+      {
+        "item_score": null
+      },
+      {
+        "item_score": 2
+      }
+    ]
+  },
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "NaN/Inf",
+    "wrapping_exact": "pine: execution error in operator \"overflow_in_table\": item[0] write: field \"item_result\": NaN/Inf is not a valid JSON value",
+    "wrapping_exact_engines": [
+      "go",
+      "java",
+      "cpp"
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "name": "Runtime NaN/Inf nested in a composite write (column store) — Go/Java/C++ byte-exact",
+  "description": "Column-store twin of runtime_nonfinite_in_composite_write.json (issue #210): the composite scan lives in the shared write-time check, but each runtime has a separate row-frame and column-frame apply path, so both are locked end to end.",
+  "config": {
+    "pipeline_config": {
+      "operators": {
+        "overflow_in_table": {
+          "type_name": "transform_by_lua",
+          "lua_script": "function compute()\n  return {item_score * 2, item_score * 3}\nend",
+          "function_for_item": "compute",
+          "function_for_common": "",
+          "$metadata": {
+            "common_input": [],
+            "common_output": [],
+            "item_input": [
+              "item_score"
+            ],
+            "item_output": [
+              "item_result"
+            ]
+          },
+          "item_defaults": {
+            "item_score": 1.7976931348623157e+308
+          }
+        }
+      }
+    },
+    "pipeline_group": {
+      "main": {
+        "pipeline": [
+          "overflow_in_table"
+        ]
+      }
+    },
+    "flow_contract": {
+      "common_input": [],
+      "item_input": [
+        "item_score"
+      ],
+      "common_output": [],
+      "item_output": [
+        "item_score",
+        "item_result"
+      ]
+    },
+    "storage_mode": "column"
+  },
+  "request": {
+    "common": {},
+    "items": [
+      {
+        "item_score": null
+      },
+      {
+        "item_score": 2
+      }
+    ]
+  },
+  "expected_error": {
+    "type": "ExecutionError",
+    "message_contains": "NaN/Inf",
+    "wrapping_exact": "pine: execution error in operator \"overflow_in_table\": item[0] write: field \"item_result\": NaN/Inf is not a valid JSON value",
+    "wrapping_exact_engines": [
+      "go",
+      "java",
+      "cpp"
+    ]
+  }
+}
