@@ -1,10 +1,12 @@
-// pine-go benchmarks 独立子 module。
+// pine-go benchmarks: a separate submodule.
 //
-// 设计动机:对照基准库(如 gopher-lua / 未来 wangshu)只用于性能对比,
-// 不应污染 pine-go 主 module 的生产依赖图。参考 wangshu(github.com/Liam0205/wangshu)
-// 同名设计。
+// Rationale: comparison libraries (e.g. gopher-lua / wangshu) are only used for
+// performance comparisons and must not leak into the production dependency graph of
+// the pine-go main module. Follows the design of the same-named module in wangshu
+// (github.com/Liam0205/wangshu).
 //
-// 主 module pine-go 通过 replace 指令本地引用,benchmarks 改动无需 publish。
+// The main pine-go module is referenced locally through a replace directive, so
+// changes to benchmarks never need to be published.
 module github.com/Liam0205/pineapple/pine-go/benchmarks
 
 go 1.26.2

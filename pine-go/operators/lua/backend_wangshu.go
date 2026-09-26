@@ -6,7 +6,7 @@
 // faster and lower-allocation than gopher-lua on per-item transform_by_lua
 // workloads. Build with `-tags=lua_gopher` to fall back to gopher-lua.
 //
-// wangshu公共面填齐了 transform_by_lua 算子需要的全部能力:
+// wangshu's public API now covers everything the transform_by_lua operator needs:
 //   - SetGlobal/GetGlobal/State.Call (issue #1, v0.1.1)
 //   - Public Table API for common-mode list/map globals (issue #2, v0.1.2)
 //   - HideFileLoaders strict sandbox matching gopher-lua semantics (issue #3, v0.1.2)
