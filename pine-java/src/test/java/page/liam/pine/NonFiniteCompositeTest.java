@@ -237,10 +237,13 @@ class NonFiniteCompositeTest {
     }
 
     /**
-     * A BigInteger / BigDecimal beyond the double range is written as
-     * "Infinity" (the frame payload wrapper converts every Number to Go's
-     * float64 spelling), so it is rejected like a non-finite double, nested
-     * or not. Values within range pass.
+     * A BigInteger / BigDecimal beyond the double range is rejected like a
+     * non-finite double wherever it sits. Under a map or list the payload
+     * wrapper writes it as "Infinity"; inside a Set, Map.Entry, array or
+     * AtomicReference (which the wrapper does not enter) it would be written
+     * as an exact decimal, and rejecting it there is the deliberate,
+     * conservative choice documented on FrameValues.isNonFinite. Values
+     * within range pass.
      */
     @Test
     void bigNumbersBeyondDoubleRangeAreRejected() {
@@ -251,6 +254,10 @@ class NonFiniteCompositeTest {
         assertEquals(want, FrameValues.checkValue("f", hugeInt));
         assertEquals(want, FrameValues.checkValue("f", listOf(huge)));
         assertEquals(want, FrameValues.checkValue("f", map("k", listOf(hugeInt))));
+        assertEquals(want, FrameValues.checkValue("f", listOf(new LinkedHashSet<>(List.of(huge)))));
+        assertEquals(want, FrameValues.checkValue("f", listOf(Map.entry("k", hugeInt))));
+        assertEquals(want, FrameValues.checkValue("f", listOf(new Object[]{huge})));
+        assertEquals(want, FrameValues.checkValue("f", listOf(new AtomicReference<>(huge))));
         assertNull(FrameValues.checkValue("f", List.of(new BigDecimal("1e300"), BigInteger.TEN.pow(300), Long.MAX_VALUE)));
     }
 
