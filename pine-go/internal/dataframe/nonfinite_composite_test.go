@@ -3,6 +3,7 @@ package dataframe
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
@@ -134,12 +135,12 @@ func TestValidateValueReflectElementTypes(t *testing.T) {
 		"named_float_map":    map[string]namedFloat{"a": namedFloat(inf)},
 		"named_float_in_any": []any{namedFloat(inf)},
 		"pointer_elem":       []*float64{&inf},
-		"array":              [2]float64{1, inf},
+		"nested_array":       []any{[2]float64{1, inf}},
 	}
 	for name, v := range cases {
-		if err := validateValue("f", v); err == nil {
-			t.Errorf("%s: expected rejection", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			assertErr(t, validateValue("f", v), `field "f": NaN/Inf is not a valid JSON value`)
+		})
 	}
 	finite := 1.0
 	if err := validateValue("f", []*float64{&finite, nil}); err != nil {
@@ -154,5 +155,62 @@ func assertErr(t *testing.T, err error, want string) {
 	}
 	if err.Error() != want {
 		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+// A composite reachable along many paths — shared sub-values, or a cycle
+// through them — must be scanned in time linear in its distinct composites.
+// A per-path walk over this ring of k maps, each pointing twice at the next,
+// visits 2^k paths (k=40 never finishes); the depth-aware seen set visits
+// each map once. Only a custom operator can build such a value.
+func TestValidateValueSharedCyclicGraphIsLinear(t *testing.T) {
+	const k = 40
+	ms := make([]map[string]any, k)
+	for i := range ms {
+		ms[i] = map[string]any{}
+	}
+	for i := range ms {
+		next := ms[(i+1)%k]
+		ms[i]["a"] = next
+		ms[i]["b"] = next
+	}
+	done := make(chan error, 1)
+	go func() { done <- validateValue("f", ms[0]) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("finite cyclic graph: unexpected error %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("scan of a shared cyclic graph did not finish: path enumeration is exponential")
+	}
+
+	ms[k-1]["bad"] = math.NaN()
+	assertErr(t, validateValue("f", ms[0]), `field "f": NaN/Inf is not a valid JSON value`)
+}
+
+// A shared sub-value first reached deep (near the bound) and later shallow
+// must be rescanned from the shallower depth: the NaN below it is only
+// within the bound on the shallow path.
+func TestValidateValueSharedSubvalueRescannedFromShallowerDepth(t *testing.T) {
+	shared := []any{nestArrays(math.NaN(), 3)}
+	deepPath := nestArrays(shared, maxCompositeScanDepth-2)
+	v := []any{deepPath, shared}
+	assertErr(t, validateValue("f", v), `field "f": NaN/Inf is not a valid JSON value`)
+}
+
+// A pointer that refers to itself (through an interface) must terminate.
+func TestValidateValueSelfReferencingPointerTerminates(t *testing.T) {
+	var x any
+	x = &x
+	done := make(chan error, 1)
+	go func() { done <- validateValue("f", []any{&x}) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("self-referencing pointer: unexpected error %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("scan of a self-referencing pointer did not finish")
 	}
 }
