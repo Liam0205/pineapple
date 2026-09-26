@@ -58,9 +58,9 @@ final class FrameValues {
     /**
      * Whether n's double value is non-finite. One rule for every Number and
      * every position: Double / Float, the JDK floating-point accumulators,
-     * and BigInteger / BigDecimal beyond the double range (e.g.
-     * {@code new BigDecimal("1e400")}); integral types below 2^1024 never
-     * are.
+     * and a BigInteger / BigDecimal whose {@code doubleValue()} overflows
+     * (e.g. {@code new BigDecimal("1e400")}, or an integer rounding up to
+     * 2^1024); Integer / Long / Short / Byte never do.
      *
      * <p>How such a big number is written depends on where it sits.
      * {@code GoFormat.wrap(v, true)} descends only into Map and List and
