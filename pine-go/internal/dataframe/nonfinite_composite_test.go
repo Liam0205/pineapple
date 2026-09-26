@@ -214,3 +214,20 @@ func TestValidateValueSelfReferencingPointerTerminates(t *testing.T) {
 		t.Fatal("scan of a self-referencing pointer did not finish")
 	}
 }
+
+// Two references that share an address and length but cover different data
+// (a pointer to an array and to its first element; a slice of arrays and a
+// one-element slice of its first array) must not be treated as the same
+// composite: the wider one still holds the Inf. In a map the two are visited
+// in random order, so repeat to catch an order-dependent verdict.
+func TestValidateValueSameAddressDifferentTypeNotConflated(t *testing.T) {
+	arr := [2]float64{1, math.Inf(1)}
+	s := [][2]float64{{1, math.Inf(1)}}
+	const want = `field "f": NaN/Inf is not a valid JSON value`
+	assertErr(t, validateValue("f", []any{&arr[0], &arr}), want)
+	assertErr(t, validateValue("f", []any{s[0][:1], s}), want)
+	for i := 0; i < 200; i++ {
+		assertErr(t, validateValue("f", map[string]any{"a": &arr[0], "b": &arr}), want)
+		assertErr(t, validateValue("f", map[string]any{"a": s[0][:1], "b": s}), want)
+	}
+}
