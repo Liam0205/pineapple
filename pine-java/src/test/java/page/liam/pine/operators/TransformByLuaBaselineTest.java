@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Pins the pool-baseline reset contract for TransformByLua's LuaPool
  * (issue #177). The cross-runtime contract, documented in
- * operator-contract.md's "Lua Pool Baseline 重置契约" section, is:
+ * operator-contract.md's Lua Pool Baseline reset contract section, is:
  *   "baseline snapshot / reset covers string-keyed globals only;
  *    numeric / table / function keys are out of contract and may leak
  *    across borrows."

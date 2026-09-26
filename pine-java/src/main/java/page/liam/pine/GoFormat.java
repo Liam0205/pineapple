@@ -623,7 +623,7 @@ public final class GoFormat {
             // BigInteger past the double range becomes ±Infinity and takes the
             // serializer's quoted branch; Go rejects such a request at parse
             // time, so this is a recorded parse-layer divergence — see
-            // llmdoc/memory/doc-gaps.md "超出 float64 范围的整数字面量".
+            // the entry on integer literals beyond the float64 range in llmdoc/memory/doc-gaps.md.
             return ((Number) v).doubleValue();
         }
         return v;
@@ -697,7 +697,7 @@ public final class GoFormat {
      * reachable only from a Lua table holding {@code 0/0} or {@code 1/0}. It
      * predates the #201 fix, is not covered by any fixture or fuzz shape, and
      * needs a three-runtime decision — recorded in
-     * llmdoc/memory/doc-gaps.md ("非有限值进入复合 shuffle salt"). Do not read
+     * llmdoc/memory/doc-gaps.md (entry on non-finite values in a composite shuffle salt). Do not read
      * the quoted form as the contract.
      *
      * @throws IOException only on a Jackson failure unrelated to the value's
