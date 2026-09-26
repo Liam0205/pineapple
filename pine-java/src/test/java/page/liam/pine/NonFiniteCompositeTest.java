@@ -171,6 +171,48 @@ class NonFiniteCompositeTest {
         assertEquals("field \"f\": NaN/Inf is not a valid JSON value", FrameValues.checkValue("f", v));
     }
 
+    /** A one-element list holding x; List.of(Object[]) would spread the array as varargs. */
+    private static List<Object> listOf(Object x) {
+        List<Object> l = new ArrayList<>();
+        l.add(x);
+        return l;
+    }
+
+    /**
+     * A Java array nested in a list or map is serialized element by element
+     * (pine-go rejects the equivalent nested array), so a non-finite element
+     * must be rejected at write time. A top-level array stays an unsupported
+     * type.
+     */
+    @Test
+    void nestedJavaArraysAreScanned() {
+        String want = "field \"f\": NaN/Inf is not a valid JSON value";
+        assertEquals(want, FrameValues.checkValue("f", listOf(new double[]{1, Double.POSITIVE_INFINITY})));
+        assertEquals(want, FrameValues.checkValue("f", listOf(new float[]{Float.NaN})));
+        assertEquals(want, FrameValues.checkValue("f", listOf(new Object[]{1.0, Double.NEGATIVE_INFINITY})));
+        assertEquals(want, FrameValues.checkValue("f", listOf(new Double[]{Double.NaN})));
+        assertEquals(want, FrameValues.checkValue("f", map("k", new Object[]{new double[]{Double.NaN}})));
+        assertEquals(want, FrameValues.checkValue("f", listOf(new Object[]{map("x", Double.NaN)})));
+        assertNull(FrameValues.checkValue("f", listOf(new double[]{1, 2})));
+        assertNull(FrameValues.checkValue("f", listOf(new int[]{3})));
+        assertNull(FrameValues.checkValue("f", listOf(new Object[]{"s", null})));
+        assertEquals("field \"f\": unsupported value type: [D",
+            FrameValues.checkValue("f", new double[]{Double.NaN}));
+    }
+
+    /** An Object[] that contains itself terminates, like a self-referencing map. */
+    @Test
+    @Timeout(value = 5, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void selfReferencingArrayTerminates() {
+        Object[] a = new Object[3];
+        a[0] = a;
+        a[1] = a;
+        a[2] = 1.0;
+        assertNull(FrameValues.checkValue("f", listOf(a)));
+        a[2] = Double.NaN;
+        assertEquals("field \"f\": NaN/Inf is not a valid JSON value", FrameValues.checkValue("f", listOf(a)));
+    }
+
     /**
      * A leaf list shared by many references is scanned once per depth, not
      * once per reference (20000 references to a 20000-element list would be

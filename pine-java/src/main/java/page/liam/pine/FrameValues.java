@@ -1,5 +1,6 @@
 package page.liam.pine;
 
+import java.lang.reflect.Array;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +76,13 @@ final class FrameValues {
      * at, bounded by the depth limit. Same rule as pine-go containsNonFinite.
      * The map is only allocated once a second composite is entered, so a
      * flat list or map costs nothing extra.
+     *
+     * <p>A Java array nested inside a map or list ({@code double[]},
+     * {@code Object[]}, ...) is scanned like a list: the response mapper
+     * serializes it element by element, and pine-go rejects the equivalent
+     * nested array. Other nested objects (a POJO Jackson would serialize as
+     * a bean) are not inspected; a top-level array or POJO is already refused
+     * by {@link #checkValue} as an unsupported type.
      */
     private static final class Scanner {
         private Object first;
@@ -110,15 +118,48 @@ final class FrameValues {
             if (v instanceof Number) {
                 return isNonFinite((Number) v);
             }
-            if (!(v instanceof Map) && !(v instanceof List)) {
+            boolean array = v != null && v.getClass().isArray();
+            if (!array && !(v instanceof Map) && !(v instanceof List)) {
                 return false;
             }
             if (depth >= MAX_COMPOSITE_SCAN_DEPTH || !enter(v, depth)) {
                 return false;
             }
+            if (array) {
+                return arrayContainsNonFinite(v, depth);
+            }
             Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (List<?>) v;
             for (Object e : children) {
                 if (containsNonFinite(e, depth + 1)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean arrayContainsNonFinite(Object a, int depth) {
+            if (a instanceof double[]) {
+                for (double d : (double[]) a) {
+                    if (Double.isNaN(d) || Double.isInfinite(d)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            if (a instanceof float[]) {
+                for (float f : (float[]) a) {
+                    if (Float.isNaN(f) || Float.isInfinite(f)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            if (a.getClass().getComponentType().isPrimitive()) {
+                return false;
+            }
+            int n = Array.getLength(a);
+            for (int i = 0; i < n; i++) {
+                if (containsNonFinite(Array.get(a, i), depth + 1)) {
                     return true;
                 }
             }
