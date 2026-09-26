@@ -620,9 +620,9 @@ public final class GoFormat {
         if (payload && v instanceof Number && !(v instanceof Double) && !(v instanceof Float)) {
             // Integer / Long / Short / Byte / BigInteger / BigDecimal: what Go
             // would have held as float64 from the moment it parsed the literal.
-            // BigInteger past the double range becomes ±Infinity and takes the
-            // serializer's quoted branch; Go rejects such a request at parse
-            // time, so this is a recorded parse-layer divergence — see the
+            // A BigInteger whose doubleValue() overflows becomes ±Infinity and
+            // takes the serializer's quoted branch; Go rejects such a request
+            // at parse time, so this is a recorded parse-layer divergence — see the
             // integer-literals-beyond-float64 entry (#201 R17) in
             // llmdoc/memory/doc-gaps.md.
             return ((Number) v).doubleValue();

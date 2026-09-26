@@ -237,7 +237,7 @@ class NonFiniteCompositeTest {
     }
 
     /**
-     * A BigInteger / BigDecimal beyond the double range is rejected like a
+     * A BigInteger / BigDecimal whose doubleValue() overflows is rejected like a
      * non-finite double wherever it sits. Under a map or list the payload
      * wrapper writes it as "Infinity"; inside a Set, Map.Entry, array or
      * AtomicReference (which the wrapper does not enter) it would be written
