@@ -20,12 +20,12 @@
     3. 对每个 fixture 发送顺序/并发请求，测量延迟
     4. 输出 Markdown 对比表 + JSON 详细结果
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import signal
 import socket
 import statistics
 import subprocess
@@ -37,7 +37,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Generator
+from typing import Generator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES_DIR = REPO_ROOT / "fixtures" / "benchmarks"
@@ -48,9 +48,11 @@ PORTS = {"go": 9001, "java": 9002}
 
 # ─── 数据结构 ─────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class LatencyResult:
     """单引擎单 fixture 的延迟统计。"""
+
     engine: str
     fixture: str
     iterations: int
@@ -66,6 +68,7 @@ class LatencyResult:
 @dataclass
 class ThroughputResult:
     """单引擎单 fixture 的吞吐量统计。"""
+
     engine: str
     fixture: str
     concurrency: int
@@ -79,12 +82,14 @@ class ThroughputResult:
 @dataclass
 class BenchResults:
     """完整 benchmark 结果。"""
+
     timestamp: str = ""
     latency: list[LatencyResult] = field(default_factory=list)
     throughput: list[ThroughputResult] = field(default_factory=list)
 
 
 # ─── 引擎管理 ─────────────────────────────────────────────────────────────────
+
 
 def build_engines(engines: list[str], skip_build: bool = False):
     """编译引擎。"""
@@ -139,7 +144,9 @@ def _health_check(port: int) -> bool:
 
 
 @contextmanager
-def start_engine(engine: str, config_path: str, port: int) -> Generator[subprocess.Popen | None, None, None]:
+def start_engine(
+    engine: str, config_path: str, port: int
+) -> Generator[subprocess.Popen | None, None, None]:
     """启动引擎 server，返回进程句柄。用 context manager 自动清理。"""
     proc: subprocess.Popen | None = None
     env = os.environ.copy()
@@ -150,7 +157,15 @@ def start_engine(engine: str, config_path: str, port: int) -> Generator[subproce
             if not binary.exists():
                 print(f"  [warn] Go binary 不存在: {binary}，尝试 go run")
                 proc = subprocess.Popen(
-                    ["go", "run", "./cmd/pineapple-server/", "-config", config_path, "-addr", f":{port}"],
+                    [
+                        "go",
+                        "run",
+                        "./cmd/pineapple-server/",
+                        "-config",
+                        config_path,
+                        "-addr",
+                        f":{port}",
+                    ],
                     cwd=REPO_ROOT / "pine-go",
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -168,9 +183,16 @@ def start_engine(engine: str, config_path: str, port: int) -> Generator[subproce
             jar_path = REPO_ROOT / "pine-java" / "target" / "pine-0.7.0.jar"
             # 获取 classpath
             cp_result = subprocess.run(
-                ["mvn", "dependency:build-classpath", "-q", "-DincludeScope=runtime", "-Dmdep.outputFile=/dev/stdout"],
+                [
+                    "mvn",
+                    "dependency:build-classpath",
+                    "-q",
+                    "-DincludeScope=runtime",
+                    "-Dmdep.outputFile=/dev/stdout",
+                ],
                 cwd=REPO_ROOT / "pine-java",
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             dep_cp = cp_result.stdout.strip()
             classpath = f"{jar_path}:{dep_cp}" if dep_cp else str(jar_path)
@@ -180,7 +202,8 @@ def start_engine(engine: str, config_path: str, port: int) -> Generator[subproce
                     "java",
                     f"-Dpine.config={config_path}",
                     f"-Dpine.port={port}",
-                    "-cp", classpath,
+                    "-cp",
+                    classpath,
                     "page.liam.pine.PineServer",
                 ],
                 stdout=subprocess.DEVNULL,
@@ -217,6 +240,7 @@ def start_engine(engine: str, config_path: str, port: int) -> Generator[subproce
 
 # ─── 请求发送 ─────────────────────────────────────────────────────────────────
 
+
 def send_request(port: int, request_body: bytes) -> tuple[float, bool]:
     """发送单次 /execute 请求，返回 (延迟ms, 是否成功)。"""
     url = f"http://127.0.0.1:{port}/execute"
@@ -232,12 +256,13 @@ def send_request(port: int, request_body: bytes) -> tuple[float, bool]:
             resp.read()  # 消费 response body
             elapsed = (time.perf_counter() - start) * 1000.0
             return elapsed, resp.status == 200
-    except (urllib.error.HTTPError, urllib.error.URLError, Exception) as e:
+    except (urllib.error.HTTPError, urllib.error.URLError, Exception):
         elapsed = (time.perf_counter() - start) * 1000.0
         return elapsed, False
 
 
 # ─── Benchmark 逻辑 ──────────────────────────────────────────────────────────
+
 
 def run_latency_bench(
     port: int,
@@ -264,7 +289,9 @@ def run_latency_bench(
 
     if not latencies:
         return LatencyResult(
-            engine=engine, fixture=fixture_name, iterations=iterations,
+            engine=engine,
+            fixture=fixture_name,
+            iterations=iterations,
             error=f"all {iterations} requests failed",
         )
 
@@ -337,7 +364,10 @@ def run_throughput_bench(
 
 # ─── Fixture 加载 ────────────────────────────────────────────────────────────
 
-def discover_fixtures(fixtures_dir: Path, tiers: list[str] | None = None) -> list[tuple[str, Path, Path]]:
+
+def discover_fixtures(
+    fixtures_dir: Path, tiers: list[str] | None = None
+) -> list[tuple[str, Path, Path]]:
     """发现所有 benchmark fixture，返回 (name, config_path, request_path) 列表。"""
     fixtures = []
     for config_path in sorted(fixtures_dir.glob("*_config.json")):
@@ -356,13 +386,20 @@ def discover_fixtures(fixtures_dir: Path, tiers: list[str] | None = None) -> lis
 
 # ─── 输出格式化 ───────────────────────────────────────────────────────────────
 
+
 def print_latency_table(results: list[LatencyResult], engines: list[str]):
     """输出延迟对比 Markdown 表。"""
     # 按 fixture 分组
     fixtures = sorted(set(r.fixture for r in results))
 
     print("\n## Latency Comparison (sequential requests)\n")
-    header = "| Fixture | " + " | ".join(f"{e} median(ms)" for e in engines) + " | " + " | ".join(f"{e} p95(ms)" for e in engines) + " |"
+    header = (
+        "| Fixture | "
+        + " | ".join(f"{e} median(ms)" for e in engines)
+        + " | "
+        + " | ".join(f"{e} p95(ms)" for e in engines)
+        + " |"
+    )
     sep = "|" + "---|" * (1 + len(engines) * 2)
     print(header)
     print(sep)
@@ -374,17 +411,17 @@ def print_latency_table(results: list[LatencyResult], engines: list[str]):
             if r and r.error is None:
                 row += f"| {r.median_ms:.2f} "
             elif r:
-                row += f"| ERR "
+                row += "| ERR "
             else:
-                row += f"| - "
+                row += "| - "
         for e in engines:
             r = next((x for x in results if x.fixture == fixture and x.engine == e), None)
             if r and r.error is None:
                 row += f"| {r.p95_ms:.2f} "
             elif r:
-                row += f"| ERR "
+                row += "| ERR "
             else:
-                row += f"| - "
+                row += "| - "
         row += "|"
         print(row)
 
@@ -398,7 +435,13 @@ def print_throughput_table(results: list[ThroughputResult], engines: list[str]):
 
     for conc in concurrencies:
         print(f"\n### Concurrency = {conc}\n")
-        header = "| Fixture | " + " | ".join(f"{e} RPS" for e in engines) + " | " + " | ".join(f"{e} avg(ms)" for e in engines) + " |"
+        header = (
+            "| Fixture | "
+            + " | ".join(f"{e} RPS" for e in engines)
+            + " | "
+            + " | ".join(f"{e} avg(ms)" for e in engines)
+            + " |"
+        )
         sep = "|" + "---|" * (1 + len(engines) * 2)
         print(header)
         print(sep)
@@ -406,21 +449,35 @@ def print_throughput_table(results: list[ThroughputResult], engines: list[str]):
         for fixture in fixtures:
             row = f"| {fixture} "
             for e in engines:
-                r = next((x for x in results if x.fixture == fixture and x.engine == e and x.concurrency == conc), None)
+                r = next(
+                    (
+                        x
+                        for x in results
+                        if x.fixture == fixture and x.engine == e and x.concurrency == conc
+                    ),
+                    None,
+                )
                 if r and r.error is None:
                     row += f"| {r.rps:.1f} "
                 elif r:
-                    row += f"| ERR "
+                    row += "| ERR "
                 else:
-                    row += f"| - "
+                    row += "| - "
             for e in engines:
-                r = next((x for x in results if x.fixture == fixture and x.engine == e and x.concurrency == conc), None)
+                r = next(
+                    (
+                        x
+                        for x in results
+                        if x.fixture == fixture and x.engine == e and x.concurrency == conc
+                    ),
+                    None,
+                )
                 if r and r.error is None:
                     row += f"| {r.avg_ms:.2f} "
                 elif r:
-                    row += f"| ERR "
+                    row += "| ERR "
                 else:
-                    row += f"| - "
+                    row += "| - "
             row += "|"
             print(row)
 
@@ -431,18 +488,29 @@ def save_results(results: BenchResults, output_path: Path):
         "timestamp": results.timestamp,
         "latency": [
             {
-                "engine": r.engine, "fixture": r.fixture, "iterations": r.iterations,
-                "min_ms": r.min_ms, "median_ms": r.median_ms, "mean_ms": r.mean_ms,
-                "p95_ms": r.p95_ms, "p99_ms": r.p99_ms, "max_ms": r.max_ms,
+                "engine": r.engine,
+                "fixture": r.fixture,
+                "iterations": r.iterations,
+                "min_ms": r.min_ms,
+                "median_ms": r.median_ms,
+                "mean_ms": r.mean_ms,
+                "p95_ms": r.p95_ms,
+                "p99_ms": r.p99_ms,
+                "max_ms": r.max_ms,
                 "error": r.error,
             }
             for r in results.latency
         ],
         "throughput": [
             {
-                "engine": r.engine, "fixture": r.fixture, "concurrency": r.concurrency,
-                "rps": r.rps, "avg_ms": r.avg_ms, "errors": r.errors,
-                "total_requests": r.total_requests, "error": r.error,
+                "engine": r.engine,
+                "fixture": r.fixture,
+                "concurrency": r.concurrency,
+                "rps": r.rps,
+                "avg_ms": r.avg_ms,
+                "errors": r.errors,
+                "total_requests": r.total_requests,
+                "error": r.error,
             }
             for r in results.throughput
         ],
@@ -455,17 +523,22 @@ def save_results(results: BenchResults, output_path: Path):
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="跨引擎 Benchmark Runner")
     parser.add_argument("--iterations", type=int, default=200, help="延迟测试迭代次数 (默认 200)")
     parser.add_argument("--concurrency", default="1,4,16,64", help="并发等级列表 (逗号分隔)")
     parser.add_argument("--fixtures-dir", type=Path, default=FIXTURES_DIR, help="fixture 目录")
     parser.add_argument("--engines", default="go,java", help="引擎列表 (逗号分隔)")
-    parser.add_argument("--output", type=Path, default=REPO_ROOT / "bench-results.json", help="结果输出路径")
+    parser.add_argument(
+        "--output", type=Path, default=REPO_ROOT / "bench-results.json", help="结果输出路径"
+    )
     parser.add_argument("--skip-build", action="store_true", help="跳过编译步骤")
     parser.add_argument("--warmup", type=int, default=20, help="预热请求数 (默认 20)")
     parser.add_argument("--tiers", default=None, help="仅测试指定层级 (如 small,medium)")
-    parser.add_argument("--throughput-duration", type=float, default=5.0, help="每个并发等级测试时长秒数 (默认 5)")
+    parser.add_argument(
+        "--throughput-duration", type=float, default=5.0, help="每个并发等级测试时长秒数 (默认 5)"
+    )
     parser.add_argument("--latency-only", action="store_true", help="仅执行延迟测试")
     parser.add_argument("--throughput-only", action="store_true", help="仅执行吞吐量测试")
     args = parser.parse_args()
@@ -518,38 +591,59 @@ def main():
             with start_engine(engine, str(config_path), port) as proc:
                 if proc is None:
                     print(f"    [skip] {engine} server 启动失败")
-                    results.latency.append(LatencyResult(
-                        engine=engine, fixture=fixture_name, iterations=0,
-                        error="server start failed",
-                    ))
+                    results.latency.append(
+                        LatencyResult(
+                            engine=engine,
+                            fixture=fixture_name,
+                            iterations=0,
+                            error="server start failed",
+                        )
+                    )
                     continue
 
                 # 延迟测试
                 if not args.throughput_only:
                     print(f"    延迟测试 ({args.iterations} iterations, {args.warmup} warmup)...")
                     lat = run_latency_bench(
-                        port, engine, fixture_name, request_body,
-                        args.iterations, args.warmup,
+                        port,
+                        engine,
+                        fixture_name,
+                        request_body,
+                        args.iterations,
+                        args.warmup,
                     )
                     results.latency.append(lat)
                     if lat.error:
                         print(f"    结果: ERROR - {lat.error}")
                     else:
-                        print(f"    结果: median={lat.median_ms:.2f}ms p95={lat.p95_ms:.2f}ms p99={lat.p99_ms:.2f}ms")
+                        print(
+                            f"    结果: median={lat.median_ms:.2f}ms p95={lat.p95_ms:.2f}ms "
+                            f"p99={lat.p99_ms:.2f}ms"
+                        )
 
                 # 吞吐量测试
                 if not args.latency_only:
                     for conc in concurrencies:
-                        print(f"    吞吐量测试 (concurrency={conc}, duration={args.throughput_duration}s)...")
+                        print(
+                            f"    吞吐量测试 (concurrency={conc}, "
+                            f"duration={args.throughput_duration}s)..."
+                        )
                         tp = run_throughput_bench(
-                            port, engine, fixture_name, request_body,
-                            conc, args.throughput_duration,
+                            port,
+                            engine,
+                            fixture_name,
+                            request_body,
+                            conc,
+                            args.throughput_duration,
                         )
                         results.throughput.append(tp)
                         if tp.error:
                             print(f"      结果: ERROR - {tp.error}")
                         else:
-                            print(f"      结果: RPS={tp.rps:.1f} avg={tp.avg_ms:.2f}ms errors={tp.errors}")
+                            print(
+                                f"      结果: RPS={tp.rps:.1f} avg={tp.avg_ms:.2f}ms "
+                                f"errors={tp.errors}"
+                            )
 
     # ─── 输出结果 ──────────────────────────────────────────────────────
     print("\n" + "=" * 60)
