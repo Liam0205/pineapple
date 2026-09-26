@@ -1,12 +1,12 @@
-# v0.9.0 Nullable→Strict 翻转后 Apple DSL 契约脱节反思
+# v0.9.0 Nullable→Strict 切换后 Apple DSL 契约脱节反思
 
 ## Task
 
-v0.9.0 将 InputFieldSpec 默认模式从 Strict 翻转为 Nullable，JSON 契约键从 `nullable_common`/`nullable_item` 反转为 `strict_common`/`strict_item`。pine-go（及其他三个运行时）全部完成迁移，但 Apple DSL 侧未同步。
+v0.9.0 将 InputFieldSpec 默认模式从 Strict 切换为 Nullable，JSON 契约键从 `nullable_common`/`nullable_item` 反转为 `strict_common`/`strict_item`。pine-go（及其他三个运行时）全部完成迁移，但 Apple DSL 侧未同步。
 
 ## Expected vs Actual
 
-- **预期**：模型翻转是完整的——Apple DSL 侧应同步引入 `strict_common`/`strict_item` 声明能力，并移除已废弃的 `nullable_common`/`nullable_item`。
+- **预期**：模型切换是完整的——Apple DSL 侧应同步引入 `strict_common`/`strict_item` 声明能力，并移除已废弃的 `nullable_common`/`nullable_item`。
 - **实际**：
   1. `apple/base.py` 仍保留 `nullable_common`/`nullable_item` 字段（L25-26）。
   2. `apple/compiler.py` 仍 emit `"nullable_common"`/`"nullable_item"` 到 JSON（L118-121）。
@@ -16,21 +16,21 @@ v0.9.0 将 InputFieldSpec 默认模式从 Strict 翻转为 Nullable，JSON 契�
 
 ## What Went Wrong
 
-1. **跨层变更未做端到端检查**：pine-go 侧翻转完成后，没有验证 Apple DSL 编译产物在新运行时下的实际效果。JSON 作为解耦契约是优势，但也意味着一侧的键名变更不会导致另一侧编译失败——静默忽略使错误不可见。
-2. **"默认 Nullable"的安全错觉**：因为翻转后默认即 Nullable，旧 DSL 输出在大多数场景不崩溃，掩盖了 Strict 能力完全丧失的事实。功能可用 ≠ 契约完整。
+1. **跨层变更未做端到端检查**：pine-go 侧切换完成后，没有验证 Apple DSL 编译产物在新运行时下的实际效果。JSON 作为解耦契约是优势，但也意味着一侧的键名变更不会导致另一侧编译失败——静默忽略使错误不可见。
+2. **"默认 Nullable"的安全错觉**：因为切换后默认即 Nullable，旧 DSL 输出在大多数场景不崩溃，掩盖了 Strict 能力完全丧失的事实。功能可用 ≠ 契约完整。
 3. **cross-validate 未覆盖"声明→生效"路径**：现有的 cross-validate 验证的是四引擎在同一 JSON fixture 下输出一致，但没有验证"Apple DSL 声明 nullable/strict → 编译 JSON → 运行时实际生效"的端到端路径。
 
 ## Root Cause
 
-模型翻转涉及两个方向的变更：
-- **正向**（运行时侧）：键名 `nullable_*` → `strict_*`，默认语义翻转——已完成。
-- **逆向**（声明侧）：DSL 字段名、编译输出、hash 输入同步翻转——**未执行**。
+模型切换涉及两个方向的变更：
+- **正向**（运行时侧）：键名 `nullable_*` → `strict_*`，默认语义切换——已完成。
+- **逆向**（声明侧）：DSL 字段名、编译输出、hash 输入同步切换——**未执行**。
 
 根因是把"四运行时对齐"视为完整交付，遗漏了"声明层 → 运行时"这条纵向契约链。llmdoc 中的 operator-contract 和 dag-engine 文档描述了三态模型本身，但没有描述"哪一层负责哪个键名"的映射关系。
 
 ## Missing Docs or Signals
 
-1. **缺少"JSON 键名 → 各层映射"表格**：`llmdoc/reference/operator-contract.md` 描述了三态模型的语义，但没有列出每个 JSON 键在 Apple DSL / pine-go / pine-java / pine-python / pine-cpp 各层的字段名和生效状态。如果有这张表，翻转时一眼就能看出 Apple 侧还在用旧名。
+1. **缺少"JSON 键名 → 各层映射"表格**：`llmdoc/reference/operator-contract.md` 描述了三态模型的语义，但没有列出每个 JSON 键在 Apple DSL / pine-go / pine-java / pine-python / pine-cpp 各层的字段名和生效状态。如果有这张表，切换时一眼就能看出 Apple 侧还在用旧名。
 2. **缺少"声明→生效"端到端校验**：`llmdoc/guides/cross-layer-validation.md` 描述了 JSON 边界类型枚举和 codegen 语义验证，但缺少"DSL 声明某能力 → 编译产出的 JSON 包含正确键 → 运行时实际读取并生效"这条完整路径的校验指导。
 3. **conventions.md 中 InputFieldSpec 三态模型描述未指明各层键名**：只说了 Nullable/Strict/Defaulted 的语义，没说 JSON 层用什么键名、Apple 层用什么字段名。
 

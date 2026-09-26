@@ -11,7 +11,7 @@ JSON 配置根级的字符串字段在三个运行时遵守同一条类型规则
 | `null` | 接受，取默认值 |
 | 数字 / 布尔 / 数组 / 对象（present 但类型错） | **拒绝**，抛配置错误 |
 
-`null` 与缺省同档，是因为基准侧 pine-go 把 `null` 解到 string 字段是 no-op，零值原样留下。
+`null` 与缺省按同一种情况处理，是因为基准侧 pine-go 把 `null` 反序列化到 string 字段是 no-op，零值原样保留。
 
 ## 基准与三处实现
 
@@ -32,7 +32,7 @@ pine-go 的拒绝来自 `encoding/json` 整份 unmarshal 失败、经 `Load` 的
 
 `storage_mode`、`log_prefix`、`_PINEAPPLE_VERSION`、`_PINEAPPLE_CREATE_TIME`。
 
-`debug` 是布尔字段，不在此列——**但要注意它仍然是修前那个样子**：pine-go 拒绝错误类型；**pine-java 的 `asBoolean()` 会强转**——`1` 与 `"true"` 都会**真的把 debug 打开**、`"yes"` / `[1]` 强转成 false；pine-cpp 的 `is_bool()` 守卫静默忽略、保持关闭。**三方是三种行为，不是两种**（实测）。也就是说 `debug` 上还留着
+`debug` 是布尔字段，不在此列——**但要注意它仍然保持修复前的行为**：pine-go 拒绝错误类型；**pine-java 的 `asBoolean()` 会强转**——`1` 与 `"true"` 都会**真的把 debug 打开**、`"yes"` / `[1]` 强转成 false；pine-cpp 的 `is_bool()` 检查会静默忽略、保持关闭。**三方是三种行为，不是两种**（实测）。也就是说 `debug` 上还留着
 本次为四个字符串字段消除掉的那个分歧，「不在此列」是范围声明、不是「已经一致」；`storage_mode` 在类型层之外还有一层值白名单，见 `architecture/dag-engine.md` 的 `storage_mode` 节。
 
 ## 新增第五个字段时要同步的四处
@@ -47,10 +47,10 @@ pine-go 的拒绝来自 `encoding/json` 整份 unmarshal 失败、经 `Load` 的
 ## 值层文案的一个转义限定
 
 值层白名单的文案三方逐字节相同，**但只对不含引号／反斜杠／控制字符的值成立**。pine-go 用 `%q`
-格式化被拒的值，另两方是裸拼接：`"storage_mode": "co\"lunm"` 在 pine-go 出 `"co\"lunm"`、
-另两方出 `"co"lunm"`。非 ASCII **只有可打印的**不受影响（`cölunm` / `日本` 三方相同）；`%q` 会转义**不可打印**的
-Unicode，实测 U+00A0（NBSP）、U+00AD、U+200B、U+2028、U+2029 三方不同——pine-go 出
-`c\u00a0lunm`，另两方出原始 UTF-8 字节。这一类比引号／反斜杠**更容易碰到**，因为这些字符在
+格式化被拒的值，另两方是裸拼接：`"storage_mode": "co\"lunm"` 在 pine-go 输出 `"co\"lunm"`、
+另两方输出 `"co"lunm"`。非 ASCII **只有可打印的**不受影响（`cölunm` / `日本` 三方相同）；`%q` 会转义**不可打印**的
+Unicode，实测 U+00A0（NBSP）、U+00AD、U+200B、U+2028、U+2029 三方不同——pine-go 输出
+`c\u00a0lunm`，另两方输出原始 UTF-8 字节。这一类比引号／反斜杠**更容易碰到**，因为这些字符在
 编辑器里看不见，从网页或文档粘贴过来的值就可能带上。
 
 可达性低且不改变拒绝与否，只影响文案字节。记在这里是因为 pine-go 与 pine-java 的单测仍无限定地断言了字节对等（pine-cpp 的单测没有提，所以是两个而非三个；两份用户文档已在同一 range 内补上限定），而全 ASCII 的 fixture 碰不到它——与 #183 的 escape-vs-raw 同类。

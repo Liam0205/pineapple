@@ -13,7 +13,7 @@ PR（issue #66）让内置 `redis_connection` 资源发出的 4 个指标（pool
 
 ## parity 强断言：resources 恒存在
 
-三运行时的 Collector 都无条件创建（随 ResourceManager 一起），因此 `/stats.resources` 键**总是存在**：`metrics_name` 为空时为 `{}`，非空时为 metric-centric 形状。这让 cross-validate 负例（空 `metrics_name` → `resources == {}`）成为一条干净的跨运行时强断言，而非「键缺失/键为空」的模糊判定。histogram 存整数纳秒（`sum_ns`）、每层键字典序排序，沿用 `/stats.http` 子树的既有约定，保证字节级对齐。
+三运行时的 Collector 都无条件创建（随 ResourceManager 一起），因此 `/stats.resources` 键**总是存在**：`metrics_name` 为空时为 `{}`，非空时为 metric-centric 结构。这让 cross-validate 负例（空 `metrics_name` → `resources == {}`）成为一条干净的跨运行时强断言，而非「键缺失/键为空」的模糊判定。histogram 存整数纳秒（`sum_ns`）、每层键字典序排序，沿用 `/stats.http` 子树的既有约定，保证字节级对齐。
 
 ## 探针时机便于测试
 

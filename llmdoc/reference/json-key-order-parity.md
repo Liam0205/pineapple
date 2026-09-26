@@ -5,10 +5,10 @@
 只是把分歧点从 ASCII key 挪到 emoji key。
 
 与 `llmdoc/reference/number-formatting-parity.md` 的分工：那篇管**数字怎么拼**，
-本篇管**key 按什么顺序出**。两者都是 `/execute` 字节级契约的一部分，落点是同一个
+本篇管**key 按什么顺序出**。两者都是 `/execute` 字节级契约的一部分，实现位置是同一个
 Jackson mapper，但规则互不相干。
 
-参照的实现落点：
+参照的实现位置：
 
 - pine-java：`pine-java/src/main/java/page/liam/pine/GoFormat.java`（`SortedByUtf8` / `payload` / `sorted` / `sortedShallow` / `wrapPayload` / `compareUtf8`，以及 `createGoCompatMapper` 里的序列化器注册）
 - 调用点：`pine-java/src/main/java/page/liam/pine/PineServer.java`、`pine-java/src/main/java/page/liam/pine/RunCli.java`（两个入口共用同一 comparator）
@@ -63,21 +63,21 @@ U+10000  UTF-16 d800 dc00   UTF-8 f0 90 80 80
 的排序 helper 也不能用。用它们只是把分歧点从 ASCII key 挪到 emoji key。
 
 正确实现是 `GoFormat.compareUtf8`：两串都在 ASCII 区间时两种顺序一致，走快路径
-不建字节数组；一旦遇到非 ASCII 字符就落到 `Arrays.compareUnsigned` 比 UTF-8 字节。
+不建字节数组；一旦遇到非 ASCII 字符就改用 `Arrays.compareUnsigned` 比 UTF-8 字节。
 
 ## pine-cpp：key 顺序按路径而定，key 转义三条路径原本都不满足
 
 `pine-cpp/src/config/json_writer.cpp:33,54` 与 `json_writer.hpp` 里递归那处（
 「每一层都排」的实现点）的 `std::sort` 配 `std::string` 的 `<` 就是字节序，天然与 Go
 一致，含 BMP 之外的 key。`pine-cpp/tests/test_json.cpp` 的 "nested objects all sort
-keys (L5)" 用例钉着这条。**只要响应是由 `Variant` 经 writer 序列化出来的，key 顺序就不用管。**
+keys (L5)" 用例保证这一点。**只要响应是由 `Variant` 经 writer 序列化出来的，key 顺序就不用管。**
 
 但 **key 的转义**曾是另一回事：`write_json_value` 的 value 分支走 `detail::write_go_string`（含 Go 的 HTML-safe 转义 `<` → `\u003c`、`>`、`&`，以及 U+2028/U+2029），而三处 key 是直接交给 RapidJSON 的 `Key()`，它不做这些转义。于是同一个字符出现在 **value** 里三方一致、出现在**key** 里就分歧（Go/Java 出 `a\u003cb`，C++ 出裸 `a<b`）。已改为 `detail::write_go_key`，由 `fixtures/server_byte_exact/08_html_chars_in_keys.json`、`test_json.cpp` 的
-"object KEYS get Go's HTML-safe escaping" 用例双向钉住。
+"object KEYS get Go's HTML-safe escaping" 用例双向覆盖。
 
 这条是审计第八轮发现的，机制值得记：**同一个字符串属性（转义规则）在 key 与 value 两条路径上各实现一次，只有一条被审过。** 仓库里原有 `fixtures/pipelines/html_chars_passthrough.json` 只覆盖value 侧，key 侧无任何 fixture，且 fuzzer 的字段名池只有 `[a-z_]`，所以三条通道全都看不见。
 
-**第九轮又在同一形状上找到第二处，于是改成消除重复而不是补齐重复。** Go 的字符串转义规则在
+**第九轮又在同一类问题上找到第二处，于是改成消除重复而不是补齐重复。** Go 的字符串转义规则在
 pine-cpp 里原本有**三份**独立实现：
 
 | 实现 | 服务的路径 | #183 前缺什么 |
@@ -111,13 +111,13 @@ RapidJSON 的 `Key()`，而 `Key()` 的转义表**是有** `b`/`f` 的——所�
 会变成 `1000`，`1234.567` 会变成 `1234.57`。4 万次迭代的 bench 算子只有 4.27 ms，三位有效数字，
 两种写法输出相同。所以这条修复是对的，但**没有任何跨引擎通道能让它变红**：要让它红需要一个
 故意跑过 1 秒的算子，对校验套件太慢。改由 `test_json.cpp` 的
-"trace duration magnitudes match Go" 直接钉格式化函数本身。
+"trace duration magnitudes match Go" 直接测试格式化函数本身。
 
 **这条属性尝试过三种通道级检查，全部失败，脚本里记了原因以免第四次尝试**：比数值不行（是计时）；
-比形状不行（指数分支读的是 `repr()` 解析后的 float，`repr(1.23457e+06)` 是 `1234570.0` 不含 `e`，
+比格式不行（指数分支读的是 `repr()` 解析后的 float，`repr(1.23457e+06)` 是 `1234570.0` 不含 `e`，
 永远不触发；而「恰好 6 位有效数字」分支会对**正确**输出误报——1 秒到 5 秒之间就有 450 个这样的值）；
 比跨引擎的「有效数字容量」原理上成立，但手头最慢的 bench 算子只到 4 ms 即 4 位有效数字，
-`%g` 与最短往返在那个量级根本无从区分。**结论：不是所有属性都能在跨引擎通道上钉住，
+`%g` 与最短往返在那个量级根本无从区分。**结论：不是所有属性都能在跨引擎通道上锁定，
 承认这一点比留一个恒绿或会误报的检查更好。**
 
 纪律：**同一个字符串属性（转义、排序、数字拼写）在一个运行时里出现第二份实现时，第一反应应该是
@@ -165,33 +165,33 @@ issue #183 的标题与最初的任务描述都说只有 pine-java 错——对 
 整棵树一刀切——`GoFormat.sortedShallow` 就是为此存在（只排自己这一层，不下降）。
 一刀切会把 `scheduler` 这个 struct 也排掉。
 
-## 哪条通道能钉住它
+## 哪条通道能覆盖它
 
-- `scripts/cross-validate/09-raw-byte.sh` — 现在字节不等即失败（归一化回落已删），能钉住 key 顺序。
+- `scripts/cross-validate/09-raw-byte.sh` — 现在字节不等即失败（归一化回落已删），能锁定 key 顺序。
   但它走 CLI，**看不到 trace**（CLI 输出只有 common/items），也看不到 `/stats`
 - 单测是转义规则的**快通道**，两侧对称：C++ 由 `test_json.cpp` 的
-  "the two-character escape forms match Go exactly" 与 "trace duration magnitudes match Go" 钉；
-  Java 由 `GoJsonKeyOrderParityTest.stringEscapingMatchesGoInKeysAndValues` 钉（它是 Java 侧
+  "the two-character escape forms match Go exactly" 与 "trace duration magnitudes match Go" 覆盖；
+  Java 由 `GoJsonKeyOrderParityTest.stringEscapingMatchesGoInKeysAndValues` 覆盖（它是 Java 侧
   唯一能抓住「控制字符大写十六进制」的检查——删掉 `createGoCompatMapper` 的控制字符接管后只有它变红）。
   **转义类回归优先靠单测发现，fixture 是兜底**：只靠 fixture 意味着要跑完整套 cross-validate 才知道
   坏了，而本任务第十轮的 `\b`/`\f` 事故正是这样发现的
-- `scripts/cross-validate/06-server-http.sh` — 走 HTTP，是唯一能钉住 `output_snapshot` 与 `/stats`
+- `scripts/cross-validate/06-server-http.sh` — 走 HTTP，是唯一能覆盖 `output_snapshot` 与 `/stats`
   key 顺序的通道。它使用的 fixture 算子名会被**重命名成非字典序**——原本是 `copy_score` / `truncate`，
   已经是字典序，于是 `/stats.operators` 按管道顺序输出的实现看起来也是对的，这条检查因此漏了一轮。它原先打印 `sorted(trace[0].keys())`，把待测维度本身排掉了；现已改为用
   `object_pairs_hook` 比 key 序列与嵌套结构，并给算子开 `debug`、把请求补到 12 个 item 且
-  加非排序的额外 common key —— 其中**只有 12 个 item 的补齐是真有牙的**——它经由
-  `output_snapshot.item_writes` 钉住 int key 的字符串排序。额外的 `*_probe` common key 实测**无效**：
+  加非排序的额外 common key —— 其中**只有补齐到 12 个 item 这一项真正有效**——它经由
+  `output_snapshot.item_writes` 锁定 int key 的字符串排序。额外的 `*_probe` common key 实测**无效**：
   `snapshotInput` 只输出算子**声明的** `common_input`，请求里多加的 key 到不了 `input_snapshot`；
   而把它们塞进 `common_input` 会破坏 `transform_copy` 的 arity。
   `debug` 开关是必要条件（不开就完全没有快照），但不充分。
-  `input_snapshot` 由**另一条检查 [14c]** 钉：换用 `control_op_nil_field_no_crash.json`
+  `input_snapshot` 由**另一条检查 [14c]** 覆盖：换用 `control_op_nil_field_no_crash.json`
   （`ctrl_if` 声明 `["event","expose_duration"]`），并把每个算子的 `common_input` 声明**反转**——
   原声明恰好已是字典序，不反转的话这条检查同样漏。单测
   `traceSnapshotsSortWhileTheTraceEntryKeepsDeclarationOrder` 也覆盖同一属性
 - `scripts/cross-validate/14-byte-exact-execute.sh` — 直接 `==` 响应体
 - `scripts/differential-fuzz.py` 的 `key_order_signature()` — 用 `object_pairs_hook` 从原文读 key 顺序单独比对，绕开 `normalize_json` 的 `sort_keys=True`
 
-细节见 `llmdoc/guides/ci-quality-baseline.md`「校验通道能钉住的属性」节。
+细节见 `llmdoc/guides/ci-quality-baseline.md`「校验通道能锁定的属性」节。
 
 ## 相关
 

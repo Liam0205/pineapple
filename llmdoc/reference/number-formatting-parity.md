@@ -15,7 +15,7 @@
 
 相关的跨运行时事实：各运行时 Lua bridge 的 number 出口一律是 double、无整数分支（`pine-go/operators/lua/pool_gopher_lua.go` 与 `pool_wangshu.go` 对所有 Lua number 返回 float64、`pine-cpp/src/lua/lua_bridge.cpp` 用 `lua_tonumber`），因此 `Long` 从来不是跨运行时契约。数字拼写出现分歧时，先确认值到达格式化器时的类型，再看格式化规则。
 
-参照的实现落点：
+参照的实现位置：
 
 - pine-java：`pine-java/src/main/java/page/liam/pine/GoFormat.java`（`formatJsonNumber`）
 - pine-cpp：`pine-cpp/src/config/json.cpp`（`go_format_json_number` / `go_json_to_fixed` / `go_json_to_scientific`）
@@ -65,7 +65,7 @@ strconv 'e': 1e-100 -> json: 1e-100    三位数，不动
 ## 相关
 
 - 格式化入口划分与消费链：`llmdoc/architecture/dag-engine.md`「跨运行时格式兼容（GoFormat）」节
-- 哪条校验通道能钉住字节级数字格式：`llmdoc/guides/ci-quality-baseline.md`「校验通道能钉住的属性」节
+- 哪条校验通道能锁定字节级数字格式：`llmdoc/guides/ci-quality-baseline.md`「校验通道能锁定的属性」节
 - 完整过程记录：`llmdoc/memory/reflections/json-number-format-parity-180.md`
 
 ## 非有限值（NaN / ±Inf）：刻意不对等，记为 accepted difference
@@ -106,7 +106,7 @@ pine-cpp 都在解析阶段就拒绝整个请求（C++ 的 `from_chars` 返回
 **没有快速路径，刻意如此**，这是三轮审查换来的结论：
 
 前后加过两版快速路径（「若少一位就无法往返，则 `Double.toString` 已最短，直接返回」），
-逻辑本身正确、输出也始终与 Go 一致，但每一版都有一整类输入被守卫无声排除：
+逻辑本身正确、输出也始终与 Go 一致，但每一版都有一整类输入被守卫条件悄悄排除：
 
 | 版本 | 声称 | 实测 |
 |---|---|---|
@@ -118,7 +118,7 @@ pine-cpp 都在解析阶段就拒绝整个请求（C++ 的 `from_chars` 返回
 `nextDouble()*1000` 有 99.9% 落在 `|d| ≥ 1`，也就是快速路径唯一真正生效的地方。
 所以「测出来是快的」和「注释说的那类输入是快的」是两件事。
 
-**结论与实测代价**：这条路径挂在 `/execute` 响应序列化上，代价是真实的——实测 30000 个 double 的响应，**约 18–25×**（三次独立测量：103 ms / 5.5 ms = 18.6×、71 ms / 3.1 ms = 22.7×、54.7 ms / 2.2 ms = 25.2×，同样是 30000 个 `nextDouble()*1000`、openjdk 26，差异来自 warmup 轮数与取中位数的方式）。**这是一个区间，不是阈值**——绝对毫秒数和倍数都会随预热策略移动，复测得到 25× 不代表回归。要当门用就得先固定 warmup / 取样 / 统计口径（不是「慢几微秒」，早先注释里那句「不是热点瓶颈」未经测量，已删）。选择接受这个代价的理由不是它便宜，而是三轮审查证明**在这段代码上加快速路径的失败率是 3/3**，每次都以「注释说错自己覆盖哪些输入」的形式出现，而正确性是硬契约、吞吐不是。若这个 18.6× 在实际负载里成为问题，那是一个独立的、有明确验收标准的优化任务（附下面的分区间基准要求），而不是顺手加个守卫。现在的实现无法说错「它覆盖哪些输入」，因为它对所有输入
+**结论与实测代价**：这条路径挂在 `/execute` 响应序列化上，代价是真实的——实测 30000 个 double 的响应，**约 18–25×**（三次独立测量：103 ms / 5.5 ms = 18.6×、71 ms / 3.1 ms = 22.7×、54.7 ms / 2.2 ms = 25.2×，同样是 30000 个 `nextDouble()*1000`、openjdk 26，差异来自 warmup 轮数与取中位数的方式）。**这是一个区间，不是阈值**——绝对毫秒数和倍数都会随预热策略移动，复测得到 25× 不代表回归。要作为检查门槛就得先固定 warmup / 取样 / 统计口径（不是「慢几微秒」，早先注释里那句「不是热点瓶颈」未经测量，已删）。选择接受这个代价的理由不是它便宜，而是三轮审查证明**在这段代码上加快速路径的失败率是 3/3**，每次都以「注释说错自己覆盖哪些输入」的形式出现，而正确性是硬契约、吞吐不是。若这个 18.6× 在实际负载里成为问题，那是一个独立的、有明确验收标准的优化任务（附下面的分区间基准要求），而不是顺手加个守卫。现在的实现无法说错「它覆盖哪些输入」，因为它对所有输入
 一视同仁。若将来真要优化，**必须分别基准 `[0.001,1)`、`[1,1000)`、整数值三类**——
 只从其中任一类取样都会印证你已有的判断。
 
@@ -135,7 +135,7 @@ bits=42e3866babcd3a24   go 171744423733713.12   舍入精确值 → ...713.13
 
 `Double.toString` 选的数字本来就是对的，唯一的问题是**可能太多**——所以正确做法是
 `new BigDecimal(Double.toString(d))` 再逐位缩短。由
-`digitsComeFromDoubleToStringNotFromRoundingTheExactValue` 钉住。
+`digitsComeFromDoubleToStringNotFromRoundingTheExactValue` 测试锁定。
 
 ## 另一条既存不对等：resource lookup key 上三个运行时互不相同
 
@@ -154,14 +154,14 @@ C++ 那支的成因单独说一下，因为不看代码想不到：`go_format_lo
 `value_too_large`，于是走了 `go_format_g` 兜底——而那个兜底会输出科学计数法。也就是说
 它不是「少了几位」，是整个格式换了。
 
-**可达性**：请求里带 `5e-324` 能活着到这里（Jackson 解析出 bits=1），所以不是理论问题。
+**可达性**：请求里带 `5e-324` 能一路传到这里（Jackson 解析出 bits=1），所以不是理论问题。
 
 **为什么不在 #180 里修**：#180 的范围是 JSON 输出字节；key 派生函数是另一条路径，
 且改它对任何已经按当前形式建过索引的数据是行为变更。现状由
-`formatFloatFSubnormalDivergenceIsPinnedNotFixed` 钉住 Java 侧的 327，
+`formatFloatFSubnormalDivergenceIsPinnedNotFixed` 锁定 Java 侧的 327，
 使后续修它必须显式改掉一个失败断言。
 
-**后续要收这条时的注意点**：不要只改 Java 的位数——C++ 的 `buf[64]` 必须一起扩，
+**后续要修这条时的注意点**：不要只改 Java 的位数——C++ 的 `buf[64]` 必须一起扩，
 否则「统一」之后 C++ 仍在输出 `5e-324`。这一点是第九轮审查提出的，它在自己的
 finding 之外额外查了 C++ 分支，而我之前的文档只写了 Java vs Go。
 
@@ -172,7 +172,7 @@ finding 之外额外查了 C++ 分支，而我之前的文档只写了 Java vs G
 
 真要加的时候，**不要把 float32 加宽成 double 再调 `go_format_json_number`**。Go 用
 `strconv.AppendFloat(..., 32)`，数字是「对 float32 最短往返」，加宽会把窄类型原本藏住的
-二进制噪声抖出来：
+二进制噪声暴露出来：
 
 ```
 float32 0.1   Go: 0.1                      加宽后: 0.10000000149011612

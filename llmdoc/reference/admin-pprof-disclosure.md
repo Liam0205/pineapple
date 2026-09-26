@@ -22,7 +22,7 @@
 | `/debug/pprof/symbol` | 符号表查询 | 二进制 PC → 函数名映射 |
 | `/debug/pprof/trace` | 执行 trace | goroutine 调度事件 + system call 时序 |
 
-主业务 mux(`/health`、`/execute`、`/stats`、`/dag`、catch-all 404)**不**挂载任何 `/debug/pprof/*` handler,这条边界由 `TestMainMuxDoesNotExposePprof` 单元测试与 cross-validate Section 12 Test 7 共同钉住。
+主业务 mux(`/health`、`/execute`、`/stats`、`/dag`、catch-all 404)**不**挂载任何 `/debug/pprof/*` handler,这条边界由 `TestMainMuxDoesNotExposePprof` 单元测试与 cross-validate Section 12 Test 7 共同保证。
 
 ## 默认状态:关闭
 
@@ -60,9 +60,9 @@ if cfg.AdminAddr != "" {
 
 admin 与主业务跑在两个独立 `http.Server`:
 
-- **超时隔离** — 主端口有 `WriteTimeout: 60s`(默认),`/debug/pprof/profile?seconds=120` 这种长 CPU 采样会被截断。admin server 不设 `WriteTimeout`,放任长 profile 走完(`server.go:273-280`)。
+- **超时隔离** — 主端口有 `WriteTimeout: 60s`(默认),`/debug/pprof/profile?seconds=120` 这种长 CPU 采样会被截断。admin server 不设 `WriteTimeout`,让长时间的 profile 完整跑完(`server.go:273-280`)。
 - **绑定隔离** — admin 可单独绑回环,主端口绑公网,不需要复杂的 path-based ACL。
-- **mux 隔离** — 主 mux 与 admin mux 是两份 `*http.ServeMux`,生产代码不会因为路径前缀写错而把 pprof 误挂主端口(`TestMainMuxDoesNotExposePprof` 钉住此回归点)。
+- **mux 隔离** — 主 mux 与 admin mux 是两份 `*http.ServeMux`,生产代码不会因为路径前缀写错而把 pprof 误挂主端口(`TestMainMuxDoesNotExposePprof` 覆盖此回归点)。
 
 ## 跨运行时对等
 

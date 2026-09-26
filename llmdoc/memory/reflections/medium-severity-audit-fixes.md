@@ -5,7 +5,7 @@
 - 具体修复：watchConfig goroutine 泄漏 (context+select)、Server 全局状态重构为结构体、log.SetPrefix 竞态 (sync.Once)、remote_pineapple SSRF 防护、io.ReadAll 替换为 LimitReader、Redis 基础设施错误透传。
 
 ## Expected vs Actual
-- Expected: 6 项修复落地，向后兼容，既有公共 API 保持不变，测试全部通过。
+- Expected: 6 项修复完成，向后兼容，既有公共 API 保持不变，测试全部通过。
 - Actual: 全部修复在单次 commit 中完成并通过测试。Server struct 重构需要同步更新所有测试 helper 从包级状态切换到实例模式，但公开 `Run(cfg Config) error` API 未变。
 
 ## What Went Wrong

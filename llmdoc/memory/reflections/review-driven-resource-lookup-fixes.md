@@ -10,7 +10,7 @@
 
 ## What Went Wrong
 - 测试只覆盖了单层正确性，没有沿着 Python DSL -> JSON -> Go Init -> Execute 追踪同一个边界值，导致跨层语义漂移无人发现。
-- 在 JSON 边界没有系统枚举类型空间，只按"正常字符串 key"思维实现与测试，忽略了 JSON number 在 Go 中落为 `float64` 的常见情况。
+- 在 JSON 边界没有系统枚举类型空间，只按"正常字符串 key"思维实现与测试，忽略了 JSON number 在 Go 中被解析为 `float64` 的常见情况。
 - codegen 的验证停留在语法/可导入层面，没有检查"未传可选参数"在生成 Python、JSON 序列化和 Go 反序列化后的真实语义。
 - 校验系统只建模了 metadata 之间的显式关系，没有识别"业务参数的值本身是 metadata 字段名"这种隐含契约，因此 validator 设计上就缺了一类规则。
 
@@ -22,7 +22,7 @@
 
 ## Missing Docs or Signals
 - 现有稳定文档缺少一份明确的跨层测试/验证指南，告诉开发者何时必须从 Python DSL 一直追到 Go Execute，尤其是涉及 JSON 契约、可选参数和 codegen 时。
-- 缺少 JSON 边界类型枚举的提醒信号：当参数跨 Python -> JSON -> Go 传递时，应主动列出 string / number / bool / null / missing 等可能形态及其落地语义。
+- 缺少 JSON 边界类型枚举的提醒信号：当参数跨 Python -> JSON -> Go 传递时，应主动列出 string / number / bool / null / missing 等可能的取值情况及其最终语义。
 - 缺少关于"隐含 metadata 契约"的 validator 设计说明，导致新增业务参数时不容易想到要补 param-metadata consistency 校验。
 
 ## Promotion Candidates

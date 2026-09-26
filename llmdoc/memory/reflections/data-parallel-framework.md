@@ -13,7 +13,7 @@
   - 相关限制在编译期尽早失败，避免把不支持的类型或不可合并的 common 写入拖到运行时。
   - 运行时实现拆分清晰：切分、并发执行、panic/错误回收、输出合并与调度集成职责明确。
 - Actual outcome.
-  - 功能按预期落地：`data_parallel` 只在 `DataParallel > 1` 时进入并行路径，普通算子路径保持不变，DAG 推导没有被触碰。
+  - 功能按预期实现：`data_parallel` 只在 `DataParallel > 1` 时进入并行路径，普通算子路径保持不变，DAG 推导没有被触碰。
   - 编译期校验已覆盖类型限制和 `common_output` 约束；`data_parallel` 也已加入保留键集合，不会泄露到业务参数。
   - 实现分层清晰：`pine.go` 负责校验，`internal/runtime/parallel.go` 负责 split/merge/parallel/recovery，`scheduler.go` 负责接入。
   - 23 个新增测试一次通过，并通过 race detector，说明语义边界和并发安全性基本稳定。

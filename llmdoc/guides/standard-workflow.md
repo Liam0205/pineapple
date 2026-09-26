@@ -55,7 +55,7 @@
 每完成一项变更立即验证：
 
 - 运行相关测试（`pytest`、`go test`）
-- **改了引擎运行时行为（任何能让既有 pipeline 报错的改动）时，Go 侧 `go test ./...` 不够**：`pine-go/benchmarks/` 是独立 module，主 module 的 `./...` 不会编译也不会跑它，而 CI 的 `benchmark` job 会。本地补一次 `cd pine-go/benchmarks && go test -tags=pine_bench -bench=. -benchtime=1x -run='^$' .`（`-benchtime=1x` 只求跑通不求数字，全量秒级）。这是该子 module 第三次以不同方式咬到 PR：#166 手工 tidy 漏它、#160 文档命令找不到它、#205 行为变更后它的 `recall_static` 声明漏字段（`BenchmarkParallelRecall`），三次的共同根因都是"主 module 的常规命令看不见它"
+- **改了引擎运行时行为（任何能让既有 pipeline 报错的改动）时，Go 侧 `go test ./...` 不够**：`pine-go/benchmarks/` 是独立 module，主 module 的 `./...` 不会编译也不会跑它，而 CI 的 `benchmark` job 会。本地补一次 `cd pine-go/benchmarks && go test -tags=pine_bench -bench=. -benchtime=1x -run='^$' .`（`-benchtime=1x` 只求跑通不求数字，全量秒级）。这是该子 module 第三次以不同方式给 PR 造成问题：#166 手工 tidy 漏它、#160 文档命令找不到它、#205 行为变更后它的 `recall_static` 声明漏字段（`BenchmarkParallelRecall`），三次的共同根因都是"主 module 的常规命令看不见它"
 - 提交前必须运行对应语言的 lint，并确认 0 issues：Go 项目运行 `golangci-lint run ./...`，Python 项目运行 `ruff check`
 - 确认无回归后再进入下一项
 - 如果涉及 codegen，修复后立即重生成并检查产物
@@ -105,7 +105,7 @@
 
 **mutation 验证或任何"临时改坏再恢复"期间，禁止用任何 git 命令做恢复**（`git checkout -- <file>`、`git checkout <base> -- <file>`、`git stash`、`git restore` 一律不行）。唯一允许的手段是动手前 `cp <file> /tmp/<tag>-backup.<ext>`、验证完 `cp` 回来。
 
-根因：这类操作的形状是"在**已有未提交改动**的工作区上临时改一个文件，再恢复"。git 的恢复语义单位是 HEAD/index，它不区分「我刚加的 mutation」和「我还没提交的正经改动」——两者在工作区里没有边界，任何 git 恢复都会连带作用。
+根因：这类操作的形式是"在**已有未提交改动**的工作区上临时改一个文件，再恢复"。git 的恢复语义单位是 HEAD/index，它不区分「我刚加的 mutation」和「我还没提交的正经改动」——两者在工作区里没有边界，任何 git 恢复都会连带作用。
 
 这条**取代并加强**了 `memory/reflections/lua-type-tag-dispatch-and-fuzz-blindspot.md`（issue #175 时期，对已提交文件用 `git stash` 得到 no-op、实际跑的是修好的代码）给出的旧建议「改用 `git checkout <base> -- <file>`」。旧建议只解决「取到的是不是基线」，没解决「恢复会不会连带 revert 未提交改动」，因此不够安全。
 
@@ -133,7 +133,7 @@ Review feedback 不是简单"修缺陷"——它常带新的 scope 增长信号�
 
 - 不要默认走折中方案（"先做一半，剩下做 follow-up"）。"打折"应是最后选项，不是第一选项
 - review 反馈点的工作量评估应严格——不要因为"看起来工作量大"就推荐折中跳过；估错工作量推动错误方向
-- 反向验证：当用户矫正"不要后退、不要打折扣"时，先 honor，复盘错估的根因（是真的工作量大、还是方向反了）
+- 反向验证：当用户纠正"不要后退、不要打折扣"时，先照做，复盘错估的根因（是真的工作量大、还是方向反了）
 
 历史教训：0.10.10 redis cascade-safety 任务中，per-command metrics 是 review 第一轮后追加的（非原计划），最终拉高 PR 价值；同期 pine-cpp markdown emit 第一轮我推荐"折中跳过 metadata 节作为 follow-up" 被用户否决，最终全做完只比折中多约 1.5 小时。详见 `memory/reflections/redis-cascade-safety-and-observability.md`。
 
@@ -153,6 +153,6 @@ Review feedback 不是简单"修缺陷"——它常带新的 scope 增长信号�
 
 - 文档里的编译/运行命令必须在干净 shell 从仓库根逐条真实执行过——"看起来对"的命令等价于没有文档。正面案例（issue #160）：用户文档里的 benchmark 复现命令第一版写成 `cd pine-go && go test -tags pine_bench -bench=BenchmarkStorageAB ./benchmarks/`，实测报 `main module does not contain package .../benchmarks`——`pine-go/benchmarks/` 是**独立 module**，必须 `cd pine-go/benchmarks` 再跑，实测才拦住这个错误命令
 - 冒烟验证要覆盖负空间（超大 body、子路径、算子失败、客户端断连、含引号的错误消息），不能只验 happy path
-- 示例纳入默认构建防 rot——三运行时各自的接法：C++ 默认 CMake target、Go 被 `go test ./...` 编译、Java 用 `build-helper-maven-plugin:add-test-source` 把 `examples/` 挂为 test-source root（test scope 不进库 jar）
+- 示例纳入默认构建以防腐化——三运行时各自的接法：C++ 默认 CMake target、Go 被 `go test ./...` 编译、Java 用 `build-helper-maven-plugin:add-test-source` 把 `examples/` 挂为 test-source root（test scope 不进库 jar）
 
 历史教训：issue #172 的 multi-pipeline 示例首版 6 项契约遗漏全被增量审查抓出，详见 `memory/reflections/per-engine-log-prefix.md` 第四轮。

@@ -23,7 +23,7 @@ Pineapple 包含四个主要部分：
 - Go 提供面向并发的运行时，用于请求执行、DAG 调度和长期服务部署。
 - Java 提供 JVM 生态的对等运行时，共享同一 JSON 配置格式和算子语义。
 - C++ 引擎追求实现上限（列存、LuaJIT bridge、COW、arena、并行调度），作为各运行时性能与正确性的标杆参考。
-- JSON 创建稳定的边界，支持代码生成、测试和跨语言演进，无需运行时桥接。
+- JSON 提供稳定的边界，支持代码生成、测试和跨语言演进，无需运行时桥接。
 
 这也解释了各运行时各自维护 codegen 入口（`pine-go/cmd/pineapple-codegen/main.go` / `pine-java/Codegen.java` / `pineapple-cpp-codegen`）的存在：算子 Schema 在每个运行时独立注册，CI cross-validate 做最终对齐。
 
@@ -65,7 +65,7 @@ pine-go 的 `transform_by_lua` 算子由 build tag 选择 Lua VM 后端，编译
 - 默认：**wangshu**（纯 Go Lua 5.1 VM，NaN-boxing + arena GC，v0.2.0+），通过 `CallInto(dst, fn, args...)` 提供零分配边界路径
 - Opt-in：`-tags=lua_gopher` → gopher-lua
 
-两后端共享同一 `Backend/Pool/Engine` 抽象（`pine-go/operators/lua/backend.go`）和同一测试套，行为字节级对等。后端对比 benchmark 通过 `make bench-lua-backends` 或 `scripts/bench-lua-backends.sh`（同机串行 + benchstat）。详见 `llmdoc/reference/lua-backend.md`。Lua 后端选择仅 pine-go 适用——pine-java 用 LuaJC 默认后端、pine-cpp 用 LuaJIT，均不暴露 build-tag 切换面。
+两后端共享同一 `Backend/Pool/Engine` 抽象（`pine-go/operators/lua/backend.go`）和同一测试套，行为字节级对等。后端对比 benchmark 通过 `make bench-lua-backends` 或 `scripts/bench-lua-backends.sh`（同机串行 + benchstat）。详见 `llmdoc/reference/lua-backend.md`。Lua 后端选择仅 pine-go 适用——pine-java 用 LuaJC 默认后端、pine-cpp 用 LuaJIT，均不暴露 build-tag 切换选项。
 
 ### 资源
 
@@ -80,7 +80,7 @@ pine-go 的 `transform_by_lua` 算子由 build tag 选择 Lua VM 后端，编译
 
 ### Java 入口点
 
-- `pine-java/PineServer.java` — 基于 `com.sun.net.httpserver` 的 HTTP 服务，提供与 Go 对等的 `/health`、`/execute`、`/stats`、`/dag` 端点，支持 middleware 链、config hot-reload 和 reload metrics。自 issue #169 起对齐 Go 的扩展点：`addRoute(Route)` 注册自定义路由（`Ingress`/`Egress` 适配器），`setWatch(false)` 关闭配置热加载 watcher（配置变更需重启）；嵌入场景用 `load()`/`start()` 分离构造与传输、`execute(...)` 直接执行、`acquire()` 拿持 in-flight 引用的 `Handle`（用完 `release()`）、`close()` 拆除。
+- `pine-java/PineServer.java` — 基于 `com.sun.net.httpserver` 的 HTTP 服务，提供与 Go 对等的 `/health`、`/execute`、`/stats`、`/dag` 端点，支持 middleware 链、config hot-reload 和 reload metrics。自 issue #169 起对齐 Go 的扩展点：`addRoute(Route)` 注册自定义路由（`Ingress`/`Egress` 适配器），`setWatch(false)` 关闭配置热加载 watcher（配置变更需重启）；嵌入场景用 `load()`/`start()` 分离构造与传输、`execute(...)` 直接执行、`acquire()` 获取持有 in-flight 引用的 `Handle`（用完 `release()`）、`close()` 拆除。
 - `pine-java/Codegen.java` — 读取 Schema JSON，生成 `operators.py`、`resources.py`、`__init__.py` 及算子文档（即 `apple_generated/` 下的 Apple DSL 类型化 helper）。
 
 ### C++ 引擎入口点
@@ -89,7 +89,7 @@ pine-go 的 `transform_by_lua` 算子由 build tag 选择 Lua VM 后端，编译
 - `pineapple-cpp-render-dag -config <pipeline.json> -format dot|mermaid [-collapse N]` — DAG 渲染
 - `pineapple-cpp-server -config <pipeline.json> [-addr :8080] [-read-header-timeout 10s] [-read-timeout 30s] [-write-timeout 60s] [-idle-timeout 120s] [-max-body-size 10485760] [-dag-pool-size N] [-shard-pool-size N] [-watch=true|false] [-demo-routes]` — HTTP 服务，支持 graceful shutdown、配置 mtime 热加载、`ServerConfig::middlewares` 注入与 `pine::server::http_metrics_middleware(provider)` 内置指标 middleware；自 issue #169 起对齐 Go 的 `Route`（`ServerConfig::routes`，socket-free 的 `validate_routes`/`routes.cpp` 集中校验）与 `ServerConfig::watch`（`-watch=false` 跳过 config watcher 线程），`-demo-routes` 注册 cross-validate 用的 `POST /api/echo` 演示路由。按「黑盒行为对等、实现结构自由」决策，C++ 有意不提供 Go/Java 的嵌入 API（`Execute`/`Acquire`），仅走内置 HTTP 壳
 - `pineapple-cpp-codegen -schema-json <out>` — 从 C++ Registry 导出算子 schema JSON
-- `pineapple-cpp-codegen -output <dir>` — 发射完整 Apple DSL 产物集（`operators.py` / `__init__.py` / `markers.py` / `resources.py` / `resources_init.py`），与 Go / Java 字节级一致；CI cross-validate `01-codegen-schema.sh` 1d 段对 Go 与 C++ 产物做 `diff -r` 字节级校验
+- `pineapple-cpp-codegen -output <dir>` — 生成完整 Apple DSL 产物集（`operators.py` / `__init__.py` / `markers.py` / `resources.py` / `resources_init.py`），与 Go / Java 字节级一致；CI cross-validate `01-codegen-schema.sh` 1d 段对 Go 与 C++ 产物做 `diff -r` 字节级校验
 
 ### Python 包
 
@@ -126,7 +126,7 @@ Apple DSL 消费这些契约但不重新定义它们。各运行时实现等效�
 
 - `apple-compile.sh` — 编译 Apple DSL 为 JSON
 - `codegen.sh` — 从 Registry 生成 Python DSL 代码
-- `cross-validate.sh` — 各运行时跨验证（具体 section 列表见 `scripts/cross-validate/`）
+- `cross-validate.sh` — 各运行时交叉验证（具体 section 列表见 `scripts/cross-validate/`）
 - `differential-fuzz.sh` / `differential-fuzz.py` — 三引擎（Go/Java/C++）差异模糊测试
 - `run-pipeline.sh` — 指定后端执行管道
 - `render-dag.sh` — 渲染 DAG 可视化
@@ -154,7 +154,7 @@ Apple DSL 消费这些契约但不重新定义它们。各运行时实现等效�
 
 两层互补而非冗余。
 
-## 质量与发布形态
+## 质量与发布方式
 
 Pineapple 的质量策略覆盖以下可见层：
 
@@ -175,4 +175,4 @@ Pineapple 当前不包括：
 - 直接的 Apple DSL→任一引擎运行时桥接（始终通过 JSON）
 - 多模块 Go workspace（`pine-go/` 是独立 Go module）
 
-这些缺失很重要，因为许多变更应保持现有的 JSON 中介、注册表驱动架构，而非引入更紧密的耦合。
+明确这些边界很重要，因为许多变更应保持现有的 JSON 中介、注册表驱动架构，而非引入更紧密的耦合。

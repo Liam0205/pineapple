@@ -6,7 +6,7 @@
 
 ## Expected vs Actual
 - Expected: 修复后系统对恶意/异常输入有更强的防御能力，同时不破坏既有功能。
-- Actual: 全部 8 项修复落地，新增 11 个测试用例覆盖新行为。既有测试全部通过。testdata 中的幻象参数（`field`、`dedup_by`、`common_field`、`item_field`）被清理以满足严格参数校验。
+- Actual: 全部 8 项修复完成，新增 11 个测试用例覆盖新行为。既有测试全部通过。testdata 中的幻象参数（`field`、`dedup_by`、`common_field`、`item_field`）被清理以满足严格参数校验。
 
 ## Key Decisions
 

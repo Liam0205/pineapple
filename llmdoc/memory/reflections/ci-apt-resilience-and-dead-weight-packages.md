@@ -13,7 +13,7 @@ type: reflection
 修复两部分：
 
 1. 新增 `scripts/ci-apt-install.sh`：apt-get update + install 各自最多 3 次尝试、每次独立 per-attempt timeout（默认 300s）、尝试间 backoff（`attempt * 10`s）、kill 后 `sudo dpkg --configure -a` 修复半配置状态、`Acquire::Retries=3`（覆盖单次尝试内的连接中断）+ `DPkg::Lock::Timeout=60`（等竞争锁持有者，如 unattended-upgrades）。
-2. 全部 12 个 apt 站点迁移（`ci.yml` 7 个 + `nightly-diff-fuzz.yml` + `daily-sanitized-fuzz.yml` + `nightly-benchmark.yml` + `nightly-sanitizer.yml` 2 个），包清单瘦身到 image 真缺的：`libluajit-5.1-dev`、`libcurl4-openssl-dev`（+ sanitizer job 的 `util-linux`、cross-validate 的 `redis-server=5:7.*`）。install step 新增 `cmake --version` / `g++ --version` 断言。
+2. 全部 12 个 apt 站点迁移（`ci.yml` 7 个 + `nightly-diff-fuzz.yml` + `daily-sanitized-fuzz.yml` + `nightly-benchmark.yml` + `nightly-sanitizer.yml` 2 个），包清单瘦身到 image 确实缺少的：`libluajit-5.1-dev`、`libcurl4-openssl-dev`（+ sanitizer job 的 `util-linux`、cross-validate 的 `redis-server=5:7.*`）。install step 新增 `cmake --version` / `g++ --version` 断言。
 
 ## Expected vs Actual
 
@@ -32,7 +32,7 @@ type: reflection
 
 ### 2. 包清单的死重不是显而易见的，需要主动审计而非默认信任
 
-如果只盯着"怎么让 apt install 更抗打"，很容易忽略"这些包本来就该不该装"这个正交问题。cmake 死重尤其隐蔽——`apt-get install cmake` 表面上"成功"（不会报错，因为 apt 确实把它装到了系统里），但装出来的版本比 image 预装的旧且 PATH 排序在后，实际构建从未使用过它，纯粹是浪费下载带宽和暴露面。这类"看起来在工作、实际是死重"的依赖只能靠主动去核对"runner image 出厂预装了什么"（`cmake --version`、`g++ --version`、`dpkg -l` 之类）来发现，不会自己暴露出来。
+如果只盯着"怎么让 apt install 更耐故障"，很容易忽略"这些包本来就该不该装"这个正交问题。cmake 死重尤其隐蔽——`apt-get install cmake` 表面上"成功"（不会报错，因为 apt 确实把它装到了系统里），但装出来的版本比 image 预装的旧且 PATH 排序在后，实际构建从未使用过它，纯粹是浪费下载带宽和暴露面。这类"看起来在工作、实际是死重"的依赖只能靠主动去核对"runner image 出厂预装了什么"（`cmake --version`、`g++ --version`、`dpkg -l` 之类）来发现，不会自己暴露出来。
 
 ## Root Cause
 

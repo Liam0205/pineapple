@@ -6,7 +6,7 @@ type: reflection
 
 ## Task
 
-修复 `.github/workflows/daily-sanitized-fuzz.yml` 的 ASan pass 反复被内层 `timeout` 杀死的问题：2026-06-24 至 07-04 的 10 次 run 中 8 次 exit=124，每次都只差 5-11%（2658-2859/3000 轮，~0.5 rnd/s，实测 worst throughput ~2.03 s/round）。被杀时脚本无输出机会，`Results:` 汇总行缺失，evaluate step 判定 incomplete，机器人连开 9 个同模板 issue（#142/#144/#146-152）。TSan 是下一个要炸的（07-03 跑了 63m52s，离 65m 上限不足 1 分钟）。
+修复 `.github/workflows/daily-sanitized-fuzz.yml` 的 ASan pass 反复被内层 `timeout` 杀死的问题：2026-06-24 至 07-04 的 10 次 run 中 8 次 exit=124，每次都只差 5-11%（2658-2859/3000 轮，~0.5 rnd/s，实测 worst throughput ~2.03 s/round）。被杀时脚本无输出机会，`Results:` 汇总行缺失，evaluate step 判定 incomplete，机器人连开 9 个同模板 issue（#142/#144/#146-152）。TSan 很可能是下一个超时的（07-03 跑了 63m52s，离 65m 上限不足 1 分钟）。
 
 修复方案两层：
 
@@ -55,21 +55,21 @@ type: reflection
 ## Missing Docs or Signals
 
 1. **`ci-quality-baseline.md` 里的 fuzz 章节尚未收录 `daily-sanitized-fuzz.yml`**：该指南的"Fuzz"小节目前只覆盖 Go native fuzz、CI 模式差分 fuzz、Nightly 差分 fuzz、DAG 差分 fuzz 四类，没有提到 daily sanitized（ASan/TSan）fuzz 这条独立 workflow，也没有提到 `--time-budget-seconds` 这个新增开关。下次有人排查 daily-sanitized-fuzz 相关问题时，指南检索不到入口。
-2. **没有"长时 CI 任务 timeout 分层设计"的通用规范**：目前只在这次 workflow 注释里体现了"in-script pacing budget + outer hang-protection timeout"两层模式，但这个模式本可以推广到其他潜在的长跑 CI 任务（如 nightly benchmark），当前没有落成一条可复用的设计准则。
+2. **没有"长时 CI 任务 timeout 分层设计"的通用规范**：目前只在这次 workflow 注释里体现了"in-script pacing budget + outer hang-protection timeout"两层模式，但这个模式本可以推广到其他潜在的长跑 CI 任务（如 nightly benchmark），当前没有写成一条可复用的设计准则。
 3. **没有"CI 预算标定必须注明数据来源窗口 + 方差"的明文约定**：`ci-quality-baseline.md` 目前对各 job 的超时数值没有统一规范要求写明标定依据，未来再有人调整超时阈值时容易重复"拍脑袋改数字"的旧模式。
 
 ## Promotion Candidates
 
 ### 应补到 `guides/ci-quality-baseline.md` 的 Fuzz 小节
 
-- 补充一段描述 `daily-sanitized-fuzz.yml`（ASan/TSan 深度诊断路径，独立于每次 push 的 fast 路径），说明其与 nightly-diff-fuzz.yml 的分工（后者是 Release 二进制 10k 轮吞吐覆盖，前者是 sanitizer 加持的 race/memory bug 深度诊断）。
+- 补充一段描述 `daily-sanitized-fuzz.yml`（ASan/TSan 深度诊断路径，独立于每次 push 的 fast 路径），说明其与 nightly-diff-fuzz.yml 的分工（后者是 Release 二进制 10k 轮吞吐覆盖，前者是借助 sanitizer 的 race/memory bug 深度诊断）。
 - 补充 `--time-budget-seconds` 开关语义：预算耗尽后循环停止发起新轮但仍输出正常 `Results:` 汇总（标注 `N/M rounds (time budget)`），默认 0 关闭，ci.yml/nightly-diff-fuzz.yml 行为不受影响。
-- 补充一条通用提示：改 `differential-fuzz.py` 输出格式前，先 grep 所有消费者（当前两处：`nightly-diff-fuzz.yml` 与 `daily-sanitized-fuzz.yml` 的 evaluate step），确认都 key 在 `^Results:` 前缀上，改动只能在前缀之后扩展，不能变动前缀本身。
+- 补充一条通用提示：改 `differential-fuzz.py` 输出格式前，先 grep 所有消费者（当前两处：`nightly-diff-fuzz.yml` 与 `daily-sanitized-fuzz.yml` 的 evaluate step），确认都以 `^Results:` 前缀为匹配依据，改动只能在前缀之后扩展，不能变动前缀本身。
 
 ### 可考虑新增到 `guides/` 的通用长时任务 timeout 设计模式
 
 - **两层 timeout 分离**：内层脚本自带 pacing budget（优雅降级、保留部分信号），外层 CI timeout 纯粹作 hang 保护（含义单一，只在真正卡死或脚本崩溃时触发）。"被外层杀死"应与"脚本主动提前收束"在日志/汇总行上可区分（本例用 `Results:` 行是否存在 + `N/M` 标注区分）。
-- 该模式当前只体现在 daily-sanitized-fuzz.yml 一处，暂不确定是否值得单独提炼成稳定文档条目；建议先观察是否有第二个类似场景（如 nightly-benchmark 类长跑任务）需要同款设计，再决定要不要促成通用准则。
+- 该模式当前只体现在 daily-sanitized-fuzz.yml 一处，暂不确定是否值得单独提炼成稳定文档条目；建议先观察是否有第二个类似场景（如 nightly-benchmark 类长跑任务）需要同样的设计，再决定要不要促成通用准则。
 
 ### CI 预算标定规范（候选，可能属于 `must/conventions.md` 或 `ci-quality-baseline.md`）
 

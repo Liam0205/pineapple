@@ -20,12 +20,12 @@
 
 ## Root Cause
 - 根因不是不会调用 `log.SetFlags()`，而是在 plan 阶段没有先枚举“日志标准格式”的完整需求维度，只按表面功能点拆解任务，导致实现和验证都围绕单一字段展开。
-- 团队已经形成了 root-level 配置扩展的实现路径，但还没有把“功能字段透传成功”与“运行时语义完整落地”区分成两个检查层次。前者做到了，后者首版不完整。
+- 团队已经形成了 root-level 配置扩展的实现路径，但还没有把“功能字段透传成功”与“运行时语义完整实现”区分成两个检查层次。前者做到了，后者首版不完整。
 - 对进程级全局状态的设计约束虽有认知，但没有在一开始就转化为明确的测试 checklist：覆盖优先级、覆盖 flags、覆盖 cleanup、记录多 Engine 场景下后写覆盖前写。
 
 ## Missing Docs or Signals
 - 缺少一个更明确的 planning signal：凡是涉及日志、观测、trace 这类横切能力，方案阶段应先列完整的行为面，而不是只盯住新增字段名本身。
-- 稳定文档中虽然已经能描述 root-level 配置扩展路径，但还可以更明确强调：这类功能落地时需要同时检查 Python DSL 参数、JSON 根级 schema、Go 加载逻辑、运行时副作用、测试 cleanup 五个面。
+- 稳定文档中虽然已经能描述 root-level 配置扩展路径，但还可以更明确强调：这类功能实现时需要同时检查 Python DSL 参数、JSON 根级 schema、Go 加载逻辑、运行时副作用、测试 cleanup 五个面。
 - 对 `log_prefix` 而言，还应记录一个明确信号：`WithLogPrefix` 与 JSON `log_prefix` 最终作用于标准库全局 logger，因此多 Engine 实例场景下后初始化者会覆盖前者。这是设计约束，不是 bug。
 
 ## Promotion Candidates

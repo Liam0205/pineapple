@@ -11,7 +11,7 @@
   - 同时新增了 `apple/tests/test_validator.py` 中的空分支用例，并把新增编译期校验更新到 `design_doc/06_json_config.md` 与 `README.md`。
 
 ## What Went Wrong
-- 严格说本轮没有明显返工或实现偏航，执行较顺。
+- 严格说本轮没有明显返工或偏离方向，执行比较顺利。
 - 但 `demo.py` 的错误再次证明：`_FlowBase.__getattr__` 的动态分发会把拼错或不存在的 API 名当作合法算子记录下来，DSL 层静默通过，只会在 Go 运行时以 `RegistryError` 暴露问题。
 - `_resolve_source` 的 docstring 长期保留了“若歧义则报错”的表述，但实现其实只是 pass-through，说明文档语义与当前实现之间存在轻微漂移。
 

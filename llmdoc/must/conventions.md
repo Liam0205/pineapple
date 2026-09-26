@@ -102,7 +102,7 @@ Go、Java 与 C++ 各自维护独立的算子 Schema 注册表（Go: `pine-go/in
 
 codegen 之外的第一个应用点是**接口契约文档**（issue #193）：`pine-go/pkg/metrics/metrics.go` 的 package doc（"Implementer's contract" 一节）是权威副本，pine-java 的 `metrics/Provider.java`、pine-cpp 的 `include/pine/metrics.hpp` 与 `design_doc/08_observability.md` 都只写"权威副本在哪里、请去读"，不复述内容。
 
-**例外：正确性级别的语义允许有意冗余。** 该契约里影响正确性而非精度的那一条（Provider 的方法会被并发调用，实现必须并发安全）**刻意在三方各重复一遍**。理由是读某个语言接口的人不一定会跳去另一个语言的文件，而这条错了会产生静默 data race（出厂实现恰好都并发安全，所以下游写出竞争的 Provider 不会被本仓任何测试抓到）。
+**例外：正确性级别的语义允许有意冗余。** 该契约里影响正确性而非精度的那一条（Provider 的方法会被并发调用，实现必须并发安全）**刻意在三方各重复一遍**。理由是读某个语言接口的人不一定会跳去另一个语言的文件，而这条错了会产生静默 data race（仓库自带的实现恰好都并发安全，所以下游写出竞争的 Provider 不会被本仓任何测试抓到）。
 
 判据：单副本原则管的是**会漂移、且漂移代价有限**的描述性内容；**漂移后果是静默正确性缺陷**的语义可以有意重复，重复时在注释里写明为什么值得付这份代价。
 
@@ -116,7 +116,7 @@ codegen 之外的第一个应用点是**接口契约文档**（issue #193）：`
 
 **#187 与 #193 两次都是自己写的 issue。** 自己写的 issue 不构成任何豁免，反而最容易带着自己的错误前提——写 issue 时的心智模型和动手时是同一个，不会有第二个人来质疑那个前提。
 
-第六例 #205（同样是自己写的 issue）把"症状 vs 机制"的差别落到了**写路径的枚举**上：issue 点名 `SetItem` / `SetCommon` 两条，动手前枚举 `OperatorOutput` 的全部写方法得到**四条**带字段名的路径——`SetItemColumnFloat64` 和 `AddItem` 也带字段名，而 `AddItem` 的字段名来自 recall 的配置或资源数据，是四条里最不受控的那条，恰好落在 issue 的范围之外。可执行动作：机制作用在"某类 API"上时，先 `grep` 出该 API 的**全部**方法签名再定范围，不要从 issue 举的两个例子推断类别。同一 issue 的另一条纠正来自 team-member 的独立调查：issue 断言"内置生产算子都靠构造诚实"，实际 `recall_static` / `recall_resource` 三方都把配置键/资源键直接当字段名写——**独立的第二个人核对 issue 事实**是对"自己写的 issue 不构成豁免"最直接的执行方式。
+第六例 #205（同样是自己写的 issue）把"症状 vs 机制"的差别具体到了**写路径的枚举**上：issue 点名 `SetItem` / `SetCommon` 两条，动手前枚举 `OperatorOutput` 的全部写方法得到**四条**带字段名的路径——`SetItemColumnFloat64` 和 `AddItem` 也带字段名，而 `AddItem` 的字段名来自 recall 的配置或资源数据，是四条里最不受控的那条，恰好落在 issue 的范围之外。可执行动作：机制作用在"某类 API"上时，先 `grep` 出该 API 的**全部**方法签名再定范围，不要从 issue 举的两个例子推断类别。同一 issue 的另一条纠正来自 team-member 的独立调查：issue 断言"内置生产算子都靠构造诚实"，实际 `recall_static` / `recall_resource` 三方都把配置键/资源键直接当字段名写——**独立的第二个人核对 issue 事实**是对"自己写的 issue 不构成豁免"最直接的执行方式。
 
 ### 教学例子：症状 vs 机制（issue #193）
 
@@ -133,19 +133,19 @@ codegen 之外的第一个应用点是**接口契约文档**（issue #193）：`
 | 交付物 | 一批文案改动 | 文案改动 **+ 一道检查** |
 | 修完之后 | 机制仍然成立，会再漂移 | 再漂移会变红 |
 
-关键在最后一行：机制本身（各自声明 + 无人可见）在改完那一批文案之后**依然完整存在**，所以按症状修等于什么都没修。补门那一半的判据见 `guides/ci-quality-baseline.md` 的「无人可见的属性必然腐烂」。
+关键在最后一行：机制本身（各自声明 + 无人可见）在改完那一批文案之后**依然完整存在**，所以按症状修等于什么都没修。补检查那一半的判据见 `guides/ci-quality-baseline.md` 的「无人可见的属性必然腐烂」。
 
 可执行动作：改之前对三方各跑一遍最小复现，把「这个机制的输入维度 × 取值」列成矩阵实测填表；范围与 issue 不一致时以矩阵为准并在 commit message 里写明差别。矩阵测试为什么比对读代码可靠，见 `guides/ci-quality-baseline.md` 的「穷举矩阵的测试会查出读代码查不出的缺口」。
 
 ## 审计结论只对被审的那个维度成立
 
-**函数是审计单位，维度不是。** 一个函数可以在维度 A 上审干净、在维度 B 上从没被看过。因此审计结论要写成「函数 F 在维度 D 上已闭环」，不能写成「函数 F 已闭环」，更不能据此免掉下次触碰时的检查。
+**函数是审计单位，维度不是。** 一个函数可以在维度 A 上审干净、在维度 B 上从没被看过。因此审计结论要写成「函数 F 在维度 D 上已审完」，不能写成「函数 F 已审完」，更不能据此免掉下次触碰时的检查。
 
 与上一条是同一族，只是范围偏窄的方向不同：上一条管范围在**字段方向**上偏窄，这条管范围在**维度方向**上偏窄。
 
-案例（issue #189/#190）：`TransformByLua.fromLua` 里的 `(long) d` 窄化由 `81c1a36c`（2026-05-18）引入，issue #175 的三个 commit（2026-07-23）**都带着这行**——#175 修的正是同一个函数的标量派发，改动点距这行只有三行。#175 的检查项是「派发方式对不对」，这行的问题是「派发之后的类型转换对不对」：同一函数、同一屏、不同维度，那次的 grep 清单（找 `is*()` 调用）在构造上不可能命中一个强转。而那次续集反思写下的「该文件 `is*()` 派发点已三处闭环、下次触碰不需额外扫」，正是这个缺陷活下来的直接条件。
+案例（issue #189/#190）：`TransformByLua.fromLua` 里的 `(long) d` 窄化由 `81c1a36c`（2026-05-18）引入，issue #175 的三个 commit（2026-07-23）**都带着这行**——#175 修的正是同一个函数的标量派发，改动点距这行只有三行。#175 的检查项是「派发方式对不对」，这行的问题是「派发之后的类型转换对不对」：同一函数、同一屏、不同维度，那次的 grep 清单（找 `is*()` 调用）在构造上不可能命中一个强转。而那次续集反思写下的「该文件 `is*()` 派发点三处都已修完、下次触碰不需额外扫」，正是这个缺陷活下来的直接条件。
 
-**同一函数的第三个维度（issue #200）**：#175 查「逐个值的派发谓词」、#189/#190 查「派发后的类型转换」，#200 是「**槽位跨 item 的状态**」——`toLua(String)` 与 `fromLua` 逐个值都对，但 luaj 的表槽位复用让「上一个 item 写进去的 number」决定「这个 item 的 string 读回来是什么」。既有的 `inputStringRoundTripsThroughLuaUnchanged` 用**一个** item 测 identity，从构造上看不见需要两个 item 才出现的状态耦合。判据补一条：列职责维度时，把「跨调用/跨 item 的状态」单列，凡是复用容器（VM 全局表、池化 state、`thread_local` 缓冲）都有这一维，单样本测试对它恒绿。
+**同一函数的第三个维度（issue #200）**：#175 查「逐个值的派发谓词」、#189/#190 查「派发后的类型转换」，#200 是「**槽位跨 item 的状态**」——`toLua(String)` 与 `fromLua` 逐个值都对，但 luaj 的表槽位复用让「上一个 item 写进去的 number」决定「这个 item 的 string 读回来是什么」。既有的 `inputStringRoundTripsThroughLuaUnchanged` 用**一个** item 测 identity，从构造上看不见需要两个 item 才出现的状态耦合。判据补一条：列职责维度时，把「跨调用/跨 item 的状态」单列，凡是复用容器（VM 全局表、池化 state、`thread_local` 缓冲）都有这一维，单样本测试对这一维永远通过。
 
 与「按这条表述出现在哪里清理」（`guides/investigation-to-fix-testing.md`，#183 的 `/stats` 漏两轮、#179 的五处反向注释）是**不同的失效模式，不要合并成一条**：那条是同一维度散落在多个位置，这条是同一位置承载多个维度。
 
@@ -161,9 +161,9 @@ Pineapple 是基础设施。它的正确性不仅是 API 的输出，还包括�
 - **能力等价**：下游能否用相同模式扩展功能（middleware 拦截自定义路径、handler 注册、回调注入）
 - **负空间行为**：未注册路径、未知参数、边界条件在各引擎间表现一致
 - **开发范式对等**：下游项目的典型使用方式（如通过 middleware 添加 /metrics 端点）在三引擎间可行
-- **消费点追踪**：只对比"字段是否存在、是否被赋值"不够——同一特性可能在各引擎漂移成不同错误形态，要追到消费点：值存进去之后谁读、读了产生什么可观测输出。"存而不读"的死状态在存在性对比下完全隐形。
+- **消费点追踪**：只对比"字段是否存在、是否被赋值"不够——同一特性可能在各引擎漂移成不同的错误形式，要追到消费点：值存进去之后谁读、读了产生什么可观测输出。"存而不读"的死状态在存在性对比下完全隐形。
 
-教训来源：Java PineServer 缺少根 fallback context 导致 middleware 无法拦截自定义路径，Go 侧自然支持。19 轮审计未覆盖此维度。消费点盲区案例：`log_prefix` 三家都"有这个字段"，实际是三种错误形态——Go 全局 `log.SetPrefix` first-engine-wins（一家真生效但污染全局）、Java CAS 进一个从未被读的 System property、C++ 实例成员无任何日志路径消费（两家死状态），历轮 parity 审计均未察觉（issue #172，详见 `memory/reflections/per-engine-log-prefix.md`）。
+教训来源：Java PineServer 缺少根 fallback context 导致 middleware 无法拦截自定义路径，Go 侧自然支持。19 轮审计未覆盖此维度。消费点盲区案例：`log_prefix` 三家都"有这个字段"，实际是三种错误形式——Go 全局 `log.SetPrefix` first-engine-wins（一家确实生效但污染全局）、Java CAS 进一个从未被读的 System property、C++ 实例成员无任何日志路径消费（两家死状态），历轮 parity 审计均未察觉（issue #172，详见 `memory/reflections/per-engine-log-prefix.md`）。
 
 ## 测试变更应遵循已有测试结构
 
@@ -231,14 +231,14 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 
 - 所有数值类型（含整数）使用 `%g` / `formatG` 格式化，而非 `%d` 或 `fmt.Sprint`
 - bool 类型特殊处理（必须在数值类型判定之前）
-- composite types（map/list）使用 JSON 序列化——而且必须是 **Go `json.Marshal` 的字节**：pine-java 用 `GoFormat.marshalJson`（Go 数字拼写 + UTF-8 key 排序 + `<>&` 转义），不得用裸 `new ObjectMapper()`。参考对象是 pine-go `anyToString` 的**完整**行为：`json.Marshal` 报错（复合内含 NaN/±Inf）时 Go 落 `fmt.Sprintf("%v")` 得 `[NaN 2]`，这一支 pine-go / pine-cpp / pine-java 当前各不相同、未复刻，见 `memory/doc-gaps.md`「非有限值进入复合 shuffle salt」。**数字拼写的边界**：frame payload（`common`/`items`/trace 快照/`marshalJson` 的入参）里所有 Number 载体——含 Jackson 解出来的 `Integer`/`Long`/`BigInteger`——都按 Go **float64** 拼写，因为 Go 的 `encoding/json` 在解析时就把每个字面量变成了 float64（`9007199254740993` 进 Go 已是 `…992`）；而 `/stats` 子树的 `Long`（`sum_ns`、`total_duration_ns`、计数器）对应 Go **int64**，必须精确打印。Java 无法从类型上区分，故用包装器建模：`GoFormat.payload`/`wrapPayload` 转 float64，`GoFormat.sorted`/`sortedShallow` 保精确——规则挂在 payload 包装层而不是共享 mapper 上（第一版挂在 mapper 上，会把累计纳秒超过 2^53 ≈ 104 天的 `/stats` 值四舍五入，审计查出）。这与 `sortedShallow` 处理「Go 对 map 排序、对 struct 不排」是同一形式：Go 的规则取决于那个位置的 Go 类型，Java 要显式建模。**隐含前提**：这条规则对**解析进来**的字面量严格成立；算子**自己写入** frame 的整数（Go 侧 `validateValue` 放行 `int`/`int64`，如 `transform_size` 写 `int`）在 Go 侧会精确打印、Java 侧仍转 float64，两者只在 |v| < 2^53 时字节相同——内置算子只写计数值，故当前不可见；自定义算子若要在 frame 里放大整数 ID，两侧都以 double 写入（与 Lua bridge「number 出口一律 double」同一约定），不要依赖 Go 的 int64 精确拼写。issue #201：Lua 返回的 `{item_score*2, item_score*3}` 在 Java 里是 `List<Double>`，裸 Jackson 写成 `[28.0,42.0]`/`2.0E100`，Go 是 `[28,42]`/`2e+100`，salt 字节不同 → hash 不同 → 整个结果顺序不同。这条规则对**任何把复合值变成字节再喂 hash / 比较**的 Java 代码都成立（bench stub `ReorderTopnBoostStub` 同步改了）；响应路径早就在用同一个 mapper，`marshalJson` 只是把它暴露给算子层，不要再长出第二份 JSON 规则
+- composite types（map/list）使用 JSON 序列化——而且必须是 **Go `json.Marshal` 的字节**：pine-java 用 `GoFormat.marshalJson`（Go 数字拼写 + UTF-8 key 排序 + `<>&` 转义），不得用裸 `new ObjectMapper()`。参考对象是 pine-go `anyToString` 的**完整**行为：`json.Marshal` 报错（复合内含 NaN/±Inf）时 Go 改用 `fmt.Sprintf("%v")` 得 `[NaN 2]`，这一支 pine-go / pine-cpp / pine-java 当前各不相同、未复刻，见 `memory/doc-gaps.md`「非有限值进入复合 shuffle salt」。**数字拼写的边界**：frame payload（`common`/`items`/trace 快照/`marshalJson` 的入参）里所有 Number 载体——含 Jackson 解出来的 `Integer`/`Long`/`BigInteger`——都按 Go **float64** 拼写，因为 Go 的 `encoding/json` 在解析时就把每个字面量变成了 float64（`9007199254740993` 进 Go 已是 `…992`）；而 `/stats` 子树的 `Long`（`sum_ns`、`total_duration_ns`、计数器）对应 Go **int64**，必须精确打印。Java 无法从类型上区分，故用包装器建模：`GoFormat.payload`/`wrapPayload` 转 float64，`GoFormat.sorted`/`sortedShallow` 保精确——规则挂在 payload 包装层而不是共享 mapper 上（第一版挂在 mapper 上，会把累计纳秒超过 2^53 ≈ 104 天的 `/stats` 值四舍五入，审计查出）。这与 `sortedShallow` 处理「Go 对 map 排序、对 struct 不排」是同一形式：Go 的规则取决于那个位置的 Go 类型，Java 要显式建模。**隐含前提**：这条规则对**解析进来**的字面量严格成立；算子**自己写入** frame 的整数（Go 侧 `validateValue` 放行 `int`/`int64`，如 `transform_size` 写 `int`）在 Go 侧会精确打印、Java 侧仍转 float64，两者只在 |v| < 2^53 时字节相同——内置算子只写计数值，故当前不可见；自定义算子若要在 frame 里放大整数 ID，两侧都以 double 写入（与 Lua bridge「number 出口一律 double」同一约定），不要依赖 Go 的 int64 精确拼写。issue #201：Lua 返回的 `{item_score*2, item_score*3}` 在 Java 里是 `List<Double>`，裸 Jackson 写成 `[28.0,42.0]`/`2.0E100`，Go 是 `[28,42]`/`2e+100`，salt 字节不同 → hash 不同 → 整个结果顺序不同。这条规则对**任何把复合值变成字节再喂 hash / 比较**的 Java 代码都成立（bench stub `ReorderTopnBoostStub` 同步改了）；响应路径早就在用同一个 mapper，`marshalJson` 只是把它暴露给算子层，不要再另起第二份 JSON 规则
 - shuffle 使用 original index 作为最终 tiebreaker，保证同 hash 值时排序确定性
 
 ### 跨运行时数值排序比较必须按 IEEE `<`/`>`，不用 `Double.compare`
 
-`reorder_sort` 与任何按数值排序的路径，比较器语义以 Go `sort.SliceStable` + `<` 为基准：`-0.0` 与 `0.0` **相等**，由稳定排序保留输入顺序。Java `Double.compare` 把 `-0.0` 排在 `0.0` 前（也把 NaN 排到最大），是另一套全序。issue #202：三个零值恰在 `filter_paginate` 的页边界上，Go/C++ 分页拿到 `id_2`、Java 拿到 `id_20`。与上面 `merge_dedup` 的 `-0.0 → +0.0` 归一化同源（IEEE 754 负零是跨语言分歧的固定来源，见 `memory/reflections/differential-fuzz-discoveries.md`），但落点不同：dedup 是 hash 相等、sort 是比较器相等，两处各自要守。
+`reorder_sort` 与任何按数值排序的路径，比较器语义以 Go `sort.SliceStable` + `<` 为基准：`-0.0` 与 `0.0` **相等**，由稳定排序保留输入顺序。Java `Double.compare` 把 `-0.0` 排在 `0.0` 前（也把 NaN 排到最大），是另一套全序。issue #202：三个零值恰在 `filter_paginate` 的页边界上，Go/C++ 分页拿到 `id_2`、Java 拿到 `id_20`。与上面 `merge_dedup` 的 `-0.0 → +0.0` 归一化同源（IEEE 754 负零是跨语言分歧的固定来源，见 `memory/reflections/differential-fuzz-discoveries.md`），但落点不同：dedup 是 hash 相等、sort 是比较器相等，两处要分别防住。
 
-**前提：被比较的值里没有 NaN。** `x<y?-1:(x>y?1:0)` 遇到 NaN 不是全序（NaN 与一切「相等」而其余值有序），Java `Arrays.sort(Object[])`（TimSort）可能抛 `Comparison method violates its general contract`，Go `sort.SliceStable` 只是顺序未定义不 panic。`reorder_sort` 当前安全是因为 frame 写入校验拒绝标量 NaN/Inf（`ColumnFrame.checkValue` / `row_frame.go` 同款）且 JSON 表达不出 NaN；把这条规则套到一条 NaN 可达的路径（例如直接对 Lua 中间值排序）之前，先决定 NaN 的位置并与 Go 做相同处理，不能直接套 `<`/`>`。
+**前提：被比较的值里没有 NaN。** `x<y?-1:(x>y?1:0)` 遇到 NaN 不是全序（NaN 与一切「相等」而其余值有序），Java `Arrays.sort(Object[])`（TimSort）可能抛 `Comparison method violates its general contract`，Go `sort.SliceStable` 只是顺序未定义不 panic。`reorder_sort` 当前安全是因为 frame 写入校验拒绝标量 NaN/Inf（`ColumnFrame.checkValue` / `row_frame.go` 做法相同）且 JSON 表达不出 NaN；把这条规则套到一条 NaN 可达的路径（例如直接对 Lua 中间值排序）之前，先决定 NaN 的位置并与 Go 做相同处理，不能直接套 `<`/`>`。
 
 ### 有界读取
 
@@ -279,7 +279,7 @@ Go 的格式化行为是跨运行时的规范参考。Java 侧通过 `GoFormat` 
 
 各运行时（pine-go / pine-java / pine-cpp）的 HTTP server 必须**无条件**注入 `http_metrics_middleware`（含 `HttpStats` 累加器作为第二写入路径），不得要求用户显式 opt-in。`metrics_provider` 为 null 时自动 tie-off 至 `NopProvider`，middleware 链与外部观测语义保持各方字节一致。
 
-理由：R2 后续审计（2026-05-23）发现 pine-java 此前是 conditional 接入（彼时还有已下线的 pine-python 完全缺失），与 R2 时 pine-cpp 的 conditional 状态同型。本约定收口"各方装配条件统一"，由 Section 13 schema shape 检查长期监管。
+理由：R2 后续审计（2026-05-23）发现 pine-java 此前是 conditional 接入（彼时还有已下线的 pine-python 完全缺失），与 R2 时 pine-cpp 的 conditional 状态同型。本约定明确"各方装配条件统一"，由 Section 13 schema shape 检查长期监管。
 
 ## InputFieldSpec 三态模型（默认 Nullable 字段模式）
 
@@ -315,7 +315,7 @@ Apple DSL 侧通过 `_add_op` 或动态分发的 `strict_common=["field"]` / `st
 - pine-java: 构造时 `super(msg, cause)`，通过 `Throwable.getCause()` + `instanceof` 解包
 - pine-cpp: 多继承 `std::nested_exception` + `std::throw_with_nested` 重抛，通过 `pine::error_as<T>()` helper 走链（注意 helper 须先检查 `nested_ptr() != nullptr`，避开标准 `std::rethrow_if_nested` 的 footgun）
 
-理由：cause chain 属于"语言层 API 形态对等"的一部分，虽然不在 HTTP /execute 返回 JSON 中可见（已被 string flatten），但下游用户对该能力有预期。Section 15（`15-error-cause-chain.sh`）通过三方 probe binary stdout 字节级一致验证（`PASS:key=user:42 not found`）。
+理由：cause chain 属于"语言层 API 形式对等"的一部分，虽然不在 HTTP /execute 返回 JSON 中可见（已被 string flatten），但下游用户对该能力有预期。Section 15（`15-error-cause-chain.sh`）通过三方 probe binary stdout 字节级一致验证（`PASS:key=user:42 not found`）。
 
 ## 错误类型分类约定(ConfigError / ValidationError / RegistryError)
 
@@ -336,6 +336,6 @@ Apple DSL 侧通过 `_add_op` 或动态分发的 `strict_common=["field"]` / `st
 - **Build-time（template plan 构建）**：非 bare marker、参数非 string、字段未在 common frame 中可见等形状违规 → `ConfigError`，前缀 `pine: config error: operator "X": param "Y" value "Z" must be a bare {{field}} marker`（或对应文案）。pine-go 此前 `BuildTemplatedParamPlan` 漏包装 `&types.ConfigError{}`，运行 CLI 时呈现为 `error creating engine: operator "X": ...` 缺前缀，已修复对齐 C++/Java。
 - **Runtime（请求级 resolver）**：模板字段缺失、字段值无法 coerce 到 string → `ExecutionError`，前缀 `pine: execution error in operator "X": <inner>`。pine-cpp 此前 `parallel_execute` 在 `resolve_templated_params` 抛出后未做 op-name re-wrap，已修复为 `try { ... } catch (const ExecutionError& e) { throw ExecutionError(op.name, e.inner()); }`。
 
-cross-validate `scripts/cross-validate/17-templated-params.sh` 通过 stderr byte-exact probe 钉死本契约。新增 `Templatable=true` 参数或修改模板解析路径时，请在该 section 增加对应 probe。
+cross-validate `scripts/cross-validate/17-templated-params.sh` 通过 stderr byte-exact probe 锁定本契约。新增 `Templatable=true` 参数或修改模板解析路径时，请在该 section 增加对应 probe。
 
 Java 侧 probe 注意：SLF4J no-op binder 会向 stderr 写若干提示行（`SLF4J: ...`），probe 脚本对 Java case 使用 `grep -v '^SLF4J:'` 过滤后再做 byte-exact 比对。

@@ -14,11 +14,11 @@ java 4611686018427387904
 ```
 
 `(-2147483648)^2` 恰好等于 `2^62`。Go 的 `encoding/json` 输出 `strconv` 的最短往返，
-pine-java 输出精确整数。目标：三运行时字节一致，并给这条区间补上回归门。
+pine-java 输出精确整数。目标：三运行时字节一致，并给这条区间补上回归检查。
 
 ## Expected vs Actual
 
-- Expected：数字拼写分歧 → 落在格式化器上，改 `GoFormat.formatJsonNumber` 的某个阈值。
+- Expected：数字拼写分歧 → 问题出在格式化器上，改 `GoFormat.formatJsonNumber` 的某个阈值。
   上一次同族问题（#180）就是这么修的，`reference/number-formatting-parity.md` 也是为那次
   立的。
 - Actual：**格式化器完全正确**。用探针实测 `formatJsonNumber` 在 2^53、2^53+2、2^62、
@@ -44,7 +44,7 @@ Lua number 一律 `return float64(x), nil`、**没有整数分支**（`pool_wang
 
 修法：去掉窄化、一律 `return v.todouble()`。2^53 以下**毫无变化**——`formatJsonNumber`
 打印整数值 double 时不带小数点（`42.0` → `42`），实测对照过 42/0/−1/1e15/2^53/2^62/
-负 2^62/1.5 全部与旧 long 路径同串。
+负 2^62/1.5 全部与旧 long 路径输出相同。
 
 ## What Went Wrong
 
@@ -56,7 +56,7 @@ Lua number 一律 `return float64(x), nil`、**没有整数分支**（`pool_wang
 `skip-field-lazy-input-and-pool-baseline-keys.md` 的 Follow-up 还明确写下：
 
 > pine-java `TransformByLua.java` 的 `is*()` 派发点现已全部为 type-tag 派发（table-key
-> check / fromLua / snapshotKeys），三处闭环；下次再触碰该文件时不需要额外扫。
+> check / fromLua / snapshotKeys），三处都已修完；下次再触碰该文件时不需要额外扫。
 
 这条声明本身没写错：`is*()` 派发点确实清零了。错的是它被当成了「这个函数已审完」。
 
@@ -79,7 +79,7 @@ Lua number 一律 `return float64(x), nil`、**没有整数分支**（`pool_wang
 两处、`TransformByLuaCompilerBackendTest` 一处，写的是
 `assertInstanceOf(Long.class, ...)` / `assertEquals(42L, ...)`。
 
-Go 侧没有整数分支，`Long` 从来不是契约。这些断言把内部实现细节冻住了，反过来让**正确的
+Go 侧没有整数分支，`Long` 从来不是契约。这些断言把内部实现细节锁定了，反过来让**正确的
 修复"打破测试"**。已改为断言数值与序列化形式：
 
 ```java
@@ -88,11 +88,11 @@ assertEquals(42.0, intOut);
 assertEquals("42", GoFormat.formatJsonNumber((Double) intOut));
 ```
 
-新增 `integralDoubleAbove2Pow53KeepsGoSpelling` 直接钉 `"4611686018427388000"`。
+新增 `integralDoubleAbove2Pow53KeepsGoSpelling` 直接锁定 `"4611686018427388000"`。
 
-值得注意的是这六处断言**部分来自 #175**——#175 为了钉住类型身份而用 `assertInstanceOf`
-钉 Java class（见那篇 reflection 的 Task 段），当时是对的手段（要区分 `"42"` 与 `42`），
-但把 number 分支的 box 类型一起钉住了，超出了它要保护的属性。
+值得注意的是这六处断言**部分来自 #175**——#175 为了锁定类型身份而用 `assertInstanceOf`
+断言 Java class（见那篇 reflection 的 Task 段），当时是对的手段（要区分 `"42"` 与 `42`），
+但把 number 分支的 box 类型一起锁定了，超出了它要保护的属性。
 
 ### 4. `FixtureTest.assertValueEquals` 的比较逻辑有缺陷（不是数据问题）
 
@@ -104,7 +104,7 @@ assertEquals("42", GoFormat.formatJsonNumber((Double) intOut));
 等三处、`pipeline_fixture_test.go:37`），float64 `10` 打印成 `10`——所以 Go 一直通过。
 
 同一份 fixture、同一个值、两个 runner 的比较精度不同。Go 因为 `%v` 恰好抹掉 int/float
-差异而看不见问题，Java 因为 `Double.toString` 带 `.0` 而炸；两边都在读同一份"期望值"。
+差异而看不见问题，Java 因为 `Double.toString` 带 `.0` 而失败；两边都在读同一份"期望值"。
 
 第一反应会是「改 fixture 期望值」，那是错的：值没变，变的只是 Java 侧的装箱类型，
 Go 侧一直返回 float64。
@@ -123,17 +123,17 @@ Go 侧一直返回 float64。
    （`formatJsonNumber` 对整数值 double 不打小数点），所以这个转换从一开始就是纯粹的
    多余风险。
 
-2. **为什么它活过了 #175**：审计的检查维度决定了它的盲区。#175 的维度是「派发谓词」，
-   这行的维度是「派发后的类型转换」。审完一个维度后写下「这个文件闭环」，把维度级的结论
-   升格成了文件级的结论。**函数是审计单位、维度不是**——一个函数可以在维度 A 上闭环、
+2. **为什么它在 #175 中没被发现**：审计的检查维度决定了它的盲区。#175 的维度是「派发谓词」，
+   这行的维度是「派发后的类型转换」。审完一个维度后写下「这个文件已审完」，把维度级的结论
+   升格成了文件级的结论。**函数是审计单位、维度不是**——一个函数可以在维度 A 上已审完、
    在维度 B 上完全没被看过。
 
 3. **为什么按 #180 的索引找不到**：`reference/number-formatting-parity.md` 的作用域是
    「double 怎么变成字符串」，隐含前提是「值已经是 double」。这个前提没写下来，读者会把
    它当成「所有数字拼写问题的入口」。
 
-4. **测试没能拦住的根因**：断言冻的是内部表示。`assertInstanceOf(Long.class, ...)` 不是
-   在保护任何外部可观察属性——外部可观察的只有序列化出来的那串字节。冻内部表示的断言
+4. **测试没能拦住的根因**：断言锁定的是内部表示。`assertInstanceOf(Long.class, ...)` 不是
+   在保护任何外部可观察属性——外部可观察的只有序列化出来的那串字节。锁定内部表示的断言
    在实现正确化时会变红，产生「修对了反而红」的信号反转。
 
 5. **`FixtureTest` 缺陷的根因**：共享 fixture 的两个 runner 各自实现了比较函数，且宽松度
@@ -153,11 +153,11 @@ Go 侧一直返回 float64。
 实测仍分歧——问题不在精度，而在**两侧是否遵循同一套规则**。
 
 **Java 的装箱类型追踪的是「值从哪里解析来的」，不是「参照运行时认为它的静态类型是什么」**，
-所以不能充当后者的代理。这是本次两处根因共同的形状：**把宿主语言的类型系统当成跨运行时契约的代理**。
+所以不能充当后者的代理。这是本次两处根因共同的模式：**把宿主语言的类型系统当成跨运行时契约的代理**。
 窄化那处是 `long` 冒充「整数」，`sprint` 那处是装箱类型冒充「静态类型」。
 
 审计第二轮进一步指出：我给这处写的注释断言「Go 没有整数分支」是**假的**——`transform_size` 写的
-`in.ItemCount()` 是真 Go `int`、不经 `encoding/json`，Go 的 `%v` 对它原样打印。那条路径上
+`in.ItemCount()` 是原生 Go `int`、不经 `encoding/json`，Go 的 `%v` 对它原样打印。那条路径上
 pine-cpp 与 pine-java 一致而 **Go 是异类**，已记入 `memory/doc-gaps.md`。注释已改为陈述真实理由：
 Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 ## Missing Docs or Signals
@@ -166,22 +166,22 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
   前提是值以 double 到达格式化器。「值在到达之前被换成别的类型」这个失效面既不在这篇里，
   也不在任何别处，本次就是这一类。
 - **`guides/cross-layer-validation.md` 第 8 节列了各层比对器行为**（Go operator-fixture
-  用 `%v`、Java `FixtureTest` 对非 Number 字符串化），但只把它当成「该层能钉住什么属性」
+  用 `%v`、Java `FixtureTest` 对非 Number 字符串化），但只把它当成「该层能锁定什么属性」
   来讲，**没讲「同一份 fixture 被两个宽松度不同的 runner 读」这件事本身是隐藏变量**——
-  宽松的一侧通过不代表契约成立，且严格的一侧会因为无关的表示变更而炸。
-- **没有任何地方写「断言不要冻装箱类型」**。#175 用 `assertInstanceOf` 是对的（它要保护
+  宽松的一侧通过不代表契约成立，且严格的一侧会因为无关的表示变更而失败。
+- **没有任何地方写「断言不要锁定装箱类型」**。#175 用 `assertInstanceOf` 是对的（它要保护
   string-vs-number 类型身份），但没有边界说明：哪些 class 断言在保护契约、哪些只是在
-  冻内部表示。结果 number 分支的 `Long` 被顺带冻住。
+  锁定内部表示。结果 number 分支的 `Long` 被顺带锁定。
 - **fuzz 失败缺复现命令**（本次已实现）。原来 seed 只出现在开头 header，`FAIL:` 行附近
   没有；保存的 divergence 目录在 `/tmp` 会被回收。**#190 能被诊断纯粹是靠那份残留副本。**
-- **「长跑 fuzz 期间禁止触碰构建产物」没有落点**。`guides/benchmark-hygiene.md` 有 bench
+- **「长跑 fuzz 期间禁止触碰构建产物」没有写进任何文档**。`guides/benchmark-hygiene.md` 有 bench
   的同类纪律（zombie 进程、并行污染），fuzz 侧没有对应条目。
 
 ## Promotion Candidates
 
 - **进 `must/conventions.md`（紧邻「跨运行时缺陷动手前必须实测受影响面」）：修一个函数里
   的缺陷时，检查维度要覆盖该函数的所有职责，不只是当前 issue 的那一维。** 审计结论要
-  写成「函数 F 在维度 D 上已闭环」，不能写成「函数 F 已闭环」。与既有的「一条声明的每份
+  写成「函数 F 在维度 D 上已审完」，不能写成「函数 F 已审完」。与既有的「一条声明的每份
   副本都要清理」（#183 `/stats`、#179 五处注释）是**不同失效模式**：那条是同一维度多个
   位置，这条是同一位置多个维度。案例：#175 扫的是 `is*()` 派发谓词、漏的是三行外的
   `(long) d` 强转，且当时明文写下「下次触碰不需额外扫」。
@@ -197,7 +197,7 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
   runner 的比较宽松度是隐藏变量。** Go fixture runner 用 `fmt.Sprintf("%v")`（int/float
   不可分）、Java `FixtureTest.assertValueEquals` 对 `Number` 数值比较但容器落
   `String.valueOf`（`Double.toString` 带 `.0`）。同一份 fixture 因此不是同一道门：宽松侧
-  长期绿灯（Go 从未看见本次问题），严格侧会因无关的表示变更而炸。判据：**共享 fixture 上
+  长期绿灯（Go 从未看见本次问题），严格侧会因无关的表示变更而失败。判据：**共享 fixture 上
   的失败，先判断是值不同还是两个 runner 的比较口径不同**；后者要修比较函数，不是改期望值。
 
 - **进 `guides/ci-quality-baseline.md`（differential-fuzz 节）两条**：
@@ -210,10 +210,10 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
     的 bench 噪声纪律同族。
 
 - **进 `guides/investigation-to-fix-testing.md`：断言装箱类型 vs 断言契约。** 类型断言
-  （`assertInstanceOf`）只有在被断言的 class 本身是外部可观察契约时才成立；否则它冻的是
+  （`assertInstanceOf`）只有在被断言的 class 本身是外部可观察契约时才成立；否则它锁定的是
   内部表示，实现正确化时会变红，产生「修对了反而红」的信号反转。本次六处 `Long` 断言部分
   来自 #175——那次用 `assertInstanceOf` 保护 string-vs-number 类型身份是对的，但把
-  number 分支的 box 类型一起冻了，超出了要保护的属性。判据：写类型断言时说明**这个 class
+  number 分支的 box 类型一起锁定了，超出了要保护的属性。判据：写类型断言时说明**这个 class
   为什么是契约**；不能说明就改断值与序列化形式。
 
 - 仅留 memory：`14_integral_float_above_2pow53.json` 的取值理由（2^62 正负、2^53 边界及
@@ -223,12 +223,12 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 
 ## Follow-up
 
-- 由 recorder 落地上面五处稳定文档修改（`must/conventions.md` 维度条、
+- 由 recorder 完成上面五处稳定文档修改（`must/conventions.md` 维度条、
   `reference/number-formatting-parity.md` 作用域声明、`guides/cross-layer-validation.md`
   比较宽松度、`guides/ci-quality-baseline.md` 两条、
   `guides/investigation-to-fix-testing.md` 断言边界），并同步 `index.md`。
 - 反查同族：其余两个运行时的 bridge 出口已确认无整数分支；但**仓库里其他「按值域选表示」
-  的转换点**没有系统扫过（凡是 `if (整数值) return 整型` 形态的都可能有同一问题）。
+  的转换点**没有系统扫过（凡是 `if (整数值) return 整型` 写法的都可能有同一问题）。
   建议下次触碰序列化路径时 grep 一遍 `(long)` / `longValue()` / `static_cast<int64_t>`
   在数据路径上的用法。
 - `TransformByLuaTypeIdentityTest` 里现存的 `assertInstanceOf` 还剩 string 分支若干，
@@ -237,7 +237,7 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 
 **一处被接受的回归，写在这里而不是只写「全绿」**：审计第三轮查出 `a39a950d` 在
 `transform_size` → `filter_truncate` 的 `top_n: "{{n}}"` 这条路径上，把 pine-java 从「与 Go 一致」
-翻到了「与 pine-cpp 一致、与 Go 分歧」——base 上 `sprint(Integer 1000000)` 给 `1000000`（同 Go），
+变成了「与 pine-cpp 一致、与 Go 分歧」——base 上 `sprint(Integer 1000000)` 给 `1000000`（同 Go），
 现在给 `1e+06`，于是 ≥ 1e6 的 item 数会报 `cannot coerce "1e+06" to int64` 而 Go 成功。
 
 **审计第四轮又缩了一次作用域**：那个「两侧对调」只对 `transform_size` 成立——Go 只有 `in.ItemCount()`
@@ -250,7 +250,7 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 不对称（两种都实测）。选了可达性高得多的 `filter_condition`。教训不在于选得对不对，而在于**我原先
 把这个结果写成了「审计发现的既存缺口」**——同一份 doc-gaps 里负零那条明确标了「先于本 range 存在」
 并给了 base commit，说明我知道怎么区分，这一条却没标。**接受一个回归是可以的，把它记成不是自己造成的
-不行。** 现已改正，并加了 `integralCountAboveOneMillionUsesScientificForm` 钉住当前答案。
+不行。** 现已改正，并加了 `integralCountAboveOneMillionUsesScientificForm` 锁定当前答案。
 ## PR 审查推翻了「必须二选一」这个结论
 
 七轮本地审计之后，PR #192 的审查机器人给了 REQUEST_CHANGES，理由是我固化下来的那个「已接受回归」
@@ -261,7 +261,7 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
 于是推导出「`filter_condition` 与 `transform_size` 两条路径无法同时与 Go 一致」。真正的自由度在
 **比较点是否自己归一化两侧**。
 
-最终修法两处，各自都有 mutation 门：
+最终修法两处，各自都有 mutation 检查：
 
 - `GoFormat.sprint` **恢复**整数装箱分支 —— Go 的 `%v` 对原生 `int` 任意量级原样打印，
   `transform_size` 写的 `in.ItemCount()` 就是原生 int，所以 Redis 键 / Redis 成员值 / 模板参数
@@ -286,4 +286,4 @@ Java 无法重建那个区分，因为装箱类型不是静态类型的代理。
   `make cross-validate` 57 PASS、`make differential-fuzz` 1000/1000
 - mutation 双向验证：把窄化改回去 → 新 fixture 与新单测都变红
 - 探针对照 `formatJsonNumber` 与旧 long 路径在 42/0/−1/1e15/2^53/2^62/负 2^62/1.5 上
-  同串（证明 2^53 以下零变化）
+  输出相同（证明 2^53 以下零变化）

@@ -4,7 +4,7 @@
 
 自上次 llmdoc 更新（`120c944`）至 `337581a`，34 commits 覆盖：
 
-- **R3 parity audit**：26 项（HIGH 5 + MEDIUM 6 + LOW 10 + 追加 X5）全部硬实现
+- **R3 parity audit**：26 项（HIGH 5 + MEDIUM 6 + LOW 10 + 追加 X5）全部真正实现
 - **R10-17 review 收尾**：5 项（NaN/Inf 前缀偏差、server stop_token last-mile、dump_json 紧凑、fixture 锁定、多节点 cancel 测试）
 - **Fuzz 增强**：cpp 接入 differential-fuzz + 11 新维度 + nightly 10k / weekend 100k
 - **Fuzz 发现修复**：17 个 go-vs-cpp divergence（2 根因）+ 1 个 go-vs-java RawValue 泄漏
@@ -21,7 +21,7 @@
 
 ### 2. C++23 采纳（R3-L1）
 
-CMake 从 C++20 升到 C++23，主要为 `std::stacktrace`（`PanicError::detailed_error()` 对偶 Go `DetailedError()`）。探测 `libstdc++exp` / `libstdc++_libbacktrace` 两种链接名；`PINE_HAS_STACKTRACE` 宏开关控制编译期分支。
+CMake 从 C++20 升到 C++23，主要为 `std::stacktrace`（`PanicError::detailed_error()` 对应 Go `DetailedError()`）。探测 `libstdc++exp` / `libstdc++_libbacktrace` 两种链接名；`PINE_HAS_STACKTRACE` 宏开关控制编译期分支。
 
 ### 3. HTTP/1.1 keep-alive（R3-L9b）
 
@@ -45,9 +45,9 @@ Engine::execute 新增 `std::stop_token external_cancel`；run_dag 通过 `std::
 | 运行时 | impl 数 | 等价测试 | 发现 |
 |--------|---------|---------|------|
 | pine-go | 2 | ✅ frameModes + FuzzApplyOutputStorageEquivalence | baseline |
-| pine-java | 2 | ✅ FrameEquivalenceTest (10 cases, R3-X3) | 首跑全过 |
-| pine-python | 2 (新增 RowFrame) | ✅ test_frame_equivalence.py (63 cases, R3-X1) | **首跑抓出 to_result_items explicit-null 过滤偏差** |
-| pine-cpp | 2 (新增 RowFrame) | ✅ test_frame_equivalence.cpp (R3-X2) | **首跑抓出 RowFrame::to_result 同样 bug** |
+| pine-java | 2 | ✅ FrameEquivalenceTest (10 cases, R3-X3) | 首次运行全部通过 |
+| pine-python | 2 (新增 RowFrame) | ✅ test_frame_equivalence.py (63 cases, R3-X1) | **首次运行就发现 to_result_items explicit-null 过滤偏差** |
+| pine-cpp | 2 (新增 RowFrame) | ✅ test_frame_equivalence.cpp (R3-X2) | **首次运行就发现 RowFrame::to_result 同样的 bug** |
 
 ## 缺失/可提升为稳定文档的候选
 

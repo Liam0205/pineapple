@@ -1,7 +1,7 @@
 # [JSON object key 顺序跨运行时对等修复（issue #183）]
 
 分支 `fix/183-json-key-ordering-parity`（基于 `origin/master` = `75543a72`）。初版两个 commit（下列），审计过程中又加了若干修复/加固 commit。**这里不再写具体数字**——本行先后被改过两次都是因为数字过期：第一次写「两个 commit」（漏掉审计产生的），第二次写「共 8 个」，而那次提交本身就是第 9 个，写下的瞬间就错了。commit 数随审计轮次增长，属于不该写进复盘的量；要数就 `git rev-list --count`：
-`3d92e968 fix(java)` 修实现 + `c1ae534c test(ci)` 补守门。本次同时关掉 `doc-gaps.md` 里
+`3d92e968 fix(java)` 修实现 + `c1ae534c test(ci)` 补检查。本次同时关掉 `doc-gaps.md` 里
 「issue #183」条目与「字节级对等校验通道覆盖面太窄」条目的 (b) 分支。
 
 ## Task
@@ -42,7 +42,7 @@ JAVA {"common":{"c10":"x","c2":"y","c1":"z"},...}   <- 唯一错的
 ```
 
 pine-cpp `json_writer.cpp:33,54` 早就有 `std::sort`，且 `test_json.cpp` 的
-"nested objects all sort keys (L5)" 用例一直钉着这条。BMP 外 key 也实测过三方全同
+"nested objects all sort keys (L5)" 用例一直覆盖这条。BMP 外 key 也实测过三方全同
 （`{"z":3,"�":1,"\U00010000":2}`）。
 
 这与 #180 那次「标题说 1e20、实测 15/20 分歧」是同一类错误的两个方向：那次范围被
@@ -101,7 +101,7 @@ U+10000  UTF-16 d800 dc00   UTF-8 f0 90 80 80
 教训：**同一契约有两份实现时，先找有没有已存在的「半份」**，否则会在半份之上再叠
 一层，并让「哪条路径是对的」更难说清。
 
-### 5. 三处守门盲点，第三处最值得记
+### 5. 三处检查盲点，第三处最值得记
 
 - **09 号通道**：标题写 "no normalization"，实际字节比较失败后回落 `normalize_json`
   再比、相等就打 `[W]` 计 pass。这个回落**就是为了容忍 #183 而存在的**，于是「字节
@@ -126,14 +126,14 @@ true，所以大部分轮次检查是关着的。key 顺序与 item 顺序是**�
 改成不 gate：item 顺序不确定时把各 item 的 key 序列当 multiset 比，每个 item 自己的
 key 顺序仍然精确比。
 
-这与 #180 复盘里「perf 快路径三次都漏掉一整类输入」同类：**新加的守卫条件本身没被
+这与 #180 复盘里「perf 快路径三次都漏掉一整类输入」同类：**新加的启用条件本身没被
 验证过覆盖面**。判据应当是「关掉这个条件后检查还会红吗 / 这个条件为 true 的轮次占
 多少」，而不是条件读起来合理。
 
 ### 7. 正面经验：前置条件写进 doc-gaps 真的省掉一次返工
 
 `doc-gaps.md` 上一轮写明「(b) 把 09 号通道的归一化回落改成硬失败 —— 它是 #183 的
-**前置条件**：先决定通道方案，再修 #183，否则修完没有回归门」。本次照这个顺序做：
+**前置条件**：先决定通道方案，再修 #183，否则修完没有回归检查」。本次照这个顺序做：
 先拆回落（得到一条会红的通道），再改实现，结论完全成立。若反序，修完实现后 09 号
 通道会因为回落而继续绿，无法证明修对了。
 
@@ -146,7 +146,7 @@ key 顺序仍然精确比。
    话的字面理解——漏掉了 Go 同时还有「struct 保序」这半条规则。
 2. **Java 缺少 Go 的类型区分，跨语言复刻时必须把隐含区分显式化。** Go 靠 map/struct
    两种类型天然分流，Java 两者都是 `Map`，不显式建模就只能二选一，而两种选择各错一半。
-3. **守门通道的名字与实际强度不符，且不符的方向正是要检的那个维度。** 09 号的回落是
+3. **校验通道的名字与实际强度不符，且不符的方向正是要检的那个维度。** 09 号的回落是
    为容忍 #183 而加的，等于把「检不出」写进了 gate 本身。
 4. **生成器与检查是两个独立环节，只补检查不动生成器等于没补。** 检查覆盖面上限由
    输入分布决定；输入分布恰好落在期望形状里时，检查永远不触发。
@@ -155,7 +155,7 @@ key 顺序仍然精确比。
 
 - 没有任何稳定文档记录「Go `encoding/json` map 排序 vs struct 保序」这条二分，以及
   「Java 侧必须显式建模该二分」。下一个碰序列化的人一定会先想「直接给 Map 注册不就
-  行了」，然后重踩 envelope 那一脚。
+  行了」，然后再踩一次 envelope 这个坑。
 - 没有稳定文档记录「UTF-8 字节序 vs UTF-16 code unit 序」以及「Jackson
   `ORDER_MAP_ENTRIES_BY_KEYS` 不能用」。本次靠 doc-gaps 里的临时预警接住，但那条
   预警随 #183 关闭会被移除，信息会丢。
@@ -181,29 +181,29 @@ writer（`std::sort` + `std::string` 的 `<`，天然字节序），后者是手
 ## Promotion Candidates
 
 - **必须进稳定文档**：Go map 排序 vs struct 保序、Java 必须显式区分（`SortedByUtf8`
-  包装 payload、envelope 不包），落点建议 `architecture/dag-engine.md` 的 GoFormat 节
+  包装 payload、envelope 不包），建议放在 `architecture/dag-engine.md` 的 GoFormat 节
   （与 #180 新增的 `formatJsonNumber` 入口同一节，都是 JSON 序列化路径的规则），或
   `reference/number-formatting-parity.md` 扩成更宽的「Go JSON 输出对等」参考。
 - **必须进稳定文档**：UTF-8 字节序 vs UTF-16 code unit 序、`compareUtf8` 是唯一正确
-  排序键、Jackson 内置 feature 不可用。落点同上。
+  排序键、Jackson 内置 feature 不可用。放在同一处。
 - **进 `guides/ci-quality-baseline.md`**：新纪律「只会生成期望形状输入的生成器，检不出
   关于形状的 bug」，与既有「声称字节级对等的属性必须有一条不归一化的通道覆盖」并列；
   配 red-before/green-after 判据「新加检查后必须用 mutant 验证它真的会红，绿了先怀疑
-  生成器而不是被测代码」。另加一条守卫条件纪律：**新增 gate 条件必须量化它为 true 的
+  生成器而不是被测代码」。另加一条关于检查启用条件的纪律：**新增 gate 条件必须量化它为 true 的
   轮次占比**（`strict_order` 那次的直接教训）。
 - **必须更新 `guides/ci-quality-baseline.md` 的通道可见性表**：09 号回落已删（现在字节
   不等即失败）、fuzz 已有 `key_order_signature`、生成器已 shuffle flow_contract。当前
   表述过期。
 - **`doc-gaps.md` 两条**：#183 条目**关闭**（移除并在稳定文档留结论）；「字节级对等校验
   通道覆盖面太窄」条目的 (b) 已完成，**(a) 继续扩 `fixtures/server_byte_exact/` 仍然
-  开放**，条目保留但需改写现状（14 号通道不再是唯一真字节通道，09 号现在也是）。
+  开放**，条目保留但需改写现状（14 号通道不再是唯一真正按字节比较的通道，09 号现在也是）。
 
 ## Follow-up
 
-1. 调 `recorder` 落地上述稳定文档改动：GoFormat 节补 key 排序两条规则、
+1. 调 `recorder` 完成上述稳定文档改动：GoFormat 节补 key 排序两条规则、
    ci-quality-baseline 更新通道表 + 补两条纪律、doc-gaps 关 #183 并改写通道条目。
-2. `fixtures/server_byte_exact/` 仍需按 doc-gap (a) 扩覆盖面。本次加了 `07_non_bmp_keys.json`（审计第四轮，为给 `writeValueAsBytes` 那处修复补回归门），数量以 `ls fixtures/server_byte_exact/` 为准（审计中又加了两个），但离覆盖主要响应形状还很远，
-   守门增强全部落在 09 号通道与 fuzz 上。
+2. `fixtures/server_byte_exact/` 仍需按 doc-gap (a) 扩覆盖面。本次加了 `07_non_bmp_keys.json`（审计第四轮，为给 `writeValueAsBytes` 那处修复补回归检查），数量以 `ls fixtures/server_byte_exact/` 为准（审计中又加了两个），但离覆盖主要响应形状还很远，
+   检查增强全部集中在 09 号通道与 fuzz 上。
 3. 检查 `differential-fuzz.py` 里是否还有其他「生成器只发期望形状」的维度（本次只查了
    flow_contract 的 key 顺序）。这条与 issue #175 记的「flow_contract 投影盲区」是同一
    文件的第二次现身，值得一次专门扫查。
