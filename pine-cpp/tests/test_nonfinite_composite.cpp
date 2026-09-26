@@ -91,6 +91,18 @@ TEST_CASE("apply_output accepts a finite composite") {
   }
 }
 
+TEST_CASE("a too-deep sibling does not hide a shallow non-finite value") {
+  Variant deep(0.0);
+  for (int i = 0; i <= detail::kMaxCompositeScanDepth; ++i) {
+    deep = Variant(Variant::array_t{deep});
+  }
+  // "a" sorts before "bad", so the too-deep subtree is visited first.
+  Variant::object_t m;
+  m["a"] = deep;
+  m["bad"] = Variant(std::numeric_limits<double>::infinity());
+  CHECK_FALSE(detail::validate_frame_value("f", Variant(m)).empty());
+}
+
 TEST_CASE("non-finite scan stops at the depth bound") {
   // One level past the bound: the NaN is never reached, matching pine-go and
   // pine-java, which give up at the same depth.
