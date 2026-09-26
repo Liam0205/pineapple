@@ -13,6 +13,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Issue #210: NaN/±Inf nested inside a composite value used to pass the
@@ -167,5 +168,27 @@ class NonFiniteCompositeTest {
         v.add(deepPath);
         v.add(shared);
         assertEquals("field \"f\": NaN/Inf is not a valid JSON value", FrameValues.checkValue("f", v));
+    }
+
+    /**
+     * A leaf list shared by many references is scanned once per depth, not
+     * once per reference (20000 references to a 20000-element list would be
+     * 4e8 element visits otherwise).
+     */
+    @Test
+    @Timeout(value = 5, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+    void sharedLeafIsScannedOnce() {
+        List<Object> leaf = new ArrayList<>();
+        for (int i = 0; i < 20000; i++) {
+            leaf.add((double) i);
+        }
+        List<Object> refs = new ArrayList<>();
+        for (int i = 0; i < 20000; i++) {
+            refs.add(leaf);
+        }
+        long start = System.nanoTime();
+        assertNull(FrameValues.checkValue("f", refs));
+        long ms = (System.nanoTime() - start) / 1_000_000;
+        assertTrue(ms < 200, "shared leaf scan took " + ms + " ms");
     }
 }

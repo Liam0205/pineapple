@@ -69,14 +69,31 @@ final class FrameValues {
      * or form a cycle (a Lua- or JSON-built value is always a tree). Each
      * composite is remembered by identity with the shallowest depth it was
      * scanned at; reaching it again at the same or a greater depth cannot find
-     * anything new, so it is skipped. That keeps the scan linear in the number
-     * of distinct composites for any sharing pattern or cycle, matching pine-go.
-     * The map is only allocated once a composite nests another one.
+     * anything new, so it is skipped, while reaching it shallower rescans it
+     * so the depth semantics equal a tree walk. No path enumeration happens:
+     * a composite is scanned at most once per distinct depth it is reached
+     * at, bounded by the depth limit. Same rule as pine-go containsNonFinite.
+     * The map is only allocated once a second composite is entered, so a
+     * flat list or map costs nothing extra.
      */
     private static final class Scanner {
+        private Object first;
+        private int firstDepth;
         private IdentityHashMap<Object, Integer> seen;
 
         private boolean enter(Object composite, int depth) {
+            if (first == null) {
+                first = composite;
+                firstDepth = depth;
+                return true;
+            }
+            if (first == composite) {
+                if (firstDepth <= depth) {
+                    return false;
+                }
+                firstDepth = depth;
+                return true;
+            }
             if (seen == null) {
                 seen = new IdentityHashMap<>();
             } else {
@@ -96,28 +113,12 @@ final class FrameValues {
             if (!(v instanceof Map) && !(v instanceof List)) {
                 return false;
             }
-            if (depth >= MAX_COMPOSITE_SCAN_DEPTH) {
+            if (depth >= MAX_COMPOSITE_SCAN_DEPTH || !enter(v, depth)) {
                 return false;
             }
             Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (List<?>) v;
-            boolean nested = false;
             for (Object e : children) {
-                if (e instanceof Number) {
-                    if (isNonFinite((Number) e)) {
-                        return true;
-                    }
-                } else if (e instanceof Map || e instanceof List) {
-                    nested = true;
-                }
-            }
-            if (!nested) {
-                return false;
-            }
-            if (!enter(v, depth)) {
-                return false;
-            }
-            for (Object e : children) {
-                if ((e instanceof Map || e instanceof List) && containsNonFinite(e, depth + 1)) {
+                if (containsNonFinite(e, depth + 1)) {
                     return true;
                 }
             }
