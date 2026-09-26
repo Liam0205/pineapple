@@ -197,7 +197,7 @@ public class ColumnFrame implements Frame {
         try {
             // 1. Common writes
             for (Map.Entry<String, Object> entry : out.getCommonWrites().entrySet()) {
-                String v = checkValue(entry.getKey(), entry.getValue());
+                String v = FrameValues.checkValue(entry.getKey(), entry.getValue());
                 if (v != null) {
                     throw new PineErrors.ExecutionError(opName, "common write: " + v);
                 }
@@ -218,7 +218,7 @@ public class ColumnFrame implements Frame {
                 for (Map.Entry<String, Object> fe : entry.getValue().entrySet()) {
                     String field = fe.getKey();
                     Object value = fe.getValue();
-                    String v = checkValue(field, value);
+                    String v = FrameValues.checkValue(field, value);
                     if (v != null) {
                         throw new PineErrors.ExecutionError(opName, "item[" + idx + "] write: " + v);
                     }
@@ -329,7 +329,7 @@ public class ColumnFrame implements Frame {
                         row.put("_source", opName);
                     }
                     for (Map.Entry<String, Object> fe : row.entrySet()) {
-                        String v = checkValue(fe.getKey(), fe.getValue());
+                        String v = FrameValues.checkValue(fe.getKey(), fe.getValue());
                         if (v != null) {
                             throw new PineErrors.ExecutionError(opName, "added item write: " + v);
                         }
@@ -411,28 +411,5 @@ public class ColumnFrame implements Frame {
         } finally {
             rwLock.readLock().unlock();
         }
-    }
-
-    private static String checkValue(String field, Object v) {
-        if (v == null) return null;
-        if (v instanceof String) return null;
-        if (v instanceof Number) {
-            if (v instanceof Double) {
-                double d = (Double) v;
-                if (Double.isNaN(d) || Double.isInfinite(d)) {
-                    return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
-                }
-            } else if (v instanceof Float) {
-                float f = (Float) v;
-                if (Float.isNaN(f) || Float.isInfinite(f)) {
-                    return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
-                }
-            }
-            return null;
-        }
-        if (v instanceof Boolean) return null;
-        if (v instanceof Map) return null;
-        if (v instanceof List) return null;
-        return "field \"" + field + "\": unsupported value type: " + v.getClass().getName();
     }
 }

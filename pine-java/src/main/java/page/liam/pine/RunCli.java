@@ -122,7 +122,7 @@ public class RunCli {
         // TokenBuffer (serialize → deserialize) and the RawValue token
         // survives the round-trip, surfacing later as a
         // `com.fasterxml.jackson.databind.util.RawValue` instance in the
-        // frame — which ColumnFrame.checkValue then rejects as
+        // frame — which FrameValues.checkValue then rejects as
         // "unsupported value type". A plain `Map<String,Object>` cast
         // skips the round-trip; the value was already deserialized into
         // proper Java types by the outer mapper.readValue.

@@ -693,13 +693,14 @@ public final class GoFormat {
      * stands in for, reorder_shuffle_by_salt's {@code anyToString}, then
      * falls back to {@code fmt.Sprintf("%v", v)} and hashes {@code [NaN 2]};
      * pine-cpp writes {@code nan} bare. Three runtimes, three byte strings,
-     * three shuffle orders (measured). The frame write path rejects
-     * non-finite scalars and does not validate nested composites, so this is
-     * reachable only from a Lua table holding {@code 0/0} or {@code 1/0}. It
-     * predates the #201 fix, is not covered by any fixture or fuzz shape, and
-     * needs a three-runtime decision — recorded in the non-finite
-     * "shuffle salt" entry (#201) of llmdoc/memory/doc-gaps.md. Do not read
-     * the quoted form as the contract.
+     * three shuffle orders (measured). Since #210 the frame write path also
+     * rejects non-finite numbers nested in composites, so operators (Lua
+     * included) can no longer produce one; the remaining source is a request
+     * value such as {@code [1e400]}, which Jackson coerces to Infinity while
+     * pine-go and pine-cpp reject the request at parse time. That is the
+     * request-parse divergence tracked in the non-finite "shuffle salt" entry
+     * (#201) of llmdoc/memory/doc-gaps.md. Do not read the quoted form as the
+     * contract.
      *
      * @throws IOException only on a Jackson failure unrelated to the value's
      *         numbers (e.g. a self-referencing structure); non-finite numbers
