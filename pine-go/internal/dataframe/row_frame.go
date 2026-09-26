@@ -1,6 +1,8 @@
 package dataframe
 
 import (
+	"encoding"
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -371,8 +373,10 @@ type compositeID struct {
 }
 
 var (
-	anySliceType = reflect.TypeOf([]any(nil))
-	anyMapType   = reflect.TypeOf(map[string]any(nil))
+	anySliceType      = reflect.TypeOf([]any(nil))
+	anyMapType        = reflect.TypeOf(map[string]any(nil))
+	jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
+	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
 )
 
 // nonFiniteScanner records each composite with the shallowest depth it was
@@ -465,7 +469,17 @@ func (s *nonFiniteScanner) scan(v any, depth int) bool {
 // unwraps them. Each pointer hop counts as a level, like a composite, so a
 // chain of pointers is bounded by the same depth and a self-referencing
 // pointer is caught by the seen set.
+//
+// A type with its own MarshalJSON or MarshalText is left to the encoder:
+// the method decides what (if anything) a non-finite value becomes, so
+// scanning the underlying data would reject values json.Marshal accepts.
+// A pointer-receiver method counts too, even though encoding/json calls it
+// only on addressable values: skipping errs toward the pre-#210 behaviour
+// (the encoder reports it) rather than toward refusing a valid value.
 func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
+	if hasCustomMarshaler(rv.Type()) {
+		return false
+	}
 	switch rv.Kind() {
 	case reflect.Float32, reflect.Float64:
 		return isNonFiniteFloat(rv.Float())
@@ -519,10 +533,18 @@ func (s *nonFiniteScanner) scanReflect(rv reflect.Value, depth int) bool {
 }
 
 // scanStruct descends into the struct fields encoding/json would encode:
-// exported fields, plus embedded (anonymous) fields whose promoted fields may
-// be exported even when the embedded type itself is not; a field tagged
-// `json:"-"` (exactly) is skipped. Like an array, a struct is a value and
-// needs no identity; it counts as one level.
+// exported fields, plus embedded structs (or pointers to structs) whose
+// promoted fields may be exported even when the embedded type itself is not;
+// an unexported embedded non-struct and a field tagged `json:"-"` (exactly)
+// are skipped. Like an array, a struct is a value and needs no identity; it
+// counts as one level.
+//
+// Field-name conflicts are not resolved: encoding/json drops a promoted field
+// shadowed by a shallower one of the same name (and drops same-depth
+// duplicates), but this scan still inspects it, so a non-finite value in a
+// field the encoder would drop is rejected. Reproducing the encoder's
+// dominance rules is out of proportion for a value only a custom operator can
+// build; the error is on the conservative side.
 func (s *nonFiniteScanner) scanStruct(rv reflect.Value, depth int) bool {
 	if depth >= maxCompositeScanDepth {
 		return false
@@ -530,7 +552,15 @@ func (s *nonFiniteScanner) scanStruct(rv reflect.Value, depth int) bool {
 	t := rv.Type()
 	for i := 0; i < rv.NumField(); i++ {
 		f := t.Field(i)
-		if !f.IsExported() && !f.Anonymous {
+		if f.Anonymous {
+			ft := f.Type
+			if ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if !f.IsExported() && ft.Kind() != reflect.Struct {
+				continue
+			}
+		} else if !f.IsExported() {
 			continue
 		}
 		if f.Tag.Get("json") == "-" {
@@ -541,6 +571,15 @@ func (s *nonFiniteScanner) scanStruct(rv reflect.Value, depth int) bool {
 		}
 	}
 	return false
+}
+
+func hasCustomMarshaler(t reflect.Type) bool {
+	if t.Kind() == reflect.Interface {
+		return false
+	}
+	pt := reflect.PointerTo(t)
+	return t.Implements(jsonMarshalerType) || t.Implements(textMarshalerType) ||
+		pt.Implements(jsonMarshalerType) || pt.Implements(textMarshalerType)
 }
 
 func (s *nonFiniteScanner) scanElem(e reflect.Value, depth int) bool {

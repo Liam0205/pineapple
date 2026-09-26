@@ -252,12 +252,49 @@ type nfStructHiddenEmbed struct {
 	nfEmbeddedHidden
 }
 
+// nfHiddenFloat is an unexported non-struct type; embedded, encoding/json
+// ignores it (it has no fields to promote).
+type nfHiddenFloat float64
+
+type nfStructHiddenFloatEmbed struct {
+	nfHiddenFloat
+	Y float64
+}
+
+// nfEmbeddedPtr embeds a pointer to an unexported struct; its promoted
+// exported field is encoded.
+type nfEmbeddedPtr struct {
+	*nfEmbedded
+}
+
+// nfMarshalScore encodes a non-finite value as a string, so json.Marshal
+// accepts it.
+type nfMarshalScore float64
+
+func (v nfMarshalScore) MarshalJSON() ([]byte, error) {
+	f := float64(v)
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		return []byte(`"non-finite"`), nil
+	}
+	return json.Marshal(f)
+}
+
+type nfTextScore float64
+
+func (v nfTextScore) MarshalText() ([]byte, error) { return []byte("score"), nil }
+
+type nfMarshalStruct struct{ V float64 }
+
+func (p *nfMarshalStruct) MarshalJSON() ([]byte, error) { return []byte(`"custom"`), nil }
+
 // Custom Go operators can nest structs in a composite; encoding/json encodes
 // their exported fields (including ones promoted from an embedded struct and
 // fields tagged "-,"), so a non-finite value there must be rejected at write
-// time. Fields encoding/json skips — unexported, or tagged exactly "-" — must
-// not trigger a rejection, or the write check would refuse values the
-// encoder accepts.
+// time. What encoding/json skips or delegates — unexported fields, fields
+// tagged exactly "-", an embedded unexported non-struct, and any type with its
+// own MarshalJSON / MarshalText — must not trigger a rejection, or the write
+// check would refuse values the encoder accepts. (Shadowed promoted fields
+// are the documented exception; see scanStruct.)
 func TestValidateValueStructFields(t *testing.T) {
 	inf := math.Inf(1)
 	const want = `field "f": NaN/Inf is not a valid JSON value`
@@ -275,10 +312,19 @@ func TestValidateValueStructFields(t *testing.T) {
 			assertErr(t, validateValue("f", []any{&v}), want)
 		})
 	}
+	t.Run("embedded_pointer", func(t *testing.T) {
+		assertErr(t, validateValue("f", []any{nfEmbeddedPtr{&nfEmbedded{E: inf}}}), want)
+	})
 	for name, v := range map[string]any{
-		"dash":            nfStruct{D: inf},
-		"unexported":      nfStruct{hidden: inf},
-		"embedded_hidden": nfStructHiddenEmbed{nfEmbeddedHidden{e: inf}},
+		"dash":                  nfStruct{D: inf},
+		"unexported":            nfStruct{hidden: inf},
+		"embedded_hidden":       nfStructHiddenEmbed{nfEmbeddedHidden{e: inf}},
+		"embedded_hidden_float": nfStructHiddenFloatEmbed{nfHiddenFloat: nfHiddenFloat(inf)},
+		"embedded_nil_pointer":  nfEmbeddedPtr{},
+		"json_marshaler":        nfMarshalScore(inf),
+		"text_marshaler":        map[string]nfTextScore{"a": nfTextScore(inf)},
+		"marshaler_slice":       []nfMarshalScore{1, nfMarshalScore(inf)},
+		"pointer_marshaler":     &nfMarshalStruct{V: inf},
 	} {
 		t.Run("accepted/"+name, func(t *testing.T) {
 			if err := validateValue("f", []any{v}); err != nil {
