@@ -336,8 +336,9 @@ func (e *wangshuEngine) releaseFnCache() {
 }
 
 // releaseSlots unpins every cached GlobalsSlot handle. wangshu's doc note on
-// GlobalsSlot.Release is explicit: "长驻 State 下不 Release 仍正确,但反复创建大
-// 量不同 name 的 slot 时应配套". A long-lived pool state would otherwise
+// GlobalsSlot.Release is explicit: skipping Release is still correct for a
+// long-lived State, but code that keeps creating slots for many distinct names
+// should pair each one with a Release. A long-lived pool state would otherwise
 // accumulate one pin slot per (borrow, ItemInput field name) pair across QPS.
 // Repeated Release is safe (idempotent), so unconditional clear is OK.
 //
@@ -742,9 +743,10 @@ func (e *wangshuEngine) tableToGo(t *Table) (any, error) {
 	m := make(map[string]any)
 	var iterErr error
 	_ = wt.ForEach(func(key, val wangshu.Value) bool {
-		// Both key and val are pinned by ForEach via fromInnerWithPin (godoc:
-		// "fn 不在外保留时,可在 fn 末尾顺手 Release 复合 val/key 防 pin 槽
-		// 累积"). We never carry either past this callback — converted goes
+		// Both key and val are pinned by ForEach via fromInnerWithPin (the godoc
+		// says that when fn does not keep them, it may Release composite val/key at
+		// the end of fn to stop pin slots from piling up). We never carry either
+		// past this callback — converted goes
 		// into m by value or iterErr aborts — so release both unconditionally.
 		defer key.Release()
 		defer val.Release()

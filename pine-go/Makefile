@@ -1,43 +1,44 @@
-# pine-go 单语言 Makefile —— 与顶层 Makefile 平行,提供 Go 视角的精细入口。
+# pine-go Makefile — sits alongside the top-level Makefile and offers finer-grained,
+# Go-only entry points.
 #
-# 设计参考 wangshu(github.com/Liam0205/wangshu)的 Makefile, 同一 muscle memory:
-# 在仓内任一位置 `make test` / `make bench` 行为一致。
+# Modelled on the wangshu (github.com/Liam0205/wangshu) Makefile so the same muscle
+# memory applies: `make test` / `make bench` behave the same wherever you run them.
 .PHONY: help all fmt lint test bench race cover fuzz tidy
 
-help: ## 列出所有 target
+help: ## List all targets
 	@awk 'BEGIN {FS=":.*##"; printf "pine-go targets (run \033[36mmake <target>\033[0m):\n\n"} \
 	     /^[a-zA-Z_-]+:.*?##/ {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-all: fmt lint test ## pine-go 本地全检
+all: fmt lint test ## Full local check for pine-go
 
-fmt: ## gofmt -w 所有 .go(仅 pine-go 子树)
+fmt: ## gofmt -w every .go file (pine-go subtree only)
 	@files=$$(git ls-files '*.go' 2>/dev/null || find . -name '*.go' -not -path './vendor/*'); \
 	  [ -z "$$files" ] || gofmt -w $$files
 
-lint: ## golangci-lint(沿用仓根 .golangci.yml 若存在)
+lint: ## golangci-lint (uses the repo-root .golangci.yml if present)
 	golangci-lint run ./...
 
-test: ## 单元测试(含 race)
+test: ## Unit tests (with race)
 	go test -race ./...
 
-bench: ## go test -bench(默认走 benchmarks/ 子 module + pine_bench tag; 主 module 用 `make bench BENCH=./internal/...`; gopher-lua 对照用 `make bench TAGS=lua_gopher`,TAGS 追加在 pine_bench 之上)
+bench: ## go test -bench (defaults to the benchmarks/ submodule + pine_bench tag; for the main module use `make bench BENCH=./internal/...`; for a gopher-lua comparison use `make bench TAGS=lua_gopher`, TAGS is added on top of pine_bench)
 ifdef BENCH
 	go test -tags='pine_bench $(TAGS)' -bench=. -benchmem -count=1 -run='^$$' $(BENCH)
 else
 	cd benchmarks && go test -tags='pine_bench $(TAGS)' -bench=. -benchmem -count=1 -run='^$$' ./...
 endif
 
-race: ## 仅 race(test 已含 race,本 target 兼容 wangshu 习惯)
+race: ## Race only (test already runs with race; kept for parity with wangshu)
 	go test -race ./...
 
-cover: ## 覆盖率产物 + 终端摘要
+cover: ## Coverage report + terminal summary
 	go test -race -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -func=coverage.out | tail -1
 
-fuzz: ## 自动发现 func Fuzz* 各跑 30s 冒烟(沿用仓根 scripts/go-fuzz.sh 实现)
+fuzz: ## Discover every func Fuzz* and smoke-run each for 30s (reuses the repo-root scripts/go-fuzz.sh)
 	bash ../scripts/go-fuzz.sh 30s
 
-tidy: ## go mod tidy(主 module + benchmarks 子 module) + git diff 守门
+tidy: ## go mod tidy (main module + benchmarks submodule) + git diff check
 	go mod tidy
 	cd benchmarks && go mod tidy
 	git diff --exit-code go.mod go.sum benchmarks/go.mod benchmarks/go.sum
