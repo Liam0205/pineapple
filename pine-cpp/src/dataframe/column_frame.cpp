@@ -6,32 +6,9 @@
 #include <set>
 #include <stdexcept>
 
+#include "dataframe/frame_values.hpp"
+
 namespace pine {
-
-namespace {
-
-// validate_value mirrors pine-go internal/dataframe/row_frame.go:224. It
-// rejects NaN/Inf in any numeric write (those serialize to invalid JSON,
-// silently corrupting downstream consumers) and is called from
-// apply_output's three write phases (common, items, additions). Returns
-// the violation message (without `pine:`/op prefix) or empty when OK.
-std::string validate_value(const std::string& field, const Variant& value) {
-  if (value.is_null()) {
-    return "";
-  }
-  if (value.is_number()) {
-    double d = value.as_number();
-    if (std::isnan(d) || std::isinf(d)) {
-      return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
-    }
-  }
-  // Variant only carries the JSON-representable types (null / number /
-  // string / bool / array / object) so the "unsupported type" branch in
-  // Go's validateValue cannot fire here — the type system forbids it.
-  return "";
-}
-
-}  // namespace
 
 ColumnFrame::ColumnFrame()
     : mu_(std::make_shared<std::shared_mutex>()), items_(std::make_unique<TypedColumnStore>(0)) {
@@ -332,7 +309,7 @@ void ColumnFrame::apply_output(OperatorOutput& out, const std::string& op_name, 
 
   // 1. common writes
   for (const auto& [field, value] : out.common_writes()) {
-    if (auto v = validate_value(field, value); !v.empty()) {
+    if (auto v = detail::validate_frame_value(field, value); !v.empty()) {
       throw ExecutionError(op_name, "common write: " + v);
     }
     common_[field] = value;
@@ -344,7 +321,7 @@ void ColumnFrame::apply_output(OperatorOutput& out, const std::string& op_name, 
       throw ExecutionError(op_name, "SetItem index " + std::to_string(idx) + " out of range [0, " +
                                         std::to_string(items_->row_count()) + ")");
     }
-    if (auto v = validate_value(field, value); !v.empty()) {
+    if (auto v = detail::validate_frame_value(field, value); !v.empty()) {
       throw ExecutionError(op_name, "item[" + std::to_string(idx) + "] write: " + v);
     }
     write_item_field_locked(static_cast<std::size_t>(idx), field, value);
@@ -417,7 +394,7 @@ void ColumnFrame::apply_output(OperatorOutput& out, const std::string& op_name, 
     for (std::size_t i = 0; i < out.added_items().size(); ++i) {
       const auto& added = out.added_items()[i];
       for (const auto& [field, value] : added) {
-        if (auto v = validate_value(field, value); !v.empty()) {
+        if (auto v = detail::validate_frame_value(field, value); !v.empty()) {
           throw ExecutionError(op_name, "added item write: " + v);
         }
         write_item_field_locked(base + i, field, value);

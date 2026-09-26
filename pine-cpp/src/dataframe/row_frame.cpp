@@ -7,22 +7,9 @@
 #include <mutex>
 #include <set>
 
-namespace pine {
+#include "dataframe/frame_values.hpp"
 
-namespace {
-std::string validate_value_row(const std::string& field, const Variant& value) {
-  if (value.is_null()) {
-    return "";
-  }
-  if (value.is_number()) {
-    double d = value.as_number();
-    if (std::isnan(d) || std::isinf(d)) {
-      return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
-    }
-  }
-  return "";
-}
-}  // namespace
+namespace pine {
 
 RowFrame::RowFrame() : mu_(std::make_shared<std::shared_mutex>()) {
 }
@@ -176,7 +163,7 @@ void RowFrame::apply_output(OperatorOutput& out, const std::string& op_name, boo
 
   // 1. common writes
   for (const auto& [field, value] : out.common_writes()) {
-    if (auto v = validate_value_row(field, value); !v.empty()) {
+    if (auto v = detail::validate_frame_value(field, value); !v.empty()) {
       throw ExecutionError(op_name, "common write: " + v);
     }
     common_[field] = value;
@@ -188,7 +175,7 @@ void RowFrame::apply_output(OperatorOutput& out, const std::string& op_name, boo
       throw ExecutionError(op_name, "SetItem index " + std::to_string(idx) + " out of range [0, " +
                                         std::to_string(items_.size()) + ")");
     }
-    if (auto v = validate_value_row(field, value); !v.empty()) {
+    if (auto v = detail::validate_frame_value(field, value); !v.empty()) {
       throw ExecutionError(op_name, "item[" + std::to_string(idx) + "] write: " + v);
     }
     items_[static_cast<std::size_t>(idx)][field] = value;
@@ -268,7 +255,7 @@ void RowFrame::apply_output(OperatorOutput& out, const std::string& op_name, boo
     // out is discarded right after apply_output returns.
     for (auto& added : out.added_items()) {
       for (const auto& [field, value] : added) {
-        if (auto v = validate_value_row(field, value); !v.empty()) {
+        if (auto v = detail::validate_frame_value(field, value); !v.empty()) {
           throw ExecutionError(op_name, "added item write: " + v);
         }
       }
