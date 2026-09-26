@@ -404,7 +404,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 字段名来自运行时数据的算子（`recall_static` 的 `items` / `set_common` 键、`recall_resource` 的资源行键）不例外：声明必须覆盖所有可能出现的键。这条契约在 `recall_static` 的文件头注释里早已写着"必须声明"，但 #205 之前无任何强制。
 
-**写入值的非有限数校验**：算子输出合并进 frame 时（common、逐元素 item、新增 item、批量列写入），pine-go / pine-java / pine-cpp 都拒绝 NaN/±Inf，包括嵌套在数组或对象里的（issue #210 起；深度 ≥ 1000 的复合值不下钻，但兄弟节点照常检查），报错统一为 `field "f": NaN/Inf is not a valid JSON value`，前面带写入位置（`common write:` / `item[i] write:` / `added item write:`）。算子不需要自己过滤，但也不能指望「塞进复合值里」绕过去。详情见 `reference/number-formatting-parity.md`「非有限值」节。
+**写入值的非有限数校验**：算子输出合并进 frame 时（common、逐元素 item、新增 item、批量列写入），pine-go / pine-java / pine-cpp 都拒绝 NaN/±Inf，包括嵌套在数组或对象里的（issue #210 起；深度 ≥ 1000 的复合值不下钻，但兄弟节点照常检查；共享或成环的值按不同复合值个数线性扫描，不会挂起），报错统一为 `field "f": NaN/Inf is not a valid JSON value`，前面带写入位置（`common write:` / `item[i] write:` / `added item write:`）。算子不需要自己过滤，但也不能指望「塞进复合值里」绕过去。详情见 `reference/number-formatting-parity.md`「非有限值」节。
 
 **整数值写入 frame 的拼写前提**：Go 侧 `validateValue` 放行 `int`/`int64`，响应里按 int64 精确打印；pine-java 的 payload 包装层把 `Long`/`Integer` 一律按 Go float64 拼写（因为解析进来的字面量在 Go 里本就是 float64）。两侧只在 |v| < 2^53 时字节相同。内置算子只写计数值（`transform_size`），不受影响；自定义算子要在 frame 放大整数（如 ID）时，pine-go / pine-java / pine-cpp 都以 double 写入，与 Lua bridge「number 出口一律 double」同一约定。规则原文见 `must/conventions.md`「跨运行时 shuffle anyToString 一致性」节的数字拼写边界。
 
