@@ -6,8 +6,6 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.DoubleAccumulator;
-import java.util.concurrent.atomic.DoubleAdder;
 
 /**
  * Write-time value check shared by {@link DataFrame} and {@link ColumnFrame}.
@@ -58,20 +56,18 @@ final class FrameValues {
     }
 
     /**
-     * Double and Float, plus the JDK's floating-point accumulators, which the
-     * response mapper writes through their double value. Integral types and
-     * BigDecimal / BigInteger are always finite as written.
+     * Whether n is written as a non-finite number. Every frame Number reaches
+     * the response as a double: Double / Float as themselves, the JDK
+     * floating-point accumulators through their double value, and every other
+     * Number (Integer, Long, BigInteger, BigDecimal, ...) through
+     * {@code GoFormat.wrap(v, true)}'s {@code doubleValue()} conversion to
+     * Go's float64 spelling. So a BigInteger or BigDecimal beyond the double
+     * range (e.g. {@code new BigDecimal("1e400")}) is written as "Infinity"
+     * and is rejected here too; integral types below 2^1024 never are.
      */
     private static boolean isNonFinite(Number n) {
-        if (n instanceof Double || n instanceof DoubleAdder || n instanceof DoubleAccumulator) {
-            double d = n.doubleValue();
-            return Double.isNaN(d) || Double.isInfinite(d);
-        }
-        if (n instanceof Float) {
-            float f = (Float) n;
-            return Float.isNaN(f) || Float.isInfinite(f);
-        }
-        return false;
+        double d = n.doubleValue();
+        return Double.isNaN(d) || Double.isInfinite(d);
     }
 
     /**
