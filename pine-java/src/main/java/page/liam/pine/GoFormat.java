@@ -694,8 +694,9 @@ public final class GoFormat {
      * falls back to {@code fmt.Sprintf("%v", v)} and hashes {@code [NaN 2]};
      * pine-cpp writes {@code nan} bare. Three runtimes, three byte strings,
      * three shuffle orders (measured). Since #210 the frame write path also
-     * rejects non-finite numbers nested in composites, so operators (Lua
-     * included) can no longer produce one; the remaining source is a request
+     * rejects non-finite numbers nested in composites (down to the scan's
+     * depth bound), so operators, Lua included, cannot produce one in
+     * practice; the remaining source is a request
      * value such as {@code [1e400]}, which Jackson coerces to Infinity while
      * pine-go and pine-cpp reject the request at parse time. That is the
      * request-parse divergence tracked in the non-finite "shuffle salt" entry

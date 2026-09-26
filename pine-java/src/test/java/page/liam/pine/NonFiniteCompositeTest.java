@@ -91,9 +91,9 @@ class NonFiniteCompositeTest {
 
     /**
      * A self-referencing map (only a custom operator can build one) must not
-     * hang or overflow the stack: the scan gives up at the depth bound. Two
-     * self-keys make an unbounded scan exponential, so this also pins that
-     * hitting the bound aborts the whole scan.
+     * hang or overflow the stack. Two self-keys make a naive scan
+     * exponential; the ancestor check skips a composite that contains
+     * itself, while a NaN in a sibling is still found.
      */
     @Test
     void selfReferencingMapTerminates() {
@@ -101,5 +101,35 @@ class NonFiniteCompositeTest {
         m.put("a", m);
         m.put("b", m);
         assertNull(FrameValues.checkValue("f", m));
+        m.put("bad", Double.NaN);
+        assertEquals("field \"f\": NaN/Inf is not a valid JSON value", FrameValues.checkValue("f", m));
+    }
+
+    private static Object nest(Object leaf, int levels) {
+        Object v = leaf;
+        for (int i = 0; i < levels; i++) {
+            List<Object> l = new ArrayList<>();
+            l.add(v);
+            v = l;
+        }
+        return v;
+    }
+
+    /** A too-deep sibling does not hide a shallow NaN/Inf, whatever the map order. */
+    @Test
+    void depthBoundDoesNotHideShallowSibling() {
+        Object deep = nest(0.0, FrameValues.MAX_COMPOSITE_SCAN_DEPTH + 1);
+        Map<String, Object> v = new HashMap<>();
+        v.put("deep", deep);
+        v.put("bad", Double.POSITIVE_INFINITY);
+        assertEquals("field \"f\": NaN/Inf is not a valid JSON value", FrameValues.checkValue("f", v));
+    }
+
+    /** Same two boundary cases as pine-go and pine-cpp. */
+    @Test
+    void depthBoundary() {
+        assertEquals("field \"f\": NaN/Inf is not a valid JSON value",
+            FrameValues.checkValue("f", nest(Double.NaN, FrameValues.MAX_COMPOSITE_SCAN_DEPTH)));
+        assertNull(FrameValues.checkValue("f", nest(Double.NaN, FrameValues.MAX_COMPOSITE_SCAN_DEPTH + 1)));
     }
 }
