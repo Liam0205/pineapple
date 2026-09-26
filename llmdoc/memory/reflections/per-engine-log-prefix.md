@@ -65,7 +65,7 @@
 
 ## 第四轮：multi-pipeline 示例遗漏生产契约（1ffdb408）
 
-用户追加需求：三运行时各写一个"多 pipeline 绑定多 endpoint、各自 log_prefix、/execute 退役为 410 tombstone"的嵌入示例（`b36f270e`）。增量审查（`.code-review/from-v0.10.13/increment-3-to-b36f270.md`）判 REQUEST_CHANGES：6 项重要问题，全部属实。修复 commit：`180bdcc8`（Go body cap）、`4043c7b3`（Java error-map + cap + exact-path + docs 命令）、`1ffdb408`（C++ MSG_NOSIGNAL + JSON 转义）。bot 复核 APPROVE。
+用户追加需求：三运行时各写一个"多 pipeline 绑定多 endpoint、各自 log_prefix、/execute 停用为 410 tombstone"的嵌入示例（`b36f270e`）。增量审查（`.code-review/from-v0.10.13/increment-3-to-b36f270.md`）判 REQUEST_CHANGES：6 项重要问题，全部属实。修复 commit：`180bdcc8`（Go body cap）、`4043c7b3`（Java error-map + cap + exact-path + docs 命令）、`1ffdb408`（C++ MSG_NOSIGNAL + JSON 转义）。bot 复核 APPROVE。
 
 ### 教训
 

@@ -294,7 +294,7 @@ Java 在 `MetricsAware` 之后还有 `ResourceAware`；C++ 的 metadata/debug �
 
 ### `Closer`
 
-若算子持有跨请求资源（Lua state pool、长连接、后台 goroutine、并发 worker 等），可选实现 `Closer` 接口在引擎退役时显式释放。各运行时签名一致：
+若算子持有跨请求资源（Lua state pool、长连接、后台 goroutine、并发 worker 等），可选实现 `Closer` 接口在引擎停用时显式释放。各运行时签名一致：
 
 | 运行时 | 接口位置 | 方法签名 |
 |---|---|---|
@@ -302,7 +302,7 @@ Java 在 `MetricsAware` 之后还有 `ResourceAware`；C++ 的 metadata/debug �
 | pine-java | `pine-java/src/.../Closer.java` | `void close() throws Exception` |
 | pine-cpp | `pine-cpp/include/pine/operator.hpp` | `class Closer { virtual void close() = 0; }` |
 
-引擎退役（hot-reload swap、graceful shutdown）时调用 `Engine.Close()` / `Engine.close()`，依次对每个 `CompiledOperator.Instance` 做 `instanceof Closer` 判定并触发 `Close()`。各运行时把单算子 close 失败聚合上报（pine-go 用 `errors.Join`，pine-java 收集 list，pine-cpp 收集 vector），不阻断后续算子的 close。
+引擎停用（hot-reload swap、graceful shutdown）时调用 `Engine.Close()` / `Engine.close()`，依次对每个 `CompiledOperator.Instance` 做 `instanceof Closer` 判定并触发 `Close()`。各运行时把单算子 close 失败聚合上报（pine-go 用 `errors.Join`，pine-java 收集 list，pine-cpp 收集 vector），不阻断后续算子的 close。
 
 调用约定：
 
