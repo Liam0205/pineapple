@@ -1,6 +1,6 @@
 # Lua vs Go 原生算子性能对比
 
-对比 `transform_by_lua` 在两个 Lua VM 后端(默认 wangshu / opt-in gopher-lua)与等价 Go 原生算子的执行效率。本文使用同机同时段连跑的 benchstat 对照,数据是性能决策的依据,而非头条数字。
+对比 `transform_by_lua` 在两个 Lua VM 后端(默认 wangshu / opt-in gopher-lua)与等价 Go 原生算子的执行效率。本文使用同机同时段连跑的 benchstat 对照,数据是性能决策的依据,而不是用于宣传的数字。
 
 ## 测试环境
 
@@ -66,17 +66,17 @@ wangshu 在以下三处胜出 gopher-lua:
 
 - **VM 内核更快**:NaN-boxing 减少装箱开销;arena GC 让短期分配走 bump-allocate。
 - **零分配边界**(v0.1.4 CallInto):每次 `Call` 不再产生 `[]Value` 结果切片堆分配。gopher-lua 的对应路径有 `make([]any, nret)` 这一层固定堆分配。
-- **per-item 计算密度越大,优势越明显**:L1 在两后端基本持平(boundary 主导,VM 内核占比小);L5 Horner 循环 wangshu 比 gopher 快 27%(VM 内核占比大,wangshu 内核与零分配复合放大)。
+- **per-item 计算密度越大,优势越明显**:L1 在两后端基本持平(boundary 主导,VM 内核占比小);L5 Horner 循环 wangshu 比 gopher 快 27%(VM 内核占比大,wangshu 内核与零分配两者叠加放大)。
 
 ### Lua/Go 比
 
-- **低复杂度 + 多 items**(L1/1000):wangshu Lua 仅比 Go 慢 1.5x。引擎开销与边界传输占比大,VM 计算稀释。
+- **低复杂度 + 多 items**(L1/1000):wangshu Lua 仅比 Go 慢 1.5x。引擎开销与边界传输占比大,VM 计算被稀释。
 - **高复杂度 + 多 items**(L5/1000):wangshu Lua 比 Go 慢 2.6x;gopher-lua 慢 3.6x。计算密集时 VM 解释开销显现。
 - **关键启示**:Go 原生仍是绝对性能上限;Lua 的价值在于业务逻辑的可热改 + 安全沙箱,不是每条指令都比 Go 快。
 
 ## 端到端 vs 隔离级:负载形状的稀释效应
 
-引擎框架(DataFrame 构建、DAG 调度、recall 写入、投影)有固定开销。这部分开销稀释 VM 层差异。
+引擎框架(DataFrame 构建、DAG 调度、recall 写入、投影)有固定开销。这部分开销会稀释 VM 层差异。
 
 **示例**:realistic_for_you_calibrated 真实管道(38 个算子、3000 stub items、一组 17 个 common-mode `transform_by_lua` 控制流谓词),wangshu 与 gopher-lua **端到端统计持平**(p=0.21~0.97):
 
@@ -88,14 +88,14 @@ wangshu 在以下三处胜出 gopher-lua:
 
 即使 itemlua 变体把每请求 Lua 调用密度推到 3000 次(item-mode 加权打分),**端到端仍持平** —— pipeline 里 Lua 只占 <3% 总耗时,DAG + I/O stub 主导 ~97%。
 
-**结论**:VM 层差异的可见性取决于负载形状。boundary 主导的负载(短脚本、高调用密度)在隔离级最能体现差异;一旦嵌入完整 pipeline,引擎框架就稀释。这与 `llmdoc/memory/decisions/perf-evolution-roadmap.md` 校准事实 #2 一致 —— 现有 fixture 中,common-mode 列内核负载迁移才是 VM 加速可见性的真正闸门。
+**结论**:VM 层差异的可见性取决于负载形状。boundary 主导的负载(短脚本、高调用密度)在隔离级最能体现差异;一旦嵌入完整 pipeline,差异就被引擎框架稀释。这与 `llmdoc/memory/decisions/perf-evolution-roadmap.md` 校准事实 #2 一致 —— 现有 fixture 中,common-mode 列内核负载迁移才是 VM 加速可见性的真正门槛。
 
 ## 使用建议
 
 - **优先 Lua**:适合快速迭代的业务逻辑(条件判断、简单计算、运营策略)。在多数推荐系统场景中,1.5-2x 的 VM 开销可以忽略,因为 I/O(Redis、特征查询)才是瓶颈。默认 wangshu 就够用。
 - **考虑 Go 原生**:当算子包含密集数值计算(特征工程、复杂评分函数)且处于热路径时,Go 原生可带来显著收益(L5 仍有 2.6x 差距)。
 - **关注 item 规模 + per-item 计算密度**:item 越多 + per-item 计算越重,VM 开销线性累积。
-- **后端切换路径**:默认 wangshu;若需 gopher-lua 行为(例如已知第三方依赖耦合),build 时加 `-tags=lua_gopher`。两后端共享 `Backend/Pool/Engine` 抽象与同一测试套,行为字节级对等。
+- **后端切换路径**:默认 wangshu;若需 gopher-lua 行为(例如已知第三方依赖耦合),build 时加 `-tags=lua_gopher`。两后端共享 `Backend/Pool/Engine` 抽象与同一套测试,行为字节级对等。
 
 ## 复现
 
@@ -119,4 +119,4 @@ make bench-lua-backends
 - `pine-go/benchmarks/bench_calibrated_test.go`(端到端 calibrated)
 - `scripts/bench-lua-backends.sh`(同机串行连跑两后端)
 - `llmdoc/reference/lua-backend.md`(后端选择契约 + CallInto 边界契约)
-- `llmdoc/guides/benchmark-hygiene.md`(测量路径对称性等卫生纪律)
+- `llmdoc/guides/benchmark-hygiene.md`(测量路径对称性等基准测试规范)

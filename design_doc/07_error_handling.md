@@ -132,7 +132,7 @@ HTTP handler 将 Warnings 序列化为响应 JSON 的 "warnings" 数组
 
 ## HTTP 错误映射
 
-HTTP 壳子（`pkg/server`）将引擎错误映射为 HTTP 状态码：
+HTTP 服务层（`pkg/server`）将引擎错误映射为 HTTP 状态码：
 
 | 场景 | HTTP Status | 响应 body |
 |------|-------------|-----------|
@@ -159,7 +159,7 @@ Apple/Python DSL 编译器在 `compile_flow` 时执行一系列校验，错误�
 | 控制流完整性 | `if_()` 必须有配对的 `end_if_()`，空分支检测 |
 | 资源引用校验 | `resource_name` 参数必须引用已通过 `flow.resource()` 声明的资源 |
 
-Apple 编译期校验与 Go 引擎加载期校验形成**两层守门**：Apple 在用户运行 Python 脚本时即刻报错（快速反馈），Go 在 `NewEngine` 加载 JSON 时再次校验（拦截手写 JSON 或其他来源绕过 DSL 的配置）。
+Apple 编译期校验与 Go 引擎加载期校验形成**两层校验**：Apple 在用户运行 Python 脚本时即刻报错（快速反馈），Go 在 `NewEngine` 加载 JSON 时再次校验（拦截手写 JSON 或其他来源绕过 DSL 的配置）。
 
 ## Go 算子接口
 

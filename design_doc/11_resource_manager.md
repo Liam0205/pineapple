@@ -2,10 +2,10 @@
 
 ## 定位
 
-`pkg/resource` 是 Pineapple 提供的公开包，为壳子层（HTTP / RPC / Runner 等任意形态）提供动态内存资源的生命周期管理。任何壳子都可以直接 import 使用，不局限于特定协议或部署方式。
+`pkg/resource` 是 Pineapple 提供的公开包，为外层服务（HTTP / RPC / Runner 等任意形式）提供动态内存资源的生命周期管理。任何外层服务都可以直接 import 使用，不局限于特定协议或部署方式。
 
 ```
-壳子 (HTTP / RPC / Runner / ...)
+外层服务 (HTTP / RPC / Runner / ...)
  ├── ResourceManager          ← pkg/resource，独立生命周期，后台定时刷新
  │     ├── resource_a         → atomic.Pointer （无锁读）
  │     └── resource_b         → atomic.Pointer
@@ -64,7 +64,7 @@ table := h.Value().(*FeatureTable)
 // 使用 table ...（不得把 table 保存到算子字段或传出 Execute 作用域）
 ```
 
-### ResourceManager（壳子侧完整管理器）
+### ResourceManager（外层服务侧完整管理器）
 
 ```go
 rm := resource.NewManager()
@@ -83,7 +83,7 @@ ResourceManager 自身实现 `ResourceProvider` 接口，可直接注入 context
 ### Context 注入
 
 ```go
-// 壳子在每次请求时注入
+// 外层服务在每次请求时注入
 ctx = resource.WithResources(ctx, rm)
 
 // 算子在 Execute 中提取
@@ -122,9 +122,9 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
 }
 ```
 
-## 壳子集成示例
+## 外层服务集成示例
 
-### 自定义壳子（完全控制）
+### 自定义外层服务（完全控制）
 
 ```go
 func main() {
@@ -256,7 +256,7 @@ flow.recall_feed_data(resource_name="feed_data", ...)
 
 DSL 编译器在 `compile_flow()` 中校验：所有算子 `params` 中的 `resource_name` 值必须在 `flow._resources` 中有对应声明。缺失则抛出 `ValidationError`。
 
-这将资源配置缺失从运行时 fail 前移到编译期。
+这将资源配置缺失从运行时报错前移到编译期。
 
 ## 统一配置格式
 
@@ -316,7 +316,7 @@ func ValidateResourceDeps(pipelineConfig []byte, rm *Manager) error
 
 这避免了运行时才在 `Execute()` 中发现资源缺失的问题——尽早 fail fast。
 
-使用位置：壳子在 `rm.Start()` 成功后、启动 HTTP 监听前调用。
+使用位置：外层服务在 `rm.Start()` 成功后、启动 HTTP 监听前调用。
 
 ## 通用 Server 统一配置
 
@@ -419,7 +419,7 @@ flow.transform_redis_get(
   `redis_get` 报 `cache_hit=false` 且不写 value，`redis_set` 直接 no-op，
   均不尝试连接。
 - 借用成功但命令 / 连接出错 → 记 warning 日志；若算子配置了
-  `fail_on_error` 则抛错，否则吞掉继续。
+  `fail_on_error` 则抛错，否则忽略错误继续执行。
 
 这样连接池得以在多个算子、多个 pipeline 之间共享，并在热重载时随 Manager 原子
 替换，而非每个算子各自持有一份连接。
@@ -428,7 +428,7 @@ flow.transform_redis_get(
 
 ### 1. 首次加载同步，后续异步
 
-`Start()` 对每个已注册资源执行一次同步拉取。若首次拉取失败，`Start()` 返回错误，壳子可决定是否继续启动。后续刷新异步进行。
+`Start()` 对每个已注册资源执行一次同步拉取。若首次拉取失败，`Start()` 返回错误，外层服务可决定是否继续启动。后续刷新异步进行。
 
 ### 2. 刷新失败保留旧版本
 
@@ -467,7 +467,7 @@ ctx := resource.WithResources(ctx, mock)
 
 ### 6. 优雅关闭
 
-`Stop()` 取消所有刷新 goroutine 的 context 并等待退出，确保壳子关闭时不泄漏
+`Stop()` 取消所有刷新 goroutine 的 context 并等待退出，确保外层服务关闭时不泄漏
 goroutine。同时对每个资源的当前 `refValue` 丢弃基线引用（`release()`）：
 
 - 若无 in-flight 借用，基线引用即最后一个引用，立即触发实现了 `io.Closer` 的
@@ -529,7 +529,7 @@ oldRM.Stop() — 停止旧 Manager 的后台刷新
 > 具体类型（如 `RedisConnResource`）。退休时 `Manager::stop()` 把句柄型
 > `ResourceValue` 重置，最后一个借用者析构其 `shared_ptr` 时连接池才真正拆除，
 > 配合 `engine_mu_` 锁序保证无 in-flight 借用——这正是 Go 双层引用计数、Java
-> 快照引用计数在 C++ 里的等价落地。
+> 快照引用计数在 C++ 里的等价实现。
 
 失败回滚：
 

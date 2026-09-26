@@ -26,7 +26,7 @@ v0.7（commit `328109e`）将旧的全屏障模型（`addBarrierEdges`、`IsBarr
 
 `addEdges()` 的 item pass 中，只有显式声明了上述三个 marker 之一的算子才参与 `_row_set_` 追踪。**有 item 字段但无任何 marker 的算子不参与**，在 `_row_set_` tracker 上不产生任何边。
 
-旧 barrier 模型中这不是问题——Filter/Reorder/Merge 作为全屏障会序列化所有前后驱算子。新模型删除了 barrier 的"保守安全网"，但未为 item 字段算子补上等价的行集稳定性保证。
+旧 barrier 模型中这不是问题——Filter/Reorder/Merge 作为全屏障会序列化所有前驱和后继算子。新模型删除了 barrier 的"保守安全网"，但未为 item 字段算子补上等价的行集稳定性保证。
 
 ### 本质
 
