@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -286,6 +287,43 @@ func (v nfTextScore) MarshalText() ([]byte, error) { return []byte("score"), nil
 type nfMarshalStruct struct{ V float64 }
 
 func (p *nfMarshalStruct) MarshalJSON() ([]byte, error) { return []byte(`"custom"`), nil }
+
+// A typed float slice or map (an embedding vector, named scores) is read
+// element by element with Float(), not boxed per element: the check costs no
+// allocation beyond the scanner itself. Elements with their own marshaler
+// still go to the encoder.
+func TestValidateValueTypedFloatSlicesDoNotAllocatePerElement(t *testing.T) {
+	const want = `field "f": NaN/Inf is not a valid JSON value`
+	vec := make([]float32, 128)
+	scores := make([]namedFloat, 128)
+	byName := map[string]float64{}
+	for i := 0; i < 64; i++ {
+		byName[fmt.Sprint(i)] = float64(i)
+	}
+	arr := [4]float64{}
+	// The bound is a small constant per check, not one per element (the old
+	// boxing path measured 128 for vec and 64 for the map); a map scan
+	// allocates one reusable element slot.
+	for name, v := range map[string]any{"float32": vec, "named": scores, "map": byName, "array": []any{arr}} {
+		allocs := testing.AllocsPerRun(100, func() {
+			if err := validateValue("f", v); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if allocs > 3 {
+			t.Errorf("%s: %v allocs per check, want at most 3", name, allocs)
+		}
+	}
+	vec[127] = float32(math.Inf(1))
+	assertErr(t, validateValue("f", vec), want)
+	byName["7"] = math.NaN()
+	assertErr(t, validateValue("f", byName), want)
+	arr[3] = math.Inf(-1)
+	assertErr(t, validateValue("f", []any{arr}), want)
+	if err := validateValue("f", []nfMarshalScore{1, nfMarshalScore(math.Inf(1))}); err != nil {
+		t.Fatalf("marshaler elements must go to the encoder: %v", err)
+	}
+}
 
 // Custom Go operators can nest structs in a composite; encoding/json encodes
 // their exported fields (including ones promoted from an embedded struct and
