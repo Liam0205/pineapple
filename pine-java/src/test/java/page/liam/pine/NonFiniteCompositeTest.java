@@ -3,6 +3,8 @@ package page.liam.pine;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -232,6 +234,24 @@ class NonFiniteCompositeTest {
         assertEquals(want, FrameValues.checkValue("f", adder));
         assertNull(FrameValues.checkValue("f",
             List.of(new TreeSet<>(List.of(1.0, 2.0)), Map.entry("k", "v"), new AtomicReference<>(null))));
+    }
+
+    /**
+     * A BigInteger / BigDecimal beyond the double range is written as
+     * "Infinity" (the frame payload wrapper converts every Number to Go's
+     * float64 spelling), so it is rejected like a non-finite double, nested
+     * or not. Values within range pass.
+     */
+    @Test
+    void bigNumbersBeyondDoubleRangeAreRejected() {
+        String want = "field \"f\": NaN/Inf is not a valid JSON value";
+        BigDecimal huge = new BigDecimal("1e400");
+        BigInteger hugeInt = BigInteger.TEN.pow(400).negate();
+        assertEquals(want, FrameValues.checkValue("f", huge));
+        assertEquals(want, FrameValues.checkValue("f", hugeInt));
+        assertEquals(want, FrameValues.checkValue("f", listOf(huge)));
+        assertEquals(want, FrameValues.checkValue("f", map("k", listOf(hugeInt))));
+        assertNull(FrameValues.checkValue("f", List.of(new BigDecimal("1e300"), BigInteger.TEN.pow(300), Long.MAX_VALUE)));
     }
 
     /** An AtomicReference that refers to itself terminates. */
