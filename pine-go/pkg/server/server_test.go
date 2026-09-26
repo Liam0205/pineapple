@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1488,5 +1489,39 @@ func TestMainMuxDoesNotExposePprof(t *testing.T) {
 			t.Errorf("main mux %s = %d, want 404 (pprof must be admin-only)",
 				path, resp.StatusCode)
 		}
+	}
+}
+
+// Issue #210: writeJSON used to commit the status line before encoding, so a
+// value json.Encoder rejects (NaN/±Inf) reached the client as 200 with an
+// empty body. It now encodes first and reports the failure as a 500.
+func TestWriteJSON_EncodeFailureIs500WithBody(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeJSON(w, http.StatusOK, map[string]any{"v": math.Inf(1)})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+	var resp errorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("body is not JSON: %q (%v)", w.Body.String(), err)
+	}
+	if !strings.Contains(resp.Error, "unsupported value") {
+		t.Errorf("error = %q, want it to name the encoding failure", resp.Error)
+	}
+}
+
+// Buffering must not change the bytes of a successful response: same HTML
+// escaping and trailing newline as streaming json.Encoder straight into w.
+func TestWriteJSON_BufferedBytesMatchStreaming(t *testing.T) {
+	v := map[string]any{"s": "<a&b>", "n": 1.5}
+	w := httptest.NewRecorder()
+	writeJSON(w, http.StatusCreated, v)
+	var want bytes.Buffer
+	_ = json.NewEncoder(&want).Encode(v)
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", w.Code)
+	}
+	if w.Body.String() != want.String() {
+		t.Errorf("body = %q, want %q", w.Body.String(), want.String())
 	}
 }

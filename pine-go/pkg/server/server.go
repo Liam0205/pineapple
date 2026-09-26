@@ -5,6 +5,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -738,10 +739,22 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// writeJSON encodes v before committing the status line, so a value the
+// encoder rejects surfaces as a 500 with an error body instead of the
+// requested status followed by an empty body (issue #210). Encoding into a
+// buffer with json.Encoder keeps the response bytes identical to streaming
+// (HTML escaping + trailing newline).
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(v); err != nil {
+		log.Printf("response encoding error: %v", err)
+		buf.Reset()
+		_ = json.NewEncoder(&buf).Encode(errorResponse{Error: "response encoding error: " + err.Error()})
+		status = http.StatusInternalServerError
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
