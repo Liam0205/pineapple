@@ -43,9 +43,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 双 tag 矩阵守门翻默认闸门 (c)(perf-evolution-roadmap §"决策门槛"):
-        # default = wangshu(默认 Lua 后端);lua_gopher = gopher-lua opt-in。
-        # 任一后端 lint 红即拦截,避免 gopher-lua 在默认 build 不被链入而静默漂移。
+        # Two-tag matrix: condition (c) for switching the default Lua backend
+        # (see the decision-threshold section of perf-evolution-roadmap.md). default = wangshu (the default Lua
+        # backend); lua_gopher = gopher-lua opt-in. A lint failure on either backend
+        # blocks the build, so gopher-lua cannot silently drift just because the
+        # default build does not link it.
         lua_backend: [default, gopher]
     steps:
       - uses: actions/checkout@v6
@@ -114,9 +116,11 @@ jobs:
           path: pine-go/coverage.out
           retention-days: 30
 
-  # 翻默认闸门 (c)(perf-evolution-roadmap §"决策门槛"):双 tag 全绿。
-  # 默认走 wangshu(go-test);此 job 守门 gopher-lua opt-in 后端,只跑直接消费
-  # Lua 后端的包(operators/lua + integration),避免重复全量回归。
+  # Condition (c) for switching the default Lua backend (see the decision-threshold
+  # section of perf-evolution-roadmap.md): both tags must pass. go-test covers the
+  # default wangshu backend; this job checks the gopher-lua opt-in backend and only
+  # runs the packages that use the Lua backend directly (operators/lua +
+  # integration), so the full suite is not run twice.
   go-test-gopher:
     runs-on: ubuntu-latest
     defaults:
@@ -479,12 +483,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          # benchmarks 是独立子 module (pine-go/benchmarks/go.mod),通过 replace
-          # 指令引用主 module。`make bench` 默认带 -tags=pine_bench 让 stub
-          # 算子 + BenchmarkCalibrated 都被编译运行(否则 //go:build pine_bench
-          # 下的源文件在 CI 既不编译也不跑,silent-skip)。
+          # benchmarks is a separate submodule (pine-go/benchmarks/go.mod) that
+          # references the main module through a replace directive. `make bench`
+          # passes -tags=pine_bench by default so the stub operators and
+          # BenchmarkCalibrated are compiled and run (otherwise the files behind
+          # //go:build pine_bench would be neither compiled nor run in CI — a silent skip).
           make bench | tee benchmark.txt
-          # integration/ 仍在主 module,单独跑(不依赖 pine_bench)。
+          # integration/ is still in the main module; run it separately (it does not need pine_bench).
           go test -bench=. -benchmem -count=1 -run=^$ ./integration/ | tee -a benchmark.txt
       - name: Write benchmark summary
         if: always()
