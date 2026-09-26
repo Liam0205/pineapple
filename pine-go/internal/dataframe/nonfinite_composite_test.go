@@ -62,16 +62,88 @@ func TestApplyOutputAcceptsFiniteComposite(t *testing.T) {
 }
 
 // A self-referencing map (only a custom operator can build one) must not
-// hang or overflow the stack: the scan gives up at maxCompositeScanDepth and
-// leaves the value to the encoder. Two self-keys make an unbounded scan
-// exponential, so this also pins that hitting the bound aborts the whole
-// scan rather than one branch.
+// hang or overflow the stack. Two self-keys make a naive scan exponential;
+// the ancestor check skips a composite that contains itself, while the
+// NaN in a sibling is still found.
 func TestValidateValueSelfReferencingMapTerminates(t *testing.T) {
 	m := map[string]any{}
 	m["a"] = m
 	m["b"] = m
 	if err := validateValue("f", m); err != nil {
 		t.Fatalf("self-referencing map: unexpected error %v", err)
+	}
+	m["bad"] = math.NaN()
+	if err := validateValue("f", m); err == nil {
+		t.Fatal("self-referencing map with a NaN sibling: expected rejection")
+	}
+
+	// A longer view of the same backing array is a different value (the
+	// encoder serialises it), so its extra element must still be scanned.
+	parent := make([]any, 1, 2)
+	full := parent[:2]
+	parent[0] = full
+	full[1] = math.Inf(1)
+	if err := validateValue("f", parent); err == nil {
+		t.Fatal("longer view of the same backing array: expected rejection")
+	}
+}
+
+func nestArrays(leaf any, levels int) any {
+	v := leaf
+	for i := 0; i < levels; i++ {
+		v = []any{v}
+	}
+	return v
+}
+
+// The depth bound skips composites at depth >= maxCompositeScanDepth but
+// keeps scanning their siblings, so the verdict depends only on the value,
+// never on Go's random map iteration order. Run many times: an
+// order-dependent scan fails this within a few iterations.
+func TestValidateValueDepthBoundIsOrderIndependent(t *testing.T) {
+	deep := nestArrays(0.0, maxCompositeScanDepth+1)
+	for i := 0; i < 200; i++ {
+		v := map[string]any{"deep": deep, "bad": math.Inf(1), "z": 1.0}
+		if err := validateValue("f", v); err == nil {
+			t.Fatalf("iteration %d: NaN/Inf next to a too-deep subtree was not rejected", i)
+		}
+	}
+}
+
+// Boundary: a non-finite scalar whose parent composite is at depth
+// maxCompositeScanDepth-1 is found; one level deeper it is not inspected.
+// pine-java and pine-cpp pin the same two cases.
+func TestValidateValueDepthBoundary(t *testing.T) {
+	if err := validateValue("f", nestArrays(math.NaN(), maxCompositeScanDepth)); err == nil {
+		t.Error("NaN inside the deepest scanned composite: expected rejection")
+	}
+	if err := validateValue("f", nestArrays(math.NaN(), maxCompositeScanDepth+1)); err != nil {
+		t.Errorf("NaN below the depth bound: expected it to be left to the encoder, got %v", err)
+	}
+}
+
+type namedFloat float64
+
+// Custom Go operators can hand over slice/map/element types beyond
+// []any / map[string]any; json.Marshal rejects a non-finite value in any of
+// them, so the write check must too.
+func TestValidateValueReflectElementTypes(t *testing.T) {
+	inf := math.Inf(1)
+	cases := map[string]any{
+		"named_float_slice":  []namedFloat{1, namedFloat(inf)},
+		"named_float_map":    map[string]namedFloat{"a": namedFloat(inf)},
+		"named_float_in_any": []any{namedFloat(inf)},
+		"pointer_elem":       []*float64{&inf},
+		"array":              [2]float64{1, inf},
+	}
+	for name, v := range cases {
+		if err := validateValue("f", v); err == nil {
+			t.Errorf("%s: expected rejection", name)
+		}
+	}
+	finite := 1.0
+	if err := validateValue("f", []*float64{&finite, nil}); err != nil {
+		t.Errorf("finite pointers: unexpected error %v", err)
 	}
 }
 
