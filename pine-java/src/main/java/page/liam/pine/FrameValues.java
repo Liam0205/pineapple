@@ -1,9 +1,13 @@
 package page.liam.pine;
 
 import java.lang.reflect.Array;
+import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.DoubleAccumulator;
+import java.util.concurrent.atomic.DoubleAdder;
 
 /**
  * Write-time value check shared by {@link DataFrame} and {@link ColumnFrame}.
@@ -53,9 +57,14 @@ final class FrameValues {
         return "field \"" + field + "\": NaN/Inf is not a valid JSON value";
     }
 
+    /**
+     * Double and Float, plus the JDK's floating-point accumulators, which the
+     * response mapper writes through their double value. Integral types and
+     * BigDecimal / BigInteger are always finite as written.
+     */
     private static boolean isNonFinite(Number n) {
-        if (n instanceof Double) {
-            double d = (Double) n;
+        if (n instanceof Double || n instanceof DoubleAdder || n instanceof DoubleAccumulator) {
+            double d = n.doubleValue();
             return Double.isNaN(d) || Double.isInfinite(d);
         }
         if (n instanceof Float) {
@@ -77,12 +86,16 @@ final class FrameValues {
      * The map is only allocated once a second composite is entered, so a
      * flat list or map costs nothing extra.
      *
-     * <p>A Java array nested inside a map or list ({@code double[]},
-     * {@code Object[]}, ...) is scanned like a list: the response mapper
-     * serializes it element by element, and pine-go rejects the equivalent
-     * nested array. Other nested objects (a POJO Jackson would serialize as
-     * a bean) are not inspected; a top-level array or POJO is already refused
-     * by {@link #checkValue} as an unsupported type.
+     * <p>Below the top level, everything the response mapper expands into
+     * JSON containers is scanned: any {@link Collection} (Set, Deque,
+     * {@code Map.values()}, ... are written as arrays like a List), Java
+     * arrays ({@code double[]}, {@code Object[]}, ...), {@link Map.Entry}
+     * (written as a one-key object) and {@link AtomicReference} (written as
+     * its content); pine-go rejects the equivalent nested values. Not
+     * inspected: an {@code Iterator} or a non-Collection {@code Iterable}
+     * (iterating could consume it or run arbitrary code) and other objects
+     * Jackson would serialize as a bean. A top-level value of any of these
+     * kinds is already refused by {@link #checkValue} as an unsupported type.
      */
     private static final class Scanner {
         private Object first;
@@ -119,7 +132,8 @@ final class FrameValues {
                 return isNonFinite((Number) v);
             }
             boolean array = v != null && v.getClass().isArray();
-            if (!array && !(v instanceof Map) && !(v instanceof List)) {
+            if (!array && !(v instanceof Map) && !(v instanceof Collection)
+                    && !(v instanceof Map.Entry) && !(v instanceof AtomicReference)) {
                 return false;
             }
             if (depth >= MAX_COMPOSITE_SCAN_DEPTH || !enter(v, depth)) {
@@ -128,7 +142,13 @@ final class FrameValues {
             if (array) {
                 return arrayContainsNonFinite(v, depth);
             }
-            Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (List<?>) v;
+            if (v instanceof Map.Entry) {
+                return containsNonFinite(((Map.Entry<?, ?>) v).getValue(), depth + 1);
+            }
+            if (v instanceof AtomicReference) {
+                return containsNonFinite(((AtomicReference<?>) v).get(), depth + 1);
+            }
+            Iterable<?> children = v instanceof Map ? ((Map<?, ?>) v).values() : (Collection<?>) v;
             for (Object e : children) {
                 if (containsNonFinite(e, depth + 1)) {
                     return true;
