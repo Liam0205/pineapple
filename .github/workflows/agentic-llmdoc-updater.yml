@@ -2,12 +2,12 @@ name: Agentic llmdoc Updater
 
 on:
   schedule:
-    # 每天北京时间 5:00 (UTC 21:00) 自动更新 llmdoc 文档
+    # Update the llmdoc docs automatically every day at 05:00 Beijing time (21:00 UTC)
     - cron: '0 21 * * *'
   workflow_dispatch:
     inputs:
       since_period:
-        description: '检查变更的时间范围（默认24小时）'
+        description: 'Time range of changes to check (default: 24 hours)'
         required: false
         type: string
         default: '24 hours ago'
