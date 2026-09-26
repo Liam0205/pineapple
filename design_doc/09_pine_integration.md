@@ -2,7 +2,7 @@
 
 ## 定位：纯计算库
 
-Pine 是一个纯计算库（library），不绑定任何网络协议或服务框架。外层按部署场景套壳：
+Pine 是一个纯计算库（library），不绑定任何网络协议或服务框架。外层按部署场景封装成具体服务：
 
 ```
 ┌─────────────────────────┐
@@ -12,9 +12,9 @@ Pine 是一个纯计算库（library），不绑定任何网络协议或服务�
 └─────────────────────────┘
 ```
 
-典型的壳子：
+典型的外层封装：
 
-| 壳子 | 场景 |
+| 外层封装 | 场景 |
 |------|------|
 | REST API HTTP 服务器 | 对外提供 HTTP 服务 |
 | RPC 服务（gRPC 等） | 内部微服务调用 |
@@ -65,14 +65,14 @@ type Result struct {
 ### 设计原则
 
 - **无状态**：`Engine` 在 `NewEngine` 后不可变。不提供 `Reload` 方法。
-- **配置重载由外层负责**：壳子创建新 `Engine`，通过原子替换（`atomic.Pointer` 或类似机制）切换，旧 `Engine` 退役。
+- **配置重载由外层负责**：外层服务创建新 `Engine`，通过原子替换（`atomic.Pointer` 或类似机制）切换，旧 `Engine` 退役。
 - **并发安全**：同一个 `Engine` 可被多个 goroutine 并发调用 `Execute`。
-- **生命周期简单**：`NewEngine` → 反复 `Execute` → 退役。退役时壳子应调用 `Engine.Close()`，引擎据此拆除持有外部资源的算子（实现了 `Closer` 接口者，如 Lua state 池）。对无此类资源的纯计算引擎，`Close` 是无操作，不再引用即由 GC 回收。`Close` 幂等，重复调用安全。详见 [03 数据抽象 — Closer](03_data_abstraction.md#closer--算子资源释放)。
+- **生命周期简单**：`NewEngine` → 反复 `Execute` → 退役。退役时外层服务应调用 `Engine.Close()`，引擎据此关闭持有外部资源的算子（实现了 `Closer` 接口者，如 Lua state 池）。对无此类资源的纯计算引擎，`Close` 是无操作，不再引用即由 GC 回收。`Close` 幂等，重复调用安全。详见 [03 数据抽象 — Closer](03_data_abstraction.md#closer--算子资源释放)。
 
 ## 请求数据流
 
 ```
-壳子接收外部请求
+外层服务接收外部请求
     │
     ▼
 构造 pine.Request（填充 common 特征 + 可选 item 列表）
@@ -86,13 +86,13 @@ engine.Execute(ctx, req)
     └── 返回 pine.Result
     │
     ▼
-壳子将 Result 序列化为响应返回
+外层服务将 Result 序列化为响应返回
 ```
 
 ## 配置重载流程
 
 ```
-壳子监听配置变更（文件 watch / 配置中心推送）
+外层服务监听配置变更（文件 watch / 配置中心推送）
     │
     ▼
 newEngine, err := pine.NewEngine(newJsonConfig)
@@ -105,4 +105,4 @@ atomic.StorePointer(&currentEngine, newEngine)
     （旧 Engine 中的算子实例、Lua state pool 等随之释放）
 ```
 
-Pine 不参与配置变更的监听和切换——这是壳子的责任。Pine 只保证：给我合法的 JSON，我返回可用的 Engine。
+Pine 不参与配置变更的监听和切换——这是外层服务的责任。Pine 只保证：给我合法的 JSON，我返回可用的 Engine。

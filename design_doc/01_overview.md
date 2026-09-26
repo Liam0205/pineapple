@@ -52,7 +52,7 @@ Python DSL  ──(执行)──▶  JSON 配置文件
 
 ## Pine-C++ 初始 MVP 切片
 
-仓库现已引入 `pine-cpp/` 目录，作为第四运行时的初始 MVP 落点。该切片当前只覆盖本地可编译、可执行的最小纵向链路：
+仓库现已引入 `pine-cpp/` 目录，作为第四运行时初始 MVP 的实现目录。该切片当前只覆盖本地可编译、可执行的最小纵向链路：
 
 - 自包含 CMake 工程与公共头文件入口
 - `pineapple-run`：读取 `-config` 与 `-request` 后执行 pipeline 并输出 JSON

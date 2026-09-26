@@ -41,7 +41,7 @@ Python DSL (Apple)  ──compile──>  JSON Config
 - **Lua 嵌入** — 内置 Lua 算子支持轻量自定义计算。pine-go 默认 [wangshu](https://github.com/Liam0205/wangshu)（纯 Go Lua 5.1 VM，NaN-boxing + arena GC），可通过 `-tags=lua_gopher` 切回 gopher-lua；pine-java 用 LuaJC（字节码编译），pine-cpp 用 LuaJIT。端到端开销约 1.2-2x；隔离算子级开销随运行时与计算复杂度变化（C++/LuaJIT 约 3-5x、Java 约 2-9x、Go 约 6-17x），计算密集型热路径建议写原生算子
 - **配置热加载** — 服务运行时自动无停机重载引擎配置（引用计数快照保证 in-flight 请求安全；`Watch` 开关可关闭）
 - **可嵌入 / 可扩展 server** — `server.NewServer` + `Execute`/`Acquire` 嵌入 API 支持把引擎挂进既有 HTTP 框架（如 Gin）；`Config.Routes` 自定义路由（Ingress/Egress 适配器）与内置端点共存，自定义路径自动加入有界指标标签集。多 pipeline 多 endpoint（各自独立 `log_prefix`）的三运行时示例见 `pine-go/examples/multi-pipeline/`、`pine-java/examples/MultiPipelineServer.java`、`pine-cpp/examples/multi_pipeline_server.cpp`
-- **动态资源** — 双通道资源管理：**数据型**（如静态 dict / 实时 feature store，snapshot 导出后无锁读）+ **句柄型**（如 `redis_connection`，borrow 借用 + RAII 拆除）；后台定时刷新
+- **动态资源** — 双通道资源管理：**数据型**（如静态 dict / 实时 feature store，snapshot 导出后无锁读）+ **句柄型**（如 `redis_connection`，borrow 借用 + RAII 释放）；后台定时刷新
 - **Redis cascade-safety** — `redis_connection` 资源暴露 `{dial,read,write,pool}_timeout_ms` + `pool_size` 五参数，per-command 指标 `pine_redis_command_*`（4-state status：ok / timeout / pool_timeout / error），fail-on-error 静默降级契约
 - **白盒可观测** — 算子级 trace；`/stats` 组合响应含 `/stats.http`（请求级 4-state 指标）+ `/stats.resources`（资源池连接池/探针/per-command 4 状态分类）；可插拔 Prometheus 接口
 - **行存/列存可切换** — DataFrame 支持两种存储模式，执行结果一致、只影响性能。transform 主导 + 大 N + 少结构变更选列存，recall/filter/sort 主导或小 N 用默认行存；判据与实测入口见 [`doc/guide_pipeline.md`](doc/guide_pipeline.md) 的「Flow 级配置」
@@ -166,7 +166,7 @@ pineapple/
 - **内置算子与 Go/Java 完全对等**（清单见 `pine-cpp/CMakeLists.txt` 与 `doc/operators/`）
 - **HTTP server**：`pineapple-server`，含热加载、graceful shutdown、HTTP/1.1 keep-alive、客户端断连取消、`/health`/`/execute`/`/stats`/`/dag` 端点
 - **CLI**：`pineapple-run`、`pineapple-render-dag`、`pineapple-codegen`、`pineapple-cause-chain-probe`
-- **Frame 多态**：ColumnFrame（列存）+ RowFrame（行存），OperatorInput lazy 投影；锁形态（per-call `shared_mutex`）与 Go/Java 完全镜像
+- **Frame 多态**：ColumnFrame（列存）+ RowFrame（行存），OperatorInput lazy 投影；加锁方式（per-call `shared_mutex`）与 Go/Java 完全一致
 - **LuaJIT**：StatePool、沙箱隔离、`_G["..."]` 变量注入
 - **可观测**：`metrics::Provider`、`resource::Manager`、`/stats.http`、`/stats.resources`、cause chain
 - **CI**：cpp-build、cpp-test（doctest）、cpp-sanitizer（ASan/UBSan）、cpp-tsan（ThreadSanitizer）、cpp-lint（-Werror）
@@ -223,7 +223,7 @@ pineapple/
 仓库内置 `.githooks/` 用 `git config core.hooksPath .githooks` 挂载即生效（首次 clone 后建议配一次）：
 
 - **`pre-commit`** — staged-only 格式 gate（gofmt / clang-format / ruff），不动未 staged 改动
-- **`pre-push`** — 工程级 lint（四语言 fail-on-violation）+ 自包装 CI watch（push 完成后自动起 `check-pr-ci.sh` 等终态）+ 自动 `--set-upstream` 接力（首次 push 新分支无需手动 `-u`）
+- **`pre-push`** — 工程级 lint（四语言 fail-on-violation）+ 内置 CI watch（push 完成后自动启动 `check-pr-ci.sh` 并等待最终状态）+ 自动设置 `--set-upstream`（首次 push 新分支无需手动 `-u`）
 
 ### CI 流水线
 
@@ -233,7 +233,7 @@ CI 在每次 push/PR 时自动运行：
 - **Test** — Go/Java/Apple/C++ 全量测试 + 覆盖率
 - **Sanitizer** — C++ ASan/UBSan 冒烟 + ThreadSanitizer 高并发压测
 - **Fuzz** — Go/Java fuzz + 三引擎差异模糊测试
-- **Daily sanitized fuzz** — 每日（北京时间 12:00）跑 ASan/TSan 加持的差分 fuzz 3000+2000 轮（带 wall-clock 时间预算，慢 runner 日自动降轮数保完整信号），专门面向 race / memory bug 的 deep-diagnostic（独立于每次 push 的 fast 路径）
+- **Daily sanitized fuzz** — 每日（北京时间 12:00）跑 ASan/TSan 加持的差分 fuzz 3000+2000 轮（带 wall-clock 时间预算，runner 较慢时自动减少轮数以保证信号完整），专门面向 race / memory bug 的 deep-diagnostic（独立于每次 push 的 fast 路径）
 - **Benchmark** — Go/Java 性能基准
 - **Cross-validation** — 三引擎 schema/DAG/执行/错误/server/metrics 一致性
 - **Codegen check** — 确保生成代码与源码同步
@@ -262,7 +262,7 @@ CI 在每次 push/PR 时自动运行：
 18. **SubFlow contract stderr** — Apple 编译期 SubFlow 契约报错文案稳定
 19. **Bench-stub parity** — bench 构建下 `reorder_topn_boost` 字节级一致
 20. **Custom routes parity** — 自定义路由（Route/Ingress/Egress）、watch 开关、指标 path 标签有界扩展一致
-21. **storage_mode validation parity** — 合法 `storage_mode` 三方接受且输出字节一致、非法值三方一律拒绝（issue #187；分派方向本身由各运行时的 factory 单测钉，见 `llmdoc/architecture/dag-engine.md`）
+21. **storage_mode validation parity** — 合法 `storage_mode` 三方接受且输出字节一致、非法值三方一律拒绝（issue #187；分派方向本身由各运行时的 factory 单测锁定，见 `llmdoc/architecture/dag-engine.md`）
 
 ### 为下游构建 Cross-Validation 体系
 
@@ -389,8 +389,8 @@ def normalize_json(text):
 
 - **生产校准场景下 C++ 领先约 1.9x**（calibrated QPS 237 vs 121/127；P50 60ms vs 117/122ms），这是"标杆运行时"定位的体现
 - 合成 small/medium 场景 Go 吞吐最高（轻量请求路径开销最低）；大行数场景（large_1000+）Java 的 JIT 热循环优化反超
-- itemlua（3000 调用/请求的 boundary-dominated 形状）与 calibrated 在三引擎都统计持平，符合"per-item 边界主导 + 端到端稀释"的校准事实（详见 `llmdoc/memory/decisions/perf-evolution-roadmap.md`）
-- 各引擎数字会随版本演进，复现方式：`make bench-cross-runtime` 或 `scripts/bench-cross-runtime.sh --requests 10000 --concurrency 16`，报告落在 `bench-results/`
+- itemlua（3000 调用/请求的 boundary-dominated 形状）与 calibrated 在三引擎上都统计持平，符合"per-item 边界主导 + 端到端稀释"的校准事实（详见 `llmdoc/memory/decisions/perf-evolution-roadmap.md`）
+- 各引擎数字会随版本演进，复现方式：`make bench-cross-runtime` 或 `scripts/bench-cross-runtime.sh --requests 10000 --concurrency 16`，报告输出到 `bench-results/`
 
 ## 文档
 

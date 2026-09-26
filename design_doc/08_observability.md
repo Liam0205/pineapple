@@ -251,7 +251,7 @@ Pineapple 核心库不依赖 `prometheus/client_golang`。Prometheus 适配器�
 - `server`：配置热重载统计
 - `operator_detail`：实现 `StatsProvider` 接口的算子的自定义统计（如 Lua pool）
   - Lua pool 的 `reuse_count` 记录借出时命中池中既有 state 的次数；on-borrow miss = `borrow_count - reuse_count`，create_count 还额外计入构造时的一次预热创建。借此可区分「复用命中」与「新建」，评估池容量是否合适。该统计仅在 `operator_detail` 暴露，无对应 Prometheus 指标。
-- `resources`：资源级指标（metric-centric 形状，与 `http` 子树同构）：`{指标名: {标签值组合: 值}}`，counter/gauge 为标量、histogram 为 `{count, sum_ns}`（整数纳秒）。每层键按字典序排序，保证三运行时字节级一致。`metrics_name` 为空或无资源时该子树为 `{}`。
+- `resources`：资源级指标（metric-centric 结构，与 `http` 子树同构）：`{指标名: {标签值组合: 值}}`，counter/gauge 为标量、histogram 为 `{count, sum_ns}`（整数纳秒）。每层键按字典序排序，保证三运行时字节级一致。`metrics_name` 为空或无资源时该子树为 `{}`。
 
 #### 资源级指标与 fan-out 路由
 
@@ -268,13 +268,13 @@ Pineapple 核心库不依赖 `prometheus/client_golang`。Prometheus 适配器�
 #### Prometheus 接入示例
 
 第三方项目实现 `metrics.Provider` 接口。**动手前先读 `pine-go/pkg/metrics/metrics.go` 的
-package doc「Implementer's contract」——那是唯一权威副本**，覆盖四件签名上看不出来的事：并发、
+package doc「Implementer's contract」——那是唯一权威副本**，涵盖四项从签名上看不出来的约定：并发、
 单位、桶只是建议、label 生命周期。
 
 其中并发一条影响正确性而非精度：`Observe` / `Inc` / `Set` / `Add` / `With` **会被并发调用**
-（调度器并行执行算子）。下面用的 `prometheus.HistogramVec` 与 `CounterVec` 本身并发安全，所以照抄
-可用；但若自行用 `map` 缓存 `With()` 结果，必须自己加锁——出厂的 `Collector` 与 `nop` 都是安全的，
-所以这类竞争不会被 pineapple 自己的测试抓到。
+（调度器并行执行算子）。下面用的 `prometheus.HistogramVec` 与 `CounterVec` 本身并发安全，所以直接照搬
+即可；但若自行用 `map` 缓存 `With()` 结果，必须自己加锁——内置的 `Collector` 与 `nop` 都是安全的，
+所以 pineapple 自身的测试发现不了这类竞争。
 
 ```go
 package promadapter
