@@ -14,6 +14,7 @@ import (
 	"github.com/Liam0205/pineapple/pine-go/internal/dag"
 	"github.com/Liam0205/pineapple/pine-go/internal/dataframe"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
+	pinedebug "github.com/Liam0205/pineapple/pine-go/pkg/debug"
 	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
@@ -211,9 +212,20 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 			// pooling it would double-track lifetimes for one extra alloc
 			// per request, not worth the complexity.
 			var pooled bool
+			// Keep this lookup node-local so disabled capture does not enlarge
+			// the goroutine closure. No recorder/context is created on that path.
+			debugRecorder := pinedebug.FromContext(ctx)
+			opCtx := ctx
+			if debugRecorder != nil {
+				opCtx = debugRecorder.BindNode(ctx, pinedebug.NodeMeta{
+					Operator: cop.Name,
+					Type:     cop.Config.TypeName,
+					SubFlow:  node.SubFlow,
+				})
+			}
 
 			if cop.Config.DataParallel > 1 {
-				output, execErr = parallelExecute(ctx, cop, input)
+				output, execErr = parallelExecute(opCtx, cop, input)
 			} else {
 				output = outputPool.Get().(*types.OperatorOutput)
 				pooled = true
@@ -227,7 +239,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 							}
 						}
 					}()
-					execErr = cop.Instance.Execute(ctx, input, output)
+					execErr = cop.Instance.Execute(opCtx, input, output)
 				}()
 			}
 			// Reclaim pooled outputs once every downstream consumer has had

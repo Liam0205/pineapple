@@ -45,7 +45,9 @@
 
 逐算子 debug 同样采用 nullable 三态（Go `*bool`、Java `Boolean`、C++ `std::optional<bool>`）：未设置时继承 flow-level 全局 debug；显式设置时覆盖全局值。因此全局 debug 不再单向覆写所有算子的 `opCfg.Debug`，而是仅作为未显式设置 debug 的算子的默认值。
 
-该设计明确区分两类运行时注入：
+Go 另有请求级事件接口 `pine-go/pkg/debug/debug.go:WithEmitter`，由可信测试入口通过 context 注入实现，不改上述静态配置。Session 生命周期、冻结、数据约束、并发采集和导出由 SDK/应用实现；Pineapple 只提供公开接口及节点身份绑定，不依赖私有 SDK。这是 Go 嵌入 API，不是新增 JSON/DSL 开关或跨运行时协议。
+
+该设计明确区分以下运行时注入：
 
 - 观测 provider 注入：面向 `pine-go/pkg/metrics` 的可插拔外部指标
 - 日志前缀注入：面向引擎私有 logger 的实例级日志归属（issue #172 前曾是进程级全局控制）
@@ -121,7 +123,7 @@
 
 图按 DSL 声明顺序存储算子。每个节点追踪前驱和后继索引。名称→索引查找支持显式 source 引用和 merge 边构建。
 
-每个 `Node` 还带有 `SubFlow` 字段，用来记录该算子直接归属的 SubFlow 层级路径，例如 `recall/candidates`。顶层算子记为空字符串。这个字段不参与调度、冒险分析或拓扑约束；它只作为稳定的可视化分组元数据，供 collapsed DAG 渲染使用。
+每个 `Node` 还带有 `SubFlow` 字段，用来记录该算子直接归属的 SubFlow 层级路径，例如 `recall/candidates`。顶层算子记为空字符串。这个字段不参与调度、冒险分析或拓扑约束；它供 collapsed DAG 渲染分组，也作为 Go 请求级 Debug 的节点元信息。
 
 声明顺序很重要，因为冒险追踪器按序列遍历算子并从该顺序推导因果关系。
 
@@ -286,13 +288,19 @@ Go 侧在 `pine.NewEngine()` 编译算子时，通过 interface 类型断言（`
 1. 等待所有前驱 done channel 或 context 取消。
 2. 检查 skip 条件（如有）。
 3. 从共享 DataFrame 构建输入快照（Frame 方法自行加锁）。
-4. 运行 `Execute`。当 `DataParallel > 1` 时，调度器改为委托 `pine-go/internal/runtime/parallel.go` 中的 `parallelExecute`：按 item 将输入切成 N 份，启动 N 个带独立 panic recovery 的 goroutine 执行，再在返回调度器前合并输出。该并发路径只会出现在引擎加载期已通过 `pine-go/pine.go` `validateDataParallel` 校验的算子上：Apple 侧仅做结构性校验（必须是 Transform、且不能声明 `common_output`），真正的能力判定由 Go 在持有算子实例时完成，要求实例实现 `pine-go/internal/types/operator.go` (`ConcurrentSafe`)。
+4. 运行 `Execute`。Go 在实际执行节点的闭包内读取一次请求 recorder；存在时先绑定节点元信息。无论是否注入 recorder，`DataParallel > 1` 时均委托 `pine-go/internal/runtime/parallel.go:parallelExecute`：按 item 分片，传入节点 context，启动带独立 panic recovery 的 goroutine 执行，再合并输出。该并发路径只会出现在引擎加载期已通过 `pine-go/pine.go:validateDataParallel` 校验的算子上：Apple 侧仅做结构性校验（必须是 Transform、且不能声明 `common_output`），真正的能力判定由 Go 在持有算子实例时完成，要求实例实现 `ConcurrentSafe`。
 5. 根据算子类型契约校验输出。
 6. 将输出应用回 frame（Frame 方法自行加锁）。
 7. 记录 trace 和双通道 stats/metrics。
 8. 关闭自身 done channel，使依赖者可以继续。
 
 `data_parallel` 仅是单节点运行时优化：它不改变 DAG 构建、依赖推导或图结构，调度器拿到的仍是同一张执行图。
+
+请求级 Debug 保留 DAG 并发和节点内的分片并行；不同节点、同一节点的不同分片可以同时调用同一 `Emitter`，实现方须保证并发安全。同一节点的分片共享不可变的节点元信息，各自记录自己的材料，不保证事件顺序，框架不合并分片事件。旧静态 Debug 快照开关独立生效。
+
+关闭请求级 Debug 时，`pine-go/internal/runtime/scheduler.go:Run` 不创建新的 Debug context 或 Recorder，只在每个实际执行节点增加一次 context 查询和分支；查询位于节点闭包内，不在 `Run` 入口捕获 recorder。算子自身如接入采集，也应只在循环外查询一次，并把所有调试专用数据工作置于非 nil 分支。材料不经过 Frame；输入 view 与池化 output 的有效期要求 `Emitter` 在返回前冻结材料，详见 `pine-go/pkg/debug/debug.go:Emitter`。
+
+请求级 Debug 不提供业务禁写策略；开启采集时各算子仍按正常逻辑执行，包括业务写入。
 
 该能力只适合逐 item 独立的 Transform，并采用显式 opt-in 模型：
 

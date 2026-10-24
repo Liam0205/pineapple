@@ -1,5 +1,17 @@
 # 可观测性
 
+## Go 请求级 Debug 扩展接口
+
+`pine-go/pkg/debug/debug.go:Emitter` 是 Go 嵌入 API，只定义公开接入契约、节点元信息、轻量 Recorder 和 context 绑定。可信测试入口通过 `WithEmitter` 注入 SDK 实现，算子在材料合适的位置主动记录。Session、通用 meta/data 描述、数据冻结、容量约束、并发保护、编码和异步导出均由 SDK/使用方负责；Pineapple 不引入私有采集 SDK，也不自动扫描输入输出。实现方契约以该文件的 package doc 为准，算子接入见 `llmdoc/reference/operator-contract.md`。
+
+Debug 关闭时不创建 Debug context 或 Recorder。`pine-go/internal/runtime/scheduler.go:Run` 在每个实际执行节点的闭包内、调用算子前读取一次 recorder；算子接入时也应在候选循环外查询一次，把材料构造、遍历、复制全部放在非 nil 分支。关闭时新增调试分配为零、耗时无可重复显著回退属于性能验收目标，不能仅凭接口形式推定已达到。
+
+注入 recorder 不改变执行方式：`data_parallel` 算子保留原分片，独立 DAG 节点继续并发。调度器将绑定节点信息的 context 传给分片；同一节点的分片共享不可变的节点元信息，可以分别产生事件，框架不合并分片材料，也不承诺事件顺序。Emitter 必须并发安全并在返回前冻结材料，不能让后台持有输入 view 或池化输出。
+
+本接口与下面的静态 `WithDebug`／JSON debug 快照开关独立，不改 DSL、算子执行签名或共享计划；也未增加 HTTP 自动开启入口或其他运行时实现。
+
+本次接口仅负责 Debug 采集接入，不提供业务禁写策略，开启 Debug 不会阻止业务写入。禁写机制另行设计。
+
 ## MVP 必须
 
 ### 1. 白盒化回查
@@ -10,7 +22,7 @@
 - 每个算子的耗时
 - 每个算子的输入输出数据快照
 
-引擎在每次 DAG 执行时自动记录这些信息。回查时按请求标识检索历史记录，还原完整的执行链路。
+引擎在每次 DAG 执行时记录基础 trace；输入输出快照由下面的静态 debug 设置决定。持久化、按请求标识回查与跨服务聚合由外部采集系统负责。
 
 #### Trace 返回控制
 
@@ -44,7 +56,7 @@
 
 ### 3. 算子 debug 参数
 
-所有算子都有一个可选的 `debug` 参数（默认 `False`），与 `common_input` / `item_input` / `common_output` / `item_output` 同级，属于通用参数。
+所有算子都有一个可选的 `debug` 参数（未设置时继承 Flow 默认值），与 `common_input` / `item_input` / `common_output` / `item_output` 同级，属于通用参数。
 
 开启后，该算子在运行时打印调试日志（输入数据、输出数据、耗时等详细信息），并在 trace 中填充 `InputSnapshot` / `OutputSnapshot`。
 
@@ -62,7 +74,7 @@ flow = Flow("example", debug=True, ...)
 engine, _ := pine.NewEngine(data, pine.WithDebug(true))
 ```
 
-优先级：`WithDebug` Option > JSON `debug` 字段 > 逐算子 `debug` 参数。全局 debug 开启时，等效于对所有算子设置 `debug=true`。
+`WithDebug` Option 覆盖 JSON 根级 `debug`，二者确定 Flow 默认值；逐算子显式 `debug=true/false` 覆盖该默认值，未设置时继承。静态设置不控制请求级 `Emitter`。
 
 注意：debug 采集会复制 DataFrame 快照，对性能有影响，生产环境默认应关闭。
 
@@ -98,7 +110,7 @@ JSON 配置中体现为：
 }
 ```
 
-Pine 执行时，`debug: true` 的算子输出详细日志，`debug: false` 或未设置的算子不输出。
+Pine 执行时，最终静态 debug 值为 true 的算子输出详细日志；为 false 时不输出，未设置的算子继承 Flow 默认值。
 
 #### 引擎侧 debug 日志格式
 
@@ -151,7 +163,7 @@ func (o *MyOp) Execute(ctx context.Context, in *pine.OperatorInput, out *pine.Op
 | `item_output` | 否 | `[]` | 写入的 item 字段 |
 | `common_defaults` | 否 | `{}` | common 字段的缺失值默认值 |
 | `item_defaults` | 否 | `{}` | item 字段的缺失值默认值 |
-| `debug` | 否 | `False` | 是否打印调试日志 |
+| `debug` | 否 | 继承 Flow | 是否打印静态调试日志与采集快照 |
 
 ## 暂不计划
 
