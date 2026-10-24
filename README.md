@@ -133,7 +133,7 @@ pineapple/
 │   │   └── pineapple-run/      # 单次执行
 │   ├── internal/           #   内部包（config/dag/dataframe/runtime）
 │   ├── operators/          #   内置算子
-│   ├── pkg/                #   可复用库（server/codegen/metrics/resource）
+│   ├── pkg/                #   可复用库（server/codegen/metrics/resource/debug）
 │   ├── integration/        #   集成测试
 │   └── benchmarks/         #   性能基准测试
 ├── pine-java/              # Java 执行引擎 (Pine-Java)
@@ -400,6 +400,7 @@ def normalize_json(text):
 | 算子参考 | [`doc/operators/`](doc/operators/README.md) — 所有内置算子详细说明 |
 | Pipeline 编写 | [`doc/guide_pipeline.md`](doc/guide_pipeline.md) — Apple DSL 使用指南 |
 | 算子开发 | [`doc/guide_operator.md`](doc/guide_operator.md) — Go 算子开发指南 |
+| Go 请求级 Debug | [`llmdoc/reference/operator-contract.md`](llmdoc/reference/operator-contract.md#请求级-debuggo-嵌入-api) — 测试请求注入采集接口，算子主动记录并保留并行分片；Session 与导出由使用方实现 |
 | 第三方扩展 | [`design_doc/12_distribution.md`](design_doc/12_distribution.md) — 不修改源码添加自定义算子 |
 | API 参考 | [`doc/api.md`](doc/api.md) — HTTP 接口说明 |
 | LLM 检索文档 | [`llmdoc/`](llmdoc/) — 面向 AI 协作的稳定知识地图（架构 / 决策 / 反思 / 索引） |

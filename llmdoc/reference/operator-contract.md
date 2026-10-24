@@ -12,6 +12,7 @@
 - `pine-go/operator.go`
 - `pine-go/operator_io.go`
 - `pine-go/registry.go`
+- `pine-go/pkg/debug/debug.go:Emitter` — Go 请求级 Debug 接口及实现方契约
 - `pine-go/operators/` 下的代表性实现
 
 ### Pine-Java 对等实现
@@ -244,6 +245,8 @@ C++ 侧提供注册路径：
 
 若算子实现 debug-aware 接口，引擎在 `Init()` 后注入逐算子调试设置。
 
+这是编译期的静态日志/快照设置；下述请求级 Debug 接口不读取或修改该设置，也不要求算子嵌入 `DebugHolder`。
+
 典型模式：
 
 - 嵌入 `DebugHolder`
@@ -252,6 +255,22 @@ C++ 侧提供注册路径：
 大多数算子仅需运行时 trace 捕获，但 Lua 是同时嵌入 metadata 和 debug holder 的示例。
 
 `DebugHolder.OperatorName()` 会返回引擎注入的算子实例名。它不仅用于 debug log，也可被后续 `MetricsAware` 注入阶段复用，例如把 operator 名作为外部 metric label 值。
+
+### 请求级 Debug（Go 嵌入 API）
+
+可信测试入口通过 `pine-go/pkg/debug/debug.go:WithEmitter` 向请求 context 注入实现方的 `Emitter`。公开契约只依赖标准库，不依赖私有采集 SDK；本接口未增加 JSON/DSL 参数或其他运行时接口。
+
+默认无需初始化 Debug，也无需安装空实现。使用 Pineapple 的业务仓库负责初始化采集 SDK，并在请求入口完成授权、创建本次请求的 Session，再将可用的 Emitter 注入 context；Session 的结束与导出组件的关闭也由业务仓库负责。普通请求或未获得采集 Session 的请求保持 recorder 为 nil，调度器只查询 context，不创建 Recorder 或 Debug context，保留原有分片执行。
+
+- 算子保持原有 `Execute(ctx, in, out)` 签名，在调用内、候选循环外读取一次 `pine-go/pkg/debug/debug.go:FromContext`。未注入时返回真正的 nil；材料构造、调试专用遍历和拷贝必须放进非 nil 分支。Go 会先求值方法参数，直接调用 nil recorder 的 `Emit` 不能免掉参数构造成本。
+- 在业务材料已可用的位置主动调用 `pine-go/pkg/debug/debug.go:Recorder.Emit`。调度器自动绑定 `NodeMeta` 的算子名、类型名和直接父 SubFlow；Session/request 标识和业务 `kind/data` 由使用方提供。Debug 材料不写 `OperatorOutput`，不增加业务输出字段。
+- Recorder 只保存在本次执行的局部变量或 context 中，不写入跨请求共享的算子实例、`CompiledOperator` 或 plan。
+- `Emitter` **必须支持并发调用，并在返回前同步消费或冻结材料**，不能将 Frame view、嵌套可变容器或池化输出直接留给后台。Session 生命周期、数据类型和容量约束、编码、异步导出及并发保护由 SDK/实现方负责；完整契约以 `pine-go/pkg/debug/debug.go` 的 package doc 为准。
+- Pineapple 隔离 `Emitter.Emit` 抛出的 panic；调用前的业务材料构造仍由算子负责。实现方不能等待网络 I/O，不得让采集失败改变业务结果。
+
+注入 recorder 不改变 `data_parallel` 的分片方式。Go 调度器先绑定当前节点的信息，再把节点 context 传给各分片；独立 DAG 节点也继续并发。各分片看到自己的输入，可分别记录事件；同一节点的分片共享 `NodeMeta`，框架不额外分配分片标识、不合并材料、不保证事件顺序。业务如需关联具体 item，应在材料中携带 item 标识。加载期的 `ConcurrentSafe` 与输出声明校验仍然生效。
+
+本接口不提供业务禁写策略，开启 Debug 后算子的业务写入保持正常行为；禁写机制另行设计。
 
 ### `LoggerAware`（算子日志规范）
 
@@ -485,7 +504,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 1. 包级文档注释描述算子名、类型、参数和元数据契约
 2. `init()` 函数调用 `pine.Register(...)`
 3. 结构体嵌入 `pine.MetadataHolder`（当需要元数据时）
-4. 可选嵌入 `pine.DebugHolder`（当需要调试信息时）
+4. 可选嵌入 `pine.DebugHolder`（静态配置日志）；请求级事件使用 `pkg/debug` 从 context 获取 recorder
 5. 可选实现 `pine.StatsProvider`（当需要把进程内累计统计暴露到 `/stats` 时）
 6. 可选实现 `pine.MetricsAware`（当需要向外部 provider 记录指标时）
 7. `Init()` 用于参数解析和一次性初始化
