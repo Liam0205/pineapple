@@ -97,7 +97,10 @@ struct OperatorSchema {
   OpType type;
   std::string description;
   std::map<std::string, ParamSchema> params;
-  MetadataDoc metadata;  // Optional; empty fields render as "-" in generated markdown.
+  // Optional; empty fields render as "-" in generated markdown. The default
+  // member initializer lets callers aggregate-initialize a schema without it
+  // under -Wextra (-Wmissing-field-initializers).
+  MetadataDoc metadata{};
 };
 
 using OperatorFactory = std::function<std::unique_ptr<Operator>()>;
