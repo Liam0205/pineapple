@@ -45,7 +45,7 @@
 
 逐算子 debug 同样采用 nullable 三态（Go `*bool`、Java `Boolean`、C++ `std::optional<bool>`）：未设置时继承 flow-level 全局 debug；显式设置时覆盖全局值。因此全局 debug 不再单向覆写所有算子的 `opCfg.Debug`，而是仅作为未显式设置 debug 的算子的默认值。
 
-Go 另有请求级事件接口 `pine-go/pkg/debug/debug.go:WithEmitter`，属于 Go 嵌入 API，契约的权威副本是该文件的 package doc；调度器侧实现见「调度模型」。
+另有请求级事件接口 `pine-go/pkg/debug/debug.go:WithEmitter`（Java `Recorder.withEmitter`、C++ `debug::with_emitter` 为对等实现，issue #219），属于嵌入 API，契约的权威副本是该文件的 package doc，三运行时 API 对照见 `reference/operator-contract.md`「请求级 Debug（嵌入 API）」；调度器侧实现见「调度模型」。
 
 该设计明确区分以下运行时注入：
 
@@ -123,7 +123,7 @@ Go 另有请求级事件接口 `pine-go/pkg/debug/debug.go:WithEmitter`，属于
 
 图按 DSL 声明顺序存储算子。每个节点追踪前驱和后继索引。名称→索引查找支持显式 source 引用和 merge 边构建。
 
-每个 `Node` 还带有 `SubFlow` 字段，用来记录该算子直接归属的 SubFlow 层级路径，例如 `recall/candidates`。顶层算子记为空字符串。这个字段不参与调度、冒险分析或拓扑约束；它供 collapsed DAG 渲染分组，也作为 Go 请求级 Debug 的节点元信息。
+每个 `Node` 还带有 `SubFlow` 字段，用来记录该算子直接归属的 SubFlow 层级路径，例如 `recall/candidates`。顶层算子记为空字符串。这个字段不参与调度、冒险分析或拓扑约束；它供 collapsed DAG 渲染分组，也作为请求级 Debug 的节点元信息（Java `DAG.Node.subFlow`、C++ `Node::subflow` 同义）。
 
 声明顺序很重要，因为冒险追踪器按序列遍历算子并从该顺序推导因果关系。
 
@@ -296,7 +296,7 @@ Go 侧在 `pine.NewEngine()` 编译算子时，通过 interface 类型断言（`
 
 `data_parallel` 仅是单节点运行时优化：它不改变 DAG 构建、依赖推导或图结构，调度器拿到的仍是同一张执行图。
 
-请求级 Debug 的调度器侧实现：`pine-go/internal/runtime/scheduler.go:Run` 在每个实际执行节点的闭包内查询一次 recorder，不在 `Run` 入口捕获；未注入时不创建 Debug context 或 Recorder，只多一次 context 查询和分支。注入 recorder 不改变 DAG 并发和 `data_parallel` 分片。
+请求级 Debug 的调度器侧实现：`pine-go/internal/runtime/scheduler.go:Run` 在每个实际执行节点的闭包内查询一次 recorder，不在 `Run` 入口捕获；未注入时不创建 Debug context 或 Recorder，只多一次 context 查询和分支。注入 recorder 不改变 DAG 并发和 `data_parallel` 分片。Java `pine-java/src/.../Engine.java:runOperator` 与 C++ `pine-cpp/src/runtime/engine.cpp:run_dag` 的节点体以同样方式在分派前（含 `data_parallel`）从 run 上下文派生绑定后的上下文。
 
 例外：`Emitter` 会被不同节点和同一节点的不同分片并发调用，必须并发安全，并在返回前冻结材料（输入 view 与池化 output 过后会变）。这一条有意与 package doc 重复，因为违反时只会产生静默 data race 或被改写的调试材料，本仓测试抓不到。其余实现方契约以 `pine-go/pkg/debug/debug.go` 的 package doc 为准。
 

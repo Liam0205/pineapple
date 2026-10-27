@@ -400,7 +400,7 @@ def normalize_json(text):
 | 算子参考 | [`doc/operators/`](doc/operators/README.md) — 所有内置算子详细说明 |
 | Pipeline 编写 | [`doc/guide_pipeline.md`](doc/guide_pipeline.md) — Apple DSL 使用指南 |
 | 算子开发 | [`doc/guide_operator.md`](doc/guide_operator.md) — Go 算子开发指南 |
-| Go 请求级 Debug | [`llmdoc/reference/operator-contract.md`](llmdoc/reference/operator-contract.md#请求级-debuggo-嵌入-api) — 测试请求注入采集接口，算子主动记录并保留并行分片；Session 与导出由使用方实现 |
+| 请求级 Debug | [`llmdoc/reference/operator-contract.md`](llmdoc/reference/operator-contract.md#请求级-debug嵌入-api) — Go / Java / C++ 嵌入 API：测试请求注入采集接口，算子主动记录并保留并行分片；Session 与导出由使用方实现 |
 | 第三方扩展 | [`design_doc/12_distribution.md`](design_doc/12_distribution.md) — 不修改源码添加自定义算子 |
 | API 参考 | [`doc/api.md`](doc/api.md) — HTTP 接口说明 |
 | 版本迁移 | [`doc/migration-0.12.md`](doc/migration-0.12.md) — 0.11 → 0.12：Java/C++ 算子签名改为接收 `RequestContext`，取消不再报成功 |
