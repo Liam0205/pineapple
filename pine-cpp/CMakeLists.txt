@@ -194,6 +194,11 @@ add_executable(pineapple-cause-chain-probe cmd/pineapple-cause-chain-probe/main.
 target_link_libraries(pineapple-cause-chain-probe PRIVATE pine_cpp_core)
 pine_cpp_target_warnings(pineapple-cause-chain-probe)
 
+# Embedded-API cancellation parity probe (issue #217, cross-validate §22).
+add_executable(pineapple-cancel-probe cmd/pineapple-cancel-probe/main.cpp)
+target_link_libraries(pineapple-cancel-probe PRIVATE pine_cpp_core)
+pine_cpp_target_warnings(pineapple-cancel-probe)
+
 # Example: multiple pipelines bound to distinct endpoints with per-engine
 # log prefixes (issue #172). Built by default so the example cannot rot.
 add_executable(multi_pipeline_server examples/multi_pipeline_server.cpp)
