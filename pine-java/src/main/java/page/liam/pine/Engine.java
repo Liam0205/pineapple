@@ -6,6 +6,7 @@ import page.liam.pine.operators.AllOperators;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -56,6 +57,12 @@ public class Engine {
         return opts -> opts.metricsProvider = provider;
     }
 
+    /**
+     * Engine-wide default for {@link RequestContext#resources()}: used for a
+     * request whose context carries no provider of its own. Operators read
+     * resources from the context only, as in pine-go; this option just saves
+     * callers wrapping every context with {@link RequestContext#withResources}.
+     */
     public static Option withResources(ResourceProvider resources) {
         return opts -> opts.resources = resources;
     }
@@ -173,16 +180,6 @@ public class Engine {
                 ((MetricsAware) op).setMetricsProvider(
                     eo.metricsProvider != null ? eo.metricsProvider : NopProvider.getInstance());
             }
-            if (op instanceof ResourceAware) {
-                // Align with pine-{go,cpp}: don't fail at init when ResourceProvider
-                // is missing. The operator itself throws at execute time so that
-                // pipelines without resource-dependent operators can construct even
-                // when no provider is supplied.
-                if (eo.resources != null) {
-                    ((ResourceAware) op).setResourceProvider(eo.resources);
-                }
-            }
-
             int effectiveDataParallel = opCfg.dataParallel;
             if (effectiveDataParallel < 0) {
                 throw new PineErrors.ValidationError("operator \"" + name + "\": data_parallel must be >= 1, got " + effectiveDataParallel);
@@ -232,10 +229,17 @@ public class Engine {
     }
 
     public Result execute(Map<String, Object> common, List<Map<String, Object>> items) {
-        return execute(CancellationToken.create(), common, items);
+        return execute(RequestContext.background(), common, items);
     }
 
-    public Result execute(CancellationToken externalToken, Map<String, Object> common, List<Map<String, Object>> items) {
+    /**
+     * Runs the DAG for one request under {@code ctx}. If {@code ctx} is
+     * cancelled (or its deadline passes) before every operator ran, and no
+     * operator failed on its own, the Result's error is a
+     * {@link PineErrors.CancelledError}; the Result still carries the writes
+     * of the operators that completed.
+     */
+    public Result execute(RequestContext ctx, Map<String, Object> common, List<Map<String, Object>> items) {
         if (common == null) {
             throw new PineErrors.ValidationError("request.Common must not be nil");
         }
@@ -258,6 +262,19 @@ public class Engine {
             }
         }
 
+        if (resourceProvider != null && ctx.resources() == null) {
+            ctx = RequestContext.withResources(ctx, resourceProvider);
+        }
+        // The run context is cancelled by the first fatal error (stopping the
+        // siblings) or by the caller; closing it unlinks it from the caller's
+        // context once the run is over.
+        try (RequestContext.Cancelable runCtx = RequestContext.withCancel(ctx)) {
+            return run(ctx, runCtx, common, items);
+        }
+    }
+
+    private Result run(RequestContext callerCtx, RequestContext.Cancelable runCtx,
+                       Map<String, Object> common, List<Map<String, Object>> items) {
         Frame frame = Frame.create(storageMode, common, items);
         int n = operators.size();
 
@@ -275,10 +292,14 @@ public class Engine {
         OpTrace[] traces = new OpTrace[n];
         List<Warning> warnings = Collections.synchronizedList(new ArrayList<>());
         AtomicReference<Exception> fatalError = new AtomicReference<>();
-        CancellationToken cancellationToken = CancellationToken.childOf(externalToken);
         AtomicLong activeOps = new AtomicLong();
+        // Set when a node returns without running because the run context was
+        // cancelled. With no fatal error that can only be the caller's
+        // cancellation, and the run is reported as CancelledError rather than
+        // as a success with missing writes.
+        AtomicBoolean notRun = new AtomicBoolean();
 
-        ScheduleContext ctx = new ScheduleContext(frame, applied, traces, warnings, fatalError, cancellationToken, activeOps);
+        ScheduleContext ctx = new ScheduleContext(frame, applied, traces, warnings, fatalError, runCtx, activeOps);
 
         for (int i = 0; i < n; i++) {
             final int idx = i;
@@ -295,17 +316,22 @@ public class Engine {
                             // predecessor failed — fatalError already set
                         }
                         if (fatalError.get() != null) return;
-                        if (cancellationToken.isCancelled()) return;
                     }
 
                     if (fatalError.get() != null) return;
+                    // Checked for root nodes too: a context cancelled before
+                    // the run starts must not let any operator run.
+                    if (runCtx.isCancelled()) {
+                        notRun.set(true);
+                        return;
+                    }
 
                     runOperator(ctx, idx, cop);
 
                 } catch (Exception e) {
                     if (fatalError.compareAndSet(null,
                             new PineErrors.ExecutionError(opName, e))) {
-                        cancellationToken.cancel();
+                        runCtx.cancel();
                         for (CompletableFuture<Void> f : applied) {
                             f.complete(null);
                         }
@@ -313,7 +339,7 @@ public class Engine {
                 } catch (Error e) {
                     if (fatalError.compareAndSet(null,
                             new PineErrors.PanicError(opName, e))) {
-                        cancellationToken.cancel();
+                        runCtx.cancel();
                         for (CompletableFuture<Void> f : applied) {
                             f.complete(null);
                         }
@@ -328,6 +354,18 @@ public class Engine {
             allDone.join();
         } catch (java.util.concurrent.CompletionException ignored) {
             // all futures are complete (possibly via force-complete in fatal path)
+        }
+
+        // The run context is cancelled only by a fatal error or by the
+        // caller, so a node that did not run with no fatal error means the
+        // caller cancelled. Decided before the metrics below so
+        // dag_executions_total counts the run as an error, not a success.
+        if (fatalError.get() == null && notRun.get()) {
+            PineErrors.ContextException cause = callerCtx.err();
+            if (cause == null) {
+                cause = runCtx.err();
+            }
+            fatalError.compareAndSet(null, new PineErrors.CancelledError(cause));
         }
 
         // DAG-level metrics
@@ -416,10 +454,10 @@ public class Engine {
         Exception execErr = null;
         try {
             if (cop.dataParallel > 1) {
-                output = ParallelExecutor.execute(ctx.cancellationToken, cop.instance, input, cop.dataParallel, cop.name, executor);
+                output = ParallelExecutor.execute(ctx.runCtx, cop.instance, input, cop.dataParallel, cop.name, executor);
             } else {
                 output = new OperatorOutput();
-                cop.instance.execute(ctx.cancellationToken, input, output);
+                cop.instance.execute(ctx.runCtx, input, output);
             }
         } catch (PineErrors.OperatorException e) {
             output = null;
@@ -470,7 +508,7 @@ public class Engine {
                 wrapped = new PineErrors.PanicError(cop.name, execErr);
             }
             if (ctx.fatalError.compareAndSet(null, wrapped)) {
-                ctx.cancellationToken.cancel();
+                ctx.runCtx.cancel();
                 for (CompletableFuture<Void> f : ctx.applied) {
                     f.complete(null);
                 }
@@ -517,7 +555,7 @@ public class Engine {
                         new Exception("apply output: " + applyErr.getMessage(), applyErr));
             }
             if (ctx.fatalError.compareAndSet(null, wrapped)) {
-                ctx.cancellationToken.cancel();
+                ctx.runCtx.cancel();
                 for (CompletableFuture<Void> f : ctx.applied) {
                     f.complete(null);
                 }
@@ -664,18 +702,18 @@ public class Engine {
         final OpTrace[] traces;
         final List<Warning> warnings;
         final AtomicReference<Exception> fatalError;
-        final CancellationToken cancellationToken;
+        final RequestContext.Cancelable runCtx;
         final AtomicLong activeOps;
 
         ScheduleContext(Frame frame, CompletableFuture<Void>[] applied, OpTrace[] traces,
                         List<Warning> warnings, AtomicReference<Exception> fatalError,
-                        CancellationToken cancellationToken, AtomicLong activeOps) {
+                        RequestContext.Cancelable runCtx, AtomicLong activeOps) {
             this.frame = frame;
             this.applied = applied;
             this.traces = traces;
             this.warnings = warnings;
             this.fatalError = fatalError;
-            this.cancellationToken = cancellationToken;
+            this.runCtx = runCtx;
             this.activeOps = activeOps;
         }
     }

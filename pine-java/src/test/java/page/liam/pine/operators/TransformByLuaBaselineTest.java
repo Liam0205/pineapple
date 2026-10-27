@@ -58,7 +58,7 @@ public class TransformByLuaBaselineTest {
         items.add(row);
         OperatorInput input = new OperatorInput(new LinkedHashMap<>(), items);
         OperatorOutput output = new OperatorOutput();
-        op.execute(CancellationToken.create(), input, output);
+        op.execute(RequestContext.background(), input, output);
         return output.getItemWrites().get(0).get("item_y");
     }
 

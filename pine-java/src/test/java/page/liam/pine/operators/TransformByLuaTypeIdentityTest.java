@@ -50,7 +50,7 @@ public class TransformByLuaTypeIdentityTest {
         }
         OperatorInput input = new OperatorInput(new LinkedHashMap<>(), items);
         OperatorOutput output = new OperatorOutput();
-        op.execute(CancellationToken.create(), input, output);
+        op.execute(RequestContext.background(), input, output);
         List<Object> out = new ArrayList<>();
         for (int i = 0; i < itemValues.size(); i++) {
             out.add(output.getItemWrites().get(i).get("item_y"));

@@ -136,7 +136,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         if (debug) {
             int fields = commonInput().size();
             int nonNil = 0;
@@ -154,9 +154,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
         try {
             if (isItemMode) {
-                executeForItem(token, globals, input, output);
+                executeForItem(ctx, globals, input, output);
             } else {
-                executeForCommon(token, globals, input, output);
+                executeForCommon(ctx, globals, input, output);
             }
         } catch (LuaError e) {
             throw new PineErrors.OperatorException("lua: " + e.getMessage(), e);
@@ -188,7 +188,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
     }
 
-    private void executeForItem(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
+    private void executeForItem(RequestContext ctx, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
         for (String field : commonInput()) {
             setGlobal(globals, field, toLua(input.common(field)));
         }
@@ -211,7 +211,13 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
 
         for (int i = 0; i < n; i++) {
-            if (token.isCancelled()) break;
+            // A running Lua call cannot be interrupted (luaj compiles to
+            // bytecode with no instruction hook), so cancellation is only
+            // observed between items. Stopping here fails the operator
+            // instead of returning the remaining items unwritten.
+            if (ctx.isCancelled()) {
+                throw new Exception("lua: item[" + i + "]: " + ctx.err().getMessage(), ctx.err());
+            }
             for (int k = 0; k < fields.size(); k++) {
                 setGlobal(globals, fields.get(k), toLua(cols[k][i]));
             }
@@ -228,8 +234,7 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
         }
     }
 
-    private void executeForCommon(CancellationToken token, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
-        if (token.isCancelled()) return;
+    private void executeForCommon(RequestContext ctx, Globals globals, OperatorInput input, OperatorOutput output) throws Exception {
 
         for (String field : commonInput()) {
             setGlobal(globals, field, toLua(input.common(field)));
@@ -245,7 +250,9 @@ public class TransformByLua extends AbstractOperator implements ConcurrentSafe, 
             setGlobal(globals, field, tbl);
         }
 
-        if (token.isCancelled()) return;
+        if (ctx.isCancelled()) {
+            throw new Exception("lua: " + ctx.err().getMessage(), ctx.err());
+        }
 
         LuaValue fn = globals.get(funcName);
         if (fn.isnil()) {

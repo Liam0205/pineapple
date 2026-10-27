@@ -24,7 +24,7 @@ class RecallFeedDataStub extends AbstractOperator implements AdditiveWritesRowSe
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         for (int i = 0; i < itemCount; i++) {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", (double) (i + 1));
@@ -47,7 +47,7 @@ class TransformRedisZrangebyscoreStub extends AbstractOperator {
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         input.common("user_id");
         output.setCommon("impression_ids", java.util.List.of());
         output.setCommon("impression_cache_hit", true);
@@ -65,7 +65,7 @@ class TransformHydrateStub extends AbstractOperator implements ConsumesRowSet {
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         for (int i = 0; i < input.itemCount(); i++) {
             input.item(i, "item_id");
             input.item(i, "type");

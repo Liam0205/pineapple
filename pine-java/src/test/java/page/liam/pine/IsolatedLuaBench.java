@@ -28,7 +28,7 @@ import java.util.*;
 public class IsolatedLuaBench {
     public static void main(String[] args) throws Exception {
         AllOperators.ensureRegistered();
-        CancellationToken token = CancellationToken.create();
+        RequestContext token = RequestContext.background();
 
         System.out.printf("%-16s %-7s %-14s %-14s %s%n", "case", "items", "native ns/op", "lua ns/op", "lua/native");
         System.out.println("-".repeat(64));
@@ -101,7 +101,7 @@ public class IsolatedLuaBench {
         }
     }
 
-    static double bench(Operator op, CancellationToken token, OperatorInput input, int iters) throws Exception {
+    static double bench(Operator op, RequestContext token, OperatorInput input, int iters) throws Exception {
         // Warmup also lets C2 compile the hot path before timing starts.
         for (int i = 0; i < Math.max(200, iters / 10); i++) {
             op.execute(token, input, new OperatorOutput());

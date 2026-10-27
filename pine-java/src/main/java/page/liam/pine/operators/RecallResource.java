@@ -10,9 +10,8 @@ import java.util.Map;
  * Metadata contract
  *   ItemOutput: [<fields present in the resource items>]
  */
-public class RecallResource extends AbstractOperator implements ResourceAware, page.liam.pine.AdditiveWritesRowSet {
+public class RecallResource extends AbstractOperator implements page.liam.pine.AdditiveWritesRowSet {
     private String resourceName;
-    private ResourceProvider resourceProvider;
 
     @Override
     public void init(OperatorParams params) {
@@ -20,13 +19,9 @@ public class RecallResource extends AbstractOperator implements ResourceAware, p
     }
 
     @Override
-    public void setResourceProvider(ResourceProvider provider) {
-        this.resourceProvider = provider;
-    }
-
-    @Override
     @SuppressWarnings("unchecked")
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+        ResourceProvider resourceProvider = ctx.resources();
         if (resourceProvider == null) {
             throw new PineErrors.OperatorException("recall_resource: no resource provider in context");
         }

@@ -318,15 +318,18 @@ public class IntegrationTest {
         byte[] config = buildConfig(operators, Collections.singletonList("recall"), flowContract);
         Engine engine = Engine.create(config);
 
-        CancellationToken token = CancellationToken.create();
-        token.cancel();
+        RequestContext.Cancelable ctx = RequestContext.withCancel(RequestContext.background());
+        ctx.cancel();
 
-        Engine.Result result = engine.execute(token, new HashMap<>(), new ArrayList<>());
+        Engine.Result result = engine.execute(ctx, new HashMap<>(), new ArrayList<>());
 
-        // With pre-cancelled token, the engine should handle gracefully:
-        // either produce partial/empty results or complete without throwing
-        assertNotNull(result);
+        // A pre-cancelled context runs nothing and says so (issue #217),
+        // rather than returning success with the recall's items missing.
+        assertInstanceOf(PineErrors.CancelledError.class, result.error);
+        assertEquals("pine: execution cancelled: context canceled", result.error.getMessage());
         assertNotNull(result.common);
+        assertTrue(result.items.isEmpty());
+        assertTrue(result.trace.isEmpty());
     }
 
     @Test

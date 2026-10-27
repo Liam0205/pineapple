@@ -11,13 +11,12 @@ import java.util.Map;
  *   ItemInput:  [<lookup_key>]
  *   ItemOutput: [<output_field>]
  */
-public class TransformResourceLookup extends AbstractOperator implements ConcurrentSafe, ResourceAware {
+public class TransformResourceLookup extends AbstractOperator implements ConcurrentSafe {
     private String resourceName;
     private String lookupKey;
     private String outputField;
     private Object defaultValue;
     private boolean hasDefault;
-    private ResourceProvider resourceProvider;
 
     @Override
     public void init(OperatorParams params) {
@@ -31,13 +30,9 @@ public class TransformResourceLookup extends AbstractOperator implements Concurr
     }
 
     @Override
-    public void setResourceProvider(ResourceProvider provider) {
-        this.resourceProvider = provider;
-    }
-
-    @Override
     @SuppressWarnings("unchecked")
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+        ResourceProvider resourceProvider = ctx.resources();
         if (resourceProvider == null) {
             throw new PineErrors.OperatorException("transform_resource_lookup: no resource provider in context");
         }

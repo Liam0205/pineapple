@@ -2,6 +2,7 @@ package page.liam.pine.operators;
 
 import org.junit.jupiter.api.Test;
 import page.liam.pine.Codegen;
+import page.liam.pine.RequestContext;
 import page.liam.pine.ResourceRegistry;
 import page.liam.pine.metrics.Counter;
 import page.liam.pine.metrics.Gauge;
@@ -209,5 +210,12 @@ public class RedisConnResourceTest {
 
         // Unknown runtime exception falls through to "error".
         assertEquals("error", RedisConnResource.redisCommandStatus(new RuntimeException("boom")));
+
+        // Context errors follow pine-go: deadline → "timeout", cancel → "error".
+        RequestContext.Cancelable cancelled = RequestContext.withCancel(RequestContext.background());
+        cancelled.cancel();
+        assertEquals("error", RedisConnResource.redisCommandStatus(cancelled.err()));
+        assertEquals("timeout", RedisConnResource.redisCommandStatus(
+                RequestContext.withTimeout(RequestContext.background(), java.time.Duration.ZERO).err()));
     }
 }

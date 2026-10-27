@@ -50,6 +50,11 @@ public class PineServer {
 
     private final HttpStats httpStats = new HttpStats();
 
+    // Parent of every HTTP request's context. stop() cancels it first, so
+    // in-flight /execute and custom-route runs stop at their next
+    // cancellation point and answer instead of holding shutdown open.
+    private final RequestContext.Cancelable serverCtx = RequestContext.withCancel(RequestContext.background());
+
     private static final class Snapshot {
         final Engine engine;
         final ResourceProvider resources;
@@ -381,17 +386,24 @@ public class PineServer {
      * message "engine not loaded" (matching Go's ErrEngineNotLoaded) when no
      * snapshot is live.
      *
-     * <p>Resources are bound to the engine at build time (unlike Go, which
-     * injects them per-call via context), so this simply drives the held
-     * snapshot's engine.
+     * <p>Equivalent to {@code execute(RequestContext.background(), common, items)}.
      */
     public Engine.Result execute(Map<String, Object> common, List<Map<String, Object>> items) {
+        return execute(RequestContext.background(), common, items);
+    }
+
+    /**
+     * Run the pipeline against the live snapshot under {@code ctx}. As in Go's
+     * Server.Execute, the snapshot's resources are attached to {@code ctx}
+     * for this call, so operators see them through {@link RequestContext#resources()}.
+     */
+    public Engine.Result execute(RequestContext ctx, Map<String, Object> common, List<Map<String, Object>> items) {
         Snapshot snap = acquireSnapshot();
         if (snap == null) {
             throw new IllegalStateException("engine not loaded");
         }
         try {
-            return snap.engine.execute(common, items);
+            return snap.engine.execute(RequestContext.withResources(ctx, snap.resources), common, items);
         } finally {
             snap.release();
         }
@@ -479,7 +491,7 @@ public class PineServer {
             Map<String, Object> common = req != null ? req.common : null;
             List<Map<String, Object>> items = req != null ? req.items : null;
             try {
-                Engine.Result result = execute(common, items);
+                Engine.Result result = execute(serverCtx, common, items);
                 route.egress.apply(exchange, result, null);
             } catch (IOException e) {
                 // Egress already owns the response; a write failure here has
@@ -620,6 +632,13 @@ public class PineServer {
     }
 
     public void stop() {
+        // Cancel in-flight requests before the HTTP drain below, so it waits
+        // for responses that are now being written rather than for runs that
+        // may take arbitrarily long. A run reports CancelledError (or the
+        // ExecutionError of an operator that stopped on the context). A Lua
+        // call already running is the exception: luaj cannot interrupt it, so
+        // the drain may still wait up to its 5 s bound for that request.
+        serverCtx.cancel();
         if (watcherExecutor != null) {
             watcherExecutor.shutdownNow();
             // Wait for an in-flight checkReload to finish: shutdownNow only
@@ -762,7 +781,8 @@ public class PineServer {
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> items = (List<Map<String, Object>>) req.getOrDefault("items", Collections.emptyList());
 
-            Engine.Result result = snap.engine.execute(common, items);
+            Engine.Result result = snap.engine.execute(
+                    RequestContext.withResources(serverCtx, snap.resources), common, items);
 
             Map<String, Object> resp = new LinkedHashMap<>();
             // Sort payload keys to mirror Go encoding/json for `map[string]any`

@@ -48,11 +48,63 @@ public final class PineErrors {
     }
 
     public static class OperatorException extends Exception {
+        // Package-private: lets ContextException skip the stack trace, so a
+        // context's single shared error instance stays cheap to create.
+        OperatorException(String message, boolean writableStackTrace) {
+            super(message, null, false, writableStackTrace);
+        }
         public OperatorException(String message) {
             super(message);
         }
         public OperatorException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    /**
+     * The error a {@link RequestContext} reports once it is done: "context
+     * canceled" or "context deadline exceeded", the same text as Go's
+     * context.Canceled / context.DeadlineExceeded. An operator that stops
+     * early because its context is done throws this (see
+     * {@link RequestContext#throwIfCancelled()}); the engine then reports an
+     * ExecutionError naming that operator, exactly as pine-go does when an
+     * operator returns ctx.Err().
+     */
+    public static class ContextException extends OperatorException {
+        private final boolean deadlineExceeded;
+
+        ContextException(boolean deadlineExceeded) {
+            // No stack trace: the one instance is created on whichever thread
+            // cancels (often the deadline timer), so its trace says nothing
+            // about the operator that later observes it.
+            super(deadlineExceeded ? "context deadline exceeded" : "context canceled", false);
+            this.deadlineExceeded = deadlineExceeded;
+        }
+
+        /** True for a passed deadline, false for an explicit cancel. */
+        public boolean isDeadlineExceeded() { return deadlineExceeded; }
+    }
+
+    /**
+     * The caller's context was cancelled (or its deadline passed) before the
+     * DAG finished: at least one operator never ran because of it, while no
+     * operator failed on its own. The cause is the caller context's
+     * {@link ContextException}. The Result carrying this error still holds
+     * the writes of the operators that did complete.
+     */
+    public static class CancelledError extends RuntimeException {
+        public CancelledError(ContextException cause) {
+            super(cause.getMessage(), cause);
+        }
+
+        @Override
+        public ContextException getCause() {
+            return (ContextException) super.getCause();
+        }
+
+        @Override
+        public String getMessage() {
+            return "pine: execution cancelled: " + getCause().getMessage();
         }
     }
 

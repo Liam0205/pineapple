@@ -1,5 +1,7 @@
 package page.liam.pine.operators;
 
+import page.liam.pine.PineErrors;
+import page.liam.pine.RequestContext;
 import page.liam.pine.metrics.Counter;
 import page.liam.pine.metrics.Gauge;
 import page.liam.pine.metrics.Histogram;
@@ -25,7 +27,7 @@ import java.util.function.Function;
  * pine-go's RedisConnResource. The metric names, labels and probe cadence match
  * the Go reference byte-for-byte.
  *
- * <p>Operators wrap each Redis call in {@link #runCommand(String, Function)}
+ * <p>Operators wrap each Redis call in {@link #runCommand(RequestContext, String, Function)}
  * to get the per-command observability metrics (latency histogram + status
  * counter) for free. pine-go gets the same coverage via go-redis's hook
  * interface; Jedis has no equivalent, so the resource exposes a callable
@@ -111,7 +113,20 @@ public final class RedisConnResource implements AutoCloseable {
      * @param action  The Jedis call to time. Receives a borrowed Jedis;
      *                must not retain it past the lambda.
      */
-    public <T> T runCommand(String command, Function<Jedis, T> action) {
+    public <T> T runCommand(RequestContext ctx, String command, Function<Jedis, T> action)
+            throws PineErrors.ContextException {
+        // A done context fails the command before it is sent, as go-redis
+        // does (its pool wait returns ctx.Err()), so the operator reports
+        // "<Cmd>(key): context canceled". A command already in flight is not
+        // interrupted: Jedis has no per-call cancellation, only the socket
+        // timeouts configured on the resource.
+        PineErrors.ContextException done = ctx.err();
+        if (done != null) {
+            if (cmdTotal != null) {
+                recordCommand(command, 0, done);
+            }
+            throw done;
+        }
         if (cmdTotal == null) {
             try (Jedis jedis = pool.getResource()) {
                 return action.apply(jedis);
@@ -159,6 +174,11 @@ public final class RedisConnResource implements AutoCloseable {
     static String redisCommandStatus(Throwable err) {
         if (err == null) {
             return "ok";
+        }
+        // Same split as pine-go: a passed deadline is a timeout, an explicit
+        // cancel is a request-lifecycle event and lands in "error".
+        if (err instanceof PineErrors.ContextException) {
+            return ((PineErrors.ContextException) err).isDeadlineExceeded() ? "timeout" : "error";
         }
         // Pool exhaustion: Jedis's pool layer wraps commons-pool2's
         // NoSuchElementException as JedisException with a recognisable msg.

@@ -1,7 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
-import page.liam.pine.CancellationToken;
+import page.liam.pine.RequestContext;
 import page.liam.pine.OperatorParams;
 import page.liam.pine.GoFormat;
 import page.liam.pine.OperatorInput;
@@ -27,7 +27,7 @@ public class FilterCondition extends AbstractOperator implements page.liam.pine.
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         String field = itemInput().get(0);
         // Normalize BOTH sides through the same representation before comparing.
         // GoFormat.sprint preserves the box type on purpose, because Go's %v prints a

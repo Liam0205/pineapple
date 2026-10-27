@@ -20,9 +20,8 @@ import java.util.stream.Collectors;
  * resource_name. Multiple Redis operators referencing the same resource_name
  * share one pool.
  */
-public class TransformRedisSet extends AbstractOperator implements ConcurrentSafe, ResourceAware {
+public class TransformRedisSet extends AbstractOperator implements ConcurrentSafe {
     private String resourceName;
-    private ResourceProvider resourceProvider;
     private String keyPrefix;
     private String dataType = "string";
     private int ttlSeconds;
@@ -64,13 +63,8 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
     }
 
     @Override
-    public void setResourceProvider(ResourceProvider provider) {
-        this.resourceProvider = provider;
-    }
-
-    @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
-        RedisConnResource resource = TransformRedisGet.borrowResource(resourceProvider, resourceName);
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+        RedisConnResource resource = TransformRedisGet.borrowResource(ctx.resources(), resourceName);
         if (resource == null) return;
 
         int n = commonInput().size();
@@ -114,7 +108,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                         if (members == null) logf("transform_redis_set: value for key %s is not []string", key);
                         return;
                     }
-                    resource.runCommand("SADD", jedis -> {
+                    resource.runCommand(ctx, "SADD", jedis -> {
                         Pipeline pipe = jedis.pipelined();
                         pipe.del(key);
                         pipe.sadd(key, members.toArray(new String[0]));
@@ -130,7 +124,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                         if (members == null) logf("transform_redis_set: value for key %s is not []string", key);
                         return;
                     }
-                    resource.runCommand("RPUSH", jedis -> {
+                    resource.runCommand(ctx, "RPUSH", jedis -> {
                         Pipeline pipe = jedis.pipelined();
                         pipe.del(key);
                         pipe.rpush(key, members.toArray(new String[0]));
@@ -146,7 +140,7 @@ public class TransformRedisSet extends AbstractOperator implements ConcurrentSaf
                         return;
                     }
                     final String stringValue = (String) value;
-                    resource.runCommand("SET", jedis -> {
+                    resource.runCommand(ctx, "SET", jedis -> {
                         if (finalTtl > 0) {
                             jedis.setex(key, finalTtl, stringValue);
                         } else {

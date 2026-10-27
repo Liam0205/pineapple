@@ -11,7 +11,7 @@ class TransformQueryBlockedCreatorsStub extends AbstractOperator {
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         input.common("user_id");
         input.common("blocked_creator_ids");
         output.setCommon("blocked_creator_ids", java.util.List.of());
@@ -28,7 +28,7 @@ class FilterImpressionStub extends AbstractOperator implements ConsumesRowSet, M
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         input.common("impression_ids");
         input.common("size");
         for (int i = 0; i < input.itemCount(); i++) {
@@ -51,7 +51,7 @@ class FilterBlockedCreatorStub extends AbstractOperator implements ConsumesRowSe
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         input.common("blocked_creator_ids");
         for (int i = 0; i < input.itemCount(); i++) {
             input.item(i, "creator_id");
@@ -75,7 +75,7 @@ class ReorderTopnBoostStub extends AbstractOperator implements ConsumesRowSet, M
     // `size` items by hash to the front, and keep the rest in original order.
     // Exercises the row-set reorder path (setItemOrder) under load.
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         int n = input.itemCount();
         if (n > 0) {
             String saltPrefix = anyToString(input.common("shuffle_salt")) + "|";
@@ -165,7 +165,7 @@ class ObserveDatahubStub extends AbstractOperator {
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         for (String k : commonInput()) {
             input.common(k);
         }
@@ -192,7 +192,7 @@ class TransformGenerateRequestIdStub extends AbstractOperator {
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         output.setCommon("request_id", prefix + ":550e8400-e29b-41d4-a716-446655440000");
         if (latency != null) BenchSink.sink = latency.apply();
     }
