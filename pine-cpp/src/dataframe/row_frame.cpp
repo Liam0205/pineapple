@@ -340,7 +340,6 @@ std::unique_ptr<Frame> RowFrame::make_window_view(std::size_t row_offset, std::s
   v->view_items_ = &items_;
   v->view_offset_ = row_offset;
   v->view_count_ = row_count;
-  v->resources_ = resources_;
   // Critical for #103 / #109 / #131: parent and view alias the same
   // storage (view_items_ → &parent.items_), so they MUST share the same
   // mutex. Without this, parent.apply_output (write under parent.mu_) and

@@ -887,7 +887,9 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     // poll(POLLRDHUP|POLLHUP|POLLERR) does NOT consume bytes, so
     // it is safe to use mid-keep-alive — a queued follow-up request
     // looks like POLLIN, which we don't react to.
-    std::stop_source cancel_src;
+    //
+    // request_ctx derives from server_ctx_, so shutdown cancels it too.
+    auto request_ctx = RequestContext::with_cancel(server_ctx_);
     int wake_fd = -1;
     std::thread watcher;
     if (client_fd >= 0) {
@@ -898,7 +900,7 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
     }
     if (client_fd >= 0) {
       int wfd = wake_fd;
-      watcher = std::thread([client_fd, wfd, &cancel_src]() {
+      watcher = std::thread([client_fd, wfd, &request_ctx]() {
         for (;;) {
           struct pollfd pfds[2]{};
           pfds[0].fd = client_fd;
@@ -920,7 +922,7 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
                                    | POLLRDHUP
 #endif
                                    | POLLNVAL)) {
-              cancel_src.request_stop();
+              request_ctx.cancel();
               return;
             }
           }
@@ -946,7 +948,10 @@ ExecuteResult Server::execute_with_trace(const Request& request, bool return_tra
           res_snap = resource_manager_->snapshot();
         }
         try {
-          engine_->execute_traced_into(request, res_snap, &traced, cancel_src.get_token());
+          // The engine adds the ResourceProvider it was built with
+          // (EngineOptions::resource_provider).
+          engine_->execute_traced_into(request, RequestContext::with_resources(request_ctx, &res_snap),
+                                       &traced);
         } catch (...) {
           exec_err = std::current_exception();
         }
@@ -1071,8 +1076,8 @@ bool Server::reload_config() {
     }
 
     // Build and start the new ResourceManager BEFORE the Engine: the Engine
-    // injects the ResourceProvider into ResourceAware operators at construction
-    // time, so the provider pointer must be live first. Handle-typed resources
+    // hands the ResourceProvider to operators through every execute's
+    // RequestContext, so the provider pointer must be live first. Handle-typed resources
     // (connection pools) are created here in start(). The manager writes through
     // a fresh tee into both the injected provider and a per-reload collector
     // exposed under /stats.resources.
@@ -1239,8 +1244,8 @@ int Server::run(const ServerConfig& cfg) {
     }
 
     // Build and start the ResourceManager BEFORE the Engine so the
-    // ResourceProvider is live when the Engine injects it into ResourceAware
-    // operators at construction time. The manager writes through a tee into
+    // ResourceProvider is live before any execute hands it to operators
+    // through the RequestContext. The manager writes through a tee into
     // both the injected provider (e.g. Prometheus) and a dedicated collector
     // exposed under /stats.resources; the engine uses `provider` directly so
     // engine metrics stay out of the resources subtree.
@@ -1498,6 +1503,13 @@ int Server::run(const ServerConfig& cfg) {
   }
 
   g_server.store(nullptr, std::memory_order_release);
+  // Stop in-flight executes before draining them: each sees its context
+  // cancelled at the next operator boundary or cancellable wait (bench
+  // sleep, remote call, before a Redis command, between Lua items) and its
+  // request answers with the cancellation error. A Lua call or Redis command
+  // already running is not interrupted, so the drain below can still wait for
+  // one to finish.
+  server_ctx_.cancel();
   if (watcher_thread.joinable()) {
     watcher_thread.join();
   }

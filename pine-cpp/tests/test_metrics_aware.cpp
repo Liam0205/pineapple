@@ -19,7 +19,7 @@ class ProbeOp : public Operator, public MetricsAware {
   static metrics::Provider* injected;
   static int call_count;
 
-  void execute(const OperatorInput&, OperatorOutput&) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
   }
   void set_metrics_provider(metrics::Provider* p) override {
     injected = p;
@@ -33,7 +33,7 @@ int ProbeOp::call_count = 0;
 // set_metrics_provider on it (compile-time safety; we just register it).
 class NonAwareOp : public Operator {
  public:
-  void execute(const OperatorInput&, OperatorOutput&) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
   }
 };
 

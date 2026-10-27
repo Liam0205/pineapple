@@ -28,7 +28,7 @@ class FilterTruncateOp : public Operator, public ConsumesRowSet, public MutatesR
       throw ExecutionError("filter_truncate: top_n must be non-negative, got " + std::to_string(top_n_));
     }
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     // top_n is templatable (#74). When the DSL configured a {{field}}
     // marker the engine resolved it against this request's common frame
     // before execute; otherwise the init-time value is used. The

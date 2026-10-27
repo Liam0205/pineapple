@@ -11,7 +11,7 @@ class FilterPaginateOp : public Operator, public ConsumesRowSet, public MutatesR
     page_field_ = cfg.metadata.common_input.at(0);
     size_field_ = cfg.metadata.common_input.at(1);
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     int n = static_cast<int>(input.item_count());
     if (n == 0) {
       return;

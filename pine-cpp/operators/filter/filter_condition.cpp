@@ -16,7 +16,7 @@ class FilterConditionOp : public Operator, public ConsumesRowSet, public Mutates
     target_ = operators::sprint_value(val_it->second);
     field_ = cfg.metadata.item_input.at(0);
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     // Batched column access: one lock + one lookup instead of per-element
     // item() calls.
     std::vector<Variant> col = input.item_column(field_);

@@ -18,7 +18,7 @@ class ReorderSortOp : public Operator, public ConsumesRowSet, public MutatesRowS
     auto it = obj.find("order");
     order_ = (it == obj.end()) ? std::string("desc") : it->second.as_string();
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     if (input.item_count() == 0) {
       return;
     }

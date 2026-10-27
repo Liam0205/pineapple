@@ -9,12 +9,8 @@
 
 namespace pine {
 
-class TransformRedisGetOp : public Operator, public ConcurrentSafe, public ResourceAware {
+class TransformRedisGetOp : public Operator, public ConcurrentSafe {
  public:
-  void set_resource_provider(const ResourceProvider* provider) override {
-    provider_ = provider;
-  }
-
   void init(const OperatorConfig& cfg) override {
     op_name_ = cfg.name;
     const auto& params = cfg.params.as_object();
@@ -35,12 +31,13 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
     common_input_ = cfg.metadata.common_input;
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out) override {
     // Borrow the connection pool from the redis_connection resource. A null
     // borrow (no provider, missing resource, or wrong handle type) degrades to
     // a cache miss, mirroring pine-go's borrowRedis ok=false path.
-    auto conn = provider_
-                    ? std::static_pointer_cast<redis::RedisConnResource>(provider_->borrow(resource_name_))
+    const ResourceProvider* provider = ctx.resource_provider();
+    auto conn = provider
+                    ? std::static_pointer_cast<redis::RedisConnResource>(provider->borrow(resource_name_))
                     : nullptr;
     if (!conn) {
       out.set_common(cache_hit_field_, Variant(false));
@@ -82,7 +79,7 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
     try {
       if (data_type_ == "string") {
         auto val = conn->run_command<std::optional<std::string>>(
-            metric_cmd, [&](redis::Client& cli) { return cli.get(key); });
+            ctx, metric_cmd, [&](redis::Client& cli) { return cli.get(key); });
         if (val && !val->empty()) {
           out.set_common(result_field_, Variant(*val));
           out.set_common(cache_hit_field_, Variant(true));
@@ -91,7 +88,7 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
         }
       } else if (data_type_ == "set") {
         auto members = conn->run_command<std::vector<std::string>>(
-            metric_cmd, [&](redis::Client& cli) { return cli.smembers(key); });
+            ctx, metric_cmd, [&](redis::Client& cli) { return cli.smembers(key); });
         if (!members.empty()) {
           Variant::array_t arr;
           for (auto& m : members) {
@@ -104,7 +101,7 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
         }
       } else if (data_type_ == "list") {
         auto vals = conn->run_command<std::vector<std::string>>(
-            metric_cmd, [&](redis::Client& cli) { return cli.lrange(key, 0, -1); });
+            ctx, metric_cmd, [&](redis::Client& cli) { return cli.lrange(key, 0, -1); });
         if (!vals.empty()) {
           Variant::array_t arr;
           for (auto& v : vals) {
@@ -118,6 +115,11 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
       } else {
         throw ExecutionError("transform_redis_get: unsupported data_type \"" + data_type_ + "\"");
       }
+    } catch (const ContextError& e) {
+      // Before the ExecutionError rethrow: like any Redis failure it is a
+      // warning + cache miss, or fatal under fail_on_error (pine-go: the
+      // go-redis call returns ctx.Err()).
+      on_failure(std::string(e.what()));
     } catch (const ExecutionError&) {
       throw;
     } catch (const std::exception& e) {
@@ -126,7 +128,6 @@ class TransformRedisGetOp : public Operator, public ConcurrentSafe, public Resou
   }
 
  private:
-  const ResourceProvider* provider_ = nullptr;
   std::string op_name_;
   std::string resource_name_;
   std::string key_prefix_;

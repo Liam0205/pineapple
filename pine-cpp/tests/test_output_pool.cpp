@@ -39,7 +39,7 @@ InspectState& inspect_state() {
 struct InspectOutputOp : public Operator {
   void init(const OperatorConfig&) override {
   }
-  void execute(const OperatorInput&, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput& out) override {
     InspectState& st = inspect_state();
     ++st.executes;
     for (const auto& [field, value] : out.common_writes()) {
@@ -58,7 +58,7 @@ struct InspectOutputOp : public Operator {
 struct AddingRecallOp : public Operator {
   void init(const OperatorConfig&) override {
   }
-  void execute(const OperatorInput&, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput& out) override {
     for (int i = 0; i < 3; ++i) {
       Variant::object_t row;
       row["id"] = Variant(std::string(1, static_cast<char>('a' + i)));
@@ -73,7 +73,7 @@ struct AddingRecallOp : public Operator {
 struct ItemWritingOp : public Operator {
   void init(const OperatorConfig&) override {
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       out.set_item(static_cast<int>(i), "marked", Variant(true));
     }
@@ -86,7 +86,7 @@ struct ItemWritingOp : public Operator {
 struct ThrowingRecallOp : public Operator {
   void init(const OperatorConfig&) override {
   }
-  void execute(const OperatorInput&, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput& out) override {
     for (int i = 0; i < 5; ++i) {
       Variant::object_t row;
       row["id"] = Variant(std::string("leak") + std::to_string(i));

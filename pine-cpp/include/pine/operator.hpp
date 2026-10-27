@@ -38,19 +38,6 @@ class MetricsAware {
   virtual void set_metrics_provider(metrics::Provider* provider) = 0;
 };
 
-// ResourceAware mirrors pine-go / pine-java's ResourceAware optional
-// interface. Operators that borrow handle-typed resources (e.g. a Redis
-// connection pool) by name implement this; Engine injects the configured
-// ResourceProvider after init() but before the first execute() call, in the
-// same place and ordering as MetricsAware. The injected pointer may be null
-// (no resource provider configured), in which case the operator degrades at
-// execute time. The borrowed handle must not be cached across execute() calls.
-class ResourceAware {
- public:
-  virtual ~ResourceAware() = default;
-  virtual void set_resource_provider(const ResourceProvider* provider) = 0;
-};
-
 // LoggerAware mirrors pine-go's LoggerAware optional interface (issue #172).
 // Operators that emit diagnostic log lines implement this; Engine injects its
 // resolved log_prefix (option > JSON config) after init(), so operator output
@@ -86,8 +73,9 @@ class Closer {
 };
 
 // Note: Operator base class is declared in pine/pine.hpp (as class Operator)
-// with execute(const OperatorInput&, OperatorOutput&). Operators receive a
-// pre-projected OperatorInput snapshot with defaults applied.
+// with execute(const RequestContext&, const OperatorInput&, OperatorOutput&).
+// Operators receive a pre-projected OperatorInput snapshot with defaults
+// applied; resources and the ResourceProvider come from the RequestContext.
 
 // --- OperatorSchema ---
 

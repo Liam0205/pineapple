@@ -10,7 +10,7 @@ class TransformSizeOp : public Operator, public ConsumesRowSet, public Concurren
     op_name_ = cfg.name;
     out_field_ = cfg.metadata.common_output.at(0);
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     out.set_common(out_field_, Variant(static_cast<double>(input.item_count())));
   }
 

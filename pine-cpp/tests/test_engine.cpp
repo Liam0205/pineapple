@@ -1,3 +1,4 @@
+#include "pine/error_chain.hpp"
 #include "pine/operator.hpp"
 #include "pine/operator_input.hpp"
 #include "pine/pine.hpp"
@@ -162,7 +163,8 @@ TEST_CASE("validate_output_against_type: Recall may SetCommon (downstream consum
   struct CommonWritingRecall : public pine::Operator {
     void init(const pine::OperatorConfig&) override {
     }
-    void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
+    void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput&,
+                 pine::OperatorOutput& out) override {
       out.set_common("region", pine::Variant(std::string("us")));
     }
   };
@@ -211,7 +213,8 @@ TEST_CASE("validate_output_against_type: Recall must not SetItem") {
   struct BadRecall : public pine::Operator {
     void init(const pine::OperatorConfig&) override {
     }
-    void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
+    void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput&,
+                 pine::OperatorOutput& out) override {
       out.set_item(0, "score", pine::Variant(1.0));
     }
   };
@@ -313,14 +316,16 @@ std::string execute_and_capture(const std::string& config, Request req) {
 struct ProbeSetCommon : public pine::Operator {
   void init(const pine::OperatorConfig&) override {
   }
-  void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
+  void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput&,
+               pine::OperatorOutput& out) override {
     out.set_common("probe_common", pine::Variant(1.0));
   }
 };
 struct ProbeSetItem : public pine::Operator {
   void init(const pine::OperatorConfig&) override {
   }
-  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+  void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput& in,
+               pine::OperatorOutput& out) override {
     for (std::size_t i = 0; i < in.item_count(); ++i) {
       out.set_item(static_cast<int>(i), "probe_item", pine::Variant(1.0));
     }
@@ -329,14 +334,16 @@ struct ProbeSetItem : public pine::Operator {
 struct ProbeColumnWrite : public pine::Operator {
   void init(const pine::OperatorConfig&) override {
   }
-  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+  void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput& in,
+               pine::OperatorOutput& out) override {
     out.set_item_column_double("probe_col", std::vector<double>(in.item_count(), 1.0));
   }
 };
 struct ProbeAddItem : public pine::Operator, public pine::AdditiveWritesRowSet {
   void init(const pine::OperatorConfig&) override {
   }
-  void execute(const pine::OperatorInput&, pine::OperatorOutput& out) override {
+  void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput&,
+               pine::OperatorOutput& out) override {
     pine::Variant::object_t row;
     row["undeclared_added"] = pine::Variant(1.0);
     out.add_item(std::move(row));
@@ -347,7 +354,8 @@ struct ProbeAddItem : public pine::Operator, public pine::AdditiveWritesRowSet {
 struct ProbeMixed : public pine::Operator {
   void init(const pine::OperatorConfig&) override {
   }
-  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+  void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput& in,
+               pine::OperatorOutput& out) override {
     out.set_common("bad_common", pine::Variant(1.0));
     for (std::size_t i = 0; i < in.item_count(); ++i) {
       out.set_item(static_cast<int>(i), "b", pine::Variant(1.0));
@@ -359,7 +367,8 @@ struct ProbeMixed : public pine::Operator {
 struct ProbeItemOnlyMixed : public pine::Operator {
   void init(const pine::OperatorConfig&) override {
   }
-  void execute(const pine::OperatorInput& in, pine::OperatorOutput& out) override {
+  void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput& in,
+               pine::OperatorOutput& out) override {
     for (std::size_t i = 0; i < in.item_count(); ++i) {
       out.set_item(static_cast<int>(i), "b", pine::Variant(1.0));
       out.set_item(static_cast<int>(i), "a", pine::Variant(1.0));
@@ -467,7 +476,7 @@ TEST_CASE("validate_declared_outputs: item names deduped across paths, sorted by
         "item output field(s) [a b \xEF\xBF\xBD \xF0\x90\x80\x80]");
 }
 
-TEST_CASE("Engine::execute honors external stop_token") {
+TEST_CASE("Engine::execute with a pre-cancelled context runs nothing and throws CancelledError") {
   static const char* kCfg = R"({
       "_PINEAPPLE_VERSION": "0.9.0",
       "pipeline_config": {
@@ -496,16 +505,20 @@ TEST_CASE("Engine::execute honors external stop_token") {
   Engine engine(load_config_from_json(kCfg));
   Request req;
   req.common["src"] = Variant(std::string("v"));
-  std::stop_source src;
-  src.request_stop();  // pre-cancelled
-  static const std::map<std::string, Variant> empty_res;
-  // Pre-cancelled token: run_dag should see stop_requested at every wait
-  // and either return early or finish the trivial DAG. Either way the
-  // call must not deadlock and not throw spuriously.
-  auto result = engine.execute(req, empty_res, src.get_token());
-  // The simple linear DAG may have completed before observing cancel —
-  // both outcomes are valid; the API contract is "no deadlock, no UB".
-  CHECK(true);
+  auto ctx = RequestContext::with_cancel(RequestContext::background());
+  ctx.cancel();
+  // Issue #217: a pre-cancelled context used to return success with the
+  // copy's output missing. Like pine-go, the run now says it was cancelled.
+  TracedResult traced;
+  try {
+    engine.execute_traced_into(req, ctx, &traced);
+    FAIL("expected CancelledError");
+  } catch (const CancelledError& e) {
+    CHECK(std::string(e.what()) == "pine: execution cancelled: context canceled");
+    CHECK_FALSE(e.deadline_exceeded());
+  }
+  CHECK(traced.result.common.find("dst") == traced.result.common.end());
+  CHECK(traced.trace.empty());
 }
 
 TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)") {
@@ -515,14 +528,18 @@ TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)"
   struct SlowOp : public pine::Operator {
     void init(const pine::OperatorConfig&) override {
     }
-    void execute(const pine::OperatorInput&, pine::OperatorOutput&) override {
-      // Long enough that the watcher thread can deliver the cancel.
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    void execute(const pine::RequestContext& ctx, const pine::OperatorInput&,
+                 pine::OperatorOutput&) override {
+      // Long enough that the canceller thread can deliver the cancel; waits
+      // on the ctx so the cancel reaches the running operator.
+      if (ctx.wait_for(std::chrono::milliseconds(500))) {
+        ctx.throw_if_cancelled();
+      }
     }
   };
   static const pine::OperatorSchema s{"r10_slow_op",
                                       pine::OpType::Transform,
-                                      "test operator: sleeps 500 ms to validate mid-flight cancel",
+                                      "test operator: waits 500 ms on its ctx to validate mid-flight cancel",
                                       {}};
   static bool registered = false;
   if (!registered) {
@@ -530,8 +547,9 @@ TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)"
     registered = true;
   }
 
-  // 3-node linear DAG (Transform only — Transform allows zero writes,
-  // so SlowOp's empty OperatorOutput passes ValidateOutput).
+  // 3 nodes with no data dependencies, so they all run at once (Transform
+  // only — Transform allows zero writes, so SlowOp's empty OperatorOutput
+  // passes ValidateOutput).
   static const char* kCfg = R"({
       "_PINEAPPLE_VERSION": "0.9.0",
       "pipeline_config": {
@@ -546,35 +564,37 @@ TEST_CASE("Engine::execute external cancel mid-flight on multi-node DAG (R10-4)"
     })";
   Engine engine(load_config_from_json(kCfg));
   Request req;
-  static const std::map<std::string, Variant> empty_res;
 
-  std::stop_source src;
-  auto cancel_token = src.get_token();
+  auto ctx = RequestContext::with_cancel(RequestContext::background());
 
   // Fire the cancel 200 ms in — well inside s1's sleep but before s1/s2/s3 finish.
-  std::thread canceller([&src]() {
+  std::thread canceller([&ctx]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    src.request_stop();
+    ctx.cancel();
   });
 
   auto t0 = std::chrono::steady_clock::now();
-  // execute should observe cancel and return before the full 3 × 500 ms.
-  // It may or may not throw — the contract is "no deadlock, return soon".
+  // Every node is already running when the cancel lands, so none is
+  // skipped: the run fails with the first operator to return the ctx error
+  // (pine-go: `pine: execution error in operator "sN": context canceled`).
+  std::string err;
   try {
-    engine.execute(req, empty_res, cancel_token);
-  } catch (const Error&) {
-    // ok — engine can rethrow a cancel-shaped error
+    engine.execute(req, ctx);
+  } catch (const ExecutionError& e) {
+    err = e.what();
+    CHECK(pine::error_is<ContextError>(e));
   }
   auto elapsed = std::chrono::steady_clock::now() - t0;
   canceller.join();
+  CHECK(err.rfind("pine: execution error in operator \"s", 0) == 0);
+  CHECK(err.ends_with("\": context canceled"));
 
-  // Without cancel, this would take ~1500 ms (3 × 500 ms). With cancel
-  // mid-s1, total time should be at most ~750 ms (current s1 finishes
-  // + a few ms cleanup). Use 1.2 s as a generous bound to keep CI
-  // noise-tolerant while still proving cancel took effect.
+  // Without cancel, this would take ~500 ms. With the cancel at 200 ms
+  // the waits end at once; 450 ms leaves CI headroom while still proving
+  // the cancel cut the running operators short.
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
   INFO("elapsed=" << ms << "ms");
-  CHECK(ms < 1200);
+  CHECK(ms < 450);
 }
 
 TEST_CASE("Engine::execute is safe to call concurrently from many threads on the same Plan") {
@@ -632,7 +652,7 @@ TEST_CASE("Engine::execute is safe to call concurrently from many threads on the
 
 TEST_CASE("Engine: cancel mid-flight then immediately destroy is safe (M13)") {
   // Audit M13 — the dual isolated pools (dag_pool_ + shard_pool_) live as
-  // unique_ptr members on Engine. When the user fires a stop_token and
+  // unique_ptr members on Engine. When the user cancels the context and
   // destroys the Engine right after execute() returns, the pool dtors
   // must drain workers cleanly without racing on tasks that observed
   // cancel and bailed via the fast `propagate_and_signal` path
@@ -644,7 +664,8 @@ TEST_CASE("Engine: cancel mid-flight then immediately destroy is safe (M13)") {
   struct SlowOp : public pine::Operator {
     void init(const pine::OperatorConfig&) override {
     }
-    void execute(const pine::OperatorInput&, pine::OperatorOutput&) override {
+    void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput&,
+                 pine::OperatorOutput&) override {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
   };
@@ -672,7 +693,6 @@ TEST_CASE("Engine: cancel mid-flight then immediately destroy is safe (M13)") {
       "pipeline_group": {"main": {"pipeline": ["stage"]}}
     })";
 
-  static const std::map<std::string, Variant> empty_res;
   constexpr int kIterations = 12;
 
   std::atomic<int> survived{0};
@@ -684,16 +704,15 @@ TEST_CASE("Engine: cancel mid-flight then immediately destroy is safe (M13)") {
     auto engine = std::make_unique<Engine>(load_config_from_json(kCfg));
     Request req;
 
-    std::stop_source src;
-    auto tok = src.get_token();
+    auto ctx = RequestContext::with_cancel(RequestContext::background());
 
-    std::thread canceller([&src]() {
+    std::thread canceller([&ctx]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
-      src.request_stop();
+      ctx.cancel();
     });
 
     try {
-      engine->execute(req, empty_res, tok);
+      engine->execute(req, ctx);
     } catch (const Error&) {
       // Cancel may surface as a thrown Error — accepted.
     }
@@ -702,7 +721,7 @@ TEST_CASE("Engine: cancel mid-flight then immediately destroy is safe (M13)") {
     // dag_pool_ and shard_pool_ are still draining their queues. The
     // ThreadPool dtor (thread_pool.cpp:16) flips stopping_=true, notifies,
     // and joins each worker. Any read-after-free of the captured `&` lambda
-    // state (cancel_source / fatal_err / done_cv) would land here.
+    // state (run_ctx / fatal_err / done_cv) would land here.
     engine.reset();
     canceller.join();
     survived.fetch_add(1, std::memory_order_relaxed);

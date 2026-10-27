@@ -29,7 +29,7 @@ class RecallStaticOp : public Operator, public AdditiveWritesRowSet {
       }
     }
   }
-  void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& /*input*/, OperatorOutput& out) override {
     for (const auto& [key, value] : set_common_) {
       out.set_common(key, value);
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pine/metrics.hpp"
+#include "pine/pine.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -257,7 +258,7 @@ class RedisConnResource {
   // Redis call in this helper instead of calling Client methods directly:
   //
   //   auto val = conn->run_command<std::optional<std::string>>(
-  //       "GET",
+  //       ctx, "GET",
   //       [&](redis::Client& cli) { return cli.get(key); });
   //
   // Mirrors pine-go's redis.Hook-driven instrumentation (which automates
@@ -274,8 +275,19 @@ class RedisConnResource {
   // sentinel (e.g. `int` returning 0); cpp doesn't allow `void` as a
   // template return type without a separate overload, and the perf cost
   // of the int slot is negligible.
+  //
+  // A done ctx fails the command before it is sent, as go-redis does (its
+  // pool wait returns ctx.Err()): the ContextError propagates, so the
+  // operator reports "<Cmd>(key): context canceled". A command already in
+  // flight is not interrupted — the client has no per-call cancellation,
+  // only the socket timeouts configured on the resource.
   template <typename T, typename Fn>
-  T run_command(const std::string& command, Fn fn) {
+  T run_command(const RequestContext& ctx, const std::string& command, Fn fn) {
+    if (auto done = ctx.err()) {
+      record_command(command, std::chrono::nanoseconds::zero(),
+                     done->deadline_exceeded() ? command_status_timeout : command_status_error);
+      throw *done;
+    }
     auto scoped = pool_.acquire_scoped(host_, port_, password_, db_, opts_);
     Client* cli = scoped.get();
     if (!cli || !cli->connected()) {
@@ -354,9 +366,12 @@ class RedisConnResource {
   // identically across engines.
   static constexpr const char* command_status_ok = "ok";
   static constexpr const char* command_status_error = "error";
-  // (timeout / pool_timeout aren't currently emitted by cpp because the
+  // Emitted only for a context whose deadline passed (pine-go maps
+  // context.DeadlineExceeded to "timeout"; a plain cancel is "error").
+  // Socket timeouts and pool_timeout aren't distinguished yet because the
   // Client throws a single std::runtime_error type for every failure mode;
-  // see run_command's catch-block comment for the follow-up.)
+  // see run_command's catch-block comment for the follow-up.
+  static constexpr const char* command_status_timeout = "timeout";
 
   void record_command(const std::string& command, std::chrono::nanoseconds elapsed, const char* status) {
     if (cmd_total_ == nullptr) {

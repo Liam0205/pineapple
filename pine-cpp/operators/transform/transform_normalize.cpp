@@ -22,7 +22,7 @@ class TransformNormalizeOp : public Operator {
       throw RegistryError(op_name_, "unsupported method \"" + method + "\"");
     }
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     if (input.item_count() == 0) {
       return;
     }

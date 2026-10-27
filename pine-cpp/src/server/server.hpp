@@ -281,6 +281,14 @@ class Server {
   std::atomic<bool> running_{false};
   int listen_fd_ = -1;
 
+  // Parent of every request's RequestContext. run() cancels it once the
+  // accept loop has exited, before draining, so in-flight executes stop at
+  // their next cancellation point instead of running to completion
+  // (issue #217; pine-java PineServer.stop does the same). Not cancelled from
+  // stop() itself: stop() runs in the signal handler, and cancelling runs
+  // callbacks and takes locks, which is not async-signal-safe.
+  RequestContext::Cancelable server_ctx_ = RequestContext::with_cancel(RequestContext::background());
+
   // Scheduler-level stats
   std::atomic<int64_t> run_count_{0};
 

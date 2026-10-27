@@ -12,7 +12,7 @@ class MergeDedupOp : public Operator, public ConsumesRowSet, public MutatesRowSe
     op_name_ = cfg.name;
     field_ = cfg.metadata.item_input.at(0);
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     const std::size_t n = input.item_count();
     std::unordered_set<std::string> seen;
     seen.reserve(n);

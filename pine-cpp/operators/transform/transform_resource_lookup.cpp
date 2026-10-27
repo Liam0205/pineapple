@@ -35,12 +35,13 @@ class TransformResourceLookupOp : public Operator, public ConcurrentSafe {
       default_value_ = dv_it->second;
     }
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
-    if (!input.resources()) {
+  void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out) override {
+    const auto* resources = ctx.resources();
+    if (!resources) {
       throw ExecutionError("transform_resource_lookup: no resource provider in context");
     }
-    auto res_it = input.resources()->find(resource_name_);
-    if (res_it == input.resources()->end()) {
+    auto res_it = resources->find(resource_name_);
+    if (res_it == resources->end()) {
       throw ExecutionError("transform_resource_lookup: resource \"" + resource_name_ + "\" not found");
     }
     const auto& resource = res_it->second;

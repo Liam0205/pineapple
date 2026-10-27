@@ -96,10 +96,6 @@ std::vector<std::string> OperatorInput::item_keys(std::size_t index) const {
   return keys;
 }
 
-const std::map<std::string, Variant>* OperatorInput::resources() const {
-  return frame_->resources();
-}
-
 Variant OperatorInput::templated_param(const std::string& name) const {
   if (!templated_) {
     return Variant(nullptr);

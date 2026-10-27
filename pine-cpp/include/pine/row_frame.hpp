@@ -54,13 +54,6 @@ class RowFrame : public Frame {
   std::vector<std::string> item_fields() const override;
   std::vector<Variant> item_column(const std::string& field) const override;
 
-  void set_resources(const std::map<std::string, Variant>* res) override {
-    resources_ = res;
-  }
-  const std::map<std::string, Variant>* resources() const override {
-    return resources_;
-  }
-
   void push_warning(std::string msg) override;
   std::vector<std::string> take_warnings() override;
 
@@ -91,7 +84,6 @@ class RowFrame : public Frame {
   Variant::object_t common_;
   std::vector<Variant::object_t> items_;
   std::vector<std::string> warnings_;
-  const std::map<std::string, Variant>* resources_ = nullptr;
 
   // Window-view mode: when set, reads delegate to parent storage with
   // an (offset, count) translation; writes throw. Set only by

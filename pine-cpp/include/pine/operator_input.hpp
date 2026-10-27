@@ -51,9 +51,6 @@ class OperatorInput {
   // item_keys returns all item field names present in the spec.
   std::vector<std::string> item_keys(std::size_t index) const;
 
-  // resources returns the injected resource map (may be nullptr).
-  const std::map<std::string, Variant>* resources() const;
-
   // templated_param returns the resolved + coerced value for a templated
   // param declared on this operator (issue #74). Returns a null Variant
   // when the param was not templated or no templated params were resolved

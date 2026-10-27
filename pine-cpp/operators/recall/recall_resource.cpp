@@ -17,12 +17,13 @@ class RecallResourceOp : public Operator, public AdditiveWritesRowSet {
     }
     resource_name_ = rn_it->second.as_string();
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
-    if (!input.resources()) {
+  void execute(const RequestContext& ctx, const OperatorInput& /*input*/, OperatorOutput& out) override {
+    const auto* resources = ctx.resources();
+    if (!resources) {
       throw ExecutionError("recall_resource: no resource provider in context");
     }
-    auto res_it = input.resources()->find(resource_name_);
-    if (res_it == input.resources()->end()) {
+    auto res_it = resources->find(resource_name_);
+    if (res_it == resources->end()) {
       throw ExecutionError("recall_resource: resource \"" + resource_name_ + "\" not found");
     }
     const auto& resource = res_it->second;

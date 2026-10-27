@@ -118,7 +118,6 @@ std::unique_ptr<ColumnFrame> ColumnFrame::make_window_view(const ColumnFrame& pa
   v->view_items_ = parent.items_.get();
   v->view_offset_ = row_offset;
   v->view_count_ = row_count;
-  v->resources_ = parent.resources_;
   // Alias parent's mutex (see comment at top of function).
   v->mu_ = parent.mu_;
   return v;

@@ -87,6 +87,7 @@ add_library(pine_cpp_core OBJECT
     src/dataframe/operator_input.cpp
     src/runtime/engine.cpp
     src/runtime/errors.cpp
+    src/runtime/request_context.cpp
     src/runtime/metrics_nop.cpp
     src/runtime/metrics_collector.cpp
     src/runtime/template.cpp
@@ -230,6 +231,7 @@ if(PINE_CPP_BUILD_TESTS)
         tests/test_config.cpp
         tests/test_dag.cpp
         tests/test_engine.cpp
+        tests/test_cancellation.cpp
         tests/test_registry.cpp
         tests/test_parallel.cpp
         tests/test_panic.cpp

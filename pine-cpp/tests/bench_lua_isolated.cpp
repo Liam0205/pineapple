@@ -64,13 +64,13 @@ double bench_ns_per_op(Operator& op, const Frame& frame, const InputFieldSpec& s
   for (int i = 0; i < 50; ++i) {
     OperatorOutput out;
     OperatorInput input = build_operator_input(frame, "bench", spec);
-    op.execute(input, out);
+    op.execute(RequestContext::background(), input, out);
   }
   auto t0 = clk::now();
   for (int i = 0; i < iters; ++i) {
     OperatorOutput out;
     OperatorInput input = build_operator_input(frame, "bench", spec);
-    op.execute(input, out);
+    op.execute(RequestContext::background(), input, out);
   }
   auto t1 = clk::now();
   return double(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count()) / iters;

@@ -22,7 +22,7 @@ std::atomic<int64_t> g_close_calls{0};
 // call close() on retirement.
 class CloserMockOp : public Operator, public Closer {
  public:
-  void execute(const OperatorInput&, OperatorOutput&) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
   }
   void close() override {
     g_close_calls.fetch_add(1, std::memory_order_relaxed);
@@ -32,7 +32,7 @@ class CloserMockOp : public Operator, public Closer {
 // NonCloserMockOp does NOT implement Closer; the engine must skip it.
 class NonCloserMockOp : public Operator {
  public:
-  void execute(const OperatorInput&, OperatorOutput&) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
   }
 };
 

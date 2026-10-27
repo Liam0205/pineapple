@@ -45,7 +45,7 @@ TEST_CASE("register_operator: duplicate throws RegistryError") {
       .params = {},
   };
   struct DupOp : public Operator, public ConsumesRowSet, public MutatesRowSet {
-    void execute(const OperatorInput&, OperatorOutput&) override {
+    void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
     }
   };
   CHECK_THROWS_AS(register_operator_typed<DupOp>(dup_schema), RegistryError);
@@ -59,7 +59,7 @@ TEST_CASE("register_operator: empty name throws RegistryError") {
       .params = {},
   };
   struct EmptyNameOp : public Operator {
-    void execute(const OperatorInput&, OperatorOutput&) override {
+    void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
     }
   };
   CHECK_THROWS_AS(register_operator_typed<EmptyNameOp>(empty_schema), RegistryError);
