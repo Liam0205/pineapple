@@ -265,9 +265,13 @@ jobs:
           bash scripts/ci-apt-install.sh libluajit-5.1-dev libcurl4-openssl-dev
           cmake --version | head -1
       - name: Strict build (-Werror)
+        # Includes the doctest target so test sources are held to -Werror too
+        # (it compiled with warnings before, unnoticed). The policy minimum is
+        # for the vendored doctest, as in scripts/cpp-test.sh.
         working-directory: pine-cpp
         run: |
-          cmake -S . -B build-strict -DCMAKE_BUILD_TYPE=Release -DPINE_CPP_WERROR=ON
+          cmake -S . -B build-strict -DCMAKE_BUILD_TYPE=Release -DPINE_CPP_WERROR=ON \
+            -DPINE_CPP_BUILD_TESTS=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           cmake --build build-strict -j"$(nproc)"
       - name: Whitespace + tab hygiene
         run: |
