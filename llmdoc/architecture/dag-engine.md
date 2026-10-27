@@ -45,7 +45,7 @@
 
 逐算子 debug 同样采用 nullable 三态（Go `*bool`、Java `Boolean`、C++ `std::optional<bool>`）：未设置时继承 flow-level 全局 debug；显式设置时覆盖全局值。因此全局 debug 不再单向覆写所有算子的 `opCfg.Debug`，而是仅作为未显式设置 debug 的算子的默认值。
 
-Go 另有请求级事件接口 `pine-go/pkg/debug/debug.go:WithEmitter`，由可信测试入口通过 context 注入实现，不改上述静态配置。Session 生命周期、冻结、数据约束、并发采集和导出由 SDK/应用实现；Pineapple 只提供公开接口及节点身份绑定，不依赖私有 SDK。这是 Go 嵌入 API，不是新增 JSON/DSL 开关或跨运行时协议。
+Go 另有请求级事件接口 `pine-go/pkg/debug/debug.go:WithEmitter`，属于 Go 嵌入 API，契约的权威副本是该文件的 package doc；调度器侧实现见「调度模型」。
 
 该设计明确区分以下运行时注入：
 
@@ -296,11 +296,9 @@ Go 侧在 `pine.NewEngine()` 编译算子时，通过 interface 类型断言（`
 
 `data_parallel` 仅是单节点运行时优化：它不改变 DAG 构建、依赖推导或图结构，调度器拿到的仍是同一张执行图。
 
-请求级 Debug 保留 DAG 并发和节点内的分片并行；不同节点、同一节点的不同分片可以同时调用同一 `Emitter`，实现方须保证并发安全。同一节点的分片共享不可变的节点元信息，各自记录自己的材料，不保证事件顺序，框架不合并分片事件。旧静态 Debug 快照开关独立生效。
+请求级 Debug 的调度器侧实现：`pine-go/internal/runtime/scheduler.go:Run` 在每个实际执行节点的闭包内查询一次 recorder，不在 `Run` 入口捕获；未注入时不创建 Debug context 或 Recorder，只多一次 context 查询和分支。注入 recorder 不改变 DAG 并发和 `data_parallel` 分片。
 
-关闭请求级 Debug 时，`pine-go/internal/runtime/scheduler.go:Run` 不创建新的 Debug context 或 Recorder，只在每个实际执行节点增加一次 context 查询和分支；查询位于节点闭包内，不在 `Run` 入口捕获 recorder。算子自身如接入采集，也应只在循环外查询一次，并把所有调试专用数据工作置于非 nil 分支。材料不经过 Frame；输入 view 与池化 output 的有效期要求 `Emitter` 在返回前冻结材料，详见 `pine-go/pkg/debug/debug.go:Emitter`。
-
-请求级 Debug 不提供业务禁写策略；开启采集时各算子仍按正常逻辑执行，包括业务写入。
+例外：`Emitter` 会被不同节点和同一节点的不同分片并发调用，必须并发安全，并在返回前冻结材料（输入 view 与池化 output 过后会变）。这一条有意与 package doc 重复，因为违反时只会产生静默 data race 或被改写的调试材料，本仓测试抓不到。其余实现方契约以 `pine-go/pkg/debug/debug.go` 的 package doc 为准。
 
 该能力只适合逐 item 独立的 Transform，并采用显式 opt-in 模型：
 
