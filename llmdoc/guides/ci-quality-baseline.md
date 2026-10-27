@@ -138,7 +138,7 @@ CI 的多个 job 直接调用这些 make target（如 `make go-cover` / `make cp
 
 CI `cpp-lint` job（`.github/workflows/ci.yml`）实际只做三件事，**不跑 clang-format**：
 
-- `-Werror` 严格构建（`cmake -DPINE_CPP_WERROR=ON` + 全量 build）
+- `-Werror` 严格构建（`cmake -DPINE_CPP_WERROR=ON -DPINE_CPP_BUILD_TESTS=ON` + 全量 build，含 doctest 测试 target；#219 之前不编测试，测试源里 28 处 `-Wmissing-field-initializers` 因此未被发现）
 - 卫生检查：对 `pine-cpp` 下所有非 build 目录的 `*.cpp` / `*.hpp` 检查 trailing whitespace、tab 字符、缺失结尾换行
 - 相邻字符串字面量拼接排查（typo guard）：捕获 `"" + var + ""` 这种写法——作者本意是把变量嵌进引号，编译器却静默拼接相邻字面量把引号丢掉（P0-1，五轮 code review 才抓到 `config.cpp` 一处）
 
