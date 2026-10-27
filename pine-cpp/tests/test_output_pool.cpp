@@ -116,7 +116,7 @@ void register_pool_test_ops() {
 }
 
 constexpr const char* kInspectOnlyConfig = R"({
-  "_PINEAPPLE_VERSION": "0.12.0",
+  "_PINEAPPLE_VERSION": "0.12.1",
   "pipeline_config": {
     "operators": {
       "inspect": {
@@ -136,7 +136,7 @@ constexpr const char* kInspectOnlyConfig = R"({
 })";
 
 constexpr const char* kRecallThenInspectConfig = R"({
-  "_PINEAPPLE_VERSION": "0.12.0",
+  "_PINEAPPLE_VERSION": "0.12.1",
   "pipeline_config": {
     "operators": {
       "recall": {
@@ -168,7 +168,7 @@ constexpr const char* kRecallThenInspectConfig = R"({
 // added_items_ where RowFrame moves it, so the two modes leave the buffer in
 // different states and the reuse contract has to hold for both.
 constexpr const char* kRecallThenInspectColumnConfig = R"({
-  "_PINEAPPLE_VERSION": "0.12.0",
+  "_PINEAPPLE_VERSION": "0.12.1",
   "storage_mode": "column",
   "pipeline_config": {
     "operators": {
@@ -284,7 +284,7 @@ namespace {
 // the same engine so they share the same single worker and therefore the same
 // thread_local buffer. Selected per request via `skip`.
 constexpr const char* kThrowThenGoodConfig = R"({
-  "_PINEAPPLE_VERSION": "0.12.0",
+  "_PINEAPPLE_VERSION": "0.12.1",
   "pipeline_config": {
     "operators": {
       "bad_recall": {
