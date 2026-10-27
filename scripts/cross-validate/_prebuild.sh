@@ -14,6 +14,7 @@ echo "    Building Go CLIs..."
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pine-cause-chain-probe" ./cmd/pine-cause-chain-probe/)
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pine-cancel-probe" ./cmd/pine-cancel-probe/)
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pine-debug-probe" ./cmd/pine-debug-probe/)
+(cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pine-source-merge-probe" ./cmd/pine-source-merge-probe/)
 
 echo "    Compiling Java + resolving classpath..."
 (cd "$REPO_ROOT/pine-java" && mvn compile -B -q)
@@ -44,6 +45,7 @@ if [[ -d "$REPO_ROOT/pine-cpp" ]]; then
     cp "$REPO_ROOT/pine-cpp/build/pineapple-cause-chain-probe" "$WORK_DIR/pineapple-cause-chain-probe-cpp"
     cp "$REPO_ROOT/pine-cpp/build/pineapple-cancel-probe" "$WORK_DIR/pineapple-cancel-probe-cpp"
     cp "$REPO_ROOT/pine-cpp/build/pineapple-debug-probe" "$WORK_DIR/pineapple-debug-probe-cpp"
+    cp "$REPO_ROOT/pine-cpp/build/pineapple-source-merge-probe" "$WORK_DIR/pineapple-source-merge-probe-cpp"
     export CPP_RUN="$WORK_DIR/pineapple-run-cpp"
     export CPP_DAG="$WORK_DIR/pineapple-dag-cpp"
     export CPP_CODEGEN="$WORK_DIR/pineapple-codegen-cpp"
@@ -51,6 +53,7 @@ if [[ -d "$REPO_ROOT/pine-cpp" ]]; then
     export CPP_CAUSE_CHAIN_PROBE="$WORK_DIR/pineapple-cause-chain-probe-cpp"
     export CPP_CANCEL_PROBE="$WORK_DIR/pineapple-cancel-probe-cpp"
     export CPP_DEBUG_PROBE="$WORK_DIR/pineapple-debug-probe-cpp"
+    export CPP_SOURCE_MERGE_PROBE="$WORK_DIR/pineapple-source-merge-probe-cpp"
 fi
 
 echo "    Done."
