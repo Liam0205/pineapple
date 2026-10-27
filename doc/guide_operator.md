@@ -16,6 +16,8 @@ type Operator interface {
 
 `Execute` 只能触碰 `$metadata` 里声明过的字段，两侧都由引擎强制：读侧只把 `common_input` / `item_input` 投影给算子；写侧在 `Execute` 返回后校验 `SetCommon` 的字段 ∈ `common_output`，`SetItem` / `SetItemColumnFloat64` / `AddItem` 的字段 ∈ `item_output`，越界的写入以 `ExecutionError` 拒绝（`output contract violation: operator wrote undeclared item output field(s) [f1 f2]`）。这不是形式要求——DAG 的依赖边完全由声明推出，写了未声明的字段就没有任何边保护它。字段名来自运行时数据的算子（例如 recall 按配置或资源数据逐行 `AddItem`）也不例外，声明必须覆盖所有可能出现的键。
 
+唯一的例外是 `_source`（0.12.2 起）：DSL 不允许声明 `_` 开头的输出，所以去重 merge 无法把「合并后的来源标签」声明出来。实现了 `MutatesRowSet`、且 `item_input` 含 `_source` 的算子，可以用 `SetItem` / `SetItemColumnFloat64` 改写已有 item 的 `_source`，不需要声明；它的其他写入照常校验。
+
 ## 注册算子
 
 在 `init()` 中调用 `pine.Register()`，所有元信息字段**必填**：

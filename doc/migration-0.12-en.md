@@ -150,6 +150,11 @@ Two cases that do not report `CancelledError`:
 0.11: shutdown waited for in-flight requests to finish.
 0.12: the in-flight requests' contexts are cancelled first, and those requests get a 500 response carrying the cancellation error. Deployments that rely on requests completing during shutdown should drain traffic before stopping the server. Go server shutdown is unchanged.
 
+### 2.5 Dedup merges can rewrite `_source` again (0.12.2)
+
+0.11.0–0.12.1: a dedup merge that wrote merged source tags back to `_source` with `SetItem` failed with `output contract violation: operator wrote undeclared item output field(s) [_source]`, and the DSL does not allow `_source` in `item_output`.
+0.12.2: an operator that implements `MutatesRowSet` and lists `_source` in `item_input` may rewrite `_source` on existing items without declaring it. Every other field the operator writes must still be declared in `item_output`.
+
 ## 3. Known differences
 
 These differences were reviewed and accepted, and are not treated as bugs:
