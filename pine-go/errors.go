@@ -9,3 +9,4 @@ type RegistryError = types.RegistryError
 type ValidationError = types.ValidationError
 type ExecutionError = types.ExecutionError
 type PanicError = types.PanicError
+type CancelledError = types.CancelledError

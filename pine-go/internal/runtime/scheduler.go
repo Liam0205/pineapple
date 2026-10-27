@@ -82,6 +82,7 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 		done[i] = make(chan struct{})
 	}
 
+	callerCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -102,6 +103,11 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 		fatalOnce  sync.Once
 		wg         sync.WaitGroup
 		activeOps  int64 // local concurrency counter
+		// notRun records that some node returned without running because
+		// the run ctx was cancelled. With no fatal error that can only be
+		// the caller's cancellation, and the run is reported as
+		// CancelledError rather than as a success with missing writes.
+		notRun atomic.Bool
 	)
 
 	for i := 0; i < n; i++ {
@@ -118,12 +124,14 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 				select {
 				case <-done[pred]:
 				case <-ctx.Done():
+					notRun.Store(true)
 					return
 				}
 			}
 
 			// Check context before executing
 			if ctx.Err() != nil {
+				notRun.Store(true)
 				return
 			}
 
@@ -391,6 +399,18 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 	}
 
 	wg.Wait()
+
+	// The run ctx is cancelled only by a fatal error or by the caller, so a
+	// node that did not run with fatalErr still nil means the caller
+	// cancelled. Decided before the metrics below so dag_exec_total counts
+	// the run as an error, not a success.
+	if fatalErr == nil && notRun.Load() {
+		cause := callerCtx.Err()
+		if cause == nil {
+			cause = ctx.Err()
+		}
+		fatalErr = &types.CancelledError{Err: cause}
+	}
 
 	var filtered []types.OpTrace
 	for _, t := range traces {
