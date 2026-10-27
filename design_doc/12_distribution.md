@@ -150,7 +150,7 @@ public class MyScorer implements Operator {
     }
 
     @Override
-    public void execute(Context ctx, OperatorInput in, OperatorOutput out) {
+    public void execute(RequestContext ctx, OperatorInput in, OperatorOutput out) {
         // 业务逻辑
     }
 }

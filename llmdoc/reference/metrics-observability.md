@@ -110,7 +110,7 @@ Pineapple 只依赖这些接口，不导入 `prometheus/client_golang`。
 3. `LoggerAware`
 4. `MetricsAware`
 
-（Go 实际路径；Java 在 Metrics 之后还有 `ResourceAware`，C++ 的 Metadata/Debug 经 `init(op_cfg)` 携带、随后同样是 Logger → Metrics → Resource。完整对照见 `llmdoc/architecture/dag-engine.md` 不变量 11。）该顺序不可调换。像 `pine-go/operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
+（Go/Java 实际路径；C++ 的 Metadata/Debug 经 `init(op_cfg)` 携带、随后同样是 Logger → Metrics。资源经请求上下文传递、不参与注入。完整对照见 `llmdoc/architecture/dag-engine.md` 不变量 11。）该顺序不可调换。像 `pine-go/operators/lua/lua.go` 这样的实现依赖 `DebugHolder.OperatorName()` 已先被注入，以便把 operator 实例名作为 metric label 使用。
 
 ## 双通道观测模型
 
@@ -340,11 +340,11 @@ label 值取自 `DebugHolder.OperatorName()`，所以 Lua 算子的 metrics 注�
 | status | 含义 |
 |--------|------|
 | `ok` | 命令成功（含 `redis.Nil` cache miss——业务路径上是合法成功） |
-| `timeout` | 命令在 `read_timeout_ms` / `write_timeout_ms` 超时（pine-go 走 `context.DeadlineExceeded` / go-redis timeout error） |
+| `timeout` | 命令在 `read_timeout_ms` / `write_timeout_ms` 超时（pine-go 走 `context.DeadlineExceeded` / go-redis timeout error）；请求上下文截止时间已过、命令在发送前失败也记此桶（三运行时一致，issue #217） |
 | `pool_timeout` | pool 获取连接 `pool_timeout_ms` 内无空闲（pine-go 走 go-redis pool wait error） |
-| `error` | 其它错误（连接被拒、协议错误、未分类异常） |
+| `error` | 其它错误（连接被拒、协议错误、未分类异常）；请求上下文被取消（非截止时间）而发送前失败也记此桶 |
 
-**pine-cpp 已知缺口**：当前 cpp Redis client 抛出单一 `std::runtime_error` 类型，没有 timeout / pool-timeout / generic 的类型分层；`run_command<T>(...)` 模板内只能记入 `error` 桶，timeout 与 pool-timeout 计数被合并到 error。这是 known follow-up——cpp client 需要引入错误类型分层（拆 `TimeoutError` / `PoolTimeoutError` / generic）才能修齐 status taxonomy。
+**pine-cpp 已知缺口**：当前 cpp Redis client 抛出单一 `std::runtime_error` 类型，没有 timeout / pool-timeout / generic 的类型分层；`run_command<T>(...)` 模板内只能记入 `error` 桶，socket timeout 与 pool-timeout 计数被合并到 error（发送前因上下文截止时间失败的那一类例外，记 `timeout`）。这是 known follow-up——cpp client 需要引入错误类型分层（拆 `TimeoutError` / `PoolTimeoutError` / generic）才能修齐 status taxonomy。
 
 ### lifecycle 命令过滤（三运行时插桩位置非对称的等价契约）
 
