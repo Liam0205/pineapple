@@ -120,11 +120,18 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
     }
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out) override {
     const auto& common_req_fields = common_req_.empty() ? common_input_ : common_req_;
     const auto& item_req_fields = item_req_.empty() ? item_input_ : item_req_;
     const auto& common_resp_fields = common_resp_.empty() ? common_output_ : common_resp_;
     const auto& item_resp_fields = item_resp_.empty() ? item_output_ : item_resp_;
+
+    // A done context fails the call before it is sent, as Go's http.Client
+    // does.
+    if (ctx.cancelled()) {
+      handle_cancelled(ctx, out);
+      return;
+    }
 
     Variant::object_t req_common;
     for (std::size_t i = 0; i < common_input_.size(); ++i) {
@@ -164,8 +171,13 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
     opts.timeout = std::chrono::milliseconds(timeout_ms_);
     opts.max_response_size = max_response_size_;
     opts.allow_private = allow_private_;
+    opts.cancel = ctx.stop_token();
 
     http::PostResult res = http::post(opts);
+    if (res.cancelled) {
+      handle_cancelled(ctx, out);
+      return;
+    }
     if (!res.ok) {
       handle_error(out, res.error);
       return;
@@ -238,6 +250,13 @@ class TransformByRemotePineappleOp : public Operator, public ConcurrentSafe, pub
   }
 
  private:
+  // Words a call the context stopped like pine-go's net/http error:
+  // `request failed: Post "<url>": context canceled`.
+  void handle_cancelled(const RequestContext& ctx, OperatorOutput& out) {
+    handle_error(out, "transform_by_remote_pineapple: request failed: Post \"" + url_ +
+                          "\": " + ctx.err().value_or(ContextError(false)).what());
+  }
+
   void handle_error(OperatorOutput& out, const std::string& msg) {
     if (fail_on_error_) {
       throw ExecutionError(msg);

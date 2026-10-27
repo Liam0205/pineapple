@@ -399,13 +399,6 @@ Engine::Engine(Config config, EngineOptions options) : config_(std::move(config)
     if (auto* ma = dynamic_cast<MetricsAware*>(instance.get())) {
       ma->set_metrics_provider(metrics_provider_);
     }
-    // Inject resource provider for operators that borrow handle-typed
-    // resources by name. May be null (no provider configured), in which case
-    // the operator degrades at execute time. Same ordering as metrics: init
-    // first, then provider injection.
-    if (auto* ra = dynamic_cast<ResourceAware*>(instance.get())) {
-      ra->set_resource_provider(resource_provider_);
-    }
     // Compute the {{field}} interpolation plan for this operator
     // (issue #74). Build-time errors carry the canonical
     // `operator "X": ...` prefix; runtime errors don't, since
@@ -437,7 +430,7 @@ Engine Engine::from_file(const std::string& path, EngineOptions options) {
 
 namespace {
 
-void dispatch_operator(const OperatorInput& input, const OperatorConfig& op,
+void dispatch_operator(const RequestContext& ctx, const OperatorInput& input, const OperatorConfig& op,
                        const std::map<std::string, std::unique_ptr<Operator>>& operators,
                        OperatorOutput& out) {
   auto it = operators.find(op.name);
@@ -445,7 +438,7 @@ void dispatch_operator(const OperatorInput& input, const OperatorConfig& op,
     throw RegistryError("operator \"" + op.name + "\": operator type not registered: \"" + op.type_name +
                         "\"");
   }
-  it->second->execute(input, out);
+  it->second->execute(ctx, input, out);
 }
 
 // validate_output_against_type mirrors pine-go types.OperatorType.ValidateOutput
@@ -667,11 +660,11 @@ void validate_declared_outputs(const std::string& op_name, const Metadata& meta,
 // exception is preserved as a nested cause on the outgoing ExecutionError /
 // PanicError. Downstream code can use pine::error_as<T>() to walk the chain,
 // mirroring Go's errors.As / Java's Throwable.getCause().
-void dispatch_with_recovery(const OperatorInput& input, const OperatorConfig& op,
+void dispatch_with_recovery(const RequestContext& ctx, const OperatorInput& input, const OperatorConfig& op,
                             const std::map<std::string, std::unique_ptr<Operator>>& operators,
                             OperatorOutput& out) {
   try {
-    dispatch_operator(input, op, operators, out);
+    dispatch_operator(ctx, input, op, operators, out);
   } catch (ExecutionError& e) {
     // If the execution error was thrown without operator name context or
     // formatted with raw inner message, ensure it matches:
@@ -748,7 +741,7 @@ void merge_shard_output(OperatorOutput& dst, const OperatorOutput& src, int offs
 // pine-go gets for free through goroutines. When `pool` is null
 // the legacy per-shard std::thread fallback runs — kept so unit tests and
 // stand-alone callers that construct Frame directly still work.
-void parallel_execute(const Frame& frame, const OperatorConfig& op,
+void parallel_execute(const RequestContext& ctx, const Frame& frame, const OperatorConfig& op,
                       const std::map<std::string, std::unique_ptr<Operator>>& operators, OperatorOutput& out,
                       const InputFieldSpec& spec,
                       const Engine::TemplatedPlans::Entry* templated_entry = nullptr,
@@ -779,7 +772,7 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   if (n <= 1 || total == 0) {
     OperatorInput input = build_operator_input(frame, op.name, spec);
     input.set_templated_params(resolved_ptr);
-    dispatch_with_recovery(input, op, operators, out);
+    dispatch_with_recovery(ctx, input, op, operators, out);
     return;
   }
   if (n > total) {
@@ -811,17 +804,18 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
 
   std::mutex err_mu;
   std::exception_ptr first_err;
-  // shard-level cancellation: first shard to fail flips this flag so
-  // un-started shards bail out before invoking dispatch_with_recovery.
-  // Mirrors pine-go parallel.go:118 — `cancel()` after errOnce.Do.
-  // Shards already running cannot be interrupted mid-execute (operators
-  // are not designed to be re-entrant against cancel during their own
-  // execute body), so the saving is for shards still queued in the
-  // ThreadPool / awaiting their thread slot.
-  std::atomic<bool> shard_cancel{false};
+  // Shard-level cancellation, mirroring pine-go parallel.go: shard_ctx is
+  // cancelled by the run's context or by the first shard to fail, so
+  // un-started shards bail out before invoking dispatch_with_recovery and
+  // shards already running see the cancellation through their own ctx.
+  // `skipped` records that a shard never ran, so the operator cannot
+  // report success with part of its items unwritten.
+  auto shard_ctx = RequestContext::with_cancel(ctx);
+  std::atomic<bool> skipped{false};
 
   auto shard_body = [&](int i) {
-    if (shard_cancel.load(std::memory_order_acquire)) {
+    if (shard_ctx.cancelled()) {
+      skipped.store(true, std::memory_order_relaxed);
       return;
     }
     std::optional<ScopedInstall> guard;
@@ -831,12 +825,12 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
     try {
       OperatorInput input = build_operator_input(*shards[static_cast<std::size_t>(i)], op.name, spec);
       input.set_templated_params(resolved_ptr);
-      dispatch_with_recovery(input, op, operators, shard_outs[static_cast<std::size_t>(i)]);
+      dispatch_with_recovery(shard_ctx, input, op, operators, shard_outs[static_cast<std::size_t>(i)]);
     } catch (...) {
       std::lock_guard<std::mutex> lk(err_mu);
       if (!first_err) {
         first_err = std::current_exception();
-        shard_cancel.store(true, std::memory_order_release);
+        shard_ctx.cancel();
       }
     }
   };
@@ -864,6 +858,17 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   if (first_err) {
     std::rethrow_exception(first_err);
   }
+  if (skipped.load(std::memory_order_relaxed)) {
+    // No shard failed, so the run's context was cancelled. pine-go returns
+    // shardCtx.Err() here, which the scheduler reports as this operator's
+    // ExecutionError: `pine: execution error in operator "X": context canceled`.
+    ContextError cause = shard_ctx.err().value_or(ContextError(false));
+    try {
+      throw cause;
+    } catch (const ContextError& e) {
+      std::throw_with_nested(ExecutionError(op.name, e.what()));
+    }
+  }
 
   for (int i = 0; i < n; ++i) {
     merge_shard_output(out, shard_outs[static_cast<std::size_t>(i)], offsets[static_cast<std::size_t>(i)],
@@ -871,18 +876,37 @@ void parallel_execute(const Frame& frame, const OperatorConfig& op,
   }
 }
 
+// make_cancelled builds the CancelledError for a run its caller's context
+// cut short, with the ContextError nested so error_as<ContextError>() finds
+// it (pine-go: CancelledError.Unwrap returns ctx.Err()).
+std::exception_ptr make_cancelled(const ContextError& cause) {
+  try {
+    throw cause;
+  } catch (const ContextError& e) {
+    try {
+      throw CancelledError(e.deadline_exceeded());
+    } catch (...) {
+      return std::current_exception();
+    }
+  }
+}
+
 // run_dag executes the DAG using a ready-queue scheduler: only nodes whose
 // predecessors have all completed are submitted to the DAG thread pool.
 // When a node finishes, it decrements the in-degree of its successors and
 // submits any that become ready. The pool never holds blocked tasks.
-std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
+//
+// Cancellation mirrors pine-go's scheduler: operators run under run_ctx, a
+// child of the caller's context that the first fatal error also cancels. A
+// node whose turn comes after run_ctx is done is not run; if that happened
+// and no operator failed, the run reports CancelledError.
+std::vector<OpTrace> run_dag(const RequestContext& caller_ctx, const Config& config, const Graph& graph,
                              const std::map<std::string, std::unique_ptr<Operator>>& operators,
                              const std::map<std::string, InputFieldSpec>& input_specs,
                              const Engine::TemplatedPlans* templated_plans, Frame& frame, bool collect_traces,
                              std::atomic<int64_t>* peak_concurrency = nullptr,
                              Engine::EngineMetrics* em = nullptr, runtime::ThreadPool* dag_pool = nullptr,
                              runtime::ThreadPool* shard_pool = nullptr,
-                             std::stop_token external_cancel = std::stop_token{},
                              detail::CentralArena* central = nullptr,
                              const std::string& log_prefix = std::string{}) {
   const std::size_t n = graph.nodes.size();
@@ -902,20 +926,15 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
   std::exception_ptr fatal_err;
   std::atomic<int64_t> active_ops{0};
 
-  std::stop_source cancel_source;
-  auto stop_token = cancel_source.get_token();
-
-  std::optional<std::stop_callback<std::function<void()>>> external_link;
-  if (external_cancel.stop_possible()) {
-    external_link.emplace(external_cancel,
-                          std::function<void()>([&cancel_source] { cancel_source.request_stop(); }));
-  }
+  auto run_ctx = RequestContext::with_cancel(caller_ctx);
+  // Set when a node is not run because run_ctx was already done.
+  std::atomic<bool> not_run{false};
 
   auto fail = [&](std::exception_ptr e) {
     std::lock_guard<std::mutex> lk(fatal_mu);
     if (!fatal_err) {
       fatal_err = e;
-      cancel_source.request_stop();
+      run_ctx.cancel();
     }
   };
 
@@ -994,7 +1013,8 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
   };
 
   node_body = [&](std::size_t i) {
-    if (stop_token.stop_requested()) {
+    if (run_ctx.cancelled()) {
+      not_run.store(true, std::memory_order_relaxed);
       propagate_and_signal(i);
       return;
     }
@@ -1102,7 +1122,8 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
           tpl_entry = &it->second;
         }
       }
-      parallel_execute(frame, op, operators, out, input_specs.at(op.name), tpl_entry, shard_pool, central);
+      parallel_execute(run_ctx, frame, op, operators, out, input_specs.at(op.name), tpl_entry, shard_pool,
+                       central);
       if (collect_traces && op.debug.value_or(false)) {
         trace.output_snapshot = snapshot_output(out);
         trace.has_output_snapshot = true;
@@ -1256,6 +1277,13 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
     done_cv.wait(lk, [&] { return done; });
   }
 
+  // A fatal error wins; otherwise an operator left unrun means the caller's
+  // context ended the run. run_ctx can only have been cancelled by a fatal
+  // error or by caller_ctx, so caller_ctx.err() is set here.
+  if (!fatal_err && not_run.load(std::memory_order_relaxed)) {
+    fatal_err = make_cancelled(caller_ctx.err().value_or(ContextError(false)));
+  }
+
   auto dag_end = std::chrono::steady_clock::now();
   if (em) {
     if (em->dag_exec_duration) {
@@ -1288,15 +1316,14 @@ std::vector<OpTrace> run_dag(const Config& config, const Graph& graph,
 
 Result Engine::execute(const Request& request) const {
   static const std::map<std::string, Variant> empty_resources;
-  return execute(request, empty_resources, std::stop_token{});
+  return execute(request, empty_resources);
 }
 
 Result Engine::execute(const Request& request, const std::map<std::string, Variant>& resources) const {
-  return execute(request, resources, std::stop_token{});
+  return execute(request, RequestContext::with_resources(RequestContext::background(), &resources));
 }
 
-Result Engine::execute(const Request& request, const std::map<std::string, Variant>& resources,
-                       std::stop_token external_cancel) const {
+Result Engine::execute(const Request& request, const RequestContext& ctx) const {
   // Route through the traced path so partial-result salvage runs even
   // for callers using the no-trace API. Mirrors pine-go's Execute()
   // contract: `(*Result, error)` — partial Result survives errors. On
@@ -1304,7 +1331,7 @@ Result Engine::execute(const Request& request, const std::map<std::string, Varia
   // this overload (no out-parameter in the signature); to access the
   // partial Result and warnings, use execute_traced_into.
   TracedResult traced;
-  execute_traced_into(request, resources, &traced, external_cancel);
+  execute_traced_into(request, ctx, &traced);
   return std::move(traced.result);
 }
 
@@ -1317,11 +1344,10 @@ TracedResult Engine::execute_traced(const Request& request,
 
 void Engine::execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
                                  TracedResult* out) const {
-  execute_traced_into(request, resources, out, std::stop_token{});
+  execute_traced_into(request, RequestContext::with_resources(RequestContext::background(), &resources), out);
 }
 
-void Engine::execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
-                                 TracedResult* out, std::stop_token external_cancel) const {
+void Engine::execute_traced_into(const Request& request, const RequestContext& ctx, TracedResult* out) const {
   validate_request(request, config_.flow_contract);
   // Capture the calling thread's central arena (non-null if RequestArena is active).
   // Worker threads get their own ThreadLocalBump backed by this central arena.
@@ -1337,13 +1363,19 @@ void Engine::execute_traced_into(const Request& request, const std::map<std::str
   // one survived, because the search was scoped to the files the issue named.
   std::unique_ptr<Frame> frame_ptr = make_frame(config_.storage_mode, request.common, request.items);
   Frame& frame = *frame_ptr;
-  frame.set_resources(&resources);
+  // The engine-level provider (EngineOptions::resource_provider) applies
+  // unless the caller's context brings its own, as in pine-java.
+  std::optional<RequestContext> with_provider;
+  if (resource_provider_ != nullptr && ctx.resource_provider() == nullptr) {
+    with_provider = RequestContext::with_resource_provider(ctx, resource_provider_);
+  }
   std::exception_ptr run_err = nullptr;
   try {
-    out->trace = run_dag(config_, graph_, operators_, input_specs_, templated_plans_.get(), frame,
+    out->trace = run_dag(with_provider ? *with_provider : ctx, config_, graph_, operators_, input_specs_,
+                         templated_plans_.get(), frame,
                          /*collect_traces=*/true, peak_concurrency_.get(), engine_metrics_.get(),
                          dag_pool_ ? &dag_pool_->pool : nullptr, shard_pool_ ? &shard_pool_->pool : nullptr,
-                         external_cancel, central, log_prefix_);
+                         central, log_prefix_);
   } catch (...) {
     run_err = std::current_exception();
   }

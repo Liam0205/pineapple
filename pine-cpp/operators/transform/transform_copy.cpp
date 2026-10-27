@@ -17,7 +17,7 @@ class TransformCopyOp : public Operator, public ConcurrentSafe {
     item_input_ = cfg.metadata.item_input;
     item_output_ = cfg.metadata.item_output;
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     std::set<std::string> skip_set(skip_.begin(), skip_.end());
     const auto active_inputs = [&](const std::vector<std::string>& src_list) {
       std::vector<std::string> out_list;

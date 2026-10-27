@@ -1,7 +1,6 @@
 #include "pine/operator.hpp"
 
 #include <chrono>
-#include <thread>
 
 #include "operators/_helpers.hpp"
 
@@ -16,8 +15,13 @@ class TransformBenchSleepOp : public Operator, public ConcurrentSafe {
     }
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
-    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms_));
+  void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out) override {
+    // Wait on the context rather than sleeping, as pine-go selects on
+    // ctx.Done(): a cancelled or timed-out request ends the wait early and
+    // fails the operator with the context's error.
+    if (ctx.wait_for(std::chrono::milliseconds(delay_ms_))) {
+      ctx.throw_if_cancelled();
+    }
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       out.set_item(static_cast<int>(i), "_bench_slept", Variant(true));
     }

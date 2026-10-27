@@ -41,7 +41,7 @@ class TransformBenchCpuOp : public Operator, public ConcurrentSafe {
     }
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       double result = cpu_work(iterations_);
       out.set_item(static_cast<int>(i), "_bench_result", Variant(result));

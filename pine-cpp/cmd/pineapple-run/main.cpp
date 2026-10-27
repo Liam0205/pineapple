@@ -61,8 +61,8 @@ int main(int argc, char** argv) {
     auto config = pine::load_config_from_json(config_data);
 
     // Build and start the ResourceManager before the Engine so the
-    // ResourceProvider is live when the Engine injects it into ResourceAware
-    // operators (e.g. Redis operators borrowing a redis_connection pool).
+    // ResourceProvider is live before any execute hands it to operators
+    // (e.g. Redis operators borrowing a redis_connection pool).
     resource_manager = std::make_unique<pine::resource::Manager>();
     resource_manager->load_from_config(config);
     resource_manager->start();

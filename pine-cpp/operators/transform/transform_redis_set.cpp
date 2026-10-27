@@ -10,12 +10,8 @@
 
 namespace pine {
 
-class TransformRedisSetOp : public Operator, public ConcurrentSafe, public ResourceAware {
+class TransformRedisSetOp : public Operator, public ConcurrentSafe {
  public:
-  void set_resource_provider(const ResourceProvider* provider) override {
-    provider_ = provider;
-  }
-
   void init(const OperatorConfig& cfg) override {
     op_name_ = cfg.name;
     const auto& params = cfg.params.as_object();
@@ -59,11 +55,12 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
     value_field_ = cfg.metadata.common_input.back();
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out) override {
     // A null borrow (no provider, missing resource, or wrong handle type) is a
     // silent no-op, mirroring pine-go's borrowRedis ok=false path.
-    auto conn = provider_
-                    ? std::static_pointer_cast<redis::RedisConnResource>(provider_->borrow(resource_name_))
+    const ResourceProvider* provider = ctx.resource_provider();
+    auto conn = provider
+                    ? std::static_pointer_cast<redis::RedisConnResource>(provider->borrow(resource_name_))
                     : nullptr;
     if (!conn) {
       return;
@@ -104,7 +101,7 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
           return;
         }
         const std::string& sv = value.as_string();
-        conn->run_command<int>("SET", [&](redis::Client& cli) {
+        conn->run_command<int>(ctx, "SET", [&](redis::Client& cli) {
           cli.set(key, sv, ttl);
           return 0;
         });
@@ -126,7 +123,7 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
         // DEL+EXPIRE that ride along aren't separately tracked because they
         // were not exercised at incident time and granularity beyond the
         // dominant op would over-fragment the labels.
-        conn->run_command<int>("SADD", [&](redis::Client& cli) {
+        conn->run_command<int>(ctx, "SADD", [&](redis::Client& cli) {
           cli.write_multiexec(commands);
           return 0;
         });
@@ -144,13 +141,17 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
         if (ttl > 0) {
           commands.push_back({"EXPIRE", key, std::to_string(ttl)});
         }
-        conn->run_command<int>("RPUSH", [&](redis::Client& cli) {
+        conn->run_command<int>(ctx, "RPUSH", [&](redis::Client& cli) {
           cli.write_multiexec(commands);
           return 0;
         });
       } else {
         throw ExecutionError("transform_redis_set: unsupported data_type \"" + data_type_ + "\"");
       }
+    } catch (const ContextError& e) {
+      // Before the ExecutionError rethrow: a write the context stopped is a
+      // write failure like any other (pine-go: go-redis returns ctx.Err()).
+      write_failed(std::string(e.what()));
     } catch (const ExecutionError&) {
       throw;
     } catch (const std::exception& e) {
@@ -159,7 +160,6 @@ class TransformRedisSetOp : public Operator, public ConcurrentSafe, public Resou
   }
 
  private:
-  const ResourceProvider* provider_ = nullptr;
   std::string op_name_;
   std::string resource_name_;
   std::string key_prefix_;

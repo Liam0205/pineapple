@@ -69,13 +69,6 @@ class ColumnFrame : public Frame {
   std::vector<std::string> item_fields() const override;
   std::vector<Variant> item_column(const std::string& field) const override;
 
-  void set_resources(const std::map<std::string, Variant>* res) override {
-    resources_ = res;
-  }
-  const std::map<std::string, Variant>* resources() const override {
-    return resources_;
-  }
-
   void push_warning(std::string msg) override;
   std::vector<std::string> take_warnings() override;
   const std::vector<std::string>& warnings_ref() const {
@@ -107,7 +100,6 @@ class ColumnFrame : public Frame {
   Variant::object_t common_;
   std::unique_ptr<ColumnStore> items_;
   std::vector<std::string> warnings_;
-  const std::map<std::string, Variant>* resources_ = nullptr;
 
   // Window-view mode. When non-null, all reads delegate to
   // the parent's storage with a (offset, count) translation, and all

@@ -4,7 +4,9 @@
 #include "pine/flat_map.hpp"
 #include "pine/metrics.hpp"
 
+#include <any>
 #include <atomic>
+#include <chrono>
 #include <exception>
 #include <map>
 #include <memory>
@@ -145,6 +147,53 @@ class PanicError : public Error, public std::nested_exception {
   std::string operator_;
   std::string value_;
   std::string stack_;  // empty when std::stacktrace unavailable at link time
+};
+
+// ContextError is what a done RequestContext reports: the counterpart of Go's
+// context.Canceled / context.DeadlineExceeded. what() is exactly "context
+// canceled" or "context deadline exceeded", the same text as pine-go and
+// pine-java. It is the single-string ExecutionError form, so an operator that
+// lets it escape is reported as `pine: execution error in operator "X":
+// context canceled` — as in Go when an operator returns ctx.Err() — and
+// pine::error_as<ContextError>() still finds it under that wrapper.
+class ContextError : public ExecutionError {
+ public:
+  explicit ContextError(bool deadline_exceeded)
+      : ExecutionError(deadline_exceeded ? "context deadline exceeded" : "context canceled"),
+        deadline_exceeded_(deadline_exceeded) {
+  }
+  bool deadline_exceeded() const {
+    return deadline_exceeded_;
+  }
+
+ private:
+  bool deadline_exceeded_;
+};
+
+// CancelledError reports that the caller's RequestContext was cancelled (or
+// its deadline passed) before the DAG finished: at least one operator never
+// ran because of it, while no operator failed on its own. Mirrors pine-go's
+// types.CancelledError: `pine: execution cancelled: context canceled`. The
+// engine throws it with the ContextError nested, so error_as<ContextError>()
+// recovers the cause. The partial Result written by execute_traced_into keeps
+// the writes of the operators that did complete.
+//
+// An operator that itself throws the ContextError is reported as an
+// ExecutionError naming that operator instead — it failed, rather than being
+// skipped.
+class CancelledError : public Error, public std::nested_exception {
+ public:
+  explicit CancelledError(bool deadline_exceeded)
+      : Error(std::string("pine: execution cancelled: ") +
+              (deadline_exceeded ? "context deadline exceeded" : "context canceled")),
+        deadline_exceeded_(deadline_exceeded) {
+  }
+  bool deadline_exceeded() const {
+    return deadline_exceeded_;
+  }
+
+ private:
+  bool deadline_exceeded_;
 };
 
 class Variant;
@@ -300,7 +349,7 @@ struct FlowContract {
 
 // ResourceEntry mirrors pine-go's resource.resourceConfig: a single entry in
 // the root `resource_config` map. C++ does not yet have a Manager runtime
-// subsystem (callers still inject resources via Frame::set_resources), so
+// subsystem (callers still inject resources via RequestContext::with_resources), so
 // these fields are parsed and stored for downstream tooling / future wiring
 // without producing fetchers at config-load time.
 struct ResourceEntry {
@@ -666,6 +715,125 @@ class ResourceProvider {
   virtual std::shared_ptr<void> borrow(const std::string& name) const = 0;
 };
 
+namespace detail {
+class ContextSignal;
+struct ContextNode;
+}  // namespace detail
+
+// RequestContext is the request-scoped context passed to every
+// Operator::execute: the C++ counterpart of Go's context.Context and
+// pine-java's RequestContext. It carries cancellation, an optional deadline,
+// request-scoped values, the request's resource data map and the
+// ResourceProvider operators borrow handle-typed resources from.
+//
+// Contexts are cheap immutable values that form a chain: each with_*
+// factory derives a child from a parent. Cancelling a parent cancels every
+// context derived from it; cancelling a child never affects its parent.
+// with_cancel / with_deadline / with_timeout return a move-only Cancelable
+// that cancels on destruction — the RAII form of Go's `defer cancel()`:
+//
+//   auto ctx = pine::RequestContext::with_timeout(pine::RequestContext::background(),
+//                                                 std::chrono::milliseconds(200));
+//   pine::Result r = engine.execute(request, ctx);
+//
+// Once done, err() / throw_if_cancelled() report a ContextError whose what()
+// is "context canceled" or "context deadline exceeded". stop_token() exposes
+// the same signal for std::stop_callback and condition_variable_any waits.
+// All accessors are thread-safe; a context may be shared by every worker of
+// one request.
+class RequestContext {
+ public:
+  using Clock = std::chrono::steady_clock;
+  class Cancelable;
+
+  // The root context: never cancelled, no deadline, no values, no resources.
+  RequestContext() = default;
+  static RequestContext background() {
+    return RequestContext();
+  }
+
+  // A child cancelled by Cancelable::cancel() (or its destructor) or when the
+  // parent is.
+  static Cancelable with_cancel(const RequestContext& parent);
+  // A child also cancelled, with "context deadline exceeded", once `deadline`
+  // passes. A parent deadline that is earlier still wins.
+  static Cancelable with_deadline(const RequestContext& parent, Clock::time_point deadline);
+  // with_deadline(parent, now + timeout).
+  static Cancelable with_timeout(const RequestContext& parent, Clock::duration timeout);
+  // A child carrying `value` under `key`. Keys compare by address: use the
+  // address of a private static object, which cannot collide across
+  // libraries, as with Go's unexported context key types. key must be
+  // non-null.
+  static RequestContext with_value(const RequestContext& parent, const void* key, std::any value);
+  // A child whose resources() is `resources` (the snapshot of data-typed
+  // resources, e.g. resource::Manager::snapshot()). The map must outlive
+  // every use of the context.
+  static RequestContext with_resources(const RequestContext& parent,
+                                       const std::map<std::string, Variant>* resources);
+  // A child whose resource_provider() is `provider`. The provider must
+  // outlive every use of the context.
+  static RequestContext with_resource_provider(const RequestContext& parent,
+                                               const ResourceProvider* provider);
+
+  // True once this context is cancelled or its deadline has passed.
+  bool cancelled() const;
+  // The reason this context is done, or nullopt while it is not.
+  std::optional<ContextError> err() const;
+  // Throws err() if this context is done; operators call it at safe
+  // stopping points.
+  void throw_if_cancelled() const;
+  // Requested once the context is done. A background context returns a
+  // token for which stop_possible() is false.
+  std::stop_token stop_token() const;
+  // The deadline after which this context is cancelled, if any.
+  std::optional<Clock::time_point> deadline() const;
+  // The value bound to `key` by the nearest with_value, or nullptr.
+  const std::any* value(const void* key) const;
+  // The map set by the nearest with_resources, or nullptr.
+  const std::map<std::string, Variant>* resources() const;
+  // The provider set by the nearest with_resource_provider, or nullptr.
+  const ResourceProvider* resource_provider() const;
+  // Waits up to `timeout` for this context to be done. Returns true if it is
+  // (possibly before the call), false if the time ran out. A cancellable
+  // replacement for std::this_thread::sleep_for in operators.
+  bool wait_for(Clock::duration timeout) const;
+
+ protected:
+  RequestContext(std::shared_ptr<const detail::ContextNode> node,
+                 std::shared_ptr<detail::ContextSignal> signal)
+      : node_(std::move(node)), signal_(std::move(signal)) {
+  }
+
+  // node_ holds the value / resource chain; signal_ the cancellation state
+  // shared by a cancelable context and everything derived from it. Both are
+  // null on background().
+  std::shared_ptr<const detail::ContextNode> node_;
+  std::shared_ptr<detail::ContextSignal> signal_;
+};
+
+// A context its creator can cancel. Move-only; destruction cancels it, which
+// releases its link to the parent and its deadline timer. Slicing a copy into
+// a plain RequestContext (to hand to other threads) is fine: the copy observes
+// cancellation but cannot trigger it.
+class RequestContext::Cancelable : public RequestContext {
+ public:
+  Cancelable(Cancelable&& other) noexcept = default;
+  Cancelable& operator=(Cancelable&& other) noexcept;
+  Cancelable(const Cancelable&) = delete;
+  Cancelable& operator=(const Cancelable&) = delete;
+  ~Cancelable();
+
+  // Cancels this context and every context derived from it. Idempotent and
+  // safe to call from any thread.
+  void cancel() const;
+
+ private:
+  friend class RequestContext;
+  Cancelable(std::shared_ptr<const detail::ContextNode> node, std::shared_ptr<detail::ContextSignal> signal)
+      : RequestContext(std::move(node), std::move(signal)) {
+  }
+};
+
 struct EngineOptions {
   // When set, forces debug snapshot collection on/off, overriding Config.debug
   // and any per-operator debug flag in JSON. Mirrors Go's pine.WithDebug.
@@ -676,10 +844,11 @@ struct EngineOptions {
   // Optional metrics provider. Defaults to metrics::nop_provider().
   // Mirrors Go's pine.WithMetrics.
   metrics::Provider* metrics_provider = nullptr;
-  // Optional resource provider, used by ResourceAware operators to borrow
-  // handle-typed resources (e.g. connection pools) by name. Defaults to null,
-  // in which case those operators degrade at execute time. Mirrors pine-go /
-  // pine-java's ResourceProvider injection.
+  // Optional resource provider operators borrow handle-typed resources (e.g.
+  // connection pools) from by name, via RequestContext::resource_provider().
+  // Applied to every execute whose context sets none of its own. Defaults to
+  // null, in which case those operators degrade at execute time. Mirrors
+  // pine-go / pine-java's ResourceProvider injection.
   const ResourceProvider* resource_provider = nullptr;
   // DAG scheduler thread pool size. Default: nproc * 4.
   std::optional<std::size_t> dag_pool_size;
@@ -701,13 +870,20 @@ class OperatorInput;
 // Concrete operators subclass this. Placed here so that Engine's
 // unique_ptr<Operator> member has a complete type in all TUs that
 // include pine.hpp.
+//
+// execute receives the run's RequestContext: it is cancelled when the
+// caller's context is, and also when another operator of the same run fails.
+// Operators that block (I/O, sleeps) should wait on it; long loops may call
+// ctx.throw_if_cancelled() between steps. Its resources() and
+// resource_provider() replace the former OperatorInput::resources() and
+// ResourceAware injection.
 class Operator {
  public:
   virtual ~Operator() = default;
   virtual void init(const OperatorConfig& config) {
     (void)config;
   }
-  virtual void execute(const OperatorInput& input, OperatorOutput& out) = 0;
+  virtual void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out) = 0;
 };
 
 class Engine {
@@ -723,21 +899,21 @@ class Engine {
   static Engine from_file(const std::string& path, EngineOptions options);
 
   Result execute(const Request& request) const;
+  // Shorthand for execute(request, RequestContext::with_resources(background(), &resources)).
   Result execute(const Request& request, const std::map<std::string, Variant>& resources) const;
-  // Cancellable variant: external_cancel.request_stop() (typically called
-  // from a different thread when the client disconnects) interrupts any
-  // cv.wait inside the DAG scheduler and aborts the run. Mirrors pine-go
-  // Execute(ctx, req) where ctx.Done() is watched at every wait.
-  Result execute(const Request& request, const std::map<std::string, Variant>& resources,
-                 std::stop_token external_cancel) const;
+  // Context-aware form, mirroring pine-go's Execute(ctx, req). Once ctx is
+  // done no further operator starts, and operators already running see the
+  // cancellation through their own ctx. If that left any operator unrun and
+  // no operator failed, the run throws CancelledError. When ctx sets no
+  // resource_provider(), EngineOptions::resource_provider is applied.
+  Result execute(const Request& request, const RequestContext& ctx) const;
   TracedResult execute_traced(const Request& request, const std::map<std::string, Variant>& resources) const;
   // Variant of execute_traced that writes the partial result/trace/warnings
   // into *out before re-throwing any execution error. Mirrors pine-go's
   // (*Result, error) return contract where partial results survive errors.
   void execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
                            TracedResult* out) const;
-  void execute_traced_into(const Request& request, const std::map<std::string, Variant>& resources,
-                           TracedResult* out, std::stop_token external_cancel) const;
+  void execute_traced_into(const Request& request, const RequestContext& ctx, TracedResult* out) const;
   std::string render_dag(const std::string& format, int collapse = 0) const;
 
   const ExpandedSequence& expanded() const {

@@ -62,7 +62,7 @@ class TransformByLuaOp : public Operator,
     }
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out) override {
     auto borrowed = pool_->borrow();
     lua::LuaVM& vm = *borrowed;
 
@@ -80,6 +80,12 @@ class TransformByLuaOp : public Operator,
         cols.push_back(input.item_column(field));
       }
       for (std::size_t i = 0; i < input.item_count(); ++i) {
+        // A running LuaJIT call cannot be interrupted, so cancellation is
+        // observed between items only (as in pine-java). Stopping here fails
+        // the operator instead of returning the remaining items unwritten.
+        if (auto e = ctx.err()) {
+          throw_cancelled(*e, "lua: item[" + std::to_string(i) + "]: ");
+        }
         for (std::size_t k = 0; k < item_input_.size(); ++k) {
           vm.set_global(item_input_[k], cols[k][i]);
         }
@@ -100,6 +106,9 @@ class TransformByLuaOp : public Operator,
         Variant::array_t column(std::make_move_iterator(col.begin()), std::make_move_iterator(col.end()));
         vm.set_global_table(field, column);
       }
+      if (auto e = ctx.err()) {
+        throw_cancelled(*e, "lua: ");
+      }
       auto results = vm.call_function(func_for_common_, nret, op_name_);
       for (int j = 0; j < nret; ++j) {
         out.set_common(common_output_[static_cast<std::size_t>(j)], results[static_cast<std::size_t>(j)]);
@@ -108,6 +117,16 @@ class TransformByLuaOp : public Operator,
   }
 
  private:
+  // Throws ExecutionError(prefix + "context canceled"), with the
+  // ContextError nested for pine::error_as.
+  [[noreturn]] static void throw_cancelled(const ContextError& cause, const std::string& prefix) {
+    try {
+      throw cause;
+    } catch (const ContextError& e) {
+      std::throw_with_nested(ExecutionError(prefix + e.what()));
+    }
+  }
+
   std::string op_name_;
   std::string lua_script_;
   std::string func_for_item_;

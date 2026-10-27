@@ -307,7 +307,7 @@ TEST_CASE("remote_pineapple: happy path maps response fields") {
   auto frame = build_frame();
   pine::OperatorOutput out;
   auto owned = build_input_from_frame(frame, cfg);
-  op->execute(owned.input, out);
+  op->execute(pine::RequestContext::background(), owned.input, out);
 
   const auto& cw = out.common_writes();
   REQUIRE(cw.count("b") == 1);
@@ -341,7 +341,7 @@ TEST_CASE("remote_pineapple: HTTP 500 throws when fail_on_error=true") {
   auto frame = build_frame();
   pine::OperatorOutput out;
   auto owned = build_input_from_frame(frame, cfg);
-  CHECK_THROWS_AS(op->execute(owned.input, out), pine::ExecutionError);
+  CHECK_THROWS_AS(op->execute(pine::RequestContext::background(), owned.input, out), pine::ExecutionError);
 }
 
 TEST_CASE("remote_pineapple: HTTP 500 emits warning when fail_on_error=false") {
@@ -352,7 +352,7 @@ TEST_CASE("remote_pineapple: HTTP 500 emits warning when fail_on_error=false") {
   auto frame = build_frame();
   pine::OperatorOutput out;
   auto owned = build_input_from_frame(frame, cfg);
-  op->execute(owned.input, out);
+  op->execute(pine::RequestContext::background(), owned.input, out);
   CHECK(out.warning().find("HTTP 500") != std::string::npos);
 }
 
@@ -364,7 +364,7 @@ TEST_CASE("remote_pineapple: downstream error field surfaces as warning") {
   auto frame = build_frame();
   pine::OperatorOutput out;
   auto owned = build_input_from_frame(frame, cfg);
-  op->execute(owned.input, out);
+  op->execute(pine::RequestContext::background(), owned.input, out);
   CHECK(out.warning().find("downstream error: downstream broke") != std::string::npos);
 }
 
@@ -377,6 +377,54 @@ TEST_CASE("remote_pineapple: timeout produces request-failed warning") {
   auto frame = build_frame();
   pine::OperatorOutput out;
   auto owned = build_input_from_frame(frame, cfg);
-  op->execute(owned.input, out);
+  op->execute(pine::RequestContext::background(), owned.input, out);
   CHECK(out.warning().find("request failed") != std::string::npos);
+}
+
+// Issue #217: the request's context reaches the HTTP call. A cancel while
+// the downstream is still answering ends the call at once, worded like
+// pine-go's net/http error.
+TEST_CASE("remote_pineapple: context cancel mid-call fails with Go's wording") {
+  MockServer srv(R"({"common":{}})", 200, std::chrono::milliseconds(2000));
+  auto op = create_op();
+  auto cfg = make_cfg(srv.port(), /*allow_private=*/true, /*fail_on_error=*/true);
+  op->init(cfg);
+  auto frame = build_frame();
+  pine::OperatorOutput out;
+  auto owned = build_input_from_frame(frame, cfg);
+  auto ctx = pine::RequestContext::with_cancel(pine::RequestContext::background());
+  std::thread canceller([&ctx] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ctx.cancel();
+  });
+  auto t0 = std::chrono::steady_clock::now();
+  std::string err;
+  try {
+    op->execute(ctx, owned.input, out);
+  } catch (const pine::ExecutionError& e) {
+    err = e.what();
+  }
+  auto ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+  canceller.join();
+  CHECK(err == "transform_by_remote_pineapple: request failed: Post \"http://127.0.0.1:" +
+                   std::to_string(srv.port()) + "/execute\": context canceled");
+  INFO("elapsed=" << ms << "ms");
+  CHECK(ms < 1000);
+}
+
+TEST_CASE("remote_pineapple: expired deadline is a warning without fail_on_error") {
+  // Nothing listens on this port: a done context must not even dial.
+  auto op = create_op();
+  auto cfg = make_cfg(1, /*allow_private=*/true, /*fail_on_error=*/false);
+  op->init(cfg);
+  auto frame = build_frame();
+  pine::OperatorOutput out;
+  auto owned = build_input_from_frame(frame, cfg);
+  auto ctx =
+      pine::RequestContext::with_timeout(pine::RequestContext::background(), std::chrono::milliseconds(0));
+  op->execute(ctx, owned.input, out);
+  CHECK(out.warning() ==
+        "transform_by_remote_pineapple: request failed: Post \"http://127.0.0.1:1/execute\": "
+        "context deadline exceeded");
 }

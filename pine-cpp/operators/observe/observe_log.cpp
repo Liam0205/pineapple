@@ -22,7 +22,7 @@ class ObserveLogOp : public Operator, public LoggerAware {
     }
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& /*out*/) override {
     Variant::object_t snapshot;
     if (!common_input_.empty()) {
       Variant::object_t common;

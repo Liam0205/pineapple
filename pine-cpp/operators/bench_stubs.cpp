@@ -89,7 +89,7 @@ class RecallFeedDataStubOp : public Operator, public AdditiveWritesRowSet {
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& /*input*/, OperatorOutput& out) override {
     for (int i = 0; i < item_count_; ++i) {
       Variant::object_t row;
       row["id"] = Variant(static_cast<double>(i + 1));
@@ -142,7 +142,7 @@ class TransformRedisZrangebyscoreStubOp : public Operator {
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     (void)input.common("user_id");
     out.set_common("impression_ids", Variant(Variant::array_t{}));
     out.set_common("impression_cache_hit", Variant(true));
@@ -198,7 +198,7 @@ class TransformHydrateStubOp : public Operator, public ConsumesRowSet {
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       (void)input.item(i, "item_id");
       (void)input.item(i, "type");
@@ -238,7 +238,7 @@ class TransformQueryBlockedCreatorsStubOp : public Operator {
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     (void)input.common("user_id");
     (void)input.common("blocked_creator_ids");
     out.set_common("blocked_creator_ids", Variant(Variant::array_t{}));
@@ -276,7 +276,7 @@ class FilterImpressionStubOp : public Operator, public ConsumesRowSet, public Mu
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     (void)input.common("impression_ids");
     (void)input.common("size");
     for (std::size_t i = 0; i < input.item_count(); ++i) {
@@ -320,7 +320,7 @@ class FilterBlockedCreatorStubOp : public Operator, public ConsumesRowSet, publi
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& /*out*/) override {
     (void)input.common("blocked_creator_ids");
     for (std::size_t i = 0; i < input.item_count(); ++i) {
       (void)input.item(i, "creator_id");
@@ -365,7 +365,7 @@ class ReorderTopnBoostStubOp : public Operator, public ConsumesRowSet, public Mu
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     const std::size_t n = input.item_count();
     if (n > 0) {
       const std::string salt_prefix = operators::any_to_string(input.common("shuffle_salt")) + "|";
@@ -450,7 +450,7 @@ class ObserveDatahubStubOp : public Operator {
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& input, OperatorOutput& /*out*/) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& /*out*/) override {
     for (const auto& k : common_input_) {
       (void)input.common(k);
     }
@@ -507,7 +507,7 @@ class TransformGenerateRequestIdStubOp : public Operator {
     latency_ = parse_bench_profile(cfg.params);
   }
 
-  void execute(const OperatorInput& /*input*/, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& /*input*/, OperatorOutput& out) override {
     out.set_common("request_id", Variant(prefix_ + ":550e8400-e29b-41d4-a716-446655440000"));
     if (latency_) {
       volatile double sink = latency_->apply();

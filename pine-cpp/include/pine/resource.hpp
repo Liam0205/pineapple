@@ -149,8 +149,9 @@ void reset_fetcher_registry();
 void reset_all_resource_registries();
 
 // Manager owns a set of named resources with background refresh. It implements
-// ResourceProvider so it can be passed directly into EngineOptions and borrowed
-// from by ResourceAware operators.
+// ResourceProvider so it can be passed directly into EngineOptions (or
+// RequestContext::with_resource_provider) and borrowed from by operators
+// through RequestContext::resource_provider().
 class Manager : public ResourceProvider {
  public:
   // Construct a Manager whose resource factories receive the given

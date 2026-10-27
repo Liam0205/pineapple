@@ -28,7 +28,7 @@ class StatsMockOp : public Operator, public StatsProvider {
       g_mock_op = nullptr;
     }
   }
-  void execute(const OperatorInput&, OperatorOutput&) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
   }
   std::map<std::string, int64_t> operator_stats() const override {
     return stats;
@@ -37,7 +37,7 @@ class StatsMockOp : public Operator, public StatsProvider {
 
 class EmptyStatsMockOp : public Operator, public StatsProvider {
  public:
-  void execute(const OperatorInput&, OperatorOutput&) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput&, OperatorOutput&) override {
   }
   std::map<std::string, int64_t> operator_stats() const override {
     return {};  // Exposes StatsProvider but returns empty map

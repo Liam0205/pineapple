@@ -34,7 +34,7 @@ class ReorderShuffleBySaltOp : public Operator, public ConsumesRowSet, public Mu
     common_inputs_ = cfg.metadata.common_input;
     item_field_ = cfg.metadata.item_input.at(0);
   }
-  void execute(const OperatorInput& input, OperatorOutput& out) override {
+  void execute(const RequestContext& /*ctx*/, const OperatorInput& input, OperatorOutput& out) override {
     if (input.item_count() == 0) {
       return;
     }

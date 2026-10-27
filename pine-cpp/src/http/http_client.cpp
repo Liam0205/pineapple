@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include "http/ssrf.hpp"
@@ -148,7 +149,54 @@ PostResult post(const PostOptions& opts) {
   // follow makes the security boundary more explicit for auditors.
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
 
-  CURLcode rc = curl_easy_perform(curl);
+  CURLcode rc = CURLE_OK;
+  if (!opts.cancel.stop_possible()) {
+    rc = curl_easy_perform(curl);
+  } else {
+    // Cancellable transfer: drive the handle through a multi handle so a
+    // stop request can wake curl_multi_poll at once (curl_multi_wakeup is
+    // thread-safe), instead of waiting for the next progress callback.
+    CURLM* multi = curl_multi_init();
+    if (multi == nullptr) {
+      result.error = "transform_by_remote_pineapple: curl_multi_init failed";
+      return result;
+    }
+    struct MultiScope {
+      CURLM* m;
+      CURL* e;
+      ~MultiScope() {
+        curl_multi_remove_handle(m, e);
+        curl_multi_cleanup(m);
+      }
+    } mscope{multi, curl};
+    curl_multi_add_handle(multi, curl);
+    // Declared after mscope so it is unregistered before the multi handle
+    // is freed.
+    auto wake = [multi]() noexcept { curl_multi_wakeup(multi); };
+    std::stop_callback<decltype(wake)> on_stop(opts.cancel, wake);
+    int running = 1;
+    while (running > 0) {
+      if (opts.cancel.stop_requested()) {
+        result.cancelled = true;
+        return result;
+      }
+      CURLMcode mc = curl_multi_perform(multi, &running);
+      if (mc == CURLM_OK && running > 0) {
+        mc = curl_multi_poll(multi, nullptr, 0, 1000, nullptr);
+      }
+      if (mc != CURLM_OK) {
+        result.error =
+            std::string("transform_by_remote_pineapple: request failed: ") + curl_multi_strerror(mc);
+        return result;
+      }
+    }
+    int queued = 0;
+    while (CURLMsg* msg = curl_multi_info_read(multi, &queued)) {
+      if (msg->msg == CURLMSG_DONE && msg->easy_handle == curl) {
+        rc = msg->data.result;
+      }
+    }
+  }
   if (rc != CURLE_OK) {
     // Size overflow surfaces as CURLE_WRITE_ERROR with body already
     // containing max_response_size + 1 bytes.

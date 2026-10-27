@@ -57,10 +57,6 @@ class Frame {
   // pine-go there is no aliasing escape hatch to reason about.
   virtual std::vector<Variant> item_column(const std::string& field) const = 0;
 
-  // ---- resources (read-only injected map) ----
-  virtual void set_resources(const std::map<std::string, Variant>* res) = 0;
-  virtual const std::map<std::string, Variant>* resources() const = 0;
-
   // ---- warnings ----
   virtual void push_warning(std::string msg) = 0;
   virtual std::vector<std::string> take_warnings() = 0;
