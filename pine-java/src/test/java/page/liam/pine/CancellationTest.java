@@ -123,6 +123,21 @@ class CancellationTest {
         root.cancel();
     }
 
+    @Test
+    void deadlineUnderCancelledParentSchedulesNoTimer() {
+        RequestContext.Cancelable parent = RequestContext.withCancel(RequestContext.background());
+        parent.cancel();
+        int before = RequestContext.Signal.pendingDeadlines();
+        for (int i = 0; i < 100; i++) {
+            RequestContext.Cancelable child = RequestContext.withTimeout(parent, Duration.ofHours(1));
+            assertTrue(child.isCancelled());
+            assertFalse(child.err().isDeadlineExceeded());
+        }
+        // Each child was cancelled in childOf; none may leave an hour-long
+        // task queued on the shared deadline timer.
+        assertEquals(before, RequestContext.Signal.pendingDeadlines());
+    }
+
     // ---- engine contract ---------------------------------------------------
 
     // Blocks until RELEASE opens, ignoring ctx: the engine, not the operator,
