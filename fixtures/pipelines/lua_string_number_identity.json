@@ -1,7 +1,7 @@
 {
   "name": "Lua string/number type identity (issue #175: coercion-safe fromLua dispatch)",
   "config": {
-    "_PINEAPPLE_VERSION": "0.12.0",
+    "_PINEAPPLE_VERSION": "0.12.1",
     "pipeline_config": {
       "operators": {
         "seed_items": {

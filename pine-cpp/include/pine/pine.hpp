@@ -27,7 +27,7 @@ namespace pine {
 // mirrors pine-go's `const Version` in pine-go/version.go. Keep in sync
 // with pine-go and the _PINEAPPLE_VERSION field embedded in compiled
 // configs.
-inline constexpr const char* kVersion = "0.12.0";
+inline constexpr const char* kVersion = "0.12.1";
 
 class Error : public std::runtime_error {
  public:
