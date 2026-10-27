@@ -277,7 +277,8 @@ func Run(ctx context.Context, plan *Plan, frame dataframe.Frame, stats *Stats, e
 			// does not see.
 			if execErr == nil {
 				meta := cop.Config.Meta
-				if vErr := types.ValidateDeclaredOutputs(output, meta.CommonOutput, meta.ItemOutput); vErr != nil {
+				sourceRewrite := types.SourceRewriteAllowed(cop.Config.MutatesRowSet, meta.ItemInput)
+				if vErr := types.ValidateDeclaredOutputs(output, meta.CommonOutput, meta.ItemOutput, sourceRewrite); vErr != nil {
 					execErr = fmt.Errorf("output contract violation: %w", vErr)
 				}
 			}

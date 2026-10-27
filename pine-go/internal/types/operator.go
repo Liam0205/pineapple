@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 
 	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
@@ -169,15 +170,35 @@ func (t OperatorType) ValidateOutput(out *OperatorOutput) error {
 //
 // Field names are reported sorted so the message is byte-identical across
 // runs and runtimes regardless of map iteration order.
-func ValidateDeclaredOutputs(out *OperatorOutput, commonOutput, itemOutput []string) error {
+//
+// One exemption (issue #224): a MutatesRowSet operator that reads _source may
+// rewrite it on existing items through SetItem / SetItemColumnFloat64 — the
+// merge that dedups items and joins their source tags. The DSL rejects
+// underscore-prefixed outputs, so _source can never be declared. The rewrite
+// is still ordered: a MutatesRowSet operator is a mutating writer of the
+// _row_set_ sentinel, and every operator touching item fields reads it, so the
+// operator is a barrier with edges to every item-field writer and reader before
+// and after it. AddItem is not exempt: recall must not be MutatesRowSet, and
+// _source on an added item is the frame's to inject.
+func ValidateDeclaredOutputs(out *OperatorOutput, commonOutput, itemOutput []string, sourceRewrite bool) error {
 	if undeclared := undeclaredCommonWrites(out, commonOutput); len(undeclared) > 0 {
 		return fmt.Errorf("operator wrote undeclared common output field(s) %v", undeclared)
 	}
-	if undeclared := undeclaredItemWrites(out, itemOutput); len(undeclared) > 0 {
+	if undeclared := undeclaredItemWrites(out, itemOutput, sourceRewrite); len(undeclared) > 0 {
 		return fmt.Errorf("operator wrote undeclared item output field(s) %v", undeclared)
 	}
 	return nil
 }
+
+// SourceRewriteAllowed reports whether an operator may rewrite _source on
+// existing items without declaring it (see ValidateDeclaredOutputs).
+func SourceRewriteAllowed(mutatesRowSet bool, itemInput []string) bool {
+	return mutatesRowSet && slices.Contains(itemInput, SourceField)
+}
+
+// SourceField is the engine-internal item field naming the recall operator
+// that produced the item.
+const SourceField = "_source"
 
 func undeclaredCommonWrites(out *OperatorOutput, commonOutput []string) []string {
 	if len(out.commonWrites) == 0 {
@@ -194,7 +215,7 @@ func undeclaredCommonWrites(out *OperatorOutput, commonOutput []string) []string
 	return undeclared
 }
 
-func undeclaredItemWrites(out *OperatorOutput, itemOutput []string) []string {
+func undeclaredItemWrites(out *OperatorOutput, itemOutput []string, sourceRewrite bool) []string {
 	if len(out.itemWrites) == 0 && len(out.colWrites) == 0 && len(out.addedItems) == 0 {
 		return nil
 	}
@@ -211,11 +232,17 @@ func undeclaredItemWrites(out *OperatorOutput, itemOutput []string) []string {
 		seen[field] = struct{}{}
 		undeclared = append(undeclared, field)
 	}
+	addExisting := func(field string) {
+		if sourceRewrite && field == SourceField {
+			return
+		}
+		add(field)
+	}
 	for _, w := range out.itemWrites {
-		add(w.Field)
+		addExisting(w.Field)
 	}
 	for _, cw := range out.colWrites {
-		add(cw.Field)
+		addExisting(cw.Field)
 	}
 	for _, item := range out.addedItems {
 		for field := range item {
