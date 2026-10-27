@@ -494,8 +494,10 @@ public class Engine {
         // here rather than in applyOutput because the declared field lists
         // live on the operator config, which the frame layer does not see.
         if (execErr == null && output != null) {
+            boolean sourceRewrite = OutputContract.sourceRewriteAllowed(
+                    opCfg.mutatesRowSet, opCfg.metadata.itemInput);
             String violation = OutputContract.validateDeclaredOutputs(
-                    output, opCfg.metadata.commonOutput, opCfg.metadata.itemOutput);
+                    output, opCfg.metadata.commonOutput, opCfg.metadata.itemOutput, sourceRewrite);
             if (violation != null) {
                 execErr = new PineErrors.OperatorException("output contract violation: " + violation);
             }

@@ -24,9 +24,17 @@ import java.util.TreeSet;
  * into a deterministic error at the same point where the operator-type method
  * restrictions are enforced (see {@link OperatorType#validateOutput}).
  *
- * <p>{@code _source} needs no exemption: it is injected into recall-added
- * items inside {@code DataFrame/ColumnFrame.applyOutput}, which runs after
- * this check, so it is never present in {@code getAddedItems()} here.
+ * <p>One exemption (issue #224), identical to Go's: a {@code MutatesRowSet}
+ * operator that reads {@code _source} may rewrite it on existing items through
+ * {@code setItem} / {@code setItemColumnDouble} — the merge that dedups items
+ * and joins their source tags. The DSL rejects underscore-prefixed outputs, so
+ * {@code _source} can never be declared. The rewrite is still ordered: a
+ * {@code MutatesRowSet} operator is a mutating writer of the {@code _row_set_}
+ * sentinel, and every operator touching item fields reads it, so the operator
+ * is a barrier with edges to every item-field writer and reader before and
+ * after it. {@code addItem} is not exempt: recall must not be
+ * {@code MutatesRowSet}, and {@code _source} on an added item is the frame's
+ * to inject.
  */
 final class OutputContract {
     private OutputContract() {
@@ -44,12 +52,12 @@ final class OutputContract {
      * {@link GoFormat#compareUtf8}.
      */
     static String validateDeclaredOutputs(OperatorOutput out, List<String> commonOutput,
-                                          List<String> itemOutput) {
+                                          List<String> itemOutput, boolean sourceRewrite) {
         Set<String> undeclaredCommon = undeclaredCommonWrites(out, commonOutput);
         if (!undeclaredCommon.isEmpty()) {
             return "operator wrote undeclared common output field(s) " + formatList(undeclaredCommon);
         }
-        Set<String> undeclaredItem = undeclaredItemWrites(out, itemOutput);
+        Set<String> undeclaredItem = undeclaredItemWrites(out, itemOutput, sourceRewrite);
         if (!undeclaredItem.isEmpty()) {
             return "operator wrote undeclared item output field(s) " + formatList(undeclaredItem);
         }
@@ -70,18 +78,36 @@ final class OutputContract {
         return undeclared;
     }
 
-    private static Set<String> undeclaredItemWrites(OperatorOutput out, List<String> itemOutput) {
+    /**
+     * Whether an operator may rewrite {@code _source} on existing items
+     * without declaring it (see the class comment). Mirrors pine-go
+     * {@code types.SourceRewriteAllowed}.
+     */
+    static boolean sourceRewriteAllowed(boolean mutatesRowSet, List<String> itemInput) {
+        return mutatesRowSet && itemInput != null && itemInput.contains(SOURCE_FIELD);
+    }
+
+    static final String SOURCE_FIELD = "_source";
+
+    private static Set<String> undeclaredItemWrites(OperatorOutput out, List<String> itemOutput,
+                                                    boolean sourceRewrite) {
         Set<String> undeclared = newSortedSet();
         if (out.getItemWrites().isEmpty() && out.getColumnWrites().isEmpty()
                 && out.getAddedItems().isEmpty()) {
             return undeclared;
         }
         Set<String> declared = declaredSet(itemOutput);
+        // Existing-item writes see _source as declared when the exemption applies.
+        Set<String> declaredExisting = declared;
+        if (sourceRewrite) {
+            declaredExisting = new HashSet<>(declared);
+            declaredExisting.add(SOURCE_FIELD);
+        }
         for (Map<String, Object> perIndex : out.getItemWrites().values()) {
-            collectUndeclared(perIndex.keySet(), declared, undeclared);
+            collectUndeclared(perIndex.keySet(), declaredExisting, undeclared);
         }
         for (OperatorOutput.DoubleColumnWrite cw : out.getColumnWrites()) {
-            if (!declared.contains(cw.field)) {
+            if (!declaredExisting.contains(cw.field)) {
                 undeclared.add(cw.field);
             }
         }

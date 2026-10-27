@@ -33,14 +33,14 @@ class OutputContractTest {
         OperatorOutput out = new OperatorOutput();
         out.setCommon("undeclared_common", 1.0);
         assertEquals("operator wrote undeclared common output field(s) [undeclared_common]",
-                OutputContract.validateDeclaredOutputs(out, List.of("declared"), List.of()));
+                OutputContract.validateDeclaredOutputs(out, List.of("declared"), List.of(), false));
     }
 
     @Test
     void setCommonDeclaredIsAccepted() {
         OperatorOutput out = new OperatorOutput();
         out.setCommon("declared", 1.0);
-        assertNull(OutputContract.validateDeclaredOutputs(out, List.of("declared"), List.of()));
+        assertNull(OutputContract.validateDeclaredOutputs(out, List.of("declared"), List.of(), false));
     }
 
     @Test
@@ -48,14 +48,14 @@ class OutputContractTest {
         OperatorOutput out = new OperatorOutput();
         out.setItem(0, "undeclared_item", 1.0);
         assertEquals("operator wrote undeclared item output field(s) [undeclared_item]",
-                OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared")));
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared"), false));
     }
 
     @Test
     void setItemDeclaredIsAccepted() {
         OperatorOutput out = new OperatorOutput();
         out.setItem(0, "declared", 1.0);
-        assertNull(OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared")));
+        assertNull(OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared"), false));
     }
 
     @Test
@@ -63,14 +63,14 @@ class OutputContractTest {
         OperatorOutput out = new OperatorOutput();
         out.setItemColumnDouble("undeclared_col", new double[]{1.0, 2.0});
         assertEquals("operator wrote undeclared item output field(s) [undeclared_col]",
-                OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared")));
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared"), false));
     }
 
     @Test
     void columnWriteDeclaredIsAccepted() {
         OperatorOutput out = new OperatorOutput();
         out.setItemColumnDouble("declared", new double[]{1.0, 2.0});
-        assertNull(OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared")));
+        assertNull(OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared"), false));
     }
 
     @Test
@@ -78,14 +78,14 @@ class OutputContractTest {
         OperatorOutput out = new OperatorOutput();
         out.addItem(Map.of("undeclared_added", 1.0));
         assertEquals("operator wrote undeclared item output field(s) [undeclared_added]",
-                OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared")));
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared"), false));
     }
 
     @Test
     void addItemDeclaredIsAccepted() {
         OperatorOutput out = new OperatorOutput();
         out.addItem(Map.of("declared", 1.0));
-        assertNull(OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared")));
+        assertNull(OutputContract.validateDeclaredOutputs(out, List.of(), List.of("declared"), false));
     }
 
     // ---- message shape ---------------------------------------------------
@@ -98,7 +98,7 @@ class OutputContractTest {
         out.setCommon("bad_common", 1.0);
         out.setItem(0, "bad_item", 2.0);
         assertEquals("operator wrote undeclared common output field(s) [bad_common]",
-                OutputContract.validateDeclaredOutputs(out, List.of(), List.of()));
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of(), false));
     }
 
     @Test
@@ -113,7 +113,7 @@ class OutputContractTest {
         out.setItem(0, "a", 1.0);
         out.addItem(Map.of("c", 1.0));
         assertEquals("operator wrote undeclared item output field(s) [a b c]",
-                OutputContract.validateDeclaredOutputs(out, List.of(), List.of()));
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of(), false));
     }
 
     @Test
@@ -127,12 +127,52 @@ class OutputContractTest {
         out.setItem(0, astral, 1.0);
         out.setItem(0, replacement, 1.0);
         assertEquals("operator wrote undeclared item output field(s) [" + replacement + " " + astral + "]",
-                OutputContract.validateDeclaredOutputs(out, List.of(), List.of()));
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of(), false));
     }
 
     @Test
     void emptyOutputIsClean() {
-        assertNull(OutputContract.validateDeclaredOutputs(new OperatorOutput(), List.of(), List.of()));
+        assertNull(OutputContract.validateDeclaredOutputs(new OperatorOutput(), List.of(), List.of(), false));
+    }
+
+    // ---- _source rewrite exemption (issue #224) --------------------------
+
+    @Test
+    void sourceRewriteIsExemptOnExistingItemWritePaths() {
+        OperatorOutput out = new OperatorOutput();
+        out.setItem(0, "_source", "a,b");
+        out.setItemColumnDouble("_source", new double[]{1.0});
+        assertNull(OutputContract.validateDeclaredOutputs(out, List.of(), List.of(), true));
+
+        out.setItem(0, "undeclared", 1.0);
+        assertEquals("operator wrote undeclared item output field(s) [undeclared]",
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of(), true));
+    }
+
+    @Test
+    void sourceRewriteExemptionIsNarrow() {
+        OperatorOutput out = new OperatorOutput();
+        out.setItem(0, "_source", "a,b");
+        assertEquals("operator wrote undeclared item output field(s) [_source]",
+                OutputContract.validateDeclaredOutputs(out, List.of(), List.of(), false));
+
+        OperatorOutput added = new OperatorOutput();
+        added.addItem(Map.of("_source", "x"));
+        assertEquals("operator wrote undeclared item output field(s) [_source]",
+                OutputContract.validateDeclaredOutputs(added, List.of(), List.of(), true));
+
+        OperatorOutput common = new OperatorOutput();
+        common.setCommon("_source", "x");
+        assertEquals("operator wrote undeclared common output field(s) [_source]",
+                OutputContract.validateDeclaredOutputs(common, List.of(), List.of(), true));
+    }
+
+    @Test
+    void sourceRewriteAllowedNeedsMutatesRowSetAndSourceInput() {
+        assertEquals(true, OutputContract.sourceRewriteAllowed(true, List.of("item_id", "_source")));
+        assertEquals(false, OutputContract.sourceRewriteAllowed(true, List.of("item_id")));
+        assertEquals(false, OutputContract.sourceRewriteAllowed(false, List.of("item_id", "_source")));
+        assertEquals(false, OutputContract.sourceRewriteAllowed(false, null));
     }
 
     // ---- engine level: full user-visible message -------------------------
