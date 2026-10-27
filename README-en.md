@@ -384,6 +384,7 @@ Highlights:
 | Operator reference | [`doc/operators/`](doc/operators/README.md) — Detailed docs for all built-in operators |
 | Pipeline authoring | [`doc/guide_pipeline-en.md`](doc/guide_pipeline-en.md) — Apple DSL usage guide |
 | Operator development | [`doc/guide_operator-en.md`](doc/guide_operator-en.md) — Go operator development guide |
+| Request-level debug | [`llmdoc/reference/operator-contract.md`](llmdoc/reference/operator-contract.md#请求级-debug嵌入-api) (Chinese) — Go / Java / C++ embedded API: a test request injects a collecting emitter, operators record actively and parallel shards are preserved; sessions and export belong to the application |
 | Third-party extensions | [`design_doc/12_distribution-en.md`](design_doc/12_distribution-en.md) — Add custom operators without modifying source |
 | API reference | [`doc/api-en.md`](doc/api-en.md) — HTTP endpoint documentation |
 | Migration | [`doc/migration-0.12-en.md`](doc/migration-0.12-en.md) — 0.11 → 0.12: Java/C++ operators take a `RequestContext`; cancellation no longer reports success |

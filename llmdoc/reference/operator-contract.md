@@ -12,7 +12,7 @@
 - `pine-go/operator.go`
 - `pine-go/operator_io.go`
 - `pine-go/registry.go`
-- `pine-go/pkg/debug/debug.go:Emitter` — Go 请求级 Debug 接口及实现方契约
+- `pine-go/pkg/debug/debug.go:Emitter` — 请求级 Debug 接口及实现方契约（Java `pine-java/src/.../debug/`、C++ `pine-cpp/include/pine/debug.hpp` 为对等实现）
 - `pine-go/operators/` 下的代表性实现
 
 ### Pine-Java 对等实现
@@ -329,14 +329,26 @@ Go 以外两方的计时器都是进程级单线程（Java `pine-context-deadlin
 
 `DebugHolder.OperatorName()` 会返回引擎注入的算子实例名。它不仅用于 debug log，也可被后续 `MetricsAware` 注入阶段复用，例如把 operator 名作为外部 metric label 值。
 
-### 请求级 Debug（Go 嵌入 API）
+### 请求级 Debug（嵌入 API）
 
-可信测试入口通过 `pine-go/pkg/debug/debug.go:WithEmitter` 向请求 context 注入实现方的 `Emitter`。实现方契约（Session、分片事件、业务写入等）的权威副本是该文件的 package doc；本节只写算子侧的接入规则。
+可信测试入口向请求上下文注入实现方的 `Emitter`。实现方契约（Session、分片事件、业务写入等）的权威副本是 `pine-go/pkg/debug/debug.go` 的 package doc，Java/C++ 的类注释只做摘要；本节只写算子侧的接入规则。三运行时 API 对应关系（issue #219）：
 
-- 保持原有 `Execute(ctx, in, out)` 签名，在候选循环外调用一次 `pine-go/pkg/debug/debug.go:FromContext`；材料构造、调试专用遍历和拷贝放进非 nil 分支，原因见 `Recorder.Emit` 的注释。
-- 在业务材料可用的位置调用 `pine-go/pkg/debug/debug.go:Recorder.Emit`。节点元信息由调度器绑定；Debug 材料不写 `OperatorOutput`。同一节点的分片共享节点元信息，需要关联具体 item 时，在材料中携带 item 标识。
+| | Go | Java（`page.liam.pine.debug`） | C++（`pine-cpp/include/pine/debug.hpp`，命名空间 `pine::debug`） |
+|---|---|---|---|
+| 注入 | `debug.WithEmitter(ctx, e)` | `Recorder.withEmitter(ctx, e)` | `debug::with_emitter(ctx, &e)`（非拥有指针，`Emitter` 须活得比上下文久） |
+| 取 recorder | `debug.FromContext(ctx)`，未注入为 nil | `Recorder.fromContext(ctx)`，未注入为 null | `debug::from_context(ctx)`，未注入为 nullptr |
+| 记录 | `r.Emit(kind, data any)` | `r.emit(kind, Object data)` | `r->emit(kind, const Variant& data)` |
+| 节点元信息 | `NodeMeta{Operator, Type, SubFlow}` | `record NodeMeta(operator, type, subFlow)` | `struct NodeMeta{operator_name, type, subflow}` |
+| Emitter 异常隔离 | `recover()` | `catch (Throwable)` | `catch (...)`，`emit` 为 `noexcept` |
+
+三方共同语义：空 emitter 原样返回上下文（含已有 recorder）；节点绑定派生值子上下文，保留请求值、截止时间与取消，不改父上下文；`SubFlow` 是直接包含该算子的 `pipeline_map` 条目名（Apple 编译为 `recall/candidates` 形式的路径），顶层为空串；注入 recorder 不打开静态快照（`WithDebug` / JSON `debug`）。
+
+- 保持原有 `execute(ctx, in, out)` 签名，在候选循环外取一次 recorder；材料构造、调试专用遍历和拷贝放进非空分支，原因见 `Recorder.Emit` 的注释（调用方的参数求值不受隔离保护）。
+- 在业务材料可用的位置调用 emit。节点元信息由调度器绑定；Debug 材料不写 `OperatorOutput`。同一节点的分片共享节点元信息，需要关联具体 item 时，在材料中携带 item 标识。
 - Recorder 只放在本次执行的局部变量或 context 中，不写入跨请求共享的算子实例、`CompiledOperator` 或 plan。
 - 例外：`Emitter` **会被并发调用，必须并发安全，并在返回前冻结材料**。这一条有意与 package doc 重复，因为违反时只会产生静默 data race 或被改写的调试材料，本仓测试抓不到。
+
+`scripts/cross-validate/23-request-debug.sh` 用三方 probe（`pine-go/cmd/pine-debug-probe`、`pine-java/.../DebugProbe.java`、`pine-cpp/cmd/pineapple-debug-probe`）逐字节锁定：未注入时无事件且结果不变、含嵌套 SubFlow 的节点元信息、`data_parallel` 每分片一个事件、抛异常的 emitter 不影响业务结果，以及节点绑定后请求值仍可读。
 
 ### `LoggerAware`（算子日志规范）
 

@@ -93,6 +93,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
     - 可通过 `EngineOptions::dag_pool_size` / `EngineOptions::shard_pool_size` 配置，CLI 对应 `-dag-pool-size` / `-shard-pool-size`
   - **请求上下文**（issue #217）：`pine::RequestContext`（`include/pine/pine.hpp`，实现 `src/runtime/request_context.cpp`）承载取消、截止时间、请求级值、数据型资源 map 与 `ResourceProvider`；内部用 `std::stop_source` 表达取消，`stop_token()` 供 `std::stop_callback` / `condition_variable_any` 使用，截止时间由进程级 `DeadlineTimer` 线程触发。`Engine::execute(request, ctx)` / `execute_traced_into(request, ctx, out)` 取代了原 `std::stop_token external_cancel` 重载
   - run_dag 在调用方上下文下派生 `run_ctx`（首个 fatal error 也取消它），parallel_execute 再派生 `shard_ctx`；未运行节点/分片的结果判定见 `reference/operator-contract.md`「请求上下文与取消」
+  - **请求级 Debug**（issue #219）：`include/pine/debug.hpp`（实现 `src/runtime/debug.cpp`）对等 Go `pkg/debug`；注入了 recorder 时，节点体在 `parallel_execute` 前用 `Recorder::bind_node` 从 `run_ctx` 派生绑定上下文，分片上下文再从它派生。API 对照见 `reference/operator-contract.md`「请求级 Debug（嵌入 API）」
   - `Engine::peak_concurrency()` 通过 atomic CAS 追踪累积峰值，序列化到 `/stats.scheduler.peak_concurrency`
   - debug snapshot + `StartTime` 在 `OpTrace` 中可选记录
   - `data_parallel` transform 在固定线程池中分片执行；分片通过 `ColumnFrame::make_window_view` 零拷贝窗口视图实现——shard 共享 parent frame 的 ColumnStore，以 `(offset, count)` 做行级翻译，避免逐行物化。window view 是只读投影，所有写方法（`set_common` / `push_warning` / `apply_output` / `to_result`）均 throw `Error`

@@ -1,8 +1,8 @@
 # 可观测性
 
-## Go 请求级 Debug 扩展接口
+## 请求级 Debug 扩展接口
 
-`pine-go/pkg/debug/debug.go` 是 Go 嵌入 API：可信测试入口通过 `WithEmitter` 向请求 context 注入实现方的 `Emitter`，算子在材料可用的位置主动记录，调度器自动绑定节点元信息。实现方契约的权威副本是该文件的 package doc，算子接入规则见 `llmdoc/reference/operator-contract.md`，此处不复述。
+`pine-go/pkg/debug/debug.go` 是嵌入 API（Java `page.liam.pine.debug`、C++ `pine-cpp/include/pine/debug.hpp` 为对等实现）：可信测试入口通过 `WithEmitter` 向请求 context 注入实现方的 `Emitter`，算子在材料可用的位置主动记录，调度器自动绑定节点元信息。实现方契约的权威副本是该文件的 package doc，算子接入规则见 `llmdoc/reference/operator-contract.md`，此处不复述。
 
 例外：`Emitter` 会被不同节点和 `data_parallel` 分片并发调用，必须并发安全，并在返回前冻结材料。这一条有意重复，因为违反时只会产生静默 data race 或被改写的调试材料，本仓测试抓不到。
 
