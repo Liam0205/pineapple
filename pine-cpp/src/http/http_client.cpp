@@ -11,6 +11,13 @@
 
 #include "http/ssrf.hpp"
 
+// The cancellable transfer path uses curl_multi_poll (7.66) and
+// curl_multi_wakeup (7.68). Fail at compile time with a clear message on an
+// older libcurl rather than with an undeclared-identifier error.
+#if LIBCURL_VERSION_NUM < 0x074400
+#error "pine-cpp requires libcurl >= 7.68 (curl_multi_poll / curl_multi_wakeup)"
+#endif
+
 namespace pine {
 namespace http {
 
