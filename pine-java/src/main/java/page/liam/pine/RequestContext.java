@@ -224,6 +224,11 @@ public class RequestContext {
         }
 
         void armDeadline() {
+            // A child of an already-cancelled parent was cancelled in childOf;
+            // scheduling now would leave a task cancel() can no longer reach.
+            if (err != null) {
+                return;
+            }
             long delayNanos = Duration.between(Instant.now(), deadline).toNanos();
             if (delayNanos <= 0) {
                 cancel(new PineErrors.ContextException(true));
@@ -231,6 +236,11 @@ public class RequestContext {
             }
             timer = TIMER.schedule(() -> cancel(new PineErrors.ContextException(true)),
                     delayNanos, TimeUnit.NANOSECONDS);
+            // A cancel that raced the schedule above saw timer == null; drop
+            // the task now so it does not linger until the deadline.
+            if (err != null) {
+                timer.cancel(false);
+            }
         }
 
         void cancel(PineErrors.ContextException cause) {
@@ -278,6 +288,11 @@ public class RequestContext {
         // Test hook: callbacks still registered (0 once cancelled).
         synchronized int pendingCallbacks() {
             return callbacks == null ? 0 : callbacks.size();
+        }
+
+        // Test hook: deadline tasks still queued on the shared timer.
+        static int pendingDeadlines() {
+            return TIMER.getQueue().size();
         }
 
         private synchronized void remove(Entry entry) {
