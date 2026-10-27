@@ -1,5 +1,7 @@
 package page.liam.pine;
 
+import page.liam.pine.debug.NodeMeta;
+import page.liam.pine.debug.Recorder;
 import page.liam.pine.metrics.Provider;
 import page.liam.pine.metrics.NopProvider;
 import page.liam.pine.operators.AllOperators;
@@ -445,6 +447,16 @@ public class Engine {
             inputSnapshot = snapshotInput(input);
         }
 
+        // Request-level debug: bind this node's metadata so the operator's
+        // Recorder reports it. Derived from runCtx, so cancellation is kept;
+        // data_parallel shards derive from opCtx and share the same meta.
+        RequestContext opCtx = ctx.runCtx;
+        Recorder debugRecorder = Recorder.fromContext(opCtx);
+        if (debugRecorder != null) {
+            opCtx = debugRecorder.bindNode(opCtx,
+                    new NodeMeta(cop.name, opCfg.typeName, dag.nodes.get(idx).subFlow));
+        }
+
         // Execute
         long current = ctx.activeOps.incrementAndGet();
         stats.recordConcurrency(current);
@@ -454,10 +466,10 @@ public class Engine {
         Exception execErr = null;
         try {
             if (cop.dataParallel > 1) {
-                output = ParallelExecutor.execute(ctx.runCtx, cop.instance, input, cop.dataParallel, cop.name, executor);
+                output = ParallelExecutor.execute(opCtx, cop.instance, input, cop.dataParallel, cop.name, executor);
             } else {
                 output = new OperatorOutput();
-                cop.instance.execute(ctx.runCtx, input, output);
+                cop.instance.execute(opCtx, input, output);
             }
         } catch (PineErrors.OperatorException e) {
             output = null;
