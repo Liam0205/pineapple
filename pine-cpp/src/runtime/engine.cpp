@@ -1,4 +1,5 @@
 #include "pine/column_frame.hpp"
+#include "pine/debug.hpp"
 #include "pine/operator.hpp"
 #include "pine/operator_input.hpp"
 #include "pine/pine.hpp"
@@ -1122,7 +1123,15 @@ std::vector<OpTrace> run_dag(const RequestContext& caller_ctx, const Config& con
           tpl_entry = &it->second;
         }
       }
-      parallel_execute(run_ctx, frame, op, operators, out, input_specs.at(op.name), tpl_entry, shard_pool,
+      // Request-level debug (issue #219): bind this node's metadata so the
+      // operator's Recorder reports it. Derived from run_ctx, so cancellation
+      // is kept; data_parallel shards derive from op_ctx and share the meta.
+      std::optional<RequestContext> bound_ctx;
+      if (const auto* recorder = debug::from_context(run_ctx)) {
+        bound_ctx = recorder->bind_node(run_ctx, debug::NodeMeta{op.name, op.type_name, node.subflow});
+      }
+      const RequestContext& op_ctx = bound_ctx ? *bound_ctx : run_ctx;
+      parallel_execute(op_ctx, frame, op, operators, out, input_specs.at(op.name), tpl_entry, shard_pool,
                        central);
       if (collect_traces && op.debug.value_or(false)) {
         trace.output_snapshot = snapshot_output(out);
