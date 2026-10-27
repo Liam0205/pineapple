@@ -273,9 +273,16 @@ TEST_CASE("debug: concurrent nodes and requests stay separate") {
   g_block_until_cancelled = false;
   g_started = &started;
   g_release = &release;
-  Engine engine(debug_config({"first", "second"},
-                             {op_json("first", "first", 1), op_json("second", "second", 1)},
-                             "\"first\", \"second\""));
+  // Every node blocks in execute until all 2 * kRequests have started, so
+  // the DAG pool must hold them all at once. The default (hardware threads
+  // * 4) is only 16 on a 4-core CI runner and deadlocks; pine-go's version
+  // of this test has no such cap because goroutines are unbounded.
+  EngineOptions opts;
+  opts.dag_pool_size = 2 * kRequests + 4;
+  Engine engine(
+      debug_config({"first", "second"}, {op_json("first", "first", 1), op_json("second", "second", 1)},
+                   "\"first\", \"second\""),
+      opts);
 
   std::mutex fail_mu;
   std::vector<std::string> failures;
@@ -328,7 +335,11 @@ TEST_CASE("debug: parallel shards keep caller cancellation") {
   std::latch started(3);
   g_block_until_cancelled = true;
   g_started = &started;
-  Engine engine(debug_config({"rank"}, {op_json("rank", "result", 3)}, "\"result\""));
+  // All three shards block until cancelled, so the shard pool must hold them
+  // at once; the default (hardware threads * 2) is only 2 on one core.
+  EngineOptions opts;
+  opts.shard_pool_size = 4;
+  Engine engine(debug_config({"rank"}, {op_json("rank", "result", 3)}, "\"result\""), opts);
   auto parent = RequestContext::with_timeout(RequestContext::background(), 10s);
   Capture capture;
   auto ctx = debug::with_emitter(
