@@ -23,14 +23,14 @@ func TestValidateDeclaredOutputs_AllChannelsCompliant(t *testing.T) {
 
 	err := ValidateDeclaredOutputs(out,
 		[]string{"request_id", "unused_but_declared"},
-		[]string{"score", "rank", "item_id"})
+		[]string{"score", "rank", "item_id"}, false)
 	if err != nil {
 		t.Fatalf("writes within declared outputs should pass, got: %v", err)
 	}
 }
 
 func TestValidateDeclaredOutputs_EmptyOutputIsCompliant(t *testing.T) {
-	if err := ValidateDeclaredOutputs(NewOperatorOutput(), nil, nil); err != nil {
+	if err := ValidateDeclaredOutputs(NewOperatorOutput(), nil, nil, false); err != nil {
 		t.Fatalf("an operator that writes nothing should pass, got: %v", err)
 	}
 }
@@ -71,7 +71,7 @@ func TestValidateDeclaredOutputs_EachWritePathIsChecked(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			out := NewOperatorOutput()
 			tc.write(out)
-			err := ValidateDeclaredOutputs(out, []string{"declared"}, []string{"declared"})
+			err := ValidateDeclaredOutputs(out, []string{"declared"}, []string{"declared"}, false)
 			if err == nil {
 				t.Fatalf("%s to an undeclared field should be rejected", tc.name)
 			}
@@ -93,7 +93,7 @@ func TestValidateDeclaredOutputs_FieldNamesAreSortedAndDeduplicated(t *testing.T
 	out.SetItemColumnFloat64("mid", []float64{1.0})
 	out.AddItem(map[string]any{"alpha": 4.0, "beta": 5.0}) // alpha already seen
 
-	err := ValidateDeclaredOutputs(out, nil, nil)
+	err := ValidateDeclaredOutputs(out, nil, nil, false)
 	if err == nil {
 		t.Fatal("expected rejection")
 	}
@@ -108,7 +108,7 @@ func TestValidateDeclaredOutputs_MultipleCommonFieldsSorted(t *testing.T) {
 	out.SetCommon("trace_id", "t")
 	out.SetCommon("request_id", "r")
 
-	err := ValidateDeclaredOutputs(out, nil, nil)
+	err := ValidateDeclaredOutputs(out, nil, nil, false)
 	if err == nil {
 		t.Fatal("expected rejection")
 	}
@@ -126,7 +126,7 @@ func TestValidateDeclaredOutputs_CommonChannelTakesPrecedence(t *testing.T) {
 	out.SetCommon("undeclared_common", 1.0)
 	out.SetItem(0, "undeclared_item", 2.0)
 
-	err := ValidateDeclaredOutputs(out, nil, nil)
+	err := ValidateDeclaredOutputs(out, nil, nil, false)
 	if err == nil {
 		t.Fatal("expected rejection")
 	}
@@ -143,7 +143,7 @@ func TestValidateDeclaredOutputs_OnlyUndeclaredFieldsAreReported(t *testing.T) {
 	out.SetItem(0, "declared", 1.0)
 	out.SetItem(0, "undeclared", 2.0)
 
-	err := ValidateDeclaredOutputs(out, nil, []string{"declared"})
+	err := ValidateDeclaredOutputs(out, nil, []string{"declared"}, false)
 	if err == nil {
 		t.Fatal("expected rejection")
 	}
@@ -161,7 +161,69 @@ func TestValidateDeclaredOutputs_FieldlessWritesNeedNoDeclaration(t *testing.T) 
 	out.RemoveItem(0)
 	out.SetItemOrder([]int{1, 0})
 
-	if err := ValidateDeclaredOutputs(out, nil, nil); err != nil {
+	if err := ValidateDeclaredOutputs(out, nil, nil, false); err != nil {
 		t.Fatalf("RemoveItem/SetItemOrder declare no fields, got: %v", err)
+	}
+}
+
+// A MutatesRowSet operator that reads _source may rewrite it on existing items
+// without declaring it (issue #224): the DSL rejects underscore-prefixed
+// outputs, and the row-set barrier already orders the write. Both existing-item
+// write paths are exempt; everything else the operator writes is still checked.
+func TestValidateDeclaredOutputs_SourceRewriteExemption(t *testing.T) {
+	out := NewOperatorOutput()
+	out.SetItem(0, "_source", "a,b")
+	out.SetItemColumnFloat64("_source", []float64{1.0})
+	if err := ValidateDeclaredOutputs(out, nil, nil, true); err != nil {
+		t.Fatalf("_source rewrite should be exempt, got: %v", err)
+	}
+
+	out.SetItem(0, "undeclared", 1.0)
+	want := `operator wrote undeclared item output field(s) [undeclared]`
+	if err := ValidateDeclaredOutputs(out, nil, nil, true); err == nil || err.Error() != want {
+		t.Errorf("other undeclared fields must still be reported:\n got: %v\nwant: %s", err, want)
+	}
+}
+
+// The exemption is narrow: without it (an operator that is not MutatesRowSet,
+// or does not read _source) a _source write is an ordinary undeclared write,
+// and it never covers AddItem, whose _source the frame injects.
+func TestValidateDeclaredOutputs_SourceRewriteExemptionIsNarrow(t *testing.T) {
+	out := NewOperatorOutput()
+	out.SetItem(0, "_source", "a,b")
+	want := `operator wrote undeclared item output field(s) [_source]`
+	if err := ValidateDeclaredOutputs(out, nil, nil, false); err == nil || err.Error() != want {
+		t.Errorf("_source without the exemption:\n got: %v\nwant: %s", err, want)
+	}
+
+	added := NewOperatorOutput()
+	added.AddItem(map[string]any{"_source": "x"})
+	if err := ValidateDeclaredOutputs(added, nil, nil, true); err == nil || err.Error() != want {
+		t.Errorf("AddItem _source must not be exempt:\n got: %v\nwant: %s", err, want)
+	}
+
+	common := NewOperatorOutput()
+	common.SetCommon("_source", "x")
+	wantCommon := `operator wrote undeclared common output field(s) [_source]`
+	if err := ValidateDeclaredOutputs(common, nil, nil, true); err == nil || err.Error() != wantCommon {
+		t.Errorf("common _source must not be exempt:\n got: %v\nwant: %s", err, wantCommon)
+	}
+}
+
+func TestSourceRewriteAllowed(t *testing.T) {
+	cases := []struct {
+		mutates bool
+		input   []string
+		want    bool
+	}{
+		{true, []string{"item_id", "_source"}, true},
+		{true, []string{"item_id"}, false},
+		{false, []string{"item_id", "_source"}, false},
+		{false, nil, false},
+	}
+	for _, tc := range cases {
+		if got := SourceRewriteAllowed(tc.mutates, tc.input); got != tc.want {
+			t.Errorf("SourceRewriteAllowed(%v, %v) = %v, want %v", tc.mutates, tc.input, got, tc.want)
+		}
 	}
 }
