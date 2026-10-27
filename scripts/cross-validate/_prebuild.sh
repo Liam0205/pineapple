@@ -12,6 +12,7 @@ echo "    Building Go CLIs..."
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pineapple-run" ./cmd/pineapple-run/)
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pineapple-server" ./cmd/pineapple-server/)
 (cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pine-cause-chain-probe" ./cmd/pine-cause-chain-probe/)
+(cd "$REPO_ROOT/pine-go" && go build -o "$WORK_DIR/pine-cancel-probe" ./cmd/pine-cancel-probe/)
 
 echo "    Compiling Java + resolving classpath..."
 (cd "$REPO_ROOT/pine-java" && mvn compile -B -q)
@@ -40,11 +41,13 @@ if [[ -d "$REPO_ROOT/pine-cpp" ]]; then
     cp "$REPO_ROOT/pine-cpp/build/pineapple-codegen" "$WORK_DIR/pineapple-codegen-cpp"
     cp "$REPO_ROOT/pine-cpp/build/pineapple-server" "$WORK_DIR/pineapple-server-cpp"
     cp "$REPO_ROOT/pine-cpp/build/pineapple-cause-chain-probe" "$WORK_DIR/pineapple-cause-chain-probe-cpp"
+    cp "$REPO_ROOT/pine-cpp/build/pineapple-cancel-probe" "$WORK_DIR/pineapple-cancel-probe-cpp"
     export CPP_RUN="$WORK_DIR/pineapple-run-cpp"
     export CPP_DAG="$WORK_DIR/pineapple-dag-cpp"
     export CPP_CODEGEN="$WORK_DIR/pineapple-codegen-cpp"
     export CPP_SERVER="$WORK_DIR/pineapple-server-cpp"
     export CPP_CAUSE_CHAIN_PROBE="$WORK_DIR/pineapple-cause-chain-probe-cpp"
+    export CPP_CANCEL_PROBE="$WORK_DIR/pineapple-cancel-probe-cpp"
 fi
 
 echo "    Done."

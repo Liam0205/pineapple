@@ -162,23 +162,24 @@ fi
 # when its host process is killed, but say nothing about the server-mode
 # path: client opens POST /execute on a slow pipeline, then closes the
 # connection mid-flight. The server must observe the disconnect and
-# request_stop() the engine via stop_token (R10-2), so the worker pool
-# stops doing useless work and frees up slots for the next request.
+# cancel the request's context, so the worker pool stops doing useless
+# work and frees up slots for the next request. The embedded engine API
+# side of cancellation (pre-cancel, mid-run, deadline, error text) is
+# byte-compared across all three runtimes in section 22.
 #
-# Go: r.Context() is cancelled when the client RSTs — propagated to
-#   engine.Execute(ctx, req) at server.go:447-448. Observable via
-#   /stats: scheduler.run_count for the truncated request still
-#   increments, but op_exec_count for downstream ops should NOT
-#   increment beyond the cancel boundary.
-# C++: explicit poll(POLLRDHUP|POLLHUP|POLLERR) watcher thread fires
-#   request_stop() on a stop_source whose token is passed to
-#   execute_traced_into() at server.cpp:902.
-# Java: PineServer.handleExecute calls engine.execute(common, items)
-#   without a CancellationToken (Engine.java:228 vs the externalToken
-#   overload at line 232 which the server never uses). com.sun.net
-#   .HttpServer also has no observable disconnect signal on the
-#   exchange. So Java cannot propagate TCP RST to the engine — known
-#   gap. We DON'T fail the section on it; we document and skip.
+# Go: r.Context() is cancelled when the client RSTs and is passed to
+#   engine.Execute(ctx, req). transform_bench_sleep selects on ctx.Done(),
+#   so slow1 stops at the disconnect and slow2 / slow3 never run.
+#   Observable via /stats: scheduler.run_count for the truncated request
+#   still increments, but slow3's exec_count does not.
+# C++: a poll(POLLRDHUP|POLLHUP|POLLERR) watcher thread cancels the
+#   request's RequestContext, which execute_traced_into() hands to every
+#   operator; bench_sleep waits on it like Go's.
+# Java: PineServer runs every request under a RequestContext, but
+#   com.sun.net.httpserver has no observable disconnect signal on the
+#   exchange, so a TCP RST never cancels it — an accepted difference
+#   (issue #217, item D). We DON'T fail the section on it; we document
+#   and skip.
 # ============================================================
 echo
 echo "    [3] server-side TCP-disconnect cancellation (audit M14)"
@@ -219,10 +220,13 @@ if [[ -n "${CPP_SERVER:-}" ]]; then
 fi
 
 # probe_disconnect_cancel <port>: opens /execute, kills the client at
-# 300ms while pipeline would otherwise take ~2400ms. Total elapsed
-# (client kill → server-side completion of the in-flight op) must come
-# in well under 2400ms — we use 1500ms (current op finishes ~800ms +
-# slack) as the noise-tolerant ceiling. If the server kept running to
+# 300ms while pipeline would otherwise take ~2400ms. The elapsed check
+# is weak: both servers bump scheduler.run_count when a run STARTS, so
+# the poll below returns at once and elapsed mostly reflects curl's
+# 300ms. The load-bearing assertion is slow3's exec_count. That a
+# running operator is cut short by the cancel (bench_sleep waits on the
+# request context, issue #217) is byte-compared in section 22
+# (cancel_sleep), not here. If the server kept running to
 # completion despite the disconnect, scheduler.run_count would tick up
 # but op_exec_count for slow3 would equal scheduler.run_count, proving
 # all three ops ran. With cancel honored, slow3 exec_count should stay
@@ -264,11 +268,10 @@ probe_disconnect_cancel() {
     | python3 -c "import json,sys; ops=json.load(sys.stdin).get('operators',{}); print(ops.get('slow3',{}).get('exec_count',0))")
 
   # Two-part assertion:
-  # (a) elapsed wallclock from connect → server settles must be under
-  #     1500 ms — proves we did NOT run all three 800 ms ops.
+  # (a) elapsed wallclock from connect → run_count ticks must be under
+  #     1500 ms — a sanity bound only (see the function comment).
   # (b) slow3 exec_count must NOT have advanced — proves the cancel
-  #     fired before reaching the third stage (the cancel beat slow2's
-  #     end at 1600 ms, never enqueueing slow3).
+  #     fired before reaching the third stage.
   echo "$elapsed_ms $slow3_before $slow3_after"
 }
 
@@ -296,9 +299,10 @@ if [[ -n "${CPP_SERVER:-}" ]] && srv_ready $CD_CPP_PORT; then
   fi
 fi
 
-echo "    [3] Java: skipped — PineServer.handleExecute does not pass a CancellationToken"
-echo "         (Engine.java:228 single-arg execute, server.go uses r.Context() and"
-echo "          server.cpp uses POLLRDHUP watcher; Java parity gap is documented in M14)"
+echo "    [3] Java: skipped — com.sun.net.httpserver exposes no client-disconnect signal,"
+echo "         so a TCP RST never cancels the request's RequestContext"
+echo "         (accepted difference, issue #217 item D; server.go uses r.Context(),"
+echo "          server.cpp a POLLRDHUP watcher)"
 
 kill $CD_GO_PID 2>/dev/null || true
 [[ -n "$CD_CPP_PID" ]] && kill $CD_CPP_PID 2>/dev/null || true
