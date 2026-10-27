@@ -593,10 +593,21 @@ void validate_output_against_type(const std::string& op_name, const std::string&
 //
 // The common channel is checked first and reported alone, matching Go.
 //
-// `_source` needs no exemption: it is injected into recall-added items inside
-// RowFrame/ColumnFrame::apply_output, which runs after this check, so it is
-// never present in out.added_items() here.
-void validate_declared_outputs(const std::string& op_name, const Metadata& meta, const OperatorOutput& out) {
+// One exemption (issue #224), identical to Go's: a mutates_row_set operator
+// that reads `_source` may rewrite it on existing items through set_item /
+// set_item_column_double — the merge that dedups items and joins their source
+// tags. The DSL rejects underscore-prefixed outputs, so `_source` can never be
+// declared. The rewrite is still ordered: a mutates_row_set operator is a
+// mutating writer of the `_row_set_` sentinel, and every operator touching item
+// fields reads it, so the operator is a barrier with edges to every item-field
+// writer and reader before and after it. add_item is not exempt: recall must
+// not be mutates_row_set, and `_source` on an added item is the frame's to
+// inject.
+void validate_declared_outputs(const std::string& op_name, const OperatorConfig& op,
+                               const OperatorOutput& out) {
+  const Metadata& meta = op.metadata;
+  const bool source_rewrite = op.mutates_row_set && std::find(meta.item_input.begin(), meta.item_input.end(),
+                                                              "_source") != meta.item_input.end();
   auto format_list = [](const std::set<std::string>& fields) {
     std::string list = "[";
     for (auto it = fields.begin(); it != fields.end(); ++it) {
@@ -634,11 +645,17 @@ void validate_declared_outputs(const std::string& op_name, const Metadata& meta,
       undeclared.insert(field);
     }
   };
+  auto add_existing = [&](const std::string& field) {
+    if (source_rewrite && field == "_source") {
+      return;
+    }
+    add(field);
+  };
   for (const auto& w : out.item_writes()) {
-    add(w.field);
+    add_existing(w.field);
   }
   for (const auto& cw : out.column_writes()) {
-    add(cw.field);
+    add_existing(cw.field);
   }
   for (const auto& item : out.added_items()) {
     for (const auto& kv : item) {
@@ -1141,7 +1158,7 @@ std::vector<OpTrace> run_dag(const RequestContext& caller_ctx, const Config& con
       // Validate that every written field is declared in $metadata. Checked
       // here rather than in apply_output because the declared field lists
       // live on the operator config, which the frame layer does not see.
-      validate_declared_outputs(op.name, op.metadata, out);
+      validate_declared_outputs(op.name, op, out);
 
       if (op.debug.value_or(false)) {
         auto dur = std::chrono::steady_clock::now() - start;
