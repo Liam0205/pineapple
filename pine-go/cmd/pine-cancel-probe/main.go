@@ -9,7 +9,9 @@
 // pine-java (CancelProbe) and pine-cpp (pineapple-cancel-probe) and asserts
 // stdout is byte-identical. Each scenario is deterministic: where a cancel
 // must land mid-run, an operator issues it itself, so no timing race decides
-// which nodes run.
+// which nodes run. The context (and any deadline or cancel timer) is created
+// only after the engine is built, so a slow engine construction — a cold JVM
+// on CI — cannot use up the deadline before the run starts.
 package main
 
 import (
@@ -87,13 +89,16 @@ const sleepConfig = `{
   "flow_contract": {"common_input": [], "common_output": [], "item_input": [], "item_output": []}
 }`
 
-func run(name, config string, ctx context.Context) {
+// run builds the engine, then calls newCtx for the run's context.
+func run(name, config string, newCtx func() (context.Context, context.CancelFunc)) {
 	engine, err := pine.NewEngine([]byte(config))
 	if err != nil {
 		fmt.Printf("scenario=%s FAIL:NewEngine: %v\n", name, err)
 		os.Exit(1)
 	}
 	defer engine.Close()
+	ctx, cancel := newCtx()
+	defer cancel()
 	res, err := engine.Execute(ctx, &pine.Request{Common: map[string]any{}})
 	errText := "nil"
 	if err != nil {
@@ -118,29 +123,38 @@ func main() {
 		Description: "probe: copies common x to y"}, func() pine.Operator { return &copyXToYOp{} })
 
 	// A context cancelled before the run: nothing runs.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 	cancelHook = func() {}
-	run("pre_cancel", chainConfig, ctx)
+	run("pre_cancel", chainConfig, func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	})
 
 	// op_a cancels mid-run and completes; op_b is skipped.
-	ctx, cancel = context.WithCancel(context.Background())
-	cancelHook = cancel
-	run("cancel_mid_run", chainConfig, ctx)
+	run("cancel_mid_run", chainConfig, func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelHook = cancel
+		return ctx, cancel
+	})
 
 	// Cancelled while the only node runs: nothing was skipped, so success.
-	ctx, cancel = context.WithCancel(context.Background())
-	cancelHook = cancel
-	run("cancel_last_node", singleConfig, ctx)
+	run("cancel_last_node", singleConfig, func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelHook = cancel
+		return ctx, cancel
+	})
 
-	// transform_bench_sleep stops at the deadline and fails itself.
-	ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
-	run("deadline_sleep", sleepConfig, ctx)
-	cancel()
+	// transform_bench_sleep stops at the deadline and fails itself. The
+	// deadline only has to outlast the start of the run, well under the
+	// 10 s sleep it cuts short.
+	run("deadline_sleep", sleepConfig, func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 500*time.Millisecond)
+	})
 
 	// ... and on a cancel from another goroutine.
-	ctx, cancel = context.WithCancel(context.Background())
-	time.AfterFunc(50*time.Millisecond, cancel)
-	run("cancel_sleep", sleepConfig, ctx)
-	cancel()
+	run("cancel_sleep", sleepConfig, func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(500*time.Millisecond, cancel)
+		return ctx, cancel
+	})
 }
