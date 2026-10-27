@@ -385,6 +385,7 @@ Highlights:
 | Operator development | [`doc/guide_operator-en.md`](doc/guide_operator-en.md) — Go operator development guide |
 | Third-party extensions | [`design_doc/12_distribution-en.md`](design_doc/12_distribution-en.md) — Add custom operators without modifying source |
 | API reference | [`doc/api-en.md`](doc/api-en.md) — HTTP endpoint documentation |
+| Migration | [`doc/migration-0.12-en.md`](doc/migration-0.12-en.md) — 0.11 → 0.12: Java/C++ operators take a `RequestContext`; cancellation no longer reports success |
 | LLM retrieval docs | [`llmdoc/`](llmdoc/) — Stable knowledge map for AI collaboration (architecture / decisions / reflections / index) |
 
 ## License
