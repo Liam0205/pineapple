@@ -13,6 +13,7 @@ import (
 	"github.com/Liam0205/pineapple/pine-go/internal/dag"
 	"github.com/Liam0205/pineapple/pine-go/internal/dataframe"
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
+	"github.com/Liam0205/pineapple/pine-go/pkg/metrics"
 )
 
 // --- test operator helpers ---
@@ -906,10 +907,159 @@ func TestRunContextCancellation(t *testing.T) {
 		"op_a": opA,
 	})
 	frame := dataframe.New(map[string]any{}, nil)
-	_, _, err := Run(ctx, plan, frame, nil, nil)
-	// With immediate cancellation, op may or may not execute.
-	// The key is: no panic, no hang.
-	_ = err
+	_, traces, err := Run(ctx, plan, frame, nil, nil)
+	// A pre-cancelled ctx runs nothing, and the run must say so rather than
+	// return success with the operator's write missing (issue #217).
+	var ce *types.CancelledError
+	if !errors.As(err, &ce) {
+		t.Fatalf("err = %v (%T), want *CancelledError", err, err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("errors.Is(err, context.Canceled) = false for %v", err)
+	}
+	if got, want := err.Error(), "pine: execution cancelled: context canceled"; got != want {
+		t.Errorf("err = %q, want %q", got, want)
+	}
+	if len(traces) != 0 {
+		t.Errorf("traces = %v, want none", traces)
+	}
+	if v := frame.Common("x"); v != nil {
+		t.Errorf("x = %v, want unset", v)
+	}
+}
+
+// ctxIgnoringOp blocks until release is closed, deliberately ignoring ctx:
+// the scheduler, not the operator, must notice the cancellation.
+type ctxIgnoringOp struct {
+	started chan struct{}
+	release chan struct{}
+	field   string
+}
+
+func (o *ctxIgnoringOp) Init(map[string]any) error { return nil }
+func (o *ctxIgnoringOp) Execute(_ context.Context, _ *types.OperatorInput, out *types.OperatorOutput) error {
+	close(o.started)
+	<-o.release
+	out.SetCommon(o.field, true)
+	return nil
+}
+
+// runCancelChain runs op_a (blocks, ignores ctx) → op_b. Once op_a has
+// started it calls trigger, then releases op_a only after ctx is done — so
+// op_a always completes and op_b always finds the run cancelled.
+func runCancelChain(t *testing.T, ctx context.Context, trigger func()) (dataframe.Frame, []types.OpTrace, *metrics.Collector, error) {
+	t.Helper()
+	opA := &ctxIgnoringOp{started: make(chan struct{}), release: make(chan struct{}), field: "x"}
+	copA := &CompiledOperator{
+		Name:     "op_a",
+		Instance: opA,
+		Config: config.OperatorConfig{
+			TypeName: "block", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
+		},
+	}
+	metaB := config.Metadata{CommonInput: []string{"x"}, CommonOutput: []string{"y"}}
+	copB := &CompiledOperator{
+		Name:     "op_b",
+		Instance: &readAndSetOp{readField: "x", writeField: "y"},
+		Config: config.OperatorConfig{
+			TypeName: "rw", Meta: metaB,
+			InputSpec: config.ComputeInputFieldSpec(metaB, nil, nil, nil, nil, nil),
+		},
+	}
+	plan := buildPlan(t, []string{"op_a", "op_b"}, map[string]*CompiledOperator{"op_a": copA, "op_b": copB})
+	frame := dataframe.New(map[string]any{}, nil)
+	go func() {
+		select {
+		case <-opA.started:
+		case <-ctx.Done(): // deadline beat op_a to the start: nothing to release
+			return
+		}
+		trigger()
+		<-ctx.Done()
+		close(opA.release)
+	}()
+	c := metrics.NewCollector()
+	_, traces, err := Run(ctx, plan, frame, nil, NewEngineMetrics(c))
+	return frame, traces, c, err
+}
+
+func dagExecCount(c *metrics.Collector, status string) float64 {
+	return c.Snapshot()["pine_dag_executions_total"].(map[string]float64)[status]
+}
+
+// TestRunCancelledMidRunReportsCancelledError locks the issue #217 contract:
+// an operator that ignores ctx finishes and keeps its writes, its successor
+// never runs, and the run reports CancelledError (counted as a DAG error)
+// instead of a success with the successor's output silently missing.
+func TestRunCancelledMidRunReportsCancelledError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frame, traces, c, err := runCancelChain(t, ctx, cancel)
+
+	if got, want := fmt.Sprint(err), "pine: execution cancelled: context canceled"; got != want {
+		t.Fatalf("err = %q, want %q", got, want)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("errors.Is(err, context.Canceled) = false for %v", err)
+	}
+	if v := frame.Common("x"); v != true {
+		t.Errorf("x = %v, want true (op_a completed)", v)
+	}
+	if v := frame.Common("y"); v != nil {
+		t.Errorf("y = %v, want unset (op_b never ran)", v)
+	}
+	if len(traces) != 1 || traces[0].Name != "op_a" {
+		t.Errorf("traces = %v, want only op_a", traces)
+	}
+	if got := dagExecCount(c, "error"); got != 1 {
+		t.Errorf("dag_executions_total{error} = %v, want 1", got)
+	}
+	if got := dagExecCount(c, "success"); got != 0 {
+		t.Errorf("dag_executions_total{success} = %v, want 0", got)
+	}
+}
+
+func TestRunDeadlineReportsDeadlineExceeded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, _, _, err := runCancelChain(t, ctx, func() {})
+
+	if got, want := fmt.Sprint(err), "pine: execution cancelled: context deadline exceeded"; got != want {
+		t.Fatalf("err = %q, want %q", got, want)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("errors.Is(err, context.DeadlineExceeded) = false for %v", err)
+	}
+}
+
+// TestRunCancelledDuringLastNodeIsSuccess: a cancellation that lands while
+// the final node runs skips nothing, so the complete result is a success.
+func TestRunCancelledDuringLastNodeIsSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	op := &ctxIgnoringOp{started: make(chan struct{}), release: make(chan struct{}), field: "x"}
+	cop := &CompiledOperator{
+		Name:     "op_a",
+		Instance: op,
+		Config: config.OperatorConfig{
+			TypeName: "block", Meta: config.Metadata{CommonOutput: []string{"x"}},
+			InputSpec: &config.InputFieldSpec{},
+		},
+	}
+	plan := buildPlan(t, []string{"op_a"}, map[string]*CompiledOperator{"op_a": cop})
+	frame := dataframe.New(map[string]any{}, nil)
+	go func() {
+		<-op.started
+		cancel()
+		close(op.release)
+	}()
+	if _, _, err := Run(ctx, plan, frame, nil, nil); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if v := frame.Common("x"); v != true {
+		t.Errorf("x = %v, want true", v)
+	}
 }
 
 // inspectOutputOp asserts the OperatorOutput it receives from the scheduler

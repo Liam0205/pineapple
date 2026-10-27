@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Liam0205/pineapple/pine-go/internal/types"
 )
@@ -125,6 +126,11 @@ func parallelExecute(ctx context.Context, cop *CompiledOperator, input *types.Op
 		wg      sync.WaitGroup
 		errOnce sync.Once
 		first   error
+		// skipped records a shard that never ran because execCtx was
+		// cancelled. Without a shard error that is the run being cancelled,
+		// and merging the remaining shards would report a partial write set
+		// as the operator's complete output.
+		skipped atomic.Bool
 	)
 
 	for i := range parts {
@@ -132,6 +138,7 @@ func parallelExecute(ctx context.Context, cop *CompiledOperator, input *types.Op
 		go func(idx int) {
 			defer wg.Done()
 			if execCtx.Err() != nil {
+				skipped.Store(true)
 				return
 			}
 			out := types.NewOperatorOutput()
@@ -150,6 +157,9 @@ func parallelExecute(ctx context.Context, cop *CompiledOperator, input *types.Op
 	wg.Wait()
 	if first != nil {
 		return nil, first
+	}
+	if skipped.Load() {
+		return nil, ctx.Err()
 	}
 	return mergeOutputs(cop.Name, outputs, offsets), nil
 }

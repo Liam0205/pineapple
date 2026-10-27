@@ -217,6 +217,35 @@ func TestParallelExecute_TransformSuccess(t *testing.T) {
 	}
 }
 
+// TestParallelExecute_CancelledSkipsShards: shards that never ran because the
+// ctx was cancelled must fail the operator with ctx.Err(), not merge into a
+// "successful" output that silently covers only some items (issue #217).
+func TestParallelExecute_CancelledSkipsShards(t *testing.T) {
+	items := make([]map[string]any, 10)
+	for i := range items {
+		items[i] = map[string]any{"val": float64(i)}
+	}
+	cop := &CompiledOperator{
+		Name:     "double",
+		Instance: &doubleItemOp{readField: "val", writeField: "doubled"},
+		Config: config.OperatorConfig{
+			TypeName:     "transform",
+			OperatorType: "Transform",
+			DataParallel: 3,
+			Meta:         config.Metadata{ItemInput: []string{"val"}, ItemOutput: []string{"doubled"}},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	output, err := parallelExecute(ctx, cop, types.NewOperatorInput(map[string]any{}, items))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if output != nil {
+		t.Errorf("output = %v, want nil", output)
+	}
+}
+
 func TestParallelExecute_ZeroItems(t *testing.T) {
 	cop := &CompiledOperator{
 		Name:     "noop",
