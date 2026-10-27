@@ -22,6 +22,8 @@
 
 **4. 变异检查后要先重新编译再验「恢复后通过」。** 还原源文件后直接重跑 §23 仍报分歧——跑的是旧 class。这一条 #200/#201/#202 的复盘已经记过，这次又踩了一次，所以在这里重复：还原 → 编译 → 再跑。
 
+**5. 照搬 Go 的并发测试前，先问目标运行时的执行资源有没有上限。** C++ 版「并发节点与请求互不串扰」照抄 Go：8 个请求 × 2 个独立节点，全部阻塞在 `execute` 里直到 16 个都到齐才放行。Go 的 goroutine 没有上限；C++ DAG 线程池默认 `hardware_concurrency() * 4`（`pine-cpp/src/runtime/engine.cpp:341`）。本机 48 个硬件线程（池 192）一切正常，PR 的 CI 跑在 4 核 runner（池 16）上，`cpp-test` 挂死 37 分钟（master 上同 job 1m43s）。本地确认方式：显式 `dag_pool_size = 15` 稳定卡死（`timeout` 返回 124），`= 16` 刚好通过。修法是测试自己设 `EngineOptions::dag_pool_size` / `shard_pool_size`，不依赖机器核数。注意 `taskset` 模拟不了这个：`std::thread::hardware_concurrency()` 不认 CPU affinity，钉到 4 核后它仍返回 48、池仍是 192——要模拟小机器，直接改池大小。判据：**测试里凡是「N 个任务必须同时阻塞」的 latch / barrier，N 必须对照该运行时的并发上限写明。**
+
 ## 环境踩坑
 
 - `-DPINE_CPP_WERROR=ON` 打开测试 target 时，现有测试里 `OperatorSchema` 聚合初始化省略 `metadata` 字段触发 `-Wmissing-field-initializers`，28 处（CI 的 strict 构建当时不编测试，所以没暴露）。给 `pine-cpp/include/pine/operator.hpp:OperatorSchema::metadata` 加默认成员初始化器 `{}` 即消除，调用点不用改；CI `cpp-lint` 的 strict 构建随后加上 `-DPINE_CPP_BUILD_TESTS=ON`，测试源同样受 `-Werror` 约束。
