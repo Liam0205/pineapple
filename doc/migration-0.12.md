@@ -150,6 +150,11 @@ void execute(const pine::RequestContext& ctx, const pine::OperatorInput& in, pin
 0.11：停机时等在途请求跑完。
 0.12：先取消在途请求的上下文，这些请求会收到带取消错误的 500 响应。依赖「停机时请求能正常跑完」的部署需要调整，比如先摘流量再停机。Go server 的停机行为没有变化。
 
+### 5. 去重 merge 改写 `_source` 恢复可用（0.12.2）
+
+0.11.0～0.12.1：去重 merge 用 `SetItem` 把合并后的来源标签写回 `_source` 时，报 `output contract violation: operator wrote undeclared item output field(s) [_source]`，而 DSL 又不允许把 `_source` 声明进 `item_output`。
+0.12.2：实现了 `MutatesRowSet`、且 `item_input` 含 `_source` 的算子可以改写已有 item 的 `_source`，不需要声明。算子写的其他字段仍要声明在 `item_output` 里。
+
 ## 三、已知差异
 
 以下差异经评估后接受，不作为缺陷处理：
