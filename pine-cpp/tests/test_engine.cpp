@@ -381,6 +381,48 @@ struct ProbeItemOnlyMixed : public pine::Operator {
   }
 };
 
+// Issue #224: a merge that keeps the first item per "id" and rewrites the
+// kept item's `_source` with the sorted, comma-joined tags of its duplicates.
+// Writes `_source` through set_item; `kRowSet` selects which row-set markers
+// the registered variant carries.
+template <bool kRowSet>
+struct ProbeSourceMergeBase : public pine::Operator {
+  void init(const pine::OperatorConfig&) override {
+  }
+  void execute(const pine::RequestContext& /*ctx*/, const pine::OperatorInput& in,
+               pine::OperatorOutput& out) override {
+    std::map<std::string, int> kept;
+    std::map<int, std::vector<std::string>> tags;
+    for (std::size_t i = 0; i < in.item_count(); ++i) {
+      const int idx = static_cast<int>(i);
+      const std::string key = in.item(i, "id").as_string();
+      const std::string tag = in.item(i, "_source").as_string();
+      auto it = kept.find(key);
+      if (it != kept.end()) {
+        tags[it->second].push_back(tag);
+        out.remove_item(idx);
+        continue;
+      }
+      kept[key] = idx;
+      tags[idx].push_back(tag);
+    }
+    for (auto& [idx, list] : tags) {
+      if (list.size() > 1) {
+        std::sort(list.begin(), list.end());
+        std::string joined;
+        for (const auto& t : list) {
+          joined += (joined.empty() ? "" : ",") + t;
+        }
+        out.set_item(idx, "_source", pine::Variant(joined));
+      }
+    }
+  }
+};
+struct ProbeSourceMerge : public ProbeSourceMergeBase<true>,
+                          public pine::ConsumesRowSet,
+                          public pine::MutatesRowSet {};
+struct ProbeSourceMergeNoRowSet : public ProbeSourceMergeBase<false> {};
+
 void register_output_contract_probes() {
   static bool registered = false;
   if (registered) {
@@ -404,6 +446,12 @@ void register_output_contract_probes() {
   pine::register_operator_typed<ProbeAddItem>(s_add);
   pine::register_operator_typed<ProbeMixed>(s_mixed);
   pine::register_operator_typed<ProbeItemOnlyMixed>(s_item_mixed);
+  static const pine::OperatorSchema s_source_merge{
+      "probe224_source_merge", pine::OpType::Merge, "test-only: merges duplicates' _source", {}};
+  static const pine::OperatorSchema s_source_merge_plain{
+      "probe224_source_merge_plain", pine::OpType::Merge, "test-only: same, without row-set markers", {}};
+  pine::register_operator_typed<ProbeSourceMerge>(s_source_merge);
+  pine::register_operator_typed<ProbeSourceMergeNoRowSet>(s_source_merge_plain);
   registered = true;
 }
 
@@ -474,6 +522,66 @@ TEST_CASE("validate_declared_outputs: item names deduped across paths, sorted by
   CHECK(execute_and_capture(single_op_config("probe205_item_mixed", "[]", "[]"), one_item_request()) ==
         "pine: execution error in operator \"p\": output contract violation: operator wrote undeclared "
         "item output field(s) [a b \xEF\xBF\xBD \xF0\x90\x80\x80]");
+}
+
+namespace {
+
+// One merge operator "m" reading `item_input` and declaring no item output.
+std::string source_merge_config(const std::string& type_name, const std::string& item_input) {
+  return std::string(R"({
+      "pipeline_config": {
+        "operators": {
+          "m": {
+            "type_name": ")") +
+         type_name + R"(",
+            "$metadata": {"common_input": [], "common_output": [], "item_input": )" +
+         item_input +
+         R"(, "item_output": []}
+          }
+        },
+        "pipeline_map": {}
+      },
+      "pipeline_group": {"main": {"pipeline": ["m"]}},
+      "flow_contract": {"common_input": [], "common_output": [], "item_input": ["id", "_source"],
+                        "item_output": ["id", "_source"]}
+    })";
+}
+
+Request duplicate_source_request() {
+  Request req;
+  for (const auto& [id, src] :
+       std::vector<std::pair<std::string, std::string>>{{"x", "b"}, {"x", "a"}, {"y", "c"}}) {
+    pine::Variant::object_t row;
+    row["id"] = pine::Variant(id);
+    row["_source"] = pine::Variant(src);
+    req.items.push_back(std::move(row));
+  }
+  return req;
+}
+
+}  // namespace
+
+TEST_CASE("validate_declared_outputs: mutates_row_set merge reading _source may rewrite it (#224)") {
+  register_output_contract_probes();
+  Engine engine(load_config_from_json(source_merge_config("probe224_source_merge", R"(["id", "_source"])")));
+  auto res = engine.execute(duplicate_source_request());
+  REQUIRE(res.items.size() == 2);
+  CHECK(res.items[0].at("_source").as_string() == "a,b");
+  CHECK(res.items[1].at("_source").as_string() == "c");
+}
+
+TEST_CASE(
+    "validate_declared_outputs: _source exemption needs mutates_row_set and _source in item_input (#224)") {
+  register_output_contract_probes();
+  const std::string want =
+      "pine: execution error in operator \"m\": output contract violation: operator wrote undeclared "
+      "item output field(s) [_source]";
+  // Not reading _source: the exemption does not apply.
+  CHECK(execute_and_capture(source_merge_config("probe224_source_merge", R"(["id"])"),
+                            duplicate_source_request()) == want);
+  // Not mutates_row_set: the exemption does not apply.
+  CHECK(execute_and_capture(source_merge_config("probe224_source_merge_plain", R"(["id", "_source"])"),
+                            duplicate_source_request()) == want);
 }
 
 TEST_CASE("Engine::execute with a pre-cancelled context runs nothing and throws CancelledError") {
