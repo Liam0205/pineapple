@@ -1,7 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
-import page.liam.pine.CancellationToken;
+import page.liam.pine.RequestContext;
 import page.liam.pine.GoTypeNames;
 import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorInput;
@@ -46,7 +46,7 @@ public class FilterTruncate extends AbstractOperator implements page.liam.pine.C
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         // top_n is templatable (#74). When the DSL configured a {{field}}
         // marker the engine resolved it against this request's common
         // frame before execute; otherwise the init-time value is used.

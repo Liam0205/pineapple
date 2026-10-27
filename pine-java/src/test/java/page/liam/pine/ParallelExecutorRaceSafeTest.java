@@ -31,7 +31,7 @@ public class ParallelExecutorRaceSafeTest {
         public void init(OperatorParams params) {}
 
         @Override
-        public void execute(CancellationToken token, OperatorInput input, OperatorOutput out) {
+        public void execute(RequestContext ctx, OperatorInput input, OperatorOutput out) {
             for (int i = 0; i < input.itemCount(); i++) {
                 Object v = input.item(i, "val");
                 double d = (v instanceof Number) ? ((Number) v).doubleValue() : 0.0;
@@ -63,7 +63,7 @@ public class ParallelExecutorRaceSafeTest {
                         "iter " + iter + ": expected lazy input from ColumnFrame.buildInput");
 
                 OperatorOutput out = ParallelExecutor.execute(
-                        CancellationToken.create(),
+                        RequestContext.background(),
                         new StatelessIncrementOp(),
                         input,
                         parallelism,

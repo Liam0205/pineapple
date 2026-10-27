@@ -19,7 +19,7 @@ public class ReorderShuffle extends AbstractOperator implements page.liam.pine.C
     public void init(OperatorParams params) {}
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         int n = input.itemCount();
         if (n == 0) return;
 

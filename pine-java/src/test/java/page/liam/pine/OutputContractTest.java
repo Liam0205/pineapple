@@ -144,7 +144,7 @@ class OutputContractTest {
         }
 
         @Override
-        public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+        public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
             output.addItem(Map.of("undeclared_added", 1.0));
         }
     }

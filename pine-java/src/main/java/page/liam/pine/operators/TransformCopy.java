@@ -1,7 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
-import page.liam.pine.CancellationToken;
+import page.liam.pine.RequestContext;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
 import page.liam.pine.OperatorParams;
@@ -45,7 +45,7 @@ public class TransformCopy extends AbstractOperator implements page.liam.pine.Co
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         switch (direction) {
             case "common_to_common":
                 for (int i = 0; i < commonInput().size(); i++) {

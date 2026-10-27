@@ -1,7 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
-import page.liam.pine.CancellationToken;
+import page.liam.pine.RequestContext;
 import page.liam.pine.GoTypeNames;
 import page.liam.pine.OperatorParams;
 import page.liam.pine.OperatorInput;
@@ -53,7 +53,7 @@ public class RecallStatic extends AbstractOperator implements page.liam.pine.Add
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         if (setCommon != null) {
             for (Map.Entry<String, Object> e : setCommon.entrySet()) {
                 output.setCommon(e.getKey(), e.getValue());

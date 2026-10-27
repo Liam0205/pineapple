@@ -2,17 +2,18 @@ package page.liam.pine;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ParallelExecutor {
 
     private ParallelExecutor() {}
 
-    public static OperatorOutput execute(CancellationToken token, Operator op, OperatorInput input, int parallelism, String operatorName, ExecutorService executor) throws PineErrors.OperatorException {
+    public static OperatorOutput execute(RequestContext ctx, Operator op, OperatorInput input, int parallelism, String operatorName, ExecutorService executor) throws PineErrors.OperatorException {
         int total = input.itemCount();
         if (parallelism <= 1 || total == 0) {
             OperatorOutput output = new OperatorOutput();
-            op.execute(token, input, output);
+            op.execute(ctx, input, output);
             return output;
         }
 
@@ -57,35 +58,56 @@ public class ParallelExecutor {
 
         if (shards.size() == 1) {
             OperatorOutput output = new OperatorOutput();
-            op.execute(token, shards.get(0), output);
+            op.execute(ctx, shards.get(0), output);
             return output;
         }
 
-        CancellationToken shardToken = CancellationToken.childOf(token);
+        // shardCtx is cancelled by the first shard failure (stopping the
+        // others) or by the run context.
+        RequestContext.Cancelable shardCtx = RequestContext.withCancel(ctx);
+        try {
+            return runShards(shardCtx, op, shards, offsets, operatorName, executor);
+        } finally {
+            shardCtx.cancel();
+        }
+    }
+
+    private static OperatorOutput runShards(RequestContext.Cancelable shardCtx, Operator op,
+                                            List<OperatorInput> shards, int[] offsets, String operatorName,
+                                            ExecutorService executor) throws PineErrors.OperatorException {
+        int n = shards.size();
         AtomicReference<Exception> firstError = new AtomicReference<>();
+        // Set when a shard never ran because shardCtx was cancelled. Without
+        // a shard error that is the run being cancelled, and merging the
+        // remaining shards would report a partial write set as the
+        // operator's complete output.
+        AtomicBoolean skipped = new AtomicBoolean();
         List<Future<OperatorOutput>> futures = new ArrayList<>(n);
 
         for (OperatorInput shard : shards) {
             futures.add(executor.submit(() -> {
-                if (shardToken.isCancelled() || token.isCancelled()) return null;
+                if (shardCtx.isCancelled()) {
+                    skipped.set(true);
+                    return null;
+                }
                 try {
                     OperatorOutput out = new OperatorOutput();
-                    op.execute(shardToken, shard, out);
+                    op.execute(shardCtx, shard, out);
                     return out;
                 } catch (PineErrors.OperatorException e) {
                     if (firstError.compareAndSet(null, e)) {
-                        shardToken.cancel();
+                        shardCtx.cancel();
                     }
                     return null;
                 } catch (RuntimeException e) {
                     if (firstError.compareAndSet(null, e)) {
-                        shardToken.cancel();
+                        shardCtx.cancel();
                     }
                     return null;
                 } catch (Throwable t) {
                     Exception ex = new PineErrors.PanicError(operatorName, t);
                     if (firstError.compareAndSet(null, ex)) {
-                        shardToken.cancel();
+                        shardCtx.cancel();
                     }
                     return null;
                 }
@@ -129,14 +151,14 @@ public class ParallelExecutor {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 if (firstError.compareAndSet(null, new PineErrors.OperatorException("parallel execution interrupted", e))) {
-                    shardToken.cancel();
+                    shardCtx.cancel();
                 }
             } catch (ExecutionException e) {
                 Exception cause = e.getCause() instanceof Exception
                         ? (Exception) e.getCause()
                         : new PineErrors.PanicError("parallel-shard", e.getCause());
                 if (firstError.compareAndSet(null, cause)) {
-                    shardToken.cancel();
+                    shardCtx.cancel();
                     for (int j = i + 1; j < futures.size(); j++) {
                         futures.get(j).cancel(true);
                     }
@@ -153,6 +175,9 @@ public class ParallelExecutor {
                 throw (RuntimeException) err;
             }
             throw new PineErrors.OperatorException(err.getMessage(), err);
+        }
+        if (skipped.get()) {
+            throw shardCtx.err();
         }
         return merged;
     }

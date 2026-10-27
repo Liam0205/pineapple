@@ -1,7 +1,7 @@
 package page.liam.pine.operators;
 
 import page.liam.pine.AbstractOperator;
-import page.liam.pine.CancellationToken;
+import page.liam.pine.RequestContext;
 import page.liam.pine.GoTypeNames;
 import page.liam.pine.OperatorInput;
 import page.liam.pine.OperatorOutput;
@@ -38,7 +38,7 @@ public class ReorderSort extends AbstractOperator implements page.liam.pine.Cons
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         int n = input.itemCount();
         if (n == 0) return;
 

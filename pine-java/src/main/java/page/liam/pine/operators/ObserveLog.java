@@ -26,7 +26,7 @@ public class ObserveLog extends AbstractOperator {
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) {
         Map<String, Object> snapshot = new TreeMap<>();
 
         if (!commonInput().isEmpty()) {

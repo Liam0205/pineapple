@@ -11,6 +11,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 /**
  * Operator: transform_by_remote_pineapple
@@ -80,7 +83,7 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
     }
 
     @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         List<String> cReq = commonReq.isEmpty() ? commonInput() : commonReq;
         List<String> iReq = itemReq.isEmpty() ? itemInput() : itemReq;
         List<String> cResp = commonResp.isEmpty() ? commonOutput() : commonResp;
@@ -115,7 +118,10 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
             throw new PineErrors.OperatorException("transform_by_remote_pineapple: serialize request: " + e.getMessage(), e);
         }
 
-        if (token.isCancelled()) return;
+        if (ctx.isCancelled()) {
+            handleCancelled(ctx, output);
+            return;
+        }
 
         String targetUrl = url;
         HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
@@ -137,7 +143,10 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
             } else {
                 reqBuilder.uri(URI.create(targetUrl));
             }
-            resp = client.send(reqBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
+            resp = sendCancellable(ctx, reqBuilder.build());
+        } catch (CancellationException e) {
+            handleCancelled(ctx, output);
+            return;
         } catch (Exception e) {
             handleError(output, "request failed: " + e.getMessage(), e);
             return;
@@ -191,6 +200,33 @@ public class TransformRemotePineapple extends AbstractOperator implements Concur
                 }
             }
         }
+    }
+
+    /**
+     * Sends the request, aborting it as soon as {@code ctx} is cancelled (or
+     * its deadline passes). Throws CancellationException in that case; any
+     * other failure is rethrown as the exception {@code client.send} would
+     * have raised. Only the wait for the response headers is cancellable: the
+     * body of a response that has started arriving is read to completion.
+     */
+    private HttpResponse<InputStream> sendCancellable(RequestContext ctx, HttpRequest request) throws Exception {
+        CompletableFuture<HttpResponse<InputStream>> pending =
+                client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
+        try (RequestContext.Registration ignored = ctx.onCancel(() -> pending.cancel(true))) {
+            return pending.get();
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception) {
+                throw (Exception) cause;
+            }
+            throw e;
+        }
+    }
+
+    // Same text as pine-go, whose http.Client.Do reports a done context as
+    // `Post "<url>": context canceled` (or `context deadline exceeded`).
+    private void handleCancelled(RequestContext ctx, OperatorOutput output) throws PineErrors.OperatorException {
+        handleError(output, "request failed: Post \"" + url + "\": " + ctx.err().getMessage(), ctx.err());
     }
 
     private void handleError(OperatorOutput output, String msg, Exception cause) throws PineErrors.OperatorException {

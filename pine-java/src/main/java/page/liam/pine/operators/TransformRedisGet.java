@@ -19,9 +19,8 @@ import java.util.*;
  * resource_name. Multiple Redis operators referencing the same resource_name
  * share one pool.
  */
-public class TransformRedisGet extends AbstractOperator implements ConcurrentSafe, ResourceAware {
+public class TransformRedisGet extends AbstractOperator implements ConcurrentSafe {
     private String resourceName;
-    private ResourceProvider resourceProvider;
     private String keyPrefix;
     private String dataType = "string";
     private boolean failOnError;
@@ -41,16 +40,11 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
     }
 
     @Override
-    public void setResourceProvider(ResourceProvider provider) {
-        this.resourceProvider = provider;
-    }
-
-    @Override
-    public void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
+    public void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException {
         String resultField = commonOutput().get(0);
         String cacheHitField = commonOutput().get(1);
 
-        RedisConnResource resource = borrowResource(resourceProvider, resourceName);
+        RedisConnResource resource = borrowResource(ctx.resources(), resourceName);
         if (resource == null) {
             output.setCommon(cacheHitField, false);
             return;
@@ -76,7 +70,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
         try {
             switch (dataType) {
                 case "set": {
-                    Set<String> members = resource.runCommand("SMEMBERS", jedis -> jedis.smembers(key));
+                    Set<String> members = resource.runCommand(ctx, "SMEMBERS", jedis -> jedis.smembers(key));
                     if (members != null && !members.isEmpty()) {
                         output.setCommon(resultField, new ArrayList<>(members));
                         output.setCommon(cacheHitField, true);
@@ -86,7 +80,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
                     break;
                 }
                 case "list": {
-                    List<String> vals = resource.runCommand("LRANGE", jedis -> jedis.lrange(key, 0, -1));
+                    List<String> vals = resource.runCommand(ctx, "LRANGE", jedis -> jedis.lrange(key, 0, -1));
                     if (vals != null && !vals.isEmpty()) {
                         output.setCommon(resultField, vals);
                         output.setCommon(cacheHitField, true);
@@ -96,7 +90,7 @@ public class TransformRedisGet extends AbstractOperator implements ConcurrentSaf
                     break;
                 }
                 case "string": {
-                    String val = resource.runCommand("GET", jedis -> jedis.get(key));
+                    String val = resource.runCommand(ctx, "GET", jedis -> jedis.get(key));
                     if (val != null && !val.isEmpty()) {
                         output.setCommon(resultField, val);
                         output.setCommon(cacheHitField, true);
