@@ -40,7 +40,14 @@ fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-echo "==> Bumping Pineapple to v${NEW_VERSION}"
+# Read the outgoing version before step 1 rewrites it; step 5 replaces only this value.
+OLD_VERSION="$(perl -ne 'print $1 if /const Version = "([^"]+)"/' pine-go/version.go)"
+if [[ -z "$OLD_VERSION" ]]; then
+  echo "Error: cannot read the current version from pine-go/version.go"
+  exit 1
+fi
+
+echo "==> Bumping Pineapple from v${OLD_VERSION} to v${NEW_VERSION}"
 echo
 
 # --- 1. version.go ---
@@ -64,8 +71,11 @@ echo "[5/11] Updating _PINEAPPLE_VERSION in fixtures, tests, and examples"
 updated_files=()
 for f in pipeline.json pine-go/testdata/*.json pine-go/examples/**/*.json fixtures/**/*.json pine-cpp/tests/*.cpp scripts/differential-fuzz.py scripts/dag-differential-fuzz.py; do
   [[ -f "$f" ]] || continue
-  if grep -q '"_PINEAPPLE_VERSION"' "$f"; then
-    perl -0pi -e "s/\"_PINEAPPLE_VERSION\": \"[^\"]*\"/\"_PINEAPPLE_VERSION\": \"${NEW_VERSION}\"/" "$f"
+  # Replace every occurrence of the outgoing version, not only the first one
+  # in each file: several C++ tests embed more than one config. Other values
+  # are left alone; some are pinned on purpose (test_config.cpp asserts "1.2.3").
+  if grep -qF "\"_PINEAPPLE_VERSION\": \"${OLD_VERSION}\"" "$f"; then
+    OLD="$OLD_VERSION" NEW="$NEW_VERSION" perl -pi -e 's/"_PINEAPPLE_VERSION": "\Q$ENV{OLD}\E"/"_PINEAPPLE_VERSION": "$ENV{NEW}"/g' "$f"
     updated_files+=("$f")
   fi
 done
