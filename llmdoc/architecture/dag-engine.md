@@ -652,7 +652,7 @@ DAG 推导的健全性建立在四个环节上：规则健全、`Build` 实现�
 | 三个行集标记 | `pine.go` 加载时用 Go 接口断言覆盖配置、校验互斥 |
 | 写侧字段名 ∈ 声明输出 | `types.ValidateDeclaredOutputs`，紧跟 `ValidateOutput`（issue #205 前缺失） |
 
-第四条之所以属于 DAG 引擎而不只是算子 API 卫生：`addEdges` 只看声明列表，一个写了未声明字段的算子在图里**不存在**——没有 WAW/WAR 边阻止同名并发写者，下游声明该字段为输入的算子也没有 RAW 边。#205 之前这条只靠内置算子的构造（`MetadataAware` 按声明名写、Lua 按位置绑定）成立，对扩展 API 接入的自定义算子和字段名来自配置/资源数据的 recall 没有任何防线。校验覆盖 `SetCommon` / `SetItem` / `SetItemColumnFloat64` / `AddItem` 四条带字段名的写路径；`RemoveItem` / `SetItemOrder` 无字段名。错误格式、排序与通道优先级见 `reference/operator-contract.md`「写侧字段名必须在声明的输出里」。
+第四条之所以属于 DAG 引擎而不只是算子 API 卫生：`addEdges` 只看声明列表，一个写了未声明字段的算子在图里**不存在**——没有 WAW/WAR 边阻止同名并发写者，下游声明该字段为输入的算子也没有 RAW 边。#205 之前这条只靠内置算子的构造（`MetadataAware` 按声明名写、Lua 按位置绑定）成立，对扩展 API 接入的自定义算子和字段名来自配置/资源数据的 recall 没有任何防线。校验覆盖 `SetCommon` / `SetItem` / `SetItemColumnFloat64` / `AddItem` 四条带字段名的写路径；`RemoveItem` / `SetItemOrder` 无字段名。错误格式、排序与通道优先级见 `reference/operator-contract.md`「写侧字段名必须在声明的输出里」。唯一的豁免是 `MutatesRowSet` 且读 `_source` 的算子改写已有 item 的 `_source`（issue #224）：它对 `_row_set_` 的变更写已经让它与前后所有 item 字段读写者有边，这条豁免正是由上面的屏障推出的。
 
 ### 为何分类体系对 DAG 推导重要
 
