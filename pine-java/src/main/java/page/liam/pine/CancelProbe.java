@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -27,7 +28,9 @@ import page.liam.pine.operators.AllOperators;
  * cross-validate Section 22 asserts stdout is byte-identical to pine-go's
  * pine-cancel-probe and pine-cpp's pineapple-cancel-probe. Where a cancel must
  * land mid-run, an operator issues it itself, so no timing race decides which
- * nodes run.
+ * nodes run. The context (and any deadline or cancel timer) is created only
+ * after the engine is built, so a slow engine construction (a cold JVM on CI)
+ * cannot use up the deadline before the run starts.
  */
 public final class CancelProbe {
     private CancelProbe() {
@@ -102,9 +105,11 @@ public final class CancelProbe {
           "flow_contract": {"common_input": [], "common_output": [], "item_input": [], "item_output": []}
         }""";
 
-    private static void run(String name, String config, RequestContext ctx) throws Exception {
+    // Builds the engine, then asks newCtx for the run's context.
+    private static void run(String name, String config, Supplier<RequestContext.Cancelable> newCtx)
+            throws Exception {
         Engine engine = Engine.create(config.getBytes(StandardCharsets.UTF_8));
-        try {
+        try (RequestContext.Cancelable ctx = newCtx.get()) {
             Engine.Result res = engine.execute(ctx, new LinkedHashMap<>(), new ArrayList<>());
             String err = res.error == null ? "nil" : res.error.getMessage();
             List<String> keys = new ArrayList<>();
@@ -128,32 +133,41 @@ public final class CancelProbe {
                 "probe: copies common x to y", Map.of()), CopyXToY::new);
 
         // A context cancelled before the run: nothing runs.
-        RequestContext.Cancelable pre = RequestContext.withCancel(RequestContext.background());
-        pre.cancel();
         cancelHook = () -> { };
-        run("pre_cancel", CHAIN_CONFIG, pre);
+        run("pre_cancel", CHAIN_CONFIG, () -> {
+            RequestContext.Cancelable c = RequestContext.withCancel(RequestContext.background());
+            c.cancel();
+            return c;
+        });
 
         // op_a cancels mid-run and completes; op_b is skipped.
-        RequestContext.Cancelable mid = RequestContext.withCancel(RequestContext.background());
-        cancelHook = mid::cancel;
-        run("cancel_mid_run", CHAIN_CONFIG, mid);
+        run("cancel_mid_run", CHAIN_CONFIG, () -> {
+            RequestContext.Cancelable c = RequestContext.withCancel(RequestContext.background());
+            cancelHook = c::cancel;
+            return c;
+        });
 
         // Cancelled while the only node runs: nothing was skipped, so success.
-        RequestContext.Cancelable last = RequestContext.withCancel(RequestContext.background());
-        cancelHook = last::cancel;
-        run("cancel_last_node", SINGLE_CONFIG, last);
+        run("cancel_last_node", SINGLE_CONFIG, () -> {
+            RequestContext.Cancelable c = RequestContext.withCancel(RequestContext.background());
+            cancelHook = c::cancel;
+            return c;
+        });
 
-        // transform_bench_sleep stops at the deadline and fails itself.
-        try (RequestContext.Cancelable dl =
-                     RequestContext.withTimeout(RequestContext.background(), Duration.ofMillis(50))) {
-            run("deadline_sleep", SLEEP_CONFIG, dl);
-        }
+        // transform_bench_sleep stops at the deadline and fails itself. The
+        // deadline only has to outlast the start of the run, well under the
+        // 10 s sleep it cuts short.
+        run("deadline_sleep", SLEEP_CONFIG,
+                () -> RequestContext.withTimeout(RequestContext.background(), Duration.ofMillis(500)));
 
         // ... and on a cancel from another thread.
         ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
-        try (RequestContext.Cancelable c = RequestContext.withCancel(RequestContext.background())) {
-            timer.schedule(c::cancel, 50, TimeUnit.MILLISECONDS);
-            run("cancel_sleep", SLEEP_CONFIG, c);
+        try {
+            run("cancel_sleep", SLEEP_CONFIG, () -> {
+                RequestContext.Cancelable c = RequestContext.withCancel(RequestContext.background());
+                timer.schedule(c::cancel, 500, TimeUnit.MILLISECONDS);
+                return c;
+            });
         } finally {
             timer.shutdownNow();
         }
