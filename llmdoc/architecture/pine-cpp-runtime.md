@@ -77,10 +77,10 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
 - **HTTP server**
   - `/health`、`/execute`、`/stats`、`/dag` 端点
   - 配置 mtime 监听 + 原子替换实现热加载
-  - graceful shutdown：`Server::stop()` 在停止接受新连接后等待 in-flight 请求计数归零，5s 超时
+  - graceful shutdown：`Server::stop()`（信号处理函数里只做 async-signal-safe 的事）停止接受新连接；`Server::run()` 在 accept loop 退出后先取消 `server_ctx_`（每个请求上下文的父），再无上限地等 in-flight 计数归零（issue #217，契约见 `reference/operator-contract.md`「请求上下文与取消」）
   - **HTTP/1.1 keep-alive**（R3-L9b）：连接处理 while-loop 复用 socket；`Connection: keep-alive/close` 头由 `MiddlewareContext.keep_alive` 控制（HTTP/1.1 默认 keep-alive，HTTP/1.0 默认 close）。`-idle-timeout` 控制 keep-alive 连接两次请求间的空闲超时
   - **read-header-timeout**（R3-L9a）：`read_http_request` 入参增 `header_timeout` / `body_timeout`；header 阶段 `SO_RCVTIMEO` 短窗口防 Slowloris，`\r\n\r\n` 边界后 swap 为 body_timeout 长窗口
-  - **客户端断连取消**（R10-2）：`execute_with_trace` 接收 `client_fd`，spawn watcher 线程 `poll()` 同时监听 client fd（`POLLRDHUP|POLLHUP|POLLERR`）和 `eventfd` wakeup fd，`poll` 超时设为 `-1`（无限等待），实现零延迟唤醒。请求完成后主线程 `eventfd_write` 通知 watcher 退出，替代原 100ms 轮询超时方案
+  - **客户端断连取消**（R10-2）：`execute_with_trace` 接收 `client_fd`，spawn watcher 线程 `poll()` 同时监听 client fd（`POLLRDHUP|POLLHUP|POLLERR`，触发即取消该请求的 `RequestContext`）和 `eventfd` wakeup fd，`poll` 超时设为 `-1`（无限等待），实现零延迟唤醒。请求完成后主线程 `eventfd_write` 通知 watcher 退出，替代原 100ms 轮询超时方案
   - 双重边界 body 读取：Content-Length 与 `max_request_body_size+1` hard cap 同时生效；malformed Content-Length 直接拒绝
   - **custom Route / Watch 对等采取"黑盒行为对等、实现结构自由"**（issue #169）：C++ server 不是公开库 API（在 `src/server/` 不在 `include/pine/`），有意不做 Go/Java 的嵌入 API（`Execute`/`Acquire`），保持 shared_mutex 引擎生命周期方案——handler 持 shared_lock 是 Go 引用计数快照的语义等价物。支持 `Route{method, path, ingress, egress}` 自定义路由与 `ServerConfig::watch`（CLI `-watch=false` / `-demo-routes`）。可测校验逻辑（`validate_routes` / `normalize_path`）抽在 socket-free 的 `src/server/routes.cpp`，同时链进 `pineapple-server` 与 `pine_cpp_tests` 两个 target；错误文案与 Go `validateRoutes` 字节对齐，由 `scripts/cross-validate/20-custom-routes.sh` 锁定
 - **Engine / 调度**
@@ -91,9 +91,8 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
     - **Completion latch**：`std::atomic<size_t> remaining` + `condition_variable` 等待所有节点完成
     - **Seed loop 安全**：根节点识别使用不可变的 `graph.nodes[i].preds.empty()`（而非可变的 `in_degree[i]`），避免 pool worker 已递减非根节点 in-degree 导致的竞态
     - 可通过 `EngineOptions::dag_pool_size` / `EngineOptions::shard_pool_size` 配置，CLI 对应 `-dag-pool-size` / `-shard-pool-size`
-  - C++20 `std::stop_token` + `std::stop_callback` 协作取消
-  - **外部取消 API**（R3-H3）：`Engine::execute` / `execute_traced_into` 接受可选 `std::stop_token external_cancel`；run_dag 通过 `std::stop_callback` 桥接到内部 `cancel_source`
-  - **shard 级取消**（R3-M3）：parallel_execute 首个 shard 失败后 `atomic<bool> shard_cancel` 阻止后续 shard 启动
+  - **请求上下文**（issue #217）：`pine::RequestContext`（`include/pine/pine.hpp`，实现 `src/runtime/request_context.cpp`）承载取消、截止时间、请求级值、数据型资源 map 与 `ResourceProvider`；内部用 `std::stop_source` 表达取消，`stop_token()` 供 `std::stop_callback` / `condition_variable_any` 使用，截止时间由进程级 `DeadlineTimer` 线程触发。`Engine::execute(request, ctx)` / `execute_traced_into(request, ctx, out)` 取代了原 `std::stop_token external_cancel` 重载
+  - run_dag 在调用方上下文下派生 `run_ctx`（首个 fatal error 也取消它），parallel_execute 再派生 `shard_ctx`；未运行节点/分片的结果判定见 `reference/operator-contract.md`「请求上下文与取消」
   - `Engine::peak_concurrency()` 通过 atomic CAS 追踪累积峰值，序列化到 `/stats.scheduler.peak_concurrency`
   - debug snapshot + `StartTime` 在 `OpTrace` 中可选记录
   - `data_parallel` transform 在固定线程池中分片执行；分片通过 `ColumnFrame::make_window_view` 零拷贝窗口视图实现——shard 共享 parent frame 的 ColumnStore，以 `(offset, count)` 做行级翻译，避免逐行物化。window view 是只读投影，所有写方法（`set_common` / `push_warning` / `apply_output` / `to_result`）均 throw `Error`
@@ -115,11 +114,11 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
     - **这条修复刻意没有单测**：保留窗口在「某节点 `apply_output` 完成」到「下一节点 acquire reset」之间，而引擎内所有可观测点都在 acquire reset 之后——算子探测 buffer 永远读到 0，无论该行是否存在（实测：写了一个这样的测试，对着删掉该行的 mutant 依然全绿，故删除，不留假覆盖）。要验证只能靠**分配器存活字节探针**——RSS 不够用，两个变体的 RSS 相差不到 0.1%（分配器把释放的块缓存起来了），这一点本身就是踩过的坑。教训：**「测不到」和「没问题」是两件事**，把不可观测性写进注释比留一个恒绿的断言诚实
   - **ValidateOutput 类型约束**（R3-H1）：每个算子 execute 后、apply_output 前，按 operator_type 检查输出方法是否合法（如 Recall 不能 SetItem/RemoveItem/SetItemOrder，只能 AddItem；但 **Recall 可以 SetCommon**——写请求级 common 状态是正常的 mutating hazard，DAG 已按 CommonOutput 构建 RAW/WAW/WAR 边），违规抛 ExecutionError `"type violation: operator type X must not call [Method1 Method2]"`
 - **算子输入投影层**
-  - **`OperatorInput`**（`include/pine/operator_input.hpp`）：Frame + InputFieldSpec 之上的 lazy read-only proxy。算子签名为 `execute(const OperatorInput&, OperatorOutput&)`，通过 `common(field)` / `item(i, field)` 按需读取，自动替换 defaulted 字段。避免旧实现的 O(N×M) eager reify（逐 item×field 预复制到 `vector<map>`）。**`item_count` 在构造时缓存**，避免每次调用获取 shared_lock
+  - **`OperatorInput`**（`include/pine/operator_input.hpp`）：Frame + InputFieldSpec 之上的 lazy read-only proxy。算子签名为 `execute(const RequestContext&, const OperatorInput&, OperatorOutput&)`，通过 `common(field)` / `item(i, field)` 按需读取，自动替换 defaulted 字段。避免旧实现的 O(N×M) eager reify（逐 item×field 预复制到 `vector<map>`）。**`item_count` 在构造时缓存**，避免每次调用获取 shared_lock
   - `build_operator_input(frame, op_name, spec)` 工厂：按 `strict_common → nullable_common → strict_item → nullable_item`（先 common 后 item）顺序校验输入字段，通过后构造 lazy proxy。校验分两个 `with_read_lock` 窗口完成——窗口1 做 strict + nullable common；`validate_strict_items` 因 `shared_mutex` 非递归（不能嵌套取锁）必须在窗口外独立取锁，排在 common 之后、nullable item 之前；窗口2 做 nullable item（热路径 N×M 仍折叠进单个 lock 窗口）。**该顺序是字节级错误对等契约的一部分**：当一个 config 同时违反 common 与 strict item 时，三运行时必须抛出同一个"首个错误"（common 先于 item），不可被锁/批量化优化隐式改写（参见 `memory/reflections/review-driven-build-input-error-ordering.md`）
   - `Frame::validate_strict_items(fields)` 虚方法：返回 `pair<bad_field, bad_row>`（无 op_name 参数）；ColumnFrame/RowFrame 各自实现最优路径的批量 strict item 检查，避免逐字段逐行的 O(N×M×F) 调用
 - **算子框架**
-  - `pine::Operator` 基类（`init` + `execute(const OperatorInput&, OperatorOutput&)`）
+  - `pine::Operator` 基类（`init` + `execute(const RequestContext&, const OperatorInput&, OperatorOutput&)`）；资源经 `ctx.resources()` / `ctx.resource_provider()` 读取，`ResourceAware`、`OperatorInput::resources()` 与 `Frame::set_resources` 已删除
   - marker 类型 `ConsumesRowSet` / `MutatesRowSet` / `AdditiveWritesRowSet` / `ConcurrentSafe`
   - `OperatorTraits<T>` 编译期 `std::is_base_of_v` 标记检查
   - `register_operator_with_traits(schema, factory, ...)` 底层 API + `register_operator_typed<T>(schema)` 模板 + **`PINE_REGISTER_OPERATOR_T(Type, schema)` 宏**——通过 `OperatorTraits<T>` 在编译期解析标记位，注册时不调用 factory，重量级构造器（Lua pool、libcurl handle、redis pool seed）只在 per-Engine 实例化时付成本
@@ -153,7 +152,7 @@ pine-cpp 已超过原计划的 MVP 边界，目前作为完整的运行时存在
   - `pine::resource::Manager` + `FetcherFactory` + `register_fetcher_factory(type, factory)` 与 pine-go `pkg/resource` 等价：后台刷新线程、`snapshot()`、可重入 `stop()`。`ResourceValue` 是**数据 `Variant` 与句柄 `shared_ptr<void>` 二选一**（XOR）的载体：数据型资源走 `snapshot()` 整体导出活值，句柄型资源走 `ResourceProvider::borrow(name)` 借出长生命周期句柄（如 `redis_connection`）。退休时 `shared_ptr` RAII 析构 + `engine_mu_` 锁序保证零 use-after-close。详见 `design_doc/11_resource_manager.md`
   - Redis 连接现为句柄型资源 `redis_connection`：`transform_redis_get` / `transform_redis_set` 不再内联 `redis_addr`/`redis_db`/`redis_password`，改为按 `resource_name` 借用句柄；连接参数（addr/password/db/interval，`interval: -1` 永不刷新）在统一 JSON 的 `resource_config` 中声明
   - **Redis client 失败收敛与 SIGPIPE 防护**（0.10.10）：`Client::send_command` 用 `send(..., MSG_NOSIGNAL)` 替代裸 `write()`，远端中途断连不会因 SIGPIPE 杀死进程；AUTH / SELECT 失败路径用 try/catch 包裹后 `close(fd_)` + `fd_=-1`，落入 `connected()==false` 静默降级路径，与 dial-failure 路径对称。详见 `must/conventions.md` 的"pine-cpp 网络客户端必须 MSG_NOSIGNAL"与 `reference/operator-contract.md` 的"Failed-path 静默降级审计契约"
-  - **Redis per-command 指标**（0.10.10）：`Client::run_command<T>(name, fn)` 模板包裹业务命令调用，使用 `Counter` / `Histogram` 发射 `pine_redis_command_total` / `pine_redis_command_duration_seconds`（labels: name / command / status）。**已知缺口**：cpp client 当前抛单一 `std::runtime_error` 类型，timeout / pool_timeout 当前都落 `error` 桶，需后续在 client 层引入错误类型分层；详见 `reference/metrics-observability.md` 的"per-command 指标 status taxonomy"
+  - **Redis per-command 指标**（0.10.10）：`Client::run_command<T>(name, fn)` 模板包裹业务命令调用，使用 `Counter` / `Histogram` 发射 `pine_redis_command_total` / `pine_redis_command_duration_seconds`（labels: name / command / status）。**已知缺口**：cpp client 当前抛单一 `std::runtime_error` 类型，socket timeout / pool_timeout 当前都落 `error` 桶（只有请求上下文截止时间导致的发送前失败会记 `timeout`），需后续在 client 层引入错误类型分层；详见 `reference/metrics-observability.md` 的"per-command 指标 status taxonomy"
   - `transform_by_remote_pineapple` 算子：基于 `libcurl` 实现 SSRF 安全保护（拦截 loopback/private IP 配置）、HTTP POST 超时与最大体积限制
   - Redis `ConnectionPool`：per-key idle 上限（`kMaxIdlePerKey=16`）+ idle timeout（`kIdleTimeout=60s`）+ acquire 时 LIFO stale discard + `connected()` 健康检查。`ScopedClient` RAII handle 自动 release back to pool，替代算子内 inline PoolGuard。**`pool_timeout_ms` 当前 no-op**：cpp 池 acquire 不阻塞（idle 队列空时直接构造新 client），schema 仍保留以便跨引擎配置块对称
 - **根级配置扩展**

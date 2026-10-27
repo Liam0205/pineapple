@@ -16,7 +16,7 @@
 
 ## 类型化错误
 
-Pine 在 `internal/types/errors.go` 中定义了 5 种结构化错误类型，调用方可通过 `errors.As` 精确判断错误来源：
+Pine 在 `internal/types/errors.go` 中定义了 6 种结构化错误类型，调用方可通过 `errors.As` 精确判断错误来源：
 
 | 错误类型 | 阶段 | 含义 | 示例 |
 |----------|------|------|------|
@@ -25,6 +25,7 @@ Pine 在 `internal/types/errors.go` 中定义了 5 种结构化错误类型，�
 | `ValidationError` | 引擎加载 / 请求校验 | 配置校验或请求 contract 校验失败 | DAG 中有环、`data_parallel` 约束违反、请求缺少 common 字段 |
 | `ExecutionError` | DAG 执行 | 算子返回 error（不可恢复） | Lua 脚本出错、算子输出类型约束违反 |
 | `PanicError` | DAG 执行 | 算子 panic 被 recover | 空指针解引用、数组越界 |
+| `CancelledError` | DAG 执行 | 调用方 context 被取消或超时，有算子因此未运行、且无算子自行失败 | `pine: execution cancelled: context canceled`；`errors.Is(err, context.Canceled)` 成立 |
 
 `ExecutionError` 和 `PanicError` 均包含 `Operator` 字段，标识出错的算子名。`PanicError` 额外包含 `Stack` 字段（完整堆栈信息）。
 
@@ -127,6 +128,8 @@ HTTP handler 将 Warnings 序列化为响应 JSON 的 "warnings" 数组
 3. 正在执行的其他算子通过 `ctx.Done()` 感知取消，应尽快退出。
 4. 尚未调度的下游算子不会被启动。
 5. `Engine.Execute` 返回 fatal error + 部分 Result（已完成算子的结果可用于调试）。
+
+调用方 context 被取消（而非算子失败）时同样不再调度新节点；若因此有节点未运行且没有 fatal error，返回 `CancelledError` 而不是成功，部分 Result 照常返回。算子自己返回 `ctx.Err()` 则仍是命名该算子的 `ExecutionError`。三运行时对照与内置算子取消点见 `llmdoc/reference/operator-contract.md` 的「请求上下文与取消」。
 
 **未出现在 trace 中的算子**：DAG 中止后，未开始执行的算子不会出现在 `Result.Trace` 中。`trace` 仅包含实际执行过或被 skip 的算子。
 

@@ -50,9 +50,14 @@ Java 侧为独立 Schema 源，拥有完整的 schema-based 注册：`Registry.r
 
 该并发模型意味着算子结构体上的任何可变状态必须在 `Init()` 后不可变或显式同步。
 
-### Pine-Java 执行签名
+### Pine-Java / Pine-C++ 执行签名
 
-Java 侧等效签名为 `void execute(CancellationToken token, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException`。`CancellationToken` 是 volatile boolean，等效于 Go 的 `context.Context` 取消信号。算子中的长时间循环应检查 `token.isCancelled()` 以支持协作式取消。声明 checked `OperatorException` 使引擎能区分预期算子错误（包装为 `ExecutionError`）与意外运行时异常（包装为 `PanicError`），语义对应 Go 的 error/panic 分界。
+三运行时的 execute 都把请求上下文放在第一个参数（issue #217 起对齐）：
+
+- Java：`void execute(RequestContext ctx, OperatorInput input, OperatorOutput output) throws PineErrors.OperatorException`。声明 checked `OperatorException` 使引擎能区分预期算子错误（包装为 `ExecutionError`）与意外运行时异常（包装为 `PanicError`），语义对应 Go 的 error/panic 分界。
+- C++：`void execute(const RequestContext& ctx, const OperatorInput& input, OperatorOutput& out)`（`pine-cpp/include/pine/pine.hpp:Operator`）。
+
+`RequestContext` 的能力与取消契约见下文「请求上下文与取消」。
 
 ## 必需接口
 
@@ -129,15 +134,83 @@ C++ 侧提供注册路径：
 
 若算子实现 `MetadataAware`，调用方需在 `BuildOperator` 之后手动调用 `SetMetadata` 注入字段元数据（引擎内部会自动做，外部消费者需显式处理）。
 
+## 请求上下文与取消
+
+本节是三运行时请求上下文契约的权威副本（issue #217）；`architecture/dag-engine.md` 与 `architecture/pine-cpp-runtime.md` 只留指针。
+
+### 上下文类型
+
+| | Go | Java | C++ |
+|---|---|---|---|
+| 类型 | `context.Context` | `pine-java/src/.../RequestContext.java` | `pine-cpp/include/pine/pine.hpp:RequestContext`（实现 `pine-cpp/src/runtime/request_context.cpp`） |
+| 派生 | `context.WithCancel/WithDeadline/WithTimeout/WithValue` | `withCancel/withDeadline/withTimeout/withValue/withResources` | `with_cancel/with_deadline/with_timeout/with_value/with_resources/with_resource_provider` |
+| 可取消句柄 | `cancel` 函数 | `RequestContext.Cancelable`（`AutoCloseable`，`close()` 即 cancel） | `RequestContext::Cancelable`（move-only，析构即 cancel） |
+| 完成判断 | `ctx.Err()` | `isCancelled()` / `err()` / `throwIfCancelled()` | `cancelled()` / `err()` / `throw_if_cancelled()` |
+| 可中断等待 | `select` on `ctx.Done()` | `awaitCancellation(Duration)` / `onCancel(Runnable)` | `wait_for(duration)` / `stop_token()` |
+
+共同语义：父取消传给所有子孙，子取消不影响父；`with_deadline` 遇到更早的父截止时间时以父为准；完成原因的文案固定为 `context canceled` / `context deadline exceeded`（Java `PineErrors.ContextException`、C++ `pine::ContextError` 的 message 与 Go 的 `ctx.Err().Error()` 逐字节相同）。
+
+Go 以外两方的计时器都是进程级单线程（Java `pine-context-deadline` daemon、C++ `request_context.cpp:DeadlineTimer`），请求先于截止时间完成时条目即被移除；子上下文在自身取消或销毁时从父上下文解除挂钩，长寿命父上下文（server 根上下文）不会随请求数累积回调。
+
+### 引擎侧契约
+
+引擎在调用方上下文之下派生一个 run 上下文，首个 fatal error 也会取消它（Go `pine-go/internal/runtime/scheduler.go:Run`、Java `Engine.run`、C++ `pine-cpp/src/runtime/engine.cpp:run_dag`）：
+
+1. **每个节点（含根节点）开始前检查 run 上下文**。已完成则不执行该节点并记一个「未运行」标记——预先取消的上下文什么都不跑。
+2. **结果判定**：首个 fatal error 优先；否则若有节点因取消未运行，返回专用取消错误 `pine: execution cancelled: context canceled` / `pine: execution cancelled: context deadline exceeded`（Go `types.CancelledError`、Java `PineErrors.CancelledError`、C++ `pine::CancelledError`），可解包回上下文错误（Go `errors.Is(err, context.Canceled)`、Java `getCause()`、C++ `pine::error_as<ContextError>()`）。部分结果保留，已完成算子的写入可见。该判定发生在 metrics 之前，因此计入 `dag_executions_total{status="error"}`。
+3. **取消落在最后一个节点运行期间**：没有节点被跳过，结果是成功。
+4. **算子自己返回上下文错误**（如 bench_sleep 被截止时间打断）不是「被跳过」而是「失败」，报为命名该算子的 `ExecutionError`：`pine: execution error in operator "X": context canceled`。
+5. **`data_parallel`**：分片上下文是 run 上下文的子；因取消未运行的分片使该算子以上下文错误失败，不合并只覆盖部分 item 的输出（Go `pine-go/internal/runtime/parallel.go:parallelExecute`、C++ `engine.cpp:parallel_execute`）。
+
+`scripts/cross-validate/22-embedded-cancellation.sh` 用三方 probe（`pine-go/cmd/pine-cancel-probe`、`pine-java/.../CancelProbe.java`、`pine-cpp/cmd/pineapple-cancel-probe`）逐字节锁定上述 1–4 条的错误文案与保留写入。
+
+### 内置算子的取消点
+
+| 算子 | 行为 | 文案 |
+|---|---|---|
+| `transform_bench_sleep` | 等待在上下文上，取消/截止时间立即结束并返回上下文错误 | 经规则 4：`pine: execution error in operator "X": context deadline exceeded` |
+| `transform_by_remote_pineapple` | 发送前检查；在途请求可被取消（Java `sendAsync` + `onCancel`，C++ curl multi + `curl_multi_wakeup`） | `transform_by_remote_pineapple: request failed: Post "<url>": context canceled`（与 Go net/http 相同，受 `fail_on_error` 控制是 warning 还是失败） |
+| `transform_redis_get` / `transform_redis_set` | 每条命令发送前检查（与 go-redis 连接池等待返回 `ctx.Err()` 等价） | `transform_redis_get: Get(<key>): context canceled` / `transform_redis_set: write key <key>: context canceled`；per-command 指标 status：截止时间 → `timeout`，取消 → `error` |
+| `transform_by_lua` | item 模式在两个 item 之间检查，common 模式在调用前检查 | Java/C++：`lua: item[<i>]: context canceled` / `lua: context canceled` |
+| `recall_resource` / `transform_resource_lookup` | 不检查（无阻塞点） | — |
+
+### 已接受差异
+
+以下差异经 #217 讨论接受，不作为对等缺陷处理：
+
+- **Lua 取消文案**：Go 两个后端本身就不一致（wangshu `lua: item[0]: context canceled: context canceled`；gopher-lua 带 `<string>:1:` 前缀与 stack traceback），Java/C++ 用 `lua: item[i]: context canceled`。
+- **Lua 单 item 执行中途不可中断**：LuaJIT 与 luaj 均无可用的指令级中断，只在 item 之间检查；Go gopher-lua 可在指令边界中断。
+- **已发出的 Redis 命令不被中断**：Java（Jedis）与 C++ client 没有逐命令取消，只受资源配置的 socket 超时约束。
+- **Java remote 读响应体阶段不可取消**：只有等待响应头的阶段可取消。
+- **Java server 不感知客户端断连**（D）：`com.sun.net.httpserver` 不暴露断连信号，断连不会取消请求上下文；跟踪见 GitHub issue #220。`scripts/cross-validate/07-cancellation.sh` [3] 因此对 Java 跳过。
+
+### Server 侧
+
+停机时在途请求不会把整条 pipeline 跑完，但三方达成的方式不同：
+
+- Go：`pine-go/pkg/server/server.go:Run` 收到信号后调 `srv.Shutdown`，而 `ListenAndServe` 随即返回、`Run` 退出，进程结束时在途请求直接被丢弃（不是「先取消再等」）。
+- Java：每个请求的上下文派生自 `PineServer.serverCtx`，`stop()` 先 `serverCtx.cancel()` 再 drain。
+- C++：每个请求的上下文派生自 `Server::server_ctx_`，`Server::run()` 在 accept loop 退出后、drain 之前 `server_ctx_.cancel()`（不放进 `stop()`：它运行在信号处理函数里，取消要跑回调、取锁，不是 async-signal-safe）。drain 本身仍不设上限（防 use-after-free，见 `architecture/pine-cpp-runtime.md`），正在跑的 Lua 调用或 Redis 命令仍可能让 drain 等它结束。客户端断连：Go 经 `r.Context()`，C++ 经 `poll(POLLRDHUP)` watcher 取消请求上下文，Java 见上文差异 D。
+
+### 编写自定义算子
+
+- 会阻塞的算子（I/O、等待）应等待在上下文上，而不是裸 `sleep`；长循环在安全点调用 `throw_if_cancelled()` / `throwIfCancelled()` / `ctx.Err()` 检查。
+- 自己返回上下文错误即按规则 4 报为本算子失败；忽略取消并正常返回也合法，下游节点会被跳过（规则 2）。
+- 借用的上下文不要跨 execute 缓存：它在请求结束时被取消。
+
 ## 资源消费模式
 
-算子可通过 `resource.FromContext(ctx)` 从请求上下文中拉取资源。无需实现特殊接口。
+算子从请求上下文中拉取资源，无需实现特殊接口（issue #217 起三运行时一致，`ResourceAware` 已删除）：
+
+- Go：`resource.FromContext(ctx).Get(name)`
+- Java：`ctx.resources()` 返回 `ResourceProvider`；`Engine.withResources(...)` 是上下文未携带 provider 时的引擎级默认
+- C++：数据型资源 `ctx.resources()`（`std::map<std::string, Variant>*`，即 `resource::Manager::snapshot()`），句柄型资源 `ctx.resource_provider()->borrow(name)`；`EngineOptions::resource_provider` 是上下文未携带 provider 时的引擎级默认。`Engine::execute(request, resources)` 便捷重载等价于 `with_resources(background(), &resources)`
 
 约定：
 
 - 声明 `resource_name` (string) 参数——`ValidateResourceDeps` 依赖此命名约定在启动时校验资源依赖
 - `Init` 中存储 `resource_name` 参数值
-- `Execute` 中调用 `resource.FromContext(ctx).Get(name)` 拉取资源值
+- `Execute` 中从上下文拉取资源值
 - 处理 `nil` provider（未注入）和 `(nil, false)` 返回（资源不存在）
 
 内置资源消费算子：
@@ -296,7 +369,7 @@ Go 侧包装 `log.Logger.Output(calldepth, ...)` 时注意 calldepth 是 wrapper
 3. `LoggerAware`
 4. `MetricsAware`
 
-Java 在 `MetricsAware` 之后还有 `ResourceAware`；C++ 的 metadata/debug 经 `init(op_cfg)` 直接携带，provider 注入同样按 Logger → Metrics → Resource（跨运行时不变量见 `llmdoc/architecture/dag-engine.md` 不变量 11）。这使得像 Lua 算子这样的实现可以在 `SetMetricsProvider` 内安全读取 `DebugHolder.OperatorName()`，把 operator 名绑定为 label 值。
+Java 与 C++ 同样止于 `MetricsAware`（资源从 issue #217 起经请求上下文传递，不再有 `ResourceAware` 注入）；C++ 的 metadata/debug 经 `init(op_cfg)` 直接携带，随后按 Logger → Metrics（跨运行时不变量见 `llmdoc/architecture/dag-engine.md` 不变量 11）。这使得像 Lua 算子这样的实现可以在 `SetMetricsProvider` 内安全读取 `DebugHolder.OperatorName()`，把 operator 名绑定为 label 值。
 
 设计边界：
 
@@ -382,7 +455,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 - `build_operator_input(frame, op_name, spec)` 校验顺序为先 common（strict→nullable）后 item（strict→nullable）——common 先于 item 是跨运行时报错对等契约（多违反时三运行时须抛同一首错）；strict item 走 `Frame::validate_strict_items` 虚方法（ColumnFrame/RowFrame 各自实现最优路径），校验通过后构造 proxy
 - `common(field)` / `item(i, field)` 在调用时才从 Frame 读取，自动替换 defaulted 字段的 nil 值为默认值
-- 算子签名为 `execute(const OperatorInput&, OperatorOutput&)`，与 Go `Execute(ctx, *OperatorInput, *OperatorOutput)` 语义等价
+- 算子签名为 `execute(const RequestContext&, const OperatorInput&, OperatorOutput&)`，与 Go `Execute(ctx, *OperatorInput, *OperatorOutput)` 语义等价
 
 性能收益：避免 O(N×M) eager reify（N items × M fields），大管道中节省显著分配与拷贝开销。
 
@@ -534,7 +607,7 @@ C++ 侧 `OperatorInput`（`include/pine/operator_input.hpp`）是 Frame + InputF
 
 `pine-go/operators/lua/lua.go` 的 `Execute` 方法通过 `L.SetContext(ctx)` / `defer L.RemoveContext()` 把请求 context 注入 Lua VM。GopherLua 在指令边界检查 context cancellation，因此长时间运行的 Lua 脚本会在 context 超时或取消时被中断。
 
-这是算子尊重 context 的典型模式：即使执行逻辑在外部 VM 中运行，仍然必须传播 Go context 以保证请求取消的及时性。
+这是算子尊重 context 的典型模式：即使执行逻辑在外部 VM 中运行，仍然必须传播 Go context 以保证请求取消的及时性。Java（luaj）与 C++（LuaJIT）无法中断运行中的调用，只在 item 之间检查上下文（见「请求上下文与取消」的已接受差异）。
 
 ### Lua Pool 关闭保护
 

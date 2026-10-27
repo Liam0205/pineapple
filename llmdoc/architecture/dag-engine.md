@@ -85,7 +85,7 @@ Go 另有请求级事件接口 `pine-go/pkg/debug/debug.go:WithEmitter`，属于
    - 从参数中过滤保留键。
    - 应用默认值和必填参数检查。
    - 调用 `factory()` 然后 `Init(params)`。
-   - 对 `MetadataAware`、`DebugAware`、`LoggerAware`、`MetricsAware` 算子按固定顺序应用引擎级注入：Metadata → Debug → Logger → Metrics（Go 无 `ResourceAware` 接口，资源在 execute 时经 ctx 注入；Java/C++ 的 Resource 注入排在 Metrics 之后）。
+   - 对 `MetadataAware`、`DebugAware`、`LoggerAware`、`MetricsAware` 算子按固定顺序应用引擎级注入：Metadata → Debug → Logger → Metrics（三运行时都没有 `ResourceAware`：资源在 execute 时经请求上下文传递，issue #217）。
    - `MetricsAware` 注入使用 `NewEngine` option 中提供的 `metrics.Provider`；默认是 no-op provider。
 
 4. **构建 DAG**（`pine-go/internal/dag.Build`）
@@ -351,6 +351,7 @@ DAG 推导仍使用完整的 `$metadata`（含控制字段），因此依赖关�
 - 第一个致命错误获胜
 - `sync.Once` 记录它并在共享 context 上调用 `cancel()`
 - 等待中的 goroutine 在取消时解除阻塞并提前停止
+- 调用方上下文被取消（或截止时间到）而有节点因此未运行、且没有算子自行失败时，返回 `CancelledError`（`pine: execution cancelled: <ctx err>`）而不是成功；完整契约（含 data_parallel 分片、算子自返上下文错误、三运行时对照）见 `reference/operator-contract.md` 的「请求上下文与取消」
 - panic 路径包裹为 `PanicError`
 - 算子返回的失败成为 `ExecutionError` 或通过引擎的类型化错误模型传播
 - 输出写回失败（`ApplyOutput` 返回错误）也计为算子失败，并记录 error stats/metrics，而不是成功执行
@@ -817,7 +818,7 @@ HTTP 端点为 `GET /dag`：
 8. **Frame 实现自行保证并发安全。** 调度器不持有 frame 锁。RowFrame 和 ColumnFrame 均通过内部单个 `sync.RWMutex` 实现读写分离。
 9. **执行图经过传递性归约。** `Build()` 阶段移除被更长路径隐含的冗余边。`Node.Preds`/`Node.Succs` 是保持可达性的最小边集，调度器和可视化共用同一边集。
 10. **观测走双通道。** `/stats` 依赖内建原子统计，外部指标依赖可插拔 provider；二者记录同一运行事实但面向不同消费场景。
-11. **注入顺序固定。** 对同时实现多个可选接口的算子，跨运行时不变量是：Metadata/Debug 信息先于一切 provider 注入到位（Go/Java 走 `MetadataAware`/`DebugAware` 接口，C++ 经 `init(op_cfg)` 直接携带），随后按 `LoggerAware` → `MetricsAware` → `ResourceAware` 注入。各运行时的完整路径：Go `Metadata → Debug → Logger → Metrics`（无 `ResourceAware` 接口，资源在 execute 时经 ctx 注入）；Java `Metadata → Debug → Logger → Metrics → Resource`；C++ `init(含 metadata/debug) → Logger → Metrics → Resource`。依赖 operator name 做 metric label 的实现可依赖 Debug 信息先于 Metrics 就位。
+11. **注入顺序固定。** 对同时实现多个可选接口的算子，跨运行时不变量是：Metadata/Debug 信息先于一切 provider 注入到位（Go/Java 走 `MetadataAware`/`DebugAware` 接口，C++ 经 `init(op_cfg)` 直接携带），随后按 `LoggerAware` → `MetricsAware` 注入。各运行时的完整路径：Go/Java `Metadata → Debug → Logger → Metrics`；C++ `init(含 metadata/debug) → Logger → Metrics`。资源不参与注入：三运行时都在 execute 时经请求上下文传递（issue #217 删除了 Java/C++ 的 `ResourceAware`）。依赖 operator name 做 metric label 的实现可依赖 Debug 信息先于 Metrics 就位。
 12. **全局 debug 通过 nullable 三态继承生效。** 根级 `debug` 与 `pine.WithDebug(...)` 确定 flow-level 全局 debug 默认值；逐算子 `debug` 为 nullable 三态（Go `*bool`、Java `Boolean`、C++ `std::optional<bool>`），未设置时继承全局值，显式设置时覆盖全局值。Go option 还必须保留”未设置”与”显式 false”两种状态区分。
 13. **SubFlow 只影响可视化分组，不影响执行语义。** `Node.SubFlow` 与 collapsed render 不能改变 DAG 的边、调度顺序或 hazard 推导；它们只是对既有执行图的聚合视图。
 14. **Item 字段算子自动获得 `_row_set_` 读依赖。** 非 AdditiveWritesRowSet 且非 ConsumesRowSet 的算子，若 metadata 声明了非空 item_input 或 item_output，构建器自动注入 `_row_set_` 读。这确保 item 字段算子无需手动标记即可等待行集稳定。显式 ConsumesRowSet 仅在 item 字段为空但仍结构性访问行集时需要。
@@ -838,7 +839,7 @@ Pine-Java 实现了与 Pine-Go 相同的核心架构（最低要求 Java 21）�
 - **DataFrame**：`Frame` 接口抽象，`DataFrame`（行存）和 `ColumnFrame`（列存），通过 `storage_mode` 配置选择
 - **data_parallel**：`ParallelExecutor` 实现 Transform 级并行分片，要求 `ConcurrentSafe` 接口
 - **双通道观测**：`Stats` 原子统计 + 可插拔 `Provider`（`metrics/Provider.java`），默认 `NopProvider`（等同 Go 的 `metrics.Nop()`）
-- **注入顺序**：引擎编译算子时按 MetadataAware → DebugAware → LoggerAware → MetricsAware → ResourceAware 固定顺序注入，前四段与 Go 侧一致、末段 Resource 为 Java/C++ 特有（Go 的资源在 execute 时经 ctx 注入）
+- **注入顺序**：引擎编译算子时按 MetadataAware → DebugAware → LoggerAware → MetricsAware 固定顺序注入，与 Go 侧一致；资源经 `RequestContext.resources()` 在 execute 时传递
 - **结构化错误**：6 种错误类型 — `ConfigError`、`RegistryError`、`ValidationError`、`OperatorException`（checked）、`ExecutionError`、`PanicError`。`Operator.execute()` 声明 `throws OperatorException`；引擎据此区分预期算子错误（→ ExecutionError）与意外运行时异常（→ PanicError），对应 Go 的 error/panic 语义。所有错误类型的 `getMessage()` 统一 `pine:` 前缀。`ExecutionError`/`PanicError` 保留 cause chain（`Throwable.getCause()`，构造时通过 `super(msg, cause)` 传入）
 
 ### Server 对等
@@ -870,11 +871,9 @@ Java CLI 工具（`RunCli`、`RenderDAGCli`、`PineServer` 启动路径）遵循
 
 ### 算子执行上下文
 
-- **CancellationToken**（interface + AtomicBoolean 实现）：Java 对 Go `context.Context` 取消传播的等价实现；定义为 interface，有 `SimpleCancellationToken`（请求级）和 `ChildCancellationToken`（shard 级）两个实现
-- 全部内置算子的 `execute()` 方法均接受 `CancellationToken token` 作为第一参数
-- 引擎为每次请求创建一个 request-level token，首个 fatal error 时取消。`ParallelExecutor` 额外创建 shard-level child token：各 shard 接收 child token 而非 parent，首个 shard 失败时仅取消 child token（等同 Go 的 per-shard `context.WithCancel`），shard 启动前同时检查 parent 和 child 两级取消状态
-- 长时间循环（Lua item 迭代、parallel shard）检查 `token.isCancelled()`
-- 不提供指令级 VM 中断（LuaJ 平台限制）——仅循环级协作式取消
+- **RequestContext**：Java 对 Go `context.Context` 的等价实现（取消、截止时间、请求级值、`ResourceProvider`），全部算子的 `execute()` 以它为第一参数。它在 issue #217 取代了 `CancellationToken` 与 `ResourceAware`
+- 引擎在调用方上下文下派生 run 上下文，首个 fatal error 时取消；`ParallelExecutor` 再派生 shard 上下文，首个 shard 失败只取消它（等同 Go 的 per-shard `context.WithCancel`）
+- 取消的结果判定、内置算子取消点与已接受差异（含 luaj 无指令级中断）见 `reference/operator-contract.md` 的「请求上下文与取消」
 - **DebugAware 接口**：引擎注入 operatorName + debug flag；`TransformByLua` 利用它进行 debug 日志输出
 - **MetricsAware 接口**：引擎注入 `metrics.Provider`；算子可注册自定义指标
 
@@ -983,7 +982,7 @@ Pine-Java Registry 实现完整的 schema-based 注册（`ParamSpec.java`、`Ope
 - 可插拔指标接口：`pine-java/src/.../metrics/Provider.java`
 - 结构化错误：`pine-java/src/.../PineErrors.java`
 - 算子注册表：`pine-java/src/.../Registry.java`
-- CancellationToken：`pine-java/src/.../CancellationToken.java`
+- RequestContext：`pine-java/src/.../RequestContext.java`
 - DebugAware：`pine-java/src/.../DebugAware.java`
 - MetricsAware：`pine-java/src/.../MetricsAware.java`
 - Codegen：`pine-java/src/.../Codegen.java`
