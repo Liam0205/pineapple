@@ -219,6 +219,13 @@ if [[ -n "${CPP_SERVER:-}" ]]; then
   CD_CPP_PID=$!
 fi
 
+# now_ms: wall-clock milliseconds. `date +%s%3N` is a GNU extension; other
+# date implementations (uutils, BSD) print garbage for %3N, which made the
+# elapsed check fail with a nonsense value. python3 is already required here.
+now_ms() {
+  python3 -c 'import time; print(int(time.time() * 1000))'
+}
+
 # probe_disconnect_cancel <port>: opens /execute, kills the client at
 # 300ms while pipeline would otherwise take ~2400ms. The elapsed check
 # is weak: both servers bump scheduler.run_count when a run STARTS, so
@@ -244,7 +251,7 @@ probe_disconnect_cancel() {
   # Send POST /execute with --max-time 0.3 → curl tears down the TCP
   # connection at 300ms while slow1 is still inside its sleep(800ms).
   local t0 t1 elapsed_ms
-  t0=$(date +%s%3N)
+  t0=$(now_ms)
   curl -s --max-time 0.3 -X POST -H "Content-Type: application/json" \
     -d "$CD_REQ" "http://localhost:$port/execute" >/dev/null 2>&1 || true
   # Now wait for the server's view of this request to settle. We poll
@@ -260,7 +267,7 @@ probe_disconnect_cancel() {
     fi
     sleep 0.05
   done
-  t1=$(date +%s%3N)
+  t1=$(now_ms)
   elapsed_ms=$((t1 - t0))
 
   local slow3_after
