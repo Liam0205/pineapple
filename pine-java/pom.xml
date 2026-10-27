@@ -233,7 +233,11 @@
                     <plugin>
                         <groupId>org.sonatype.central</groupId>
                         <artifactId>central-publishing-maven-plugin</artifactId>
-                        <version>0.7.0</version>
+                        <!-- 0.7.0 bundled page/liam/pine/maven-metadata-local.xml
+                             and _remote.repositories, which Central rejects
+                             ("content that does NOT have a .pom file"); v0.12.0
+                             failed to publish on it. -->
+                        <version>0.12.0</version>
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
