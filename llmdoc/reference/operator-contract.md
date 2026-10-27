@@ -245,7 +245,7 @@ C++ 侧提供注册路径：
 
 若算子实现 debug-aware 接口，引擎在 `Init()` 后注入逐算子调试设置。
 
-这是编译期的静态日志/快照设置；下述请求级 Debug 接口不读取或修改该设置，也不要求算子嵌入 `DebugHolder`。
+这是编译期的静态日志/快照设置；请求级 Debug 不经过 `DebugAware`，见下节。
 
 典型模式：
 
@@ -258,19 +258,12 @@ C++ 侧提供注册路径：
 
 ### 请求级 Debug（Go 嵌入 API）
 
-可信测试入口通过 `pine-go/pkg/debug/debug.go:WithEmitter` 向请求 context 注入实现方的 `Emitter`。公开契约只依赖标准库，不依赖私有采集 SDK；本接口未增加 JSON/DSL 参数或其他运行时接口。
+可信测试入口通过 `pine-go/pkg/debug/debug.go:WithEmitter` 向请求 context 注入实现方的 `Emitter`。实现方契约（Session、分片事件、业务写入等）的权威副本是该文件的 package doc；本节只写算子侧的接入规则。
 
-默认无需初始化 Debug，也无需安装空实现。使用 Pineapple 的业务仓库负责初始化采集 SDK，并在请求入口完成授权、创建本次请求的 Session，再将可用的 Emitter 注入 context；Session 的结束与导出组件的关闭也由业务仓库负责。普通请求或未获得采集 Session 的请求保持 recorder 为 nil，调度器只查询 context，不创建 Recorder 或 Debug context，保留原有分片执行。
-
-- 算子保持原有 `Execute(ctx, in, out)` 签名，在调用内、候选循环外读取一次 `pine-go/pkg/debug/debug.go:FromContext`。未注入时返回真正的 nil；材料构造、调试专用遍历和拷贝必须放进非 nil 分支。Go 会先求值方法参数，直接调用 nil recorder 的 `Emit` 不能免掉参数构造成本。
-- 在业务材料已可用的位置主动调用 `pine-go/pkg/debug/debug.go:Recorder.Emit`。调度器自动绑定 `NodeMeta` 的算子名、类型名和直接父 SubFlow；Session/request 标识和业务 `kind/data` 由使用方提供。Debug 材料不写 `OperatorOutput`，不增加业务输出字段。
-- Recorder 只保存在本次执行的局部变量或 context 中，不写入跨请求共享的算子实例、`CompiledOperator` 或 plan。
-- `Emitter` **必须支持并发调用，并在返回前同步消费或冻结材料**，不能将 Frame view、嵌套可变容器或池化输出直接留给后台。Session 生命周期、数据类型和容量约束、编码、异步导出及并发保护由 SDK/实现方负责；完整契约以 `pine-go/pkg/debug/debug.go` 的 package doc 为准。
-- Pineapple 隔离 `Emitter.Emit` 抛出的 panic；调用前的业务材料构造仍由算子负责。实现方不能等待网络 I/O，不得让采集失败改变业务结果。
-
-注入 recorder 不改变 `data_parallel` 的分片方式。Go 调度器先绑定当前节点的信息，再把节点 context 传给各分片；独立 DAG 节点也继续并发。各分片看到自己的输入，可分别记录事件；同一节点的分片共享 `NodeMeta`，框架不额外分配分片标识、不合并材料、不保证事件顺序。业务如需关联具体 item，应在材料中携带 item 标识。加载期的 `ConcurrentSafe` 与输出声明校验仍然生效。
-
-本接口不提供业务禁写策略，开启 Debug 后算子的业务写入保持正常行为；禁写机制另行设计。
+- 保持原有 `Execute(ctx, in, out)` 签名，在候选循环外调用一次 `pine-go/pkg/debug/debug.go:FromContext`；材料构造、调试专用遍历和拷贝放进非 nil 分支，原因见 `Recorder.Emit` 的注释。
+- 在业务材料可用的位置调用 `pine-go/pkg/debug/debug.go:Recorder.Emit`。节点元信息由调度器绑定；Debug 材料不写 `OperatorOutput`。同一节点的分片共享节点元信息，需要关联具体 item 时，在材料中携带 item 标识。
+- Recorder 只放在本次执行的局部变量或 context 中，不写入跨请求共享的算子实例、`CompiledOperator` 或 plan。
+- 例外：`Emitter` **会被并发调用，必须并发安全，并在返回前冻结材料**。这一条有意与 package doc 重复，因为违反时只会产生静默 data race 或被改写的调试材料，本仓测试抓不到。
 
 ### `LoggerAware`（算子日志规范）
 

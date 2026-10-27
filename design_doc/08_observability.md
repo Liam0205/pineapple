@@ -2,15 +2,11 @@
 
 ## Go 请求级 Debug 扩展接口
 
-`pine-go/pkg/debug/debug.go:Emitter` 是 Go 嵌入 API，只定义公开接入契约、节点元信息、轻量 Recorder 和 context 绑定。可信测试入口通过 `WithEmitter` 注入 SDK 实现，算子在材料合适的位置主动记录。Session、通用 meta/data 描述、数据冻结、容量约束、并发保护、编码和异步导出均由 SDK/使用方负责；Pineapple 不引入私有采集 SDK，也不自动扫描输入输出。实现方契约以该文件的 package doc 为准，算子接入见 `llmdoc/reference/operator-contract.md`。
+`pine-go/pkg/debug/debug.go` 是 Go 嵌入 API：可信测试入口通过 `WithEmitter` 向请求 context 注入实现方的 `Emitter`，算子在材料可用的位置主动记录，调度器自动绑定节点元信息。实现方契约的权威副本是该文件的 package doc，算子接入规则见 `llmdoc/reference/operator-contract.md`，此处不复述。
 
-Debug 关闭时不创建 Debug context 或 Recorder。`pine-go/internal/runtime/scheduler.go:Run` 在每个实际执行节点的闭包内、调用算子前读取一次 recorder；算子接入时也应在候选循环外查询一次，把材料构造、遍历、复制全部放在非 nil 分支。关闭时新增调试分配为零、耗时无可重复显著回退属于性能验收目标，不能仅凭接口形式推定已达到。
+例外：`Emitter` 会被不同节点和 `data_parallel` 分片并发调用，必须并发安全，并在返回前冻结材料。这一条有意重复，因为违反时只会产生静默 data race 或被改写的调试材料，本仓测试抓不到。
 
-注入 recorder 不改变执行方式：`data_parallel` 算子保留原分片，独立 DAG 节点继续并发。调度器将绑定节点信息的 context 传给分片；同一节点的分片共享不可变的节点元信息，可以分别产生事件，框架不合并分片材料，也不承诺事件顺序。Emitter 必须并发安全并在返回前冻结材料，不能让后台持有输入 view 或池化输出。
-
-本接口与下面的静态 `WithDebug`／JSON debug 快照开关独立，不改 DSL、算子执行签名或共享计划；也未增加 HTTP 自动开启入口或其他运行时实现。
-
-本次接口仅负责 Debug 采集接入，不提供业务禁写策略，开启 Debug 不会阻止业务写入。禁写机制另行设计。
+性能验收目标：未注入 `Emitter` 时新增调试分配为零，耗时无可重复的显著回退；不能仅凭接口形式推定已达到。
 
 ## MVP 必须
 
