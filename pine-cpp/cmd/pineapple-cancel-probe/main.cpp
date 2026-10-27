@@ -6,7 +6,9 @@
 // cross-validate Section 22 asserts stdout is byte-identical to pine-go's
 // pine-cancel-probe and pine-java's CancelProbe. Where a cancel must land
 // mid-run, an operator issues it itself, so no timing race decides which
-// nodes run.
+// nodes run. The context (and any deadline or cancel timer) is created only
+// after the engine is built, so a slow engine construction cannot use up the
+// deadline before the run starts.
 #include "pine/operator.hpp"
 #include "pine/operator_input.hpp"
 #include "pine/pine.hpp"
@@ -79,8 +81,35 @@ constexpr const char* kSleepConfig = R"({
   "flow_contract": {"common_input": [], "common_output": [], "item_input": [], "item_output": []}
 })";
 
-void run(const std::string& name, const char* config, const pine::RequestContext& ctx) {
+// How run() builds the context, once the engine exists.
+enum class Ctx {
+  kPreCancelled,  // cancelled before the run
+  kSelfCancel,    // CancelSelf cancels it from inside the run
+  kDeadline,      // deadline that cuts bench_sleep short
+  kCancelLater,   // cancelled from another thread during the run
+};
+
+// The deadline / cancel delay only has to outlast the start of the run, well
+// under the 10 s sleep it cuts short.
+constexpr auto kDelay = std::chrono::milliseconds(500);
+
+void run(const std::string& name, const char* config, Ctx kind) {
   pine::Engine engine(pine::load_config_from_json(config));
+  using pine::RequestContext;
+  auto ctx = kind == Ctx::kDeadline ? RequestContext::with_timeout(RequestContext::background(), kDelay)
+                                    : RequestContext::with_cancel(RequestContext::background());
+  g_cancel_hook = [] {};
+  std::thread canceller;
+  if (kind == Ctx::kPreCancelled) {
+    ctx.cancel();
+  } else if (kind == Ctx::kSelfCancel) {
+    g_cancel_hook = [&ctx] { ctx.cancel(); };
+  } else if (kind == Ctx::kCancelLater) {
+    canceller = std::thread([&ctx] {
+      std::this_thread::sleep_for(kDelay);
+      ctx.cancel();
+    });
+  }
   pine::TracedResult traced;
   std::string err = "nil";
   try {
@@ -88,6 +117,10 @@ void run(const std::string& name, const char* config, const pine::RequestContext
   } catch (const std::exception& e) {
     err = e.what();
   }
+  if (canceller.joinable()) {
+    canceller.join();
+  }
+  g_cancel_hook = [] {};
   engine.close();
   // Result::common is an ordered map, so keys come out sorted.
   std::string keys;
@@ -115,40 +148,14 @@ int main() {
       {"probe217_copy_x_y", pine::OpType::Transform, "probe: copies common x to y", {}, {}});
 
   // A context cancelled before the run: nothing runs.
-  {
-    auto ctx = pine::RequestContext::with_cancel(pine::RequestContext::background());
-    ctx.cancel();
-    g_cancel_hook = [] {};
-    run("pre_cancel", kChainConfig, ctx);
-  }
+  run("pre_cancel", kChainConfig, Ctx::kPreCancelled);
   // op_a cancels mid-run and completes; op_b is skipped.
-  {
-    auto ctx = pine::RequestContext::with_cancel(pine::RequestContext::background());
-    g_cancel_hook = [&ctx] { ctx.cancel(); };
-    run("cancel_mid_run", kChainConfig, ctx);
-  }
+  run("cancel_mid_run", kChainConfig, Ctx::kSelfCancel);
   // Cancelled while the only node runs: nothing was skipped, so success.
-  {
-    auto ctx = pine::RequestContext::with_cancel(pine::RequestContext::background());
-    g_cancel_hook = [&ctx] { ctx.cancel(); };
-    run("cancel_last_node", kSingleConfig, ctx);
-  }
-  g_cancel_hook = [] {};
+  run("cancel_last_node", kSingleConfig, Ctx::kSelfCancel);
   // transform_bench_sleep stops at the deadline and fails itself.
-  {
-    auto ctx =
-        pine::RequestContext::with_timeout(pine::RequestContext::background(), std::chrono::milliseconds(50));
-    run("deadline_sleep", kSleepConfig, ctx);
-  }
+  run("deadline_sleep", kSleepConfig, Ctx::kDeadline);
   // ... and on a cancel from another thread.
-  {
-    auto ctx = pine::RequestContext::with_cancel(pine::RequestContext::background());
-    std::thread canceller([&ctx] {
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      ctx.cancel();
-    });
-    run("cancel_sleep", kSleepConfig, ctx);
-    canceller.join();
-  }
+  run("cancel_sleep", kSleepConfig, Ctx::kCancelLater);
   return 0;
 }
