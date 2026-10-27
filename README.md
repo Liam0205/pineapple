@@ -403,6 +403,7 @@ def normalize_json(text):
 | Go 请求级 Debug | [`llmdoc/reference/operator-contract.md`](llmdoc/reference/operator-contract.md#请求级-debuggo-嵌入-api) — 测试请求注入采集接口，算子主动记录并保留并行分片；Session 与导出由使用方实现 |
 | 第三方扩展 | [`design_doc/12_distribution.md`](design_doc/12_distribution.md) — 不修改源码添加自定义算子 |
 | API 参考 | [`doc/api.md`](doc/api.md) — HTTP 接口说明 |
+| 版本迁移 | [`doc/migration-0.12.md`](doc/migration-0.12.md) — 0.11 → 0.12：Java/C++ 算子签名改为接收 `RequestContext`，取消不再报成功 |
 | LLM 检索文档 | [`llmdoc/`](llmdoc/) — 面向 AI 协作的稳定知识地图（架构 / 决策 / 反思 / 索引） |
 
 ## License
