@@ -220,9 +220,10 @@ setup_java() {
 # The runner's PATH Go is the toolcache default (1.24 line), so an unqualified
 # `go build` fails on the language version. Pick the newest toolcache Go on the
 # minor that pine-go/go.mod builds with: the `toolchain` directive when present
-# (what setup-go uses in CI), else the `go` directive. Without a matching
-# toolchain on PATH, GOTOOLCHAIN=auto would download it on the first go command,
-# outside this phase's time budget.
+# (what setup-go uses in CI), else the `go` directive. When the toolcache has no
+# such Go, GOTOOLCHAIN=auto downloads the toolchain on the first go command run
+# inside pine-go; the final check runs there so that download happens in this
+# phase, under its time budget, and a slow one is reported by name.
 setup_go() {
   local want_minor go_bin
   # Patch level is optional in go.mod (`go 1.26` is as valid as `go 1.26.2`),
@@ -245,9 +246,9 @@ setup_go() {
   else
     # Whatever is on PATH may still be too old; report it and let the
     # reviewer's own build output speak, rather than failing preparation.
-    echo "::warning::no Go 1.${want_minor}.x in the toolcache, using $(go version)"
+    echo "::warning::no Go 1.${want_minor}.x in the toolcache; PATH has $(go version), GOTOOLCHAIN may download the one pine-go/go.mod asks for"
   fi
-  go version
+  (cd pine-go && go version)
 }
 
 # --- Python tooling ----------------------------------------------------------
