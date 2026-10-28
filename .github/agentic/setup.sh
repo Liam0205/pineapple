@@ -54,12 +54,14 @@ done
 TOOLS_DIR="${RUNNER_TEMP:-/tmp}/pineapple-setup-tools"
 mkdir -p "$TOOLS_DIR/bin"
 
-# Pinned to what CI actually resolves today, verified against the run for
-# PR #194 rather than copied from the config: golangci/golangci-lint-action@v9
-# installed v2.12.2, and actions/setup-python@v6 with "3.13" resolved to
-# CPython 3.13.14. Bump these together with .github/workflows/ci.yml.
-GOLANGCI_VERSION="2.12.2"
-GOLANGCI_SHA256="8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553"
+# Pinned to what CI actually resolves today, verified against a run rather
+# than copied from the config: golangci/golangci-lint-action@v9 installed
+# v2.15.0 (master CI run 40535764585), and actions/setup-python@v6 with "3.13"
+# resolved to CPython 3.13.14 (PR #194). golangci-lint must be built with a Go
+# at least as new as pine-go/go.mod's toolchain directive, or it refuses to
+# load the config. Bump these together with .github/workflows/ci.yml.
+GOLANGCI_VERSION="2.15.0"
+GOLANGCI_SHA256="9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
 
 failed=()
 
@@ -215,14 +217,20 @@ setup_java() {
 }
 
 # --- Go ----------------------------------------------------------------------
-# pine-go/go.mod requires go 1.26.2. The runner's PATH Go is the toolcache
-# default (1.24 line), so an unqualified `go build` fails on the language
-# version. Pick the newest 1.26.x the toolcache has.
+# The runner's PATH Go is the toolcache default (1.24 line), so an unqualified
+# `go build` fails on the language version. Pick the newest toolcache Go on the
+# minor that pine-go/go.mod builds with: the `toolchain` directive when present
+# (what setup-go uses in CI), else the `go` directive. Without a matching
+# toolchain on PATH, GOTOOLCHAIN=auto would download it on the first go command,
+# outside this phase's time budget.
 setup_go() {
   local want_minor go_bin
   # Patch level is optional in go.mod (`go 1.26` is as valid as `go 1.26.2`),
   # so do not require the second dot.
-  want_minor=$(sed -nE 's/^go 1\.([0-9]+).*/\1/p' pine-go/go.mod | head -1)
+  want_minor=$(sed -nE 's/^toolchain go1\.([0-9]+).*/\1/p' pine-go/go.mod | head -1)
+  if [[ -z "$want_minor" ]]; then
+    want_minor=$(sed -nE 's/^go 1\.([0-9]+).*/\1/p' pine-go/go.mod | head -1)
+  fi
   if [[ -z "$want_minor" ]]; then
     echo "could not read the Go minor version from pine-go/go.mod" >&2
     return 1
