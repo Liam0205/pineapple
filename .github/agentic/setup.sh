@@ -57,9 +57,11 @@ mkdir -p "$TOOLS_DIR/bin"
 # Pinned to what CI actually resolves today, verified against a run rather
 # than copied from the config: golangci/golangci-lint-action@v9 installed
 # v2.15.0 (master CI run 40535764585), and actions/setup-python@v6 with "3.13"
-# resolved to CPython 3.13.14 (PR #194). golangci-lint must be built with a Go
-# at least as new as pine-go/go.mod's toolchain directive, or it refuses to
-# load the config. Bump these together with .github/workflows/ci.yml.
+# resolved to CPython 3.13.14 (PR #194). golangci-lint refuses to load the
+# config when the Go minor it was built with is older than the one in
+# pine-go/go.mod's toolchain directive (it compares go1.26 against 1.27.3), so
+# a toolchain bump to a new minor needs a golangci-lint built with that minor.
+# Bump these together with .github/workflows/ci.yml.
 GOLANGCI_VERSION="2.15.0"
 GOLANGCI_SHA256="9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea"
 
