@@ -2,6 +2,8 @@ module github.com/Liam0205/pineapple/pine-go
 
 go 1.26.2
 
+toolchain go1.27.3
+
 require (
 	github.com/Liam0205/wangshu v0.2.0
 	github.com/alicebob/miniredis/v2 v2.37.0

@@ -11,6 +11,8 @@ module github.com/Liam0205/pineapple/pine-go/benchmarks
 
 go 1.26.2
 
+toolchain go1.27.3
+
 require github.com/Liam0205/pineapple/pine-go v0.0.0
 
 require (
