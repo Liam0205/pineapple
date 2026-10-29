@@ -40,6 +40,18 @@
 
 所有质量检查集中在 CI workflow 中。Release workflow 通过 `workflow_run` 依赖 CI 结果，不重复任何检查。
 
+### Go 版本：`toolchain` 行决定 CI 用哪个 Go，`go` 行是对下游的承诺
+
+所有 Go job 的 `actions/setup-go` 都用 `go-version-file: pine-go/go.mod`，取的是 `toolchain` 行（没有该行时退回 `go` 行）。两行职责不同，升级 Go 时只动该动的那一行：
+
+- **`go` 行是 pine-go 承诺给下游的最低版本**，刻意保持不动。把它抬高会把依赖 pine-go 的模块的 `go` 行一起拖上去（下游 `go mod tidy` 后跟着变），等于强迫下游的 go.mod、Docker 构建镜像与编译其二进制的 Go 一起升级。
+- **`toolchain` 行只决定本仓库自己用哪个 Go 构建和测试。** 模块被别人依赖时，它的 `toolchain` 行会被忽略，下游不受影响。
+- 两点的依据是 `148f4784`（加 `toolchain go1.27.3`、`go` 行留在 1.26.2）commit message 记录的两模块 probe：依赖加 `toolchain` 行后，下游 tidy 完仍是 1.26.2；依赖把 `go` 行抬到 1.27.0，下游跟着变成 1.27.0。
+- **两个 module 都要改**：`pine-go/go.mod` 与 `pine-go/benchmarks/go.mod`（独立子 module，与 `reference/lua-backend.md` 里依赖 bump 要走 `make tidy` 是同一个原因）。
+- **连带要检查 `.github/agentic/setup.sh`**：它固定了 golangci-lint 版本，升 minor 时必须换（规则见下一节）；它的 Go 阶段跟随 `toolchain` 行取 minor，不用改。CI 的 `golangci/golangci-lint-action@v9` 在 `ci.yml` 里没有写 `version`，用的是 action 自己解析出的版本，不需要手工跟。
+
+`148f4784` 之前 `go.mod` 只有 `go 1.26.2`，于是 CI 一直跑 1.26.2，而本地开发早已用 1.27，CI 一直没跟上。那次升级的动机之一是 Go native fuzz 在 `-fuzztime` 边界偶发的 `context deadline exceeded`（coordinator 收尾竞态，不留 crash corpus，判据见 `memory/reflections/ci-apt-resilience-and-dead-weight-packages.md`），预期 1.27 会修好。这一点还没有 CI 数据证实，flake 再出现时仍按原判据 rerun。
+
 ### Agentic workflow 的环境准备脚本（`setup_script`）
 
 `.github/workflows/agentic-pr-review.yml` 与 `agentic-llmdoc-updater.yml` 复用上游 `Lightspeed-Intelligence/agentic-workflow-template`，两者都通过上游的 `setup_script` 输入指向本仓库的 `.github/agentic/setup.sh`。
